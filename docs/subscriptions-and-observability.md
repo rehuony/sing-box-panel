@@ -899,10 +899,9 @@ connection's first `fleet` event has `reset` set and every selected node, and
 later events carry only the nodes whose item changed in `items` and the IDs of
 nodes deleted or no longer selected in `removed`; a read with no change sends
 no event. `/fleet/status` answers from the shared snapshot while it is at most
-two seconds old, and a panel write that changes what it shows, such as adding,
+two seconds old, and a panel write that changes what it shows, such as enrolling,
 renaming or removing a node, saving its settings or a command's result, makes
-the next read a new one. Both accept `state` (`pending`, `online` or
-`offline`), `tag` and `q` (part of a node's name, hostname or public IP,
+the next read a new one. Both accept `state` (`online` or `offline`), `tag` and `q` (part of a node's name, hostname or public IP,
 ignoring case); `/fleet/status` also pages with `limit` and the `next_cursor` of
 the previous page as `cursor`, and without parameters both return every node.
 `/fleet/status` sends an `ETag` digest of its body, so a client holding an

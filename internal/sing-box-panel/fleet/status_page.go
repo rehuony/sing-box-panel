@@ -17,7 +17,7 @@ var ErrStatusCursorInvalid = errors.New("the fleet status cursor is invalid")
 // StatusFilter selects nodes of a fleet snapshot. Empty fields select every
 // node.
 type StatusFilter struct {
-	// State is pending, online or offline.
+	// State is online or offline.
 	State string
 	Tag   string
 	// Query is part of a node's name, hostname or public IP, ignoring case.

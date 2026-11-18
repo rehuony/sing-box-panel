@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -48,20 +49,33 @@ func (server *nodeServer) Enroll(ctx context.Context, request *nodeapi.EnrollReq
 		!boundedText(request.GetBuildVersion(), 256) || !validPlatform(request.GetPlatform()) {
 		return nil, status.Error(codes.InvalidArgument, "enrollment request is malformed")
 	}
-	node, err := service.database.EnrollNode(ctx, nodeapi.TokenHash(request.GetToken()), store.NodeEnrollment{
+	now := service.now().UTC()
+	// A node the code creates starts with the empty document, saved with it.
+	initial, err := store.NewConfigurationFileUpdate(service.random, now, 0, string(configuration.Empty().CanonicalJSON()))
+	if err != nil {
+		return nil, status.Error(codes.Internal, "prepare configuration")
+	}
+	node, created, err := service.database.EnrollNode(ctx, nodeapi.TokenHash(request.GetToken()), store.NodeEnrollment{
 		PublicKey: request.GetPublicKey(), Hostname: request.GetHostname(),
 		OS: request.GetPlatform().GetOs(), Arch: request.GetPlatform().GetArch(),
 		BuildVersion: request.GetBuildVersion(), ProtocolMinor: int(request.GetProtocol().GetMinor()),
-		EnrolledAt: service.now().UTC(),
+		EnrolledAt: now, Configuration: initial,
 	})
-	if errors.Is(err, store.ErrEnrollmentInvalid) {
+	switch {
+	case errors.Is(err, store.ErrEnrollmentInvalid):
 		return nil, status.Error(codes.Unauthenticated, "enrollment code is invalid, used or expired")
-	}
-	if err != nil {
+	case errors.Is(err, store.ErrNodeNameConflict):
+		return nil, status.Error(codes.FailedPrecondition, "another node already uses the name this code was issued for")
+	case err != nil:
 		return nil, status.Error(codes.Internal, "record enrollment")
 	}
-	// A key replaced by enrolling again must not keep its session.
-	service.sessions.close(node.ID, errNodeRemoved)
+	service.expireStatus()
+	if created {
+		service.records.RecordOperation(ctx, "node.create", "Node creation", nil, telemetry.OperationLogContext{NodeID: node.ID})
+	} else {
+		// A key replaced by enrolling again must not keep its session.
+		service.sessions.close(node.ID, errNodeRemoved)
+	}
 	panelID, err := service.PanelID(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "read panel identity")
@@ -124,7 +138,7 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		return status.Error(codes.InvalidArgument, "Hello is malformed")
 	}
 	node, err := service.database.Node(ctx, hello.GetNodeId())
-	if errors.Is(err, store.ErrNodeNotFound) || (err == nil && node.PublicKey == nil) {
+	if errors.Is(err, store.ErrNodeNotFound) {
 		return status.Error(codes.Unauthenticated, "node is not enrolled")
 	}
 	if err != nil {

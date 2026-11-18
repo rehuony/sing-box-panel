@@ -36,7 +36,7 @@ export function ConfigurationCopyDialog({ disabled, draft, onReplace }: Configur
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState(NO_SOURCE);
   const nodes = useQuery({ ...queries.fleetNodes(client), enabled: open });
-  const others = (nodes.data?.items ?? []).filter(item => item.id !== node.id && item.enrolled_at !== null);
+  const others = (nodes.data?.items ?? []).filter(item => item.id !== node.id);
   const file = useQuery({
     enabled: open && source !== NO_SOURCE,
     gcTime: 0,

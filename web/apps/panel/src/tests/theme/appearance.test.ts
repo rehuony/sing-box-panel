@@ -26,10 +26,10 @@ describe('initial appearance', () => {
 describe('appearance tokens', () => {
   it('defaults to system and derives only the accent roles the stylesheet defaults to', () => {
     expect(DEFAULT_APPEARANCE.theme).toBe('system');
-    const names = ['--primary', '--accent', '--color-accent-hover'];
+    const names = ['--primary', '--accent'];
     for (const [dark, expected] of [
-      [false, ['#6d4ed1', '#ebe9f6', '#6045b8']],
-      [true, ['#a08ce1', '#312c49', '#ab9ae5']],
+      [false, ['#6d4ed1', '#ebe9f6']],
+      [true, ['#a08ce1', '#312c49']],
     ] as const) {
       const tokens = appearanceTokens(DEFAULT_APPEARANCE, dark);
       expect(names.map(name => tokens[name])).toEqual(expected);

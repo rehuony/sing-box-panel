@@ -1,0 +1,68 @@
+import type { ReactNode } from 'react';
+
+import { cn } from '@shared/lib/utils';
+import { CellMeter } from '@shared/components/cell-meter';
+
+import { InfoTooltip } from '@/components/info-tooltip';
+
+type Tone = 'danger' | 'warning';
+
+const toneText: Record<Tone, string> = {
+  danger: 'text-[var(--color-danger-text)]',
+  warning: 'text-[var(--color-warning-text)]',
+};
+
+interface KeyFigureProps {
+  /** Colours the value and its line when the figure needs attention. */
+  tone?: Tone;
+  /** What the label alone cannot say, behind a help trigger. */
+  help?: string;
+  label: string;
+  /** One line under the value. */
+  meta: ReactNode;
+  /** The value in the data face. */
+  children: ReactNode;
+  /** A share drawn as cells beside the value, toned as it nears its limit. */
+  meter?: { percent: number; tone?: Tone };
+}
+
+/** One key figure: its label, its value in the data face and one line of meta. */
+export function KeyFigure({ children, help, label, meta, meter, tone }: KeyFigureProps) {
+  return (
+    <div className='flex min-w-0 flex-col gap-1 px-4 py-3'>
+      <dt className='flex min-w-0 items-center gap-1 text-xs text-muted-foreground'>
+        <span className='truncate'>{label}</span>
+        {/* The trigger overlaps the line's padding so the label row keeps its height. */}
+        {help ? <span className='-my-[calc((var(--control-height-xs)-1rem)/2)] flex'><InfoTooltip label={help}>{help}</InfoTooltip></span> : null}
+      </dt>
+      <dd className={cn('flex min-w-0 flex-wrap items-center gap-x-3 font-[family-name:var(--font-data)] text-base font-semibold tabular-nums @3xl/figures:text-xl', tone && toneText[tone])}>
+        <span className='min-w-0'>{children}</span>
+        {meter
+          ? (
+              <span className='flex text-xs'>
+                <CellMeter className={meter.tone ? undefined : 'text-muted-foreground'} percent={meter.percent} tone={meter.tone} />
+              </span>
+            )
+          : null}
+      </dd>
+      <dd className={cn('truncate text-xs', tone ? toneText[tone] : 'text-muted-foreground')}>{meta}</dd>
+    </div>
+  );
+}
+
+/**
+ * Key figures in one card, divided by hairlines: four a row from 48rem of
+ * their own width, two a row below it.
+ */
+export function KeyFigures({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <div className='@container/figures flex-none'>
+      <dl
+        aria-label={label}
+        className='grid grid-cols-2 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] *:border-border @3xl/figures:grid-cols-4 [&>*:nth-child(even)]:border-l [&>*:nth-child(n+3)]:border-t @3xl/figures:[&>*:nth-child(n+2)]:border-l @3xl/figures:[&>*:nth-child(n+3)]:border-t-0'
+      >
+        {children}
+      </dl>
+    </div>
+  );
+}

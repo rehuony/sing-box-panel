@@ -1,11 +1,10 @@
+import { CirclePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { CirclePlus, Search } from 'lucide-react';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import {
   Dialog,
   DialogContent,
@@ -27,6 +26,7 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { StripDivider, StripSearch } from '@/components/title-strip';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 
 import { ChannelWorkspace } from './channel-workspace';
@@ -198,36 +198,31 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
         : (
             <>
               <ToolbarActions active={active} target={toolbarTarget}>
-                <div className='flex w-full min-w-0 flex-1 items-center justify-end gap-4 max-[900px]:gap-2 has-[[data-detail-tabs]]:flex-wrap'>
-                  <div className='flex min-w-0 flex-none items-center gap-2 ms-auto *:data-[slot=button]:border-transparent *:data-[slot=button]:bg-transparent'>
-                    <Button
-                      aria-label={t('channels.add')}
-                      title={t('channels.add')}
-                      disabled={busy}
-                      size='icon-sm'
-                      variant='ghost'
-                      onClick={() => {
-                        setCreating(true);
-                        setName('');
-                        setFormat('sing-box');
-                        setFormError('');
-                      }}
-                    >
-                      <CirclePlus aria-hidden='true' />
-                    </Button>
-                  </div>
-                  <InputGroup className='h-(--control-height-sm) min-w-30 w-60 max-[900px]:w-50'>
-                    <InputGroupAddon><Search aria-hidden='true' /></InputGroupAddon>
-                    <InputGroupInput className='h-full min-h-0'
-                      aria-label={t('channels.search')}
-                      placeholder={t('channels.search')}
-                      value={search}
-                      onChange={(event) => {
-                        setSearch(event.target.value);
-                        setPage(1);
-                      }}
-                    />
-                  </InputGroup>
+                <div className='flex w-full min-w-0 flex-1 items-center gap-2'>
+                  <StripSearch
+                    label={t('channels.search')}
+                    value={search}
+                    onValueChange={(value) => {
+                      setSearch(value);
+                      setPage(1);
+                    }}
+                  />
+                  <StripDivider />
+                  <Button
+                    aria-label={t('channels.add')}
+                    title={t('channels.add')}
+                    disabled={busy}
+                    size='icon-sm'
+                    variant='flat'
+                    onClick={() => {
+                      setCreating(true);
+                      setName('');
+                      setFormat('sing-box');
+                      setFormError('');
+                    }}
+                  >
+                    <CirclePlus aria-hidden='true' />
+                  </Button>
                 </div>
               </ToolbarActions>
               <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={list.isPending}>

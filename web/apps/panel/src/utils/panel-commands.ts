@@ -15,7 +15,7 @@ export type CommandVerb = typeof commandVerbs[number];
 const batchVerbs = ['start', 'stop', 'restart', 'update'] as const;
 type BatchVerb = typeof batchVerbs[number];
 
-const stateFilters = ['online', 'offline', 'pending'] as const;
+const stateFilters = ['online', 'offline'] as const;
 export type StateFilter = typeof stateFilters[number];
 
 export type PanelCommand

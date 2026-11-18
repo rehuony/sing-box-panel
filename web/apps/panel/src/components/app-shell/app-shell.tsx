@@ -14,9 +14,11 @@ import { useApiClient } from '@/api/api-client-context';
 import { useFleetView } from '@/stores/fleet-view.store';
 import { LoadingState } from '@/components/loading-state';
 import { useAuthSession } from '@/stores/auth-session.store';
+import { EnrollmentDialog } from '@/components/enrollment-dialog';
 import { useReloadOnPanelVersion } from '@/hooks/use-panel-update';
 import { useCommandSession } from '@/stores/command-session.store';
 import { StatusLine, useShellScope } from '@/components/status-line';
+import { useEnrollmentDialog } from '@/stores/enrollment-dialog.store';
 
 import { useFleetStream } from './use-fleet-stream';
 
@@ -66,14 +68,15 @@ function useCommandShortcut() {
 }
 
 /**
- * The command output, prompt and history and the home screen's filters and
- * selection belong to one signed-in session: the shell leaves whenever the
+ * The command output, prompt and history, the home screen's filters and
+ * selection and the enrollment dialog belong to one signed-in session: the shell leaves whenever the
  * session ends, by signing out or expiring, and takes them with it.
  */
 function useSessionScopedState() {
   useEffect(() => () => {
     useCommandSession.getState().reset();
     useFleetView.getState().reset();
+    useEnrollmentDialog.getState().reset();
   }, []);
 }
 
@@ -107,7 +110,7 @@ export function AppShell() {
   return (
     <div className='flex h-dvh min-h-0 flex-col gap-3 overflow-hidden p-[var(--shell-edge)] max-sm:gap-0 max-sm:p-0'>
       <a
-        className='fixed top-3 left-4 z-[var(--z-modal)] -translate-y-[160%] rounded-[var(--radius-control)] bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-transform duration-[var(--dur-short)] ease-[var(--ease-out)] focus:translate-y-0'
+        className='fixed top-3 left-4 z-[var(--z-modal)] -translate-y-[160%] rounded-[var(--radius-control)] border border-primary/50 bg-accent px-4 py-3 text-sm font-medium text-primary transition-transform duration-[var(--dur-short)] ease-[var(--ease-out)] focus:translate-y-0'
         href='#main-content'
         onClick={(event) => {
           event.preventDefault();
@@ -128,6 +131,7 @@ export function AppShell() {
         </main>
       </ScrollArea>
       <StatusLine shell={shell} />
+      <EnrollmentDialog />
     </div>
   );
 }

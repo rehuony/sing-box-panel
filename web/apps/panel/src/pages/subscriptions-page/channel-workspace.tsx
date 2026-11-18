@@ -90,10 +90,10 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     <div className='@container/channel-editor flex h-full min-h-0 min-w-0 flex-col gap-2 [&_[data-slot=button][data-variant=ghost]]:border-transparent'>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='ms-auto flex min-w-0 flex-none items-center justify-end gap-2'>
-          <Button size='icon-sm' variant='ghost' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
-          <Button size='icon-sm' variant='ghost' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
-          <Button size='icon-sm' variant='ghost' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
-          <Button size='sm' disabled={busy || conflict || (!dirty && !needsUpgrade)} onClick={() => {
+          <Button size='icon-sm' variant='flat' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
+          <Button size='icon-sm' variant='flat' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
+          <Button size='icon-sm' variant='flat' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
+          <Button size='sm' variant='flat' disabled={busy || conflict || (!dirty && !needsUpgrade)} onClick={() => {
             if (invalidTextGroup) {
               // Show the text that needs fixing; its last valid rules stay unsaved.
               setGroupID(invalidTextGroup.id);
@@ -123,7 +123,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                 <div className='group/card relative min-w-0 flex-none' key={value.id}>
                   <Button
                     variant='ghost'
-                    className='min-h-16 w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left font-normal whitespace-normal active:scale-100 aria-pressed:bg-accent aria-pressed:text-primary'
+                    className='min-h-16 w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left font-normal whitespace-normal active:scale-100 aria-pressed:bg-accent aria-pressed:text-foreground'
                     data-group-item
                     size='content'
                     aria-pressed={group?.id === value.id}
@@ -161,7 +161,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                 <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupUp')} title={t('channels.moveGroupUp')} disabled={busy || groupIndex === 0} onClick={() => reorder(groupIndex, -1)}><ArrowUp /></Button>
                 <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupDown')} title={t('channels.moveGroupDown')} disabled={busy || groupIndex === policy.groups.length - 1} onClick={() => reorder(groupIndex, 1)}><ArrowDown /></Button>
                 <Button
-                  size='icon-sm' variant='ghost' className='ms-auto border-transparent bg-transparent aria-pressed:text-primary'
+                  size='icon-sm' variant='ghost' className='ms-auto'
                   aria-label={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
                   title={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
                   aria-pressed={finalGroup} disabled={busy}

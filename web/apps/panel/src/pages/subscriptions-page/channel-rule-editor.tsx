@@ -134,9 +134,9 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
                       value={remote.name}
                       onChange={(event) => updateRemote({ name: event.target.value })}
                     />
-                    {duplicateName && <p id='rule-name-error' role='alert' className='col-span-full text-sm text-destructive'>{t('channels.duplicateRuleName')}</p>}
+                    {duplicateName && <p id='rule-name-error' role='alert' className='col-span-full text-sm text-[var(--color-danger-text)]'>{t('channels.duplicateRuleName')}</p>}
                     <label htmlFor='rule-url'>{t('channels.url')}</label>
-                    <div className='relative min-w-0 rounded-[var(--radius-control)] bg-[var(--color-surface-raised)] [&>input]:w-full [&>input]:min-w-0 [&>input]:pe-11 [&>[data-slot=button]]:absolute [&>[data-slot=button]]:end-1 [&>[data-slot=button]]:top-1/2 [&>[data-slot=button]]:-translate-y-1/2 [&>[data-slot=button]]:border-transparent [&>[data-slot=button]]:bg-transparent [&>[data-slot=button]]:text-muted-foreground [&>[data-slot=button]:hover]:text-primary [&>[data-slot=button][aria-pressed=true]]:text-primary [&>[data-slot=button][aria-pressed=true]>svg]:fill-current'>
+                    <div className='relative min-w-0 rounded-[var(--radius-control)] bg-[var(--color-surface-raised)] [&>input]:w-full [&>input]:min-w-0 [&>input]:pe-11 [&>[data-slot=button]]:absolute [&>[data-slot=button]]:end-1 [&>[data-slot=button]]:top-1/2 [&>[data-slot=button]]:-translate-y-1/2 [&>[data-slot=button]]:border-transparent [&>[data-slot=button]]:bg-transparent [&>[data-slot=button]]:text-muted-foreground [&>[data-slot=button]:hover]:text-foreground [&>[data-slot=button][aria-pressed=true]]:text-foreground [&>[data-slot=button][aria-pressed=true]>svg]:fill-current'>
                       <Input
                         id='rule-url'
                         autoComplete='off'

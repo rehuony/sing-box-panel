@@ -31,7 +31,6 @@ describe('fleet summary', () => {
 
   it('lists what needs a look, most severe first', () => {
     const items = [
-      status('pending', { state: 'pending' }),
       status('near', { runtime: stopped }, { current_traffic_period: period(450, 500), quota_bytes: 1_000 }),
       status('gone', { state: 'offline' }),
       status('down', { runtime: { ...stopped, desired_running: true } }),
@@ -40,7 +39,6 @@ describe('fleet summary', () => {
       ['gone', 'offline'],
       ['down', 'coreDown'],
       ['near', 'quotaNear'],
-      ['pending', 'pending'],
     ]);
   });
 });

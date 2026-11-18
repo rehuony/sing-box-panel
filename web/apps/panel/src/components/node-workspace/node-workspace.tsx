@@ -1,69 +1,46 @@
 import { useTranslation } from 'react-i18next';
+import { CloudOff, SearchX } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Button } from '@shared/components/ui/button';
-import { CloudOff, KeyRound, SearchX } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { buttonVariants } from '@shared/components/ui/button-variants';
 import { Link, Outlet, useLocation, useParams } from 'react-router-dom';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
-import type { FleetNode, NodeEnrollment } from '@/api/api-client';
+import type { FleetNode } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { nodePath } from '@/utils/node-path';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { withQueryInvalidation } from '@/api/query-client';
+import { describeRequestError } from '@/components/error-notice';
 import { CurrentNodeContext } from '@/stores/current-node.store';
-import { NodeEnrollmentDialog } from '@/components/node-enrollment-dialog';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { ApiClientContext } from '@/api/api-client-context/api-client-context';
 import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 
 import { NodeStrip } from './node-strip';
 import { TelemetryProvider } from './telemetry-provider';
 
-/** What a tab shows in place of its view while the node cannot answer commands. */
+/** What a tab shows in place of its view while the node is offline and cannot answer commands. */
 function NodeUnavailable({ node }: { node: FleetNode }) {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
-  const client = useApiClient();
-  const [enrollment, setEnrollment] = useState<NodeEnrollment | null>(null);
-  const issue = useMutation({
-    mutationFn: () => client.createNodeEnrollment(node.id),
-    onSuccess: setEnrollment,
-  });
-  const pending = node.state === 'pending';
   return (
     <Empty className='min-h-80 rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]' role='status'>
       <EmptyHeader>
         <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
-          {pending ? <KeyRound aria-hidden='true' strokeWidth={1.5} /> : <CloudOff aria-hidden='true' strokeWidth={1.5} />}
+          <CloudOff aria-hidden='true' strokeWidth={1.5} />
         </EmptyMedia>
-        <EmptyTitle>{t(pending ? 'node.unavailable.pendingTitle' : 'node.unavailable.offlineTitle')}</EmptyTitle>
+        <EmptyTitle>{t('node.unavailable.offlineTitle')}</EmptyTitle>
         <EmptyDescription>
-          {pending
-            ? t('node.unavailable.pendingDescription')
-            : (
-                <span title={formatDateTime(node.last_seen_at, locale)}>
-                  {t('node.unavailable.offlineDescription', { time: formatRelativeTime(node.last_seen_at, locale) })}
-                </span>
-              )}
+          <span title={formatDateTime(node.last_seen_at, locale)}>
+            {t('node.unavailable.offlineDescription', { time: formatRelativeTime(node.last_seen_at, locale) })}
+          </span>
         </EmptyDescription>
       </EmptyHeader>
-      {pending
-        ? (
-            <EmptyContent>
-              <Button disabled={issue.isPending} onClick={() => issue.mutate()}>
-                {t(issue.isPending ? 'node.unavailable.issuing' : 'node.unavailable.issue')}
-              </Button>
-              {issue.error ? <ErrorNotice error={issue.error} title={t('node.unavailable.issueFailed')} /> : null}
-            </EmptyContent>
-          )
-        : null}
-      <NodeEnrollmentDialog enrollment={enrollment} onClose={() => setEnrollment(null)} title={t('enrollment.title')} />
     </Empty>
   );
 }

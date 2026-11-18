@@ -25,3 +25,14 @@ export function formatDateTime(value: string | null | undefined, locale: string)
   if (!Number.isFinite(time)) return '';
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(time);
 }
+
+/**
+ * A compact date and time, month and day with hours and minutes, adding the
+ * year only when it is not the current one; empty when the time is unknown.
+ */
+export function formatShortDateTime(value: string | null | undefined, locale: string, now = Date.now()): string {
+  const time = value ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(time)) return '';
+  const year = new Date(time).getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric';
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', hour: '2-digit', minute: '2-digit', month: 'short', year }).format(time);
+}

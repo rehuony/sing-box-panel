@@ -11,7 +11,6 @@ export const shell = {
     more: 'More',
     next: 'Next node: {{name}}',
     previous: 'Previous node: {{name}}',
-    stale: 'stale',
     windows: 'Windows',
   },
   readout: {
@@ -21,7 +20,6 @@ export const shell = {
   },
   scope: {
     fleet: 'All nodes',
-    label: 'Scope',
   },
   selection: {
     clear: 'Clear selection',
@@ -43,7 +41,6 @@ export const nodes = {
   state: {
     offline: 'Offline',
     online: 'Online',
-    pending: 'Not enrolled',
   },
 } as const;
 
@@ -130,7 +127,7 @@ export const command = {
   help: {
     clear: 'Clear the output',
     exit: 'Sign out',
-    filter: 'Filter nodes: text, state:online|offline|pending or tag:<tag>; empty clears',
+    filter: 'Filter nodes: text, state:online|offline or tag:<tag>; empty clears',
     goto: 'Open a node, at a window if given',
     help: 'List the commands',
     logout: 'Sign out',
@@ -146,7 +143,7 @@ export const command = {
   output: 'Output',
   shortcut: 'Command line ({{keys}} or :)',
   usage: {
-    filter: 'usage: filter [text | state:online|offline|pending | tag:<tag>]',
+    filter: 'usage: filter [text | state:online|offline | tag:<tag>]',
     goto: 'usage: goto <node> [overview|cores|configuration|logs|settings]',
     open: 'usage: open nodes|subscriptions|logs|settings',
     restart: 'usage: restart <node | glob | tag:<tag> | all>',

@@ -25,7 +25,7 @@ export function nodeRates({ metrics, node }: NodeStatus): Rates {
   return idle ? { download: 0, upload: 0 } : { download: null, upload: null };
 }
 
-/** CPU, memory and disk shares while the node reports them; unknown while it is away or not enrolled. */
+/** CPU, memory and disk shares while the node reports them; unknown while it is away. */
 export interface HostLoad {
   cpu: number | null;
   disk: number | null;
@@ -56,13 +56,11 @@ export interface FleetFigures {
   /** Summed usage of every node's own current period; quotas are never summed. */
   upload: number;
   offline: number;
-  pending: number;
-  /** Online nodes whose core runs, and whose core is stopped; every other enrolled node's core is unknown. */
+  /** Online nodes whose core runs, and whose core is stopped; every other node's core is unknown. */
   running: number;
   stopped: number;
   unknown: number;
   download: number;
-  enrolled: number;
   /** Nodes that reached their own quota. */
   exhausted: number;
   connections: number;
@@ -78,48 +76,41 @@ export function fleetFigures(items: readonly NodeStatus[]): FleetFigures {
   const online = items.filter(item => item.node.state === 'online');
   const running = online.filter(item => item.node.runtime?.observation_state === 'running').length;
   const stopped = online.filter(item => item.node.runtime?.observation_state === 'stopped').length;
-  const enrolled = items.filter(item => item.node.state !== 'pending').length;
   return {
     connections: items.reduce((total, item) => total + (item.metrics.live_sample?.active_connections ?? 0), 0),
     download: items.reduce((total, item) => total + item.metrics.current_traffic_period.inbound_bytes, 0),
-    enrolled,
     exhausted: items.filter(item => item.metrics.quota_exceeded).length,
     offline: items.filter(item => item.node.state === 'offline').length,
     online: online.length,
-    pending: items.filter(item => item.node.state === 'pending').length,
     rates: { download: sum(rates.map(rate => rate.download)), upload: sum(rates.map(rate => rate.upload)) },
     running,
     stopped,
     total: items.length,
-    unknown: enrolled - running - stopped,
+    unknown: items.length - running - stopped,
     upload: items.reduce((total, item) => total + item.metrics.current_traffic_period.outbound_bytes, 0),
   };
 }
 
 /** What needs a look, most severe first. */
-export type AttentionKind = 'offline' | 'quotaReached' | 'coreDown' | 'coreUnknown' | 'quotaNear' | 'diskNear' | 'memoryNear' | 'pending';
+export type AttentionKind = 'offline' | 'quotaReached' | 'coreDown' | 'coreUnknown' | 'quotaNear' | 'diskNear' | 'memoryNear';
 
 export interface Attention {
   item: NodeStatus;
   /** The share a "near" item is about. */
   percent?: number;
   kind: AttentionKind;
-  tone: 'danger' | 'warning' | 'neutral';
+  tone: 'danger' | 'warning';
 }
 
 /** Shares from this percent up count as nearly full. */
 const NEAR_FULL = 90;
 
-const order: AttentionKind[] = ['offline', 'quotaReached', 'coreDown', 'coreUnknown', 'quotaNear', 'diskNear', 'memoryNear', 'pending'];
+const order: AttentionKind[] = ['offline', 'quotaReached', 'coreDown', 'coreUnknown', 'quotaNear', 'diskNear', 'memoryNear'];
 
 export function attentionItems(items: readonly NodeStatus[]): Attention[] {
   const found: Attention[] = [];
   for (const item of items) {
     const { metrics, node } = item;
-    if (node.state === 'pending') {
-      found.push({ item, kind: 'pending', tone: 'neutral' });
-      continue;
-    }
     if (node.state === 'offline') {
       found.push({ item, kind: 'offline', tone: 'danger' });
       continue;

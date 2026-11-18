@@ -11,11 +11,13 @@ import {
 
 type SelectFieldProps<Value extends string | number> = Pick<
   ComponentProps<typeof SelectTrigger>,
-  'id' | 'className' | 'disabled' | 'aria-label' | 'aria-labelledby' | 'aria-describedby' | 'aria-invalid'
+  'id' | 'className' | 'disabled' | 'variant' | 'aria-label' | 'aria-labelledby' | 'aria-describedby' | 'aria-invalid'
 > & {
   value: Value;
   items: { value: Value; label: string; disabled?: boolean }[];
   onValueChange: (value: Value) => void;
+  /** In a bar, marks a choice that filters what the view shows. */
+  active?: boolean;
 };
 
 export function SelectField<Value extends string | number>({
@@ -23,6 +25,7 @@ export function SelectField<Value extends string | number>({
   items,
   onValueChange,
   disabled,
+  active,
   ...props
 }: SelectFieldProps<Value>) {
   return (
@@ -34,7 +37,7 @@ export function SelectField<Value extends string | number>({
         if (next !== null) onValueChange(next);
       }}
     >
-      <SelectTrigger {...props}><SelectValue /></SelectTrigger>
+      <SelectTrigger data-active={active} {...props}><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectGroup>
           {items.map((item) => (

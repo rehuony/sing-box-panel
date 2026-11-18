@@ -11,9 +11,8 @@
   --popover-foreground: var(--foreground);
   --color-surface: var(--card);
   --color-surface-raised: #f0f0f4;
-  /* Cards and the rail let the glyph field show through; floating layers stay opaque. */
-  --color-surface-translucent: color-mix(in oklab, var(--card) 72%, transparent);
-  --color-surface-dense: color-mix(in oklab, var(--card) 90%, transparent);
+  /* Content surfaces let the glyph field show faintly through; floating layers stay opaque. */
+  --color-surface-translucent: color-mix(in oklab, var(--card) 90%, transparent);
   /* Fields stay opaque so the glyph field never shows behind typed text. */
   --color-field: var(--card);
   --muted: #f0f0f4;
@@ -27,14 +26,14 @@
   --color-text-secondary: oklch(40% 0.015 280);
   --color-text-faint: oklch(54% 0.012 280);
   --color-selection: oklch(24% 0.015 280 / 14%);
+  /* Hover and highlight: a wash of the text colour over whatever surface lies below. */
+  --color-hover: color-mix(in oklab, var(--foreground) 6%, transparent);
 
   /* Accent. The panel recomputes these from the saved accent. */
   --primary: #6d4ed1;
   --primary-foreground: #ffffff;
   --ring: var(--primary);
-  --color-accent-hover: #6045b8;
   --accent: #ebe9f6;
-  --accent-foreground: var(--primary);
 
   /* Highlights: data series and the terminal prompt's parts. */
   --color-highlight-cyan: #0b7189;
@@ -153,9 +152,9 @@
   --color-text-secondary: oklch(84% 0.012 280);
   --color-text-faint: oklch(62% 0.018 280);
   --color-selection: oklch(97% 0.01 100 / 20%);
+  --color-hover: color-mix(in oklab, var(--foreground) 8%, transparent);
   --primary: #a08ce1;
   --primary-foreground: #17151e;
-  --color-accent-hover: #ab9ae5;
   --accent: #312c49;
   --color-highlight-cyan: #8be9fd;
   --color-highlight-magenta: #f079bd;
@@ -195,7 +194,6 @@
     --color-border-strong: #2a374c7a;
     --muted-foreground: #4c586a;
     --color-surface-translucent: var(--card);
-    --color-surface-dense: var(--card);
   }
 }
 
@@ -213,7 +211,6 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);

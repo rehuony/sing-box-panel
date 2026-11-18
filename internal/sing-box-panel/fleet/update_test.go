@@ -349,9 +349,9 @@ func TestNodeUpdatesItselfFromThePanelsRelease(t *testing.T) {
 			t.Errorf("run: %v", err)
 		}
 	}()
-	waitState(t, served.service, enrollment.Node.ID, fleet.StateOnline)
+	waitState(t, served.service, enrollment.NodeID, fleet.StateOnline)
 
-	result, err := served.service.UpdateNode(t.Context(), enrollment.Node.ID)
+	result, err := served.service.UpdateNode(t.Context(), enrollment.NodeID)
 	if err != nil || result.State != fleet.UpdateRestartRequired || result.Version != "v1.1.0" {
 		t.Fatalf("update = %+v, %v; want installed, waiting for a restart", result, err)
 	}
@@ -361,7 +361,7 @@ func TestNodeUpdatesItselfFromThePanelsRelease(t *testing.T) {
 	if previous, err := os.ReadFile(executable + selfupdate.PreviousSuffix); err != nil || string(previous) != "old binary" {
 		t.Fatalf("previous executable = %q, %v", previous, err)
 	}
-	node, err := served.service.Node(t.Context(), enrollment.Node.ID)
+	node, err := served.service.Node(t.Context(), enrollment.NodeID)
 	if err != nil || node.LastUpdate == nil || !node.LastUpdate.Succeeded || node.LastUpdate.Version != "v1.1.0" || !node.UpdateAvailable {
 		t.Fatalf("node after its update = %+v, %v; want the attempt reported and v1.0.0 still running", node, err)
 	}

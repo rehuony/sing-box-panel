@@ -14,18 +14,40 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
-// CreateNode registers a node named name in database and returns its ID.
+// CreateNode enrolls a node named name in database, with no session and no
+// configuration file, and returns its ID.
 func CreateNode(t testing.TB, database *store.Store, name string) string {
 	t.Helper()
-	now := time.Now().UTC()
-	node, err := database.CreateNode(t.Context(), store.NewNode{
-		ID: "node_" + name, Name: name, CreatedAt: now, ExpiresAt: now.Add(time.Hour),
-		TokenHash: sha256.Sum256([]byte("token-" + name)),
-	})
+	id, _ := EnrollNode(t, database, name, store.NodeEnrollment{})
+	return id
+}
+
+// EnrollNode enrolls a node named name in database as a host presenting
+// input would, with a new key when input has none, and returns its ID and
+// key.
+func EnrollNode(t testing.TB, database *store.Store, name string, input store.NodeEnrollment) (string, []byte) {
+	t.Helper()
+	ctx, now := t.Context(), time.Now().UTC()
+	if input.EnrolledAt.IsZero() {
+		input.EnrolledAt = now
+	}
+	if input.PublicKey == nil {
+		input.PublicKey = make([]byte, ed25519.PublicKeySize)
+		if _, err := rand.Read(input.PublicKey); err != nil {
+			t.Fatal(err)
+		}
+	}
+	token := sha256.Sum256([]byte("token-" + name))
+	if err := database.IssueNewNodeEnrollment(ctx, store.NewNodeEnrollment{
+		TokenHash: token, NodeID: "node_" + name, Name: name, CreatedAt: input.EnrolledAt, ExpiresAt: input.EnrolledAt.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	node, _, err := database.EnrollNode(ctx, token, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return node.ID
+	return node.ID, input.PublicKey
 }
 
 // InboundDocument is a configuration with one inbound that subscriptions
@@ -38,7 +60,7 @@ const InboundDocument = `{"inbounds":[{"type":"vless","tag":"vless-in","listen":
 func PublishNode(t testing.TB, database *store.Store, name, document, publicHost, reportedIP string) string {
 	t.Helper()
 	ctx, now := t.Context(), time.Now().UTC()
-	id := CreateNode(t, database, name)
+	id, key := EnrollNode(t, database, name, store.NodeEnrollment{})
 	update, err := store.NewConfigurationFileUpdate(rand.Read, now, 0, document)
 	if err != nil {
 		t.Fatal(err)
@@ -50,13 +72,6 @@ func PublishNode(t testing.TB, database *store.Store, name, document, publicHost
 	if _, err := database.SaveNodeSettings(ctx, id, 1, store.NodeSettings{
 		PublicHost: publicHost, Traffic: store.NodeTrafficSettings{PeriodMonths: 1, ResetDay: 1},
 	}); err != nil {
-		t.Fatal(err)
-	}
-	key := make([]byte, ed25519.PublicKeySize)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.EnrollNode(ctx, sha256.Sum256([]byte("token-"+name)), store.NodeEnrollment{PublicKey: key, EnrolledAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	session := "session_" + name

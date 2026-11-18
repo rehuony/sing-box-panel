@@ -302,16 +302,17 @@ supported. Reduced motion, reduced transparency, and increased contrast
 preferences are respected.
 
 The shell is one scrolling content region with a status line below it. The
-status line names the scope (`fleet`, or `fleet ›` a node with its previous and
-next nodes), lists the scope's windows as numbered tabs (`1 nodes` to
+status line leads back to the fleet (`fleet`, the same in every scope), lists
+the scope's windows as numbered tabs (`1 nodes` to
 `4 settings`, or a node's `1 overview` to `5 settings`), shows the fleet
 readout and the panel's update, and carries the theme cycle, language menu and
 sign-out; below 640px it is a tab bar along the window's foot with a more
 menu. Window names are command words in every language; their tooltips and
 accessible names are translated. Pages omit a visible title band while
-retaining a screen reader heading: every view starts with one title strip,
-the window's marks and then its toolbar, or in a node its name, state, context
-values and runtime controls. Tables and forms scroll within the space above
+retaining a screen reader heading: every view starts with one title strip
+holding its toolbar in flat controls grouped by dividers, or in a node the
+previous and next nodes, its name, state, labelled readings and runtime
+controls. Tables and forms scroll within the space above
 the status line, keeping their actions reachable.
 
 Ctrl or Cmd+K, `:` outside fields and dialogs, or the status line's prompt
@@ -324,17 +325,24 @@ command line or from selected panes confirm first, run one at a time, stream
 each node's result from `/fleet/commands` into output that keeps room for every
 node's line, and keep running when the line closes, ending in a toast then,
 which also says when a batch stopped before its summary. The output, a pending
-confirmation, the command history and the home screen's filters and selection
-end with the signed-in session; a batch still running then finishes on the
+confirmation, the command history, the home screen's filters, selection mode
+and selection, and the enrollment dialog end with the signed-in session; a batch still running then finishes on the
 panel without printing into the next session. The terminal parts are shared
 with the node console from `packages/shared/src/components/terminal`.
 
 The nodes home renders every node as a memoized pane that redraws only when
 its own fleet entry changes or the shared 30-second clock moves; panes off
 screen skip layout and paint through `content-visibility` with their fixed
-height. The browser review harness seeds a fleet with
+height. Selection mode lives in `stores/fleet-view.store.ts`. The shell holds
+the one enrollment dialog (`components/enrollment-dialog.tsx`, opened through
+`stores/enrollment-dialog.store.ts`), so a view that remounts while a host
+enrolls keeps it; the dialog reads the fleet status the stream feeds, polls
+while the stream is down, and discards an unused code when it closes or the
+page goes away. The browser review harness seeds a fleet with
 `SBP_BROWSER_FLEET=<n>` (`panel-review` in `.claude/launch.json` runs 200),
-half of the enrolled nodes online with live readings.
+half of the nodes online with live readings; without a seeded fleet
+(`panel-review-empty`) nodes can enroll with `sing-box-node enroll` on the
+same port.
 
 ## Login
 

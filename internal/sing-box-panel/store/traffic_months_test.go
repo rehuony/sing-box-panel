@@ -137,8 +137,7 @@ func TestTrafficAccountingKeepsLongGapsAndRejectsDuplicateSamplesAtomically(t *t
 func TestTrafficIsAccountedPerNodeAndInTheFleetTotal(t *testing.T) {
 	ctx := t.Context()
 	db := openTestStore(t, ctx)
-	now := time.Now().UTC()
-	if _, err := db.CreateNode(ctx, NewNode{ID: "node_other", Name: "other", CreatedAt: now, TokenHash: [32]byte{9}, ExpiresAt: now.Add(time.Hour)}); err != nil {
+	if _, err := enrollTestNode(ctx, db, "node_other", "other", nil); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)

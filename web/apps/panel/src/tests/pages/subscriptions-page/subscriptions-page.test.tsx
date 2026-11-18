@@ -45,7 +45,7 @@ describe('subscriptionsPage', () => {
     expect(within(name).queryByRole('link')).not.toBeInTheDocument();
     await user.click(name);
     expect(client.getSubscriptionChannel).not.toHaveBeenCalled();
-    expect(screen.getByRole('textbox', { name: 'Search channels' })).toBeVisible();
+    expect(screen.getByRole('searchbox', { name: 'Search channels' })).toBeVisible();
     await user.click(within(name.closest('tr')!).getByRole('button', { name: 'Edit' }));
     await user.click(await screen.findByRole('button', { name: 'Add strategy group' }));
     expect(screen.queryByRole('tab', { name: 'Node selection' })).not.toBeInTheDocument();
@@ -68,7 +68,7 @@ describe('subscriptionsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     expect(screen.getByRole('tab', { name: 'Sources' })).toHaveAttribute('aria-selected', 'true');
     await user.click(screen.getByRole('tab', { name: 'Channels' }));
-    expect(await screen.findByRole('textbox', { name: 'Search channels' })).toBeVisible();
+    expect(await screen.findByRole('searchbox', { name: 'Search channels' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
@@ -83,19 +83,19 @@ describe('subscriptionsPage', () => {
           <ApiClientProvider client={createMockApiClient()}><SubscriptionsPage /></ApiClientProvider>
         </TestRouter>,
       );
-      await user.type(screen.getByRole('textbox', { name: 'Search sources or nodes' }), 'source filter');
+      await user.type(screen.getByRole('searchbox', { name: 'Search sources or nodes' }), 'source filter');
       await user.click(screen.getByRole('tab', { name: 'Channels' }));
-      expect(screen.queryByRole('textbox', { name: 'Search sources or nodes' })).not.toBeInTheDocument();
-      await user.type(screen.getByRole('textbox', { name: 'Search channels' }), 'channel filter');
+      expect(screen.queryByRole('searchbox', { name: 'Search sources or nodes' })).not.toBeInTheDocument();
+      await user.type(screen.getByRole('searchbox', { name: 'Search channels' }), 'channel filter');
       await user.click(screen.getByRole('tab', { name: 'Key management' }));
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Create key' })).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Add channel' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('tab', { name: 'Sources' }));
-      expect(screen.getByRole('textbox', { name: 'Search sources or nodes' })).toHaveValue('');
+      expect(screen.getByRole('searchbox', { name: 'Search sources or nodes' })).toHaveValue('');
       expect(screen.queryByRole('button', { name: 'Create key' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('tab', { name: 'Channels' }));
-      expect(screen.getByRole('textbox', { name: 'Search channels' })).toHaveValue('');
+      expect(screen.getByRole('searchbox', { name: 'Search channels' })).toHaveValue('');
     } finally {
       window.history.replaceState(window.history.state, '', originalURL);
     }
@@ -118,7 +118,7 @@ describe('subscriptionsPage', () => {
     await user.click(screen.getByRole('tab', { name: 'Sources' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Channels' }));
-    expect(await screen.findByRole('textbox', { name: 'Search channels' })).toBeVisible();
+    expect(await screen.findByRole('searchbox', { name: 'Search channels' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 

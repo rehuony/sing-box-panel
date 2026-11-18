@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
@@ -8,7 +7,6 @@ import { Empty, EmptyHeader, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { LogLevel, PanelLog } from '@/api/api-client';
 
-import { TitleStrip } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
@@ -17,6 +15,7 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import { PanelLogLevel } from '@/components/panel-log-level';
 import { ListPagination } from '@/components/list-pagination';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
+import { StripDivider, StripSearch, TitleStrip } from '@/components/title-strip';
 
 import { PanelLogDetails } from './panel-log-details';
 import { matchingEventCodes } from './panel-log-presentation';
@@ -57,21 +56,22 @@ export function PanelLogsPage() {
   return (
     <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
       <h1 className='sr-only'>{t('nav.logs')}</h1>
-      <TitleStrip>
-        <Input
+      <TitleStrip className='flex-nowrap'>
+        <StripSearch
           ref={searchRef}
-          aria-label={t('productLogs.searchPanel')}
-          className='min-w-0 flex-1 sm:w-70 sm:flex-none'
-          placeholder={t('productLogs.searchPanel')}
+          label={t('productLogs.searchPanel')}
           value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
+          onValueChange={(value) => {
+            setSearch(value);
             setPage(1);
           }}
         />
+        <StripDivider />
         <SelectField
+          active={level !== ''}
           aria-label={t('productLogs.level')}
-          className='min-w-28'
+          className='flex-none'
+          variant='flat'
           value={level}
           onValueChange={(value) => {
             setLevel(value);

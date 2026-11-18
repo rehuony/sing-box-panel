@@ -57,7 +57,7 @@ describe('panel commands', () => {
     expect(names(['goto', ''], 1)).toEqual(['hk-1', 'hk-2', 'Tokyo edge', 'us-1']);
     expect(names(['goto', 'hk-1', ''], 2)).toEqual(['overview', 'cores', 'configuration', 'logs', 'settings']);
     expect(names(['restart', ''], 1)).toEqual(['all', 'tag:hk', 'tag:jp', 'tag:premium', 'hk-1', 'hk-2', 'Tokyo edge', 'us-1']);
-    expect(names(['filter', ''], 1)).toEqual(['state:online', 'state:offline', 'state:pending', 'tag:hk', 'tag:jp', 'tag:premium']);
+    expect(names(['filter', ''], 1)).toEqual(['state:online', 'state:offline', 'tag:hk', 'tag:jp', 'tag:premium']);
   });
 
   it('names the scope and window of a path', () => {

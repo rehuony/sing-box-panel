@@ -141,8 +141,13 @@ export interface ApiClient {
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
   listFleetNodes: (signal?: AbortSignal) => Promise<{ items: FleetNode[] }>;
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
-  /** Registers a node and returns its one-time enrollment code. */
+  /** Issues a new node's one-time enrollment code; the node exists once a host enrolls with it. */
   createNode: (name: string, signal?: AbortSignal) => Promise<NodeEnrollment>;
+  /**
+   * Discards the unused code issued for a node ID, a new node's or an
+   * enrolled one's; keepalive lets the request outlive the page.
+   */
+  cancelNodeEnrollment: (nodeID: string, keepalive?: boolean) => Promise<void>;
   /** Every node, then the nodes that changed, from one snapshot the panel shares among its viewers. */
   streamFleetStatus: (signal?: AbortSignal) => AsyncIterable<FleetStreamFrame>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
@@ -151,8 +156,8 @@ export interface ApiClient {
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
   disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
-  refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
 
+  refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
   getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
   renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;

@@ -294,6 +294,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     renameNode: vi.fn<ApiClient['renameNode']>(),
     deleteNode: vi.fn<ApiClient['deleteNode']>(),
     createNodeEnrollment: vi.fn<ApiClient['createNodeEnrollment']>(),
+    cancelNodeEnrollment: vi.fn<ApiClient['cancelNodeEnrollment']>(async () => undefined),
     listFilesystemEntries: vi.fn<ApiClient['listFilesystemEntries']>().mockResolvedValue({ path: '/', parent: '/', requested_path: '/', fallback: false, items: [], total: 0, offset: 0, limit: 50 }),
     resolveFilesystemPath: vi.fn<ApiClient['resolveFilesystemPath']>().mockImplementation(async input => ({ path: input.path, parent: '/', kind: input.mode === 'output-file' ? 'file' : input.mode, exists: true, symlink: false })),
     enableCore: vi.fn<ApiClient['enableCore']>().mockResolvedValue(testRuntimeStatus),

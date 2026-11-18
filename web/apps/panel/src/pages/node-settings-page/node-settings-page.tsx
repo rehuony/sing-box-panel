@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from '@shared/components/ui/alert-dialog';
 
-import type { FleetNode, NodeEnrollment, NodeSettings } from '@/api/api-client';
+import type { FleetNode, NodeSettings } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
@@ -30,7 +30,7 @@ import { MAX_TAGS, TagInput } from '@/components/tag-input';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
-import { NodeEnrollmentDialog } from '@/components/node-enrollment-dialog';
+import { useEnrollmentDialog } from '@/stores/enrollment-dialog.store';
 import { SettingsField, SettingsGroup } from '@/components/settings-field';
 
 interface Draft {
@@ -256,12 +256,11 @@ function DangerZone({ node }: { node: FleetNode }) {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState<'reenroll' | 'remove' | null>(null);
-  const [enrollment, setEnrollment] = useState<NodeEnrollment | null>(null);
   const reenroll = useMutation({
     mutationFn: () => client.createNodeEnrollment(node.id),
-    onSuccess: (result) => {
+    onSuccess: (enrollment) => {
       setConfirm(null);
-      setEnrollment(result);
+      useEnrollmentDialog.getState().reenroll({ enrollment, enrolledBefore: node.enrolled_at });
     },
   });
   const remove = useMutation({
@@ -321,7 +320,6 @@ function DangerZone({ node }: { node: FleetNode }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <NodeEnrollmentDialog enrollment={enrollment} onClose={() => setEnrollment(null)} title={t('enrollment.reenrollTitle')} />
     </section>
   );
 }
@@ -346,7 +344,7 @@ export function NodeSettingsPage() {
               </div>
             )
           : <LoadingState className='min-h-80' label={t('node.settings.loading')} fullScreen={false} />}
-      {node.enrolled_at && <VersionRow node={node} />}
+      <VersionRow node={node} />
       <DangerZone node={node} />
     </section>
   );

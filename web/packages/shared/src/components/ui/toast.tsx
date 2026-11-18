@@ -132,7 +132,7 @@ function ToastClose({
       aria-label={t('common.close')}
       render={render}
       className={cn(
-        'relative size-8 min-h-8 min-w-8 [min-block-size:2rem] shrink-0 text-current opacity-70 after:absolute after:-inset-1.5 after:content-[\'\'] hover:bg-foreground/5 hover:text-current hover:opacity-100',
+        'relative size-8 min-h-8 min-w-8 [min-block-size:2rem] shrink-0 text-current opacity-70 after:absolute after:-inset-1.5 after:content-[\'\'] hover:bg-[var(--color-hover)] hover:text-current hover:opacity-100',
         className,
       )}
       {...props}

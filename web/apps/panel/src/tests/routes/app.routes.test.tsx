@@ -267,11 +267,16 @@ describe('application routes', () => {
     expect(log).toHaveTextContent(`${testNode.name}done`);
   });
 
-  it('runs a batch on the selected panes after its confirmation', async () => {
+  it('selects panes without opening them and runs a batch on them after its confirmation', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     renderRoutes('/nodes', client);
-    await user.click(await screen.findByRole('checkbox', { name: `Select ${testNode.name}` }));
+    // Ctrl+click enters selection mode and toggles the pane instead of opening the node.
+    await user.keyboard('{Control>}');
+    await user.click(await screen.findByRole('link', { name: testNode.name }));
+    await user.keyboard('{/Control}');
+    expect(screen.getByRole('link', { name: `${testNode.name}, selected` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select', pressed: true })).toBeInTheDocument();
     const actions = screen.getByRole('group', { name: 'Batch actions' });
     await user.click(within(actions).getByRole('button', { name: 'Stop' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Stop 1 node?' });
@@ -280,7 +285,11 @@ describe('application routes', () => {
     expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'stop', node_ids: [testNode.id] });
     expect(await screen.findByRole('log')).toHaveTextContent('1 succeeded');
     await user.keyboard('{Escape}');
-    expect(screen.queryByRole('checkbox', { name: `Select ${testNode.name}`, checked: true })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: `${testNode.name}, selected` })).toBeInTheDocument();
+    // Leaving selection mode clears the selection; a click then opens the node again.
+    await user.click(screen.getByRole('button', { name: 'Select', pressed: true }));
+    await user.click(screen.getByRole('link', { name: testNode.name }));
+    expect(await screen.findByRole('group', { name: `Node ${testNode.name}` })).toBeInTheDocument();
   });
 
   it.each(['/missing', '/tasks?task=task_1', `/nodes/${testNode.id}/missing`])('renders the authenticated not-found page for %s', async path => {

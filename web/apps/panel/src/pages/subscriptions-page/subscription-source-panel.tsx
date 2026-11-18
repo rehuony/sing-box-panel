@@ -2,9 +2,8 @@ import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
-import { ArrowLeft, CirclePlus, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, CirclePlus, RefreshCw } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +17,7 @@ import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { StripDivider, StripSearch } from '@/components/title-strip';
 
 import { SubscriptionNodeGrid } from './subscription-node-grid';
 import { SubscriptionNodeEditor } from './subscription-node-editor';
@@ -130,10 +130,10 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
     >
       {error != null && <ErrorNotice error={error} title={t('subscriptions.source.loadFailed')} />}
       <ToolbarActions active={active} target={toolbarTarget}>
-        <div className='flex w-full min-w-0 flex-1 items-center justify-end gap-4 max-[900px]:gap-2 has-[[data-detail-tabs]]:flex-wrap'>
+        <div className='flex w-full min-w-0 flex-1 items-center justify-end gap-2 has-[[data-detail-tabs]]:flex-wrap'>
           {selected && selected !== 'manual' && (
-            <div className='me-auto flex min-w-0 flex-none items-center gap-2 max-[900px]:gap-0.5' data-detail-tabs>
-              <TabsList className='max-w-full flex-none justify-start self-start overflow-x-auto [scrollbar-width:none] *:data-[slot=tabs-trigger]:flex-none' aria-label={t('subscriptions.sources.settings')}>
+            <div className='me-auto flex min-w-0 flex-none items-center gap-2' data-detail-tabs>
+              <TabsList className='max-w-full flex-none justify-start self-start overflow-x-auto [scrollbar-width:none] *:data-[slot=tabs-trigger]:flex-none' aria-label={t('subscriptions.sources.settings')} variant='pill'>
                 <TabsTrigger value='nodes' disabled={busy}>
                   {t('subscriptions.sources.nodes')}
                 </TabsTrigger>
@@ -141,9 +141,23 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                   {t('subscriptions.sources.settings')}
                 </TabsTrigger>
               </TabsList>
+              <StripDivider />
             </div>
           )}
-          <div className='flex min-w-0 flex-none items-center gap-2 ms-auto *:data-[slot=button]:border-transparent *:data-[slot=button]:bg-transparent'>
+          {(tab === 'nodes' || !selected) && (
+            <>
+              <StripSearch
+                label={t('subscriptions.sources.search')}
+                value={search}
+                onValueChange={(value) => {
+                  setSearch(value);
+                  setPage(1);
+                }}
+              />
+              <StripDivider />
+            </>
+          )}
+          <div className='flex min-w-0 flex-none items-center gap-2 ms-auto'>
             {selected && (
               <Button
                 aria-label={t('subscriptions.sources.back')}
@@ -157,7 +171,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                   setTab('nodes');
                 })}
                 size='icon-sm'
-                variant='ghost'
+                variant='flat'
               >
                 <ArrowLeft aria-hidden='true' />
               </Button>
@@ -180,7 +194,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                       )
                   }
                   size='icon-sm'
-                  variant='ghost'
+                  variant='flat'
                 >
                   <RefreshCw aria-hidden='true' className={refreshing || Object.values(refreshingSources).includes('pending') ? 'animate-spin' : ''} />
                 </Button>
@@ -198,7 +212,7 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
                         : (setForm(newSource()), setCreating(true), setFormError(''))
                     }
                     size='icon-sm'
-                    variant='ghost'
+                    variant='flat'
                   >
                     <CirclePlus aria-hidden='true' />
                   </Button>
@@ -206,20 +220,6 @@ export function SubscriptionSourcePanel({ active = true, toolbarTarget }: {
               </>
             )}
           </div>
-          {(tab === 'nodes' || !selected) && (
-            <InputGroup className='h-(--control-height-sm) min-w-30 w-60 max-[900px]:w-50'>
-              <InputGroupAddon><Search aria-hidden='true' /></InputGroupAddon>
-              <InputGroupInput className='h-full min-h-0'
-                aria-label={t('subscriptions.sources.search')}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setPage(1);
-                }}
-                placeholder={t('subscriptions.sources.search')}
-                value={search}
-              />
-            </InputGroup>
-          )}
         </div>
       </ToolbarActions>
       {selected

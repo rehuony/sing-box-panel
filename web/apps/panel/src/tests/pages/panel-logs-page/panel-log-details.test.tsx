@@ -103,7 +103,7 @@ describe('panel log presentation and details', () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(await screen.findByText('New event')).toBeVisible();
-    await waitFor(() => expect(screen.getByRole('textbox')).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('searchbox')).toHaveFocus());
   });
 
   it('preserves long unknown messages and structured error context in details', async () => {
@@ -160,7 +160,7 @@ describe('panel log presentation and details', () => {
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
       expect.objectContaining({ offset: 10 }), expect.any(AbortSignal),
     ));
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '核心启动' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '核心启动' } });
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(expect.objectContaining({
       search: '核心启动', searchCodes: expect.arrayContaining(['runtime.start.completed', 'runtime.start.failed']), offset: 0,
     }), expect.any(AbortSignal)));

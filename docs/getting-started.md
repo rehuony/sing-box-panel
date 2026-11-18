@@ -54,7 +54,7 @@ configuration, or subscription data.
 ### Database compatibility
 
 The panel database uses SQLite `application_id = 0x53425034` and storage schema
-version 22, defined in `internal/sing-box-panel/store/schema.sql`; each node
+version 23, defined in `internal/sing-box-panel/store/schema.sql`; each node
 keeps its own `node.db` with `application_id = 0x5342504E` and storage schema
 version 2, defined in
 `internal/sing-box-node/store/schema.sql`. Empty databases are initialized
@@ -183,8 +183,8 @@ queue or detached polling API.
 
 The panel manages sing-box only on nodes. Add one in the Web UI's Nodes view,
 or with `./bin/sing-box-panel node add NAME --config ./setting.json`. Either
-shows a one-time enrollment command that is valid for one hour. Run it on the
-node's Linux host, then start the node:
+shows a one-time enrollment command that is valid for one hour; the node
+appears once it enrolls. Run it on the node's Linux host, then start the node:
 
 ```sh
 ./bin/sing-box-node enroll --code <code>

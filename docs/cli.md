@@ -279,7 +279,7 @@ database directly and work while the panel server runs. `NODE` is a node ID or
 a node name, which is unique ignoring case.
 
 ```sh
-sing-box-panel node add edge-1      # register a node; prints its enrollment command
+sing-box-panel node add edge-1      # print the command that enrolls a new node
 sing-box-panel node list            # name, state, ID and last session time
 sing-box-panel node enroll edge-1   # issue a new code; using it replaces the node's key
 sing-box-panel node rename edge-1 edge-tokyo
@@ -287,7 +287,8 @@ sing-box-panel node remove edge-tokyo
 ```
 
 `add` and `enroll` print a one-time command, valid for one hour, to run on the
-node host:
+node host. A node added with `add` exists, and appears in `list`, only once its
+host enrolls; adding the same name again replaces an unused code:
 
 ```sh
 sing-box-node enroll --code sbp1....
@@ -305,7 +306,7 @@ authenticates the session with that key, carries out the panel's commands and
 reconnects with backoff until it is stopped. The node keeps `node.db`, its
 installed cores in `artifacts/`, disposable configurations in `runtime/` and
 its core logs in `logs/core/` in the same data directory, and runs the managed
-sing-box with `runtime/` as its working directory. A node shows `pending` until it enrolls, then `online` while it
+sing-box with `runtime/` as its working directory. A node shows `online` while it
 holds a session and `offline` otherwise. Removing a node, or enrolling it
 again, ends its current session. Enrolling a node while it runs saves the new
 enrollment, and the running node switches to it within a few seconds; `enroll`

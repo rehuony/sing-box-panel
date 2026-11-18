@@ -212,7 +212,7 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enrollment.Node.State != fleet.StatePending || !strings.HasPrefix(enrollment.Command, "sing-box-node enroll --code ") {
+	if !strings.HasPrefix(enrollment.Command, "sing-box-node enroll --code ") {
 		t.Fatalf("enrollment = %+v", enrollment)
 	}
 	nodeDir := t.TempDir()
@@ -221,8 +221,8 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enrolled.NodeID != enrollment.Node.ID || enrolled.Path != basePath || enrolled.Pin == "" {
-		t.Fatalf("enrolled as %+v, want node %q under %s with a pin", enrolled, enrollment.Node.ID, basePath)
+	if enrolled.NodeID != enrollment.NodeID || enrolled.Path != basePath || enrolled.Pin == "" {
+		t.Fatalf("enrolled as %+v, want node %q under %s with a pin", enrolled, enrollment.NodeID, basePath)
 	}
 	var rejected *agent.EnrollmentError
 	if _, err := agent.Enroll(t.Context(), t.TempDir(), enrollment.Code, build); !errors.As(err, &rejected) || !rejected.Rejected {
@@ -304,7 +304,7 @@ func reenrollAndUnenroll(t *testing.T, service *fleet.Service, link *agent.Link,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Enrollment == nil || status.Enrollment.NodeID != enrollment.Node.ID || status.State != agent.ConnectionConnecting {
+	if status.Enrollment == nil || status.Enrollment.NodeID != enrollment.NodeID || status.State != agent.ConnectionConnecting {
 		t.Fatalf("status after enrolling = %+v", status)
 	}
 	select {
@@ -312,14 +312,14 @@ func reenrollAndUnenroll(t *testing.T, service *fleet.Service, link *agent.Link,
 	case <-time.After(10 * time.Second):
 		t.Fatal("the re-enrolled node did not connect")
 	}
-	waitState(t, service, enrollment.Node.ID, fleet.StateOnline)
+	waitState(t, service, enrollment.NodeID, fleet.StateOnline)
 	if status := link.Status(); status.State != agent.ConnectionConnected {
 		t.Fatalf("status after connecting = %+v", status)
 	}
 	if status, err = link.Unenroll(); err != nil || status.State != agent.ConnectionUnenrolled || status.Enrollment != nil {
 		t.Fatalf("unenroll = %+v, %v", status, err)
 	}
-	waitState(t, service, enrollment.Node.ID, fleet.StateOffline)
+	waitState(t, service, enrollment.NodeID, fleet.StateOffline)
 }
 
 // rawNode speaks the protocol directly to exercise the panel's checks. Its
@@ -498,14 +498,11 @@ func TestSessionsRequireProofAndReplaceEachOther(t *testing.T) {
 func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *testing.T) {
 	served := startFleet(t, nil)
 	service := served.service
-	offline, err := service.AddNode(t.Context(), "offline")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if file, err := served.configs.ConfigurationFile(t.Context(), offline.Node.ID); err != nil || file.Revision != 1 || file.Content != "{}" {
+	offline := enrolledRawNode(t, served, "offline", 0, "")
+	if file, err := served.configs.ConfigurationFile(t.Context(), offline.id); err != nil || file.Revision != 1 || file.Content != "{}" {
 		t.Fatalf("a new node's configuration = %+v, %v; want the saved empty document", file, err)
 	}
-	if _, err := service.RuntimeStatus(t.Context(), offline.Node.ID); !errors.Is(err, fleet.ErrNodeOffline) {
+	if _, err := service.RuntimeStatus(t.Context(), offline.id); !errors.Is(err, fleet.ErrNodeOffline) {
 		t.Fatalf("command to an offline node = %v, want ErrNodeOffline", err)
 	}
 
@@ -656,7 +653,8 @@ func TestBatchReportsEachNodesOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, served.service, node.id, fleet.StateOnline)
-	pending, err := served.service.AddNode(t.Context(), "pending")
+	offline := enrolledRawNode(t, served, "offline", 0, "")
+	unused, err := served.service.AddNode(t.Context(), "unused")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +673,7 @@ func TestBatchReportsEachNodesOutcome(t *testing.T) {
 		}
 		answered <- err
 	}()
-	nodes, err := served.service.BatchNodes(t.Context(), fleet.BatchTarget{NodeIDs: []string{node.id, pending.Node.ID, "node_missing", node.id}})
+	nodes, err := served.service.BatchNodes(t.Context(), fleet.BatchTarget{NodeIDs: []string{node.id, offline.id, unused.NodeID, node.id}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,15 +689,17 @@ func TestBatchReportsEachNodesOutcome(t *testing.T) {
 	if err := <-answered; err != nil {
 		t.Fatal(err)
 	}
-	// An unknown ID is reported before any node runs; a repeated one runs once.
-	if len(order) != 3 || order[0] != "node_missing" || outcomes[node.id] != nil ||
-		!errors.Is(outcomes[pending.Node.ID], fleet.ErrNodeOffline) || !errors.Is(outcomes["node_missing"], store.ErrNodeNotFound) {
+	// An unknown ID, here an unused code's, is reported before any node runs;
+	// a repeated one runs once.
+	if len(order) != 3 || order[0] != unused.NodeID || outcomes[node.id] != nil ||
+		!errors.Is(outcomes[offline.id], fleet.ErrNodeOffline) || !errors.Is(outcomes[unused.NodeID], store.ErrNodeNotFound) {
 		t.Fatalf("batch outcomes = %v in order %v; want the online node stopped and each other node's own failure", outcomes, order)
 	}
 }
 
-// TestStatusShowsThePanelsWritesWhileStreamed renames a node while a stream
-// holds a fresh shared snapshot: the next read shows the new name at once.
+// TestStatusShowsThePanelsWritesWhileStreamed enrolls and renames a node
+// while a stream holds a fresh shared snapshot: the next read shows each
+// change at once. A code no host used yet shows no node.
 func TestStatusShowsThePanelsWritesWhileStreamed(t *testing.T) {
 	served := startFleet(t, nil)
 	enrollment, err := served.service.AddNode(t.Context(), "edge")
@@ -708,13 +708,24 @@ func TestStatusShowsThePanelsWritesWhileStreamed(t *testing.T) {
 	}
 	snapshots, unsubscribe := served.service.SubscribeStatus()
 	defer unsubscribe()
-	if first := <-snapshots; first.Err != nil || len(first.Value.Nodes) != 1 {
-		t.Fatalf("first snapshot = %+v", first)
+	if first := <-snapshots; first.Err != nil || len(first.Value.Nodes) != 0 {
+		t.Fatalf("first snapshot = %+v, want no node before the code is used", first)
 	}
-	if _, err := served.service.RenameNode(t.Context(), enrollment.Node.ID, "edge-renamed"); err != nil {
+	if _, err := served.service.FindNode(t.Context(), "edge"); !errors.Is(err, store.ErrNodeNotFound) {
+		t.Fatalf("finding an unused code's name = %v, want ErrNodeNotFound", err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
 	status, err := served.service.Status(t.Context())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].Node.ID != enrollment.NodeID || status.Nodes[0].Node.State != fleet.StateOffline {
+		t.Fatalf("status after enrolling = %+v, %v", status.Nodes, err)
+	}
+	if _, err := served.service.RenameNode(t.Context(), enrollment.NodeID, "edge-renamed"); err != nil {
+		t.Fatal(err)
+	}
+	status, err = served.service.Status(t.Context())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].Node.Name != "edge-renamed" {
 		t.Fatalf("status after the rename = %+v, %v", status.Nodes, err)
 	}

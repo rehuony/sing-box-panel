@@ -20,21 +20,20 @@ var (
 	ErrEnrollmentInvalid = errors.New("enrollment token is invalid, used or expired")
 )
 
-// Node is one registered node: its enrollment state, its identity key once
-// enrolled, and what it last reported about itself.
+// Node is one enrolled node: its identity key and what it last reported
+// about itself.
 type Node struct {
-	ID                  string
-	Name                string
-	CreatedAt           time.Time
-	PublicKey           []byte
-	EnrolledAt          *time.Time
-	EnrollmentExpiresAt *time.Time
-	Hostname            string
-	OS                  string
-	Arch                string
-	BuildVersion        string
-	ProtocolMinor       int
-	LastSeenAt          *time.Time
+	ID            string
+	Name          string
+	CreatedAt     time.Time
+	PublicKey     []byte
+	EnrolledAt    time.Time
+	Hostname      string
+	OS            string
+	Arch          string
+	BuildVersion  string
+	ProtocolMinor int
+	LastSeenAt    *time.Time
 	// SessionID names the node's current session; empty while it has none.
 	SessionID string
 	// InstanceID identifies the node database of its latest session.
@@ -76,16 +75,14 @@ type AppliedBundle struct {
 	ExactCoreVersion string
 }
 
-// NewNode is a node record with a pending enrollment token.
-type NewNode struct {
-	ID        string
+// NewNodeEnrollment is a one-time token that creates node NodeID named Name
+// when a host enrolls with it.
+type NewNodeEnrollment struct {
+	TokenHash [32]byte
+	NodeID    string
 	Name      string
 	CreatedAt time.Time
-	TokenHash [32]byte
 	ExpiresAt time.Time
-	// Configuration, when set, is the node's first configuration file,
-	// saved in the same transaction as the node.
-	Configuration *ConfigurationFileUpdate
 }
 
 // NodeEnrollment is what a node presents when it enrolls.
@@ -97,6 +94,10 @@ type NodeEnrollment struct {
 	BuildVersion  string
 	ProtocolMinor int
 	EnrolledAt    time.Time
+	// Configuration, when set, is the first configuration file of a node the
+	// token creates, saved in the same transaction as the node. A token that
+	// enrolls an existing node ignores it.
+	Configuration *ConfigurationFileUpdate
 }
 
 // NodeSession is what a node reports when its session is authenticated.
@@ -110,7 +111,7 @@ type NodeSession struct {
 	SeenAt        time.Time
 }
 
-const nodeColumns = `id, name, created_at, public_key, enrolled_at, enrollment_expires_at,
+const nodeColumns = `id, name, created_at, public_key, enrolled_at,
 	hostname, os, arch, build_version, protocol_minor, last_seen_at, session_id,
 	instance_id, state_report, reported_at,
 	traffic_quota_gib, traffic_period_months, traffic_reset_day, public_host, tags, settings_revision,
@@ -125,23 +126,6 @@ func (s *Store) PanelID(ctx context.Context, candidate string) (string, error) {
 	var id string
 	err := s.db.QueryRowContext(ctx, `SELECT panel_id FROM fleet_identity WHERE singleton = 1`).Scan(&id)
 	return id, err
-}
-
-func (s *Store) CreateNode(ctx context.Context, input NewNode) (Node, error) {
-	var node Node
-	err := s.WithTx(ctx, func(tx *sql.Tx) error {
-		var err error
-		node, err = scanNodeResult(tx.QueryRowContext(ctx, `INSERT INTO nodes(id, name, created_at, enrollment_token_hash, enrollment_expires_at)
-			VALUES(?,?,?,?,?) RETURNING `+nodeColumns,
-			input.ID, input.Name, formatTime(input.CreatedAt), input.TokenHash[:], formatTime(input.ExpiresAt)))
-		if err != nil || input.Configuration == nil {
-			return err
-		}
-		initial := input.Configuration
-		_, err = saveConfigurationFileTx(ctx, tx, node.ID, initial.ExpectedRevision, initial.Content, initial.Revision)
-		return err
-	})
-	return node, err
 }
 
 func (s *Store) Nodes(ctx context.Context) ([]Node, error) {
@@ -272,39 +256,124 @@ func (s *Store) SaveNodeSettings(ctx context.Context, id string, expectedRevisio
 	return node, err
 }
 
+// DeleteNode removes the node with its unused enrollment token.
 func (s *Store) DeleteNode(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id)
-	if err != nil {
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		if err := expectOneNode(tx.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id)); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM node_enrollments WHERE node_id = ?`, id)
 		return err
-	}
-	if rows, err := result.RowsAffected(); err != nil {
-		return err
-	} else if rows == 0 {
-		return ErrNodeNotFound
-	}
-	return nil
+	})
 }
 
-// IssueNodeEnrollment replaces the node's pending enrollment token. The
-// enrolled key stays valid until a node enrolls with the new token.
-func (s *Store) IssueNodeEnrollment(ctx context.Context, id string, tokenHash [32]byte, expiresAt time.Time) (Node, error) {
-	return scanNodeResult(s.db.QueryRowContext(ctx, `UPDATE nodes SET enrollment_token_hash = ?, enrollment_expires_at = ?
-		WHERE id = ? RETURNING `+nodeColumns, tokenHash[:], formatTime(expiresAt), id))
+// IssueNewNodeEnrollment records a token that creates a node when a host
+// enrolls with it. The token replaces an unused one issued for the same name;
+// it fails with ErrNodeNameConflict while a node has the name.
+func (s *Store) IssueNewNodeEnrollment(ctx context.Context, input NewNodeEnrollment) error {
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		if err := deleteExpiredNodeEnrollments(ctx, tx, input.CreatedAt); err != nil {
+			return err
+		}
+		var used bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM nodes WHERE name = ?)`, input.Name).Scan(&used); err != nil {
+			return err
+		} else if used {
+			return ErrNodeNameConflict
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM node_enrollments WHERE name = ?`, input.Name); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO node_enrollments(token_hash, node_id, name, created_at, expires_at) VALUES(?,?,?,?,?)`,
+			input.TokenHash[:], input.NodeID, input.Name, formatTime(input.CreatedAt), formatTime(input.ExpiresAt))
+		return err
+	})
 }
 
-// EnrollNode consumes an unexpired enrollment token and records the node's
-// key, replacing any key it had.
-func (s *Store) EnrollNode(ctx context.Context, tokenHash [32]byte, input NodeEnrollment) (Node, error) {
-	node, err := scanNodeResult(s.db.QueryRowContext(ctx, `UPDATE nodes SET public_key = ?, enrolled_at = ?,
-		enrollment_token_hash = NULL, enrollment_expires_at = NULL, session_id = NULL,
-		hostname = ?, os = ?, arch = ?, build_version = ?, protocol_minor = ?
-		WHERE enrollment_token_hash = ? AND enrollment_expires_at > ? RETURNING `+nodeColumns,
-		input.PublicKey, formatTime(input.EnrolledAt), input.Hostname, input.OS, input.Arch, input.BuildVersion,
-		input.ProtocolMinor, tokenHash[:], formatTime(input.EnrolledAt)))
-	if errors.Is(err, ErrNodeNotFound) {
-		return Node{}, ErrEnrollmentInvalid
-	}
+// IssueNodeEnrollment replaces the unused token of the enrolled node id. The
+// enrolled key stays valid until a host enrolls with the new token.
+func (s *Store) IssueNodeEnrollment(ctx context.Context, id string, tokenHash [32]byte, createdAt, expiresAt time.Time) (Node, error) {
+	var node Node
+	err := s.WithTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		if node, err = scanNodeResult(tx.QueryRowContext(ctx, `SELECT `+nodeColumns+` FROM nodes WHERE id = ?`, id)); err != nil {
+			return err
+		}
+		if err := deleteExpiredNodeEnrollments(ctx, tx, createdAt); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM node_enrollments WHERE node_id = ?`, id); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO node_enrollments(token_hash, node_id, created_at, expires_at) VALUES(?,?,?,?)`,
+			tokenHash[:], id, formatTime(createdAt), formatTime(expiresAt))
+		return err
+	})
 	return node, err
+}
+
+// CancelNodeEnrollment discards the unused token issued for node id, if
+// any, and reports whether there was one: a new node's token then creates
+// nothing, and an enrolled node keeps its key.
+func (s *Store) CancelNodeEnrollment(ctx context.Context, id string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM node_enrollments WHERE node_id = ?`, id)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
+}
+
+// EnrollNode consumes an unexpired enrollment token. A new node's token
+// creates the node with the key, failing with ErrNodeNameConflict and keeping
+// the token when another node has taken its name; an enrolled node's token
+// replaces its key. created reports which one happened.
+func (s *Store) EnrollNode(ctx context.Context, tokenHash [32]byte, input NodeEnrollment) (node Node, created bool, err error) {
+	err = s.WithTx(ctx, func(tx *sql.Tx) error {
+		if err := deleteExpiredNodeEnrollments(ctx, tx, input.EnrolledAt); err != nil {
+			return err
+		}
+		var id string
+		var name sql.NullString
+		err := tx.QueryRowContext(ctx, `DELETE FROM node_enrollments WHERE token_hash = ? RETURNING node_id, name`, tokenHash[:]).Scan(&id, &name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrEnrollmentInvalid
+		} else if err != nil {
+			return err
+		}
+		enrolledAt := formatTime(input.EnrolledAt)
+		if !name.Valid {
+			node, err = scanNodeResult(tx.QueryRowContext(ctx, `UPDATE nodes SET public_key = ?, enrolled_at = ?, session_id = NULL,
+				hostname = ?, os = ?, arch = ?, build_version = ?, protocol_minor = ?
+				WHERE id = ? RETURNING `+nodeColumns,
+				input.PublicKey, enrolledAt, input.Hostname, input.OS, input.Arch, input.BuildVersion, input.ProtocolMinor, id))
+			if errors.Is(err, ErrNodeNotFound) {
+				return ErrEnrollmentInvalid
+			}
+			return err
+		}
+		created = true
+		node, err = scanNodeResult(tx.QueryRowContext(ctx, `INSERT INTO nodes(id, name, created_at, public_key, enrolled_at,
+			hostname, os, arch, build_version, protocol_minor) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING `+nodeColumns,
+			id, name.String, enrolledAt, input.PublicKey, enrolledAt,
+			input.Hostname, input.OS, input.Arch, input.BuildVersion, input.ProtocolMinor))
+		if err != nil || input.Configuration == nil {
+			return err
+		}
+		initial := input.Configuration
+		_, err = saveConfigurationFileTx(ctx, tx, node.ID, initial.ExpectedRevision, initial.Content, initial.Revision)
+		return err
+	})
+	if err != nil {
+		return Node{}, false, err
+	}
+	return node, created, nil
+}
+
+// deleteExpiredNodeEnrollments removes the tokens that expired by now.
+func deleteExpiredNodeEnrollments(ctx context.Context, tx *sql.Tx, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM node_enrollments WHERE expires_at <= ?`, formatTime(now))
+	return err
 }
 
 // RecordNodeSession makes input the current session of the node enrolled
@@ -374,13 +443,13 @@ func scanNodeResult(row *sql.Row) (Node, error) {
 
 func scanNode(row rowScanner) (Node, error) {
 	var node Node
-	var createdAt string
-	var enrolledAt, expiresAt, lastSeenAt, sessionID, instanceID, reportedAt sql.NullString
+	var createdAt, enrolledAt string
+	var lastSeenAt, sessionID, instanceID, reportedAt sql.NullString
 	var appliedID, appliedRevision, appliedSHA256, appliedVersion sql.NullString
 	var quota sql.NullInt64
 	var tags string
 	settings := &node.Settings
-	if err := row.Scan(&node.ID, &node.Name, &createdAt, &node.PublicKey, &enrolledAt, &expiresAt,
+	if err := row.Scan(&node.ID, &node.Name, &createdAt, &node.PublicKey, &enrolledAt,
 		&node.Hostname, &node.OS, &node.Arch, &node.BuildVersion, &node.ProtocolMinor, &lastSeenAt, &sessionID,
 		&instanceID, &node.StateReport, &reportedAt,
 		&quota, &settings.Traffic.PeriodMonths, &settings.Traffic.ResetDay, &settings.PublicHost, &tags, &settings.Revision,
@@ -403,10 +472,13 @@ func scanNode(row rowScanner) (Node, error) {
 	if node.CreatedAt, err = parseTime(createdAt); err != nil {
 		return Node{}, err
 	}
+	if node.EnrolledAt, err = parseTime(enrolledAt); err != nil {
+		return Node{}, err
+	}
 	for _, field := range []struct {
 		raw    sql.NullString
 		target **time.Time
-	}{{enrolledAt, &node.EnrolledAt}, {expiresAt, &node.EnrollmentExpiresAt}, {lastSeenAt, &node.LastSeenAt}, {reportedAt, &node.ReportedAt}} {
+	}{{lastSeenAt, &node.LastSeenAt}, {reportedAt, &node.ReportedAt}} {
 		if !field.raw.Valid {
 			continue
 		}

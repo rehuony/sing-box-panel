@@ -52,12 +52,12 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   return (
     <Tabs className='min-h-0 flex-1 gap-3' value={category} onValueChange={value => setCategory(String(value))}>
       <TitleStrip>
-        <TabsList aria-label={t('panelSettings.title')} className='max-w-full overflow-x-auto [scrollbar-width:none] max-sm:hidden'>
+        <TabsList aria-label={t('panelSettings.title')} className='max-w-full overflow-x-auto [scrollbar-width:none] max-sm:hidden' variant='pill'>
           {settingsCategories.map(key => <TabsTrigger className='flex-none' value={key} key={key}>{t(`panelSettings.${key}`)}</TabsTrigger>)}
         </TabsList>
         <div className='min-w-0 flex-1 sm:hidden'>
           <Select value={category} onValueChange={value => value && setCategory(value)}>
-            <SelectTrigger aria-label={t('panelSettings.category')} className='w-full'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
+            <SelectTrigger aria-label={t('panelSettings.category')} className='w-full text-foreground' variant='flat'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
             <SelectContent>{settingsCategories.map(key => <SelectItem key={key} value={key}>{t(`panelSettings.${key}`)}</SelectItem>)}</SelectContent>
           </Select>
         </div>
@@ -140,7 +140,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               <SettingsField id='radius' invalid={invalidField === 'radius'} label={t('panelSettings.radius')} help={t('panelSettings.radiusHelp')}>
                 <div className='grid grid-cols-[minmax(24px,1fr)_56px_auto] items-center gap-1.5 min-[361px]:grid-cols-[minmax(40px,1fr)_56px_auto] min-[361px]:gap-2'>
                   <Slider aria-label={t('panelSettings.radius')} min={0} max={32} step={1} value={[preferences.appearance.radius]} onValueChange={value => appearance({ radius: Array.isArray(value) ? value[0]! : value })} />
-                  <div className='flex h-(--control-height) items-center gap-1 rounded-[var(--radius-control)] border border-input bg-transparent pr-1.5 focus-within:border-[var(--input-focus)] dark:bg-[color-mix(in_oklab,var(--input)_30%,transparent)]'>
+                  <div className='flex h-(--control-height) items-center gap-1 rounded-[var(--radius-control)] border border-input bg-[var(--color-field)] pr-1.5 focus-within:border-[var(--input-focus)]'>
                     <Input id='radius' className='h-full min-h-0 [appearance:textfield] border-0 bg-transparent py-0 pr-0 pl-1.5 text-right tabular-nums shadow-none outline-none focus-visible:outline-none dark:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none' aria-invalid={invalidField === 'radius' || undefined} type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
                     <span aria-hidden='true' className='text-sm text-muted-foreground'>px</span>
                   </div>

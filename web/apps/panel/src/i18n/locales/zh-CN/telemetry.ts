@@ -32,7 +32,6 @@ export const telemetry = {
     uptime: '运行时长',
     version: '版本',
   },
-  moreActions: '运行操作',
   runtime: {
     evidenceUnavailable: '运行证据不可用',
     inspectionUnavailable: '无法检查运行状态',

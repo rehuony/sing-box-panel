@@ -343,7 +343,7 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 		return status.Error(codes.InvalidArgument, "Hello is malformed")
 	}
 	node, err := service.database.Node(ctx, hello.GetNodeId())
-	if errors.Is(err, store.ErrNodeNotFound) || (err == nil && node.PublicKey == nil) {
+	if errors.Is(err, store.ErrNodeNotFound) {
 		return status.Error(codes.Unauthenticated, "node is not enrolled")
 	}
 	if err != nil {

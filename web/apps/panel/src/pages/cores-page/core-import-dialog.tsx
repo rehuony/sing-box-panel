@@ -92,7 +92,7 @@ export function CoreImportDialog({
             <Field data-disabled={busy} data-invalid={!!fileError}>
               <FieldLabel htmlFor={`${id}-archive`} className='sr-only'>{t('cores.import.archive')}</FieldLabel>
               <div
-                className='relative flex min-h-40 min-w-0 flex-col items-center justify-center gap-3.5 rounded-[var(--radius-control)] border border-dashed bg-muted px-5 py-6 text-foreground transition-[background-color,border-color] duration-150 has-focus-visible:outline-1 has-focus-visible:-outline-offset-1 has-focus-visible:outline-[var(--input-focus)] data-[disabled=true]:opacity-50 data-[dragging=true]:border-primary data-[dragging=true]:bg-accent data-[invalid=true]:border-destructive [&:not([data-disabled=true]):hover]:border-primary [&:not([data-disabled=true]):hover]:bg-accent [&>svg]:pointer-events-none [&>svg]:size-8 [&>svg]:stroke-[1.5] [&>svg]:text-muted-foreground'
+                className='relative flex min-h-40 min-w-0 flex-col items-center justify-center gap-3.5 rounded-[var(--radius-control)] border border-dashed bg-muted px-5 py-6 text-foreground transition-[background-color,border-color] duration-150 has-focus-visible:outline-1 has-focus-visible:-outline-offset-1 has-focus-visible:outline-[var(--input-focus)] data-[disabled=true]:opacity-50 data-[dragging=true]:border-primary data-[dragging=true]:bg-accent data-[invalid=true]:border-destructive [&:not([data-disabled=true]):hover]:border-[var(--color-border-strong)] [&>svg]:pointer-events-none [&>svg]:size-8 [&>svg]:stroke-[1.5] [&>svg]:text-muted-foreground'
                 data-dragging={dragging}
                 data-disabled={busy}
                 data-invalid={!!fileError}

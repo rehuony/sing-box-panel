@@ -66,6 +66,7 @@ var routes = []route{
 	{http.MethodPut, "/nodes/{nodeId}", "updateNode", accessSession, withPathValue("nodeId", (*Handler).updateNode)},
 	{http.MethodDelete, "/nodes/{nodeId}", "deleteNode", accessSession, withPathValue("nodeId", (*Handler).deleteNode)},
 	{http.MethodPost, "/nodes/{nodeId}/enrollment", "createNodeEnrollment", accessSession, withPathValue("nodeId", (*Handler).createNodeEnrollment)},
+	{http.MethodDelete, "/nodes/{nodeId}/enrollment", "cancelNodeEnrollment", accessSession, withPathValue("nodeId", (*Handler).cancelNodeEnrollment)},
 	{http.MethodGet, "/nodes/{nodeId}/settings", "getNodeSettings", accessNode, (*Handler).nodeSettings},
 	{http.MethodPut, "/nodes/{nodeId}/settings", "saveNodeSettings", accessNode, (*Handler).saveNodeSettings},
 	{http.MethodPost, "/nodes/{nodeId}/update", "updateNodeRelease", accessNode, (*Handler).updateNodeRelease},

@@ -164,6 +164,8 @@ export const productLogs = {
     'node.delete.failed': '节点移除操作失败',
     'node.enrollment.issue.completed': '接入代码已签发',
     'node.enrollment.issue.failed': '接入代码签发失败',
+    'node.enrollment.cancel.completed': '接入代码已作废',
+    'node.enrollment.cancel.failed': '接入代码作废失败',
     'node.settings.save.completed': '节点设置保存操作完成',
     'node.settings.save.failed': '节点设置保存操作失败',
     'node.enrolled': '节点已接入',

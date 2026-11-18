@@ -17,7 +17,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
@@ -36,7 +35,6 @@ const MaximumNameLength = 64
 
 // Node states shown by the management API.
 const (
-	StatePending = "pending"
 	StateOnline  = "online"
 	StateOffline = "offline"
 )
@@ -52,7 +50,7 @@ type Node struct {
 	Name         string     `json:"name"`
 	State        string     `json:"state"`
 	CreatedAt    time.Time  `json:"created_at"`
-	EnrolledAt   *time.Time `json:"enrolled_at"`
+	EnrolledAt   time.Time  `json:"enrolled_at"`
 	LastSeenAt   *time.Time `json:"last_seen_at"`
 	Hostname     string     `json:"hostname"`
 	OS           string     `json:"os"`
@@ -64,16 +62,18 @@ type Node struct {
 	ReportedAt *time.Time     `json:"reported_at"`
 	PublicIP   string         `json:"public_ip"`
 	Runtime    *RuntimeStatus `json:"runtime,omitempty"`
-	// UpdateAvailable reports an enrolled node whose version differs from
-	// the node release the panel distributes.
+	// UpdateAvailable reports a node whose version differs from the node
+	// release the panel distributes.
 	UpdateAvailable bool `json:"update_available"`
 	// LastUpdate is the node's last update attempt as it reported it.
 	LastUpdate *UpdateAttempt `json:"last_update"`
 }
 
-// Enrollment is a one-time code that enrolls, or re-enrolls, a node.
+// Enrollment is a one-time code that enrolls a new node, which exists once a
+// host enrolls with it, or enrolls an existing node again.
 type Enrollment struct {
-	Node      Node      `json:"node"`
+	NodeID    string    `json:"node_id"`
+	Name      string    `json:"name"`
 	Code      string    `json:"code"`
 	Command   string    `json:"command"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -204,11 +204,13 @@ func (service *Service) FindNode(ctx context.Context, idOrName string) (Node, er
 	return service.view(record), nil
 }
 
-// AddNode registers a node and returns the code that enrolls it.
+// AddNode returns the code that enrolls a new node named name. The node
+// exists, with a preassigned ID, once a host enrolls with the code; until
+// then no list, status or command includes it. A new code for the same name
+// replaces an unused one.
 func (service *Service) AddNode(ctx context.Context, name string) (result Enrollment, err error) {
 	defer func() {
-		service.expireStatus()
-		service.records.RecordOperation(ctx, "node.create", "Node creation", err, telemetry.OperationLogContext{NodeID: result.Node.ID})
+		service.records.RecordOperation(ctx, "node.enrollment.issue", "Node enrollment code", err, telemetry.OperationLogContext{NodeID: result.NodeID})
 	}()
 	if !validName(name) {
 		return Enrollment{}, ErrNameInvalid
@@ -222,37 +224,43 @@ func (service *Service) AddNode(ctx context.Context, name string) (result Enroll
 		return Enrollment{}, err
 	}
 	now := service.now().UTC()
-	// The node starts with the empty document, saved with it.
-	initial, err := store.NewConfigurationFileUpdate(service.random, now, 0, string(configuration.Empty().CanonicalJSON()))
-	if err != nil {
+	input := store.NewNodeEnrollment{
+		TokenHash: nodeapi.TokenHash(code.Token), NodeID: id, Name: name, CreatedAt: now, ExpiresAt: now.Add(EnrollmentLifetime),
+	}
+	if err := service.database.IssueNewNodeEnrollment(ctx, input); err != nil {
 		return Enrollment{}, err
 	}
-	record, err := service.database.CreateNode(ctx, store.NewNode{
-		ID: id, Name: name, CreatedAt: now, TokenHash: nodeapi.TokenHash(code.Token), ExpiresAt: now.Add(EnrollmentLifetime),
-		Configuration: initial,
-	})
-	if err != nil {
-		return Enrollment{}, err
-	}
-	return service.enrollment(record, code), nil
+	return enrollment(id, name, code, input.ExpiresAt), nil
 }
 
-// IssueEnrollment returns a new code for an existing node. Enrolling with it
-// replaces the node's key and ends its session.
+// IssueEnrollment returns a new code for an existing node, replacing an
+// unused one. Enrolling with it replaces the node's key and ends its session.
 func (service *Service) IssueEnrollment(ctx context.Context, id string) (result Enrollment, err error) {
 	defer func() {
-		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.enrollment.issue", "Node enrollment code", err, telemetry.OperationLogContext{NodeID: id})
 	}()
 	code, err := service.newCode(ctx)
 	if err != nil {
 		return Enrollment{}, err
 	}
-	record, err := service.database.IssueNodeEnrollment(ctx, id, nodeapi.TokenHash(code.Token), service.now().UTC().Add(EnrollmentLifetime))
+	now := service.now().UTC()
+	expiresAt := now.Add(EnrollmentLifetime)
+	record, err := service.database.IssueNodeEnrollment(ctx, id, nodeapi.TokenHash(code.Token), now, expiresAt)
 	if err != nil {
 		return Enrollment{}, err
 	}
-	return service.enrollment(record, code), nil
+	return enrollment(record.ID, record.Name, code, expiresAt), nil
+}
+
+// CancelEnrollment discards the unused code issued for node id, if any: a
+// new node's code then creates nothing, and an enrolled node keeps its key.
+// Only a discarded code or a failure is recorded.
+func (service *Service) CancelEnrollment(ctx context.Context, id string) error {
+	canceled, err := service.database.CancelNodeEnrollment(ctx, id)
+	if canceled || err != nil {
+		service.records.RecordOperation(ctx, "node.enrollment.cancel", "Node enrollment code cancellation", err, telemetry.OperationLogContext{NodeID: id})
+	}
+	return err
 }
 
 func (service *Service) RenameNode(ctx context.Context, id, name string) (result Node, err error) {
@@ -314,12 +322,9 @@ func (service *Service) newCode(ctx context.Context) (nodeapi.EnrollmentCode, er
 	return code, nil
 }
 
-func (service *Service) enrollment(record store.Node, code nodeapi.EnrollmentCode) Enrollment {
+func enrollment(id, name string, code nodeapi.EnrollmentCode, expiresAt time.Time) Enrollment {
 	encoded := code.String()
-	return Enrollment{
-		Node: service.view(record), Code: encoded,
-		Command: "sing-box-node enroll --code " + encoded, ExpiresAt: *record.EnrollmentExpiresAt,
-	}
+	return Enrollment{NodeID: id, Name: name, Code: encoded, Command: "sing-box-node enroll --code " + encoded, ExpiresAt: expiresAt}
 }
 
 func (service *Service) view(record store.Node) Node {
@@ -330,10 +335,7 @@ func (service *Service) view(record store.Node) Node {
 // report, against release, the node release the panel distributes.
 func nodeView(record store.Node, reported *NodeState, release string) Node {
 	state := StateOffline
-	switch {
-	case record.EnrolledAt == nil:
-		state = StatePending
-	case record.SessionID != "":
+	if record.SessionID != "" {
 		state = StateOnline
 	}
 	view := Node{
@@ -347,7 +349,7 @@ func nodeView(record store.Node, reported *NodeState, release string) Node {
 		view.ReportedAt, view.PublicIP, view.Runtime = &reported.ReportedAt, reported.Report.GetHost().GetPublicIp(), &runtime
 		view.LastUpdate = updateAttemptView(reported.Report.GetLastUpdate())
 	}
-	view.UpdateAvailable = release != "" && record.EnrolledAt != nil && record.BuildVersion != "" && record.BuildVersion != release
+	view.UpdateAvailable = release != "" && record.BuildVersion != "" && record.BuildVersion != release
 	return view
 }
 

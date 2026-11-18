@@ -792,7 +792,7 @@ paths:
   /nodes:
     get:
       operationId: listNodes
-      description: Registered nodes with their enrollment and session state.
+      description: Enrolled nodes with their session state.
       responses:
         "200":
           description: Nodes ordered by name.
@@ -802,8 +802,12 @@ paths:
     post:
       operationId: createNode
       description: >-
-        Registers a node and returns its one-time enrollment code, which the
-        node redeems with sing-box-node enroll. Responses are no-store.
+        Issues the one-time enrollment code for a new node, which a host
+        redeems with sing-box-node enroll. The node exists, with the returned
+        ID, only once a host enrolls with the code: until then no node list,
+        status, stream, count, fleet command or name lookup includes it. A new
+        code for the same name, ignoring case, replaces an unused one; a name
+        an enrolled node uses is a conflict. Responses are no-store.
       parameters:
         - $ref: '#/components/parameters/CSRFToken'
       requestBody:
@@ -869,9 +873,10 @@ paths:
     post:
       operationId: createNodeEnrollment
       description: >-
-        Issues a new one-time enrollment code for the node. Enrolling with it
-        replaces the node's key and ends its session; the current key stays
-        valid until then. Responses are no-store.
+        Issues a new one-time enrollment code for the node, replacing an
+        unused one. Enrolling with it replaces the node's key and ends its
+        session; the current key stays valid until then. Responses are
+        no-store.
       parameters:
         - $ref: '#/components/parameters/CSRFToken'
       responses:
@@ -881,6 +886,17 @@ paths:
           $ref: '#/components/responses/Problem'
         "409":
           $ref: '#/components/responses/Problem'
+    delete:
+      operationId: cancelNodeEnrollment
+      description: >-
+        Discards the unused enrollment code issued for this node ID, whether a
+        new node's, which then creates nothing, or an enrolled node's, which
+        keeps its key. Succeeds when there is no such code.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "204":
+          $ref: '#/components/responses/NoContent'
   /subscription/nodes:
     get:
       operationId: listSubscriptionNodes
@@ -1788,7 +1804,7 @@ components:
       description: Only nodes in this state.
       schema:
         type: string
-        enum: [pending, online, offline]
+        enum: [online, offline]
     FleetTag:
       name: tag
       in: query
@@ -2226,7 +2242,7 @@ components:
     NoContent:
       description: Operation completed without a response body.
     NodeEnrollment:
-      description: The node and its one-time enrollment code. Never cached.
+      description: A node's one-time enrollment code. Never cached.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/NodeEnrollment'}
@@ -2375,12 +2391,16 @@ components:
         name: {type: string, minLength: 1, maxLength: 64}
         state:
           type: string
-          enum: [pending, online, offline]
-          description: pending until the node first enrolls; online while it holds an authenticated session.
-        created_at: {type: string, format: date-time}
-        enrolled_at:
-          type: [string, "null"]
+          enum: [online, offline]
+          description: online while the node holds an authenticated session.
+        created_at:
+          type: string
           format: date-time
+          description: When the node first enrolled.
+        enrolled_at:
+          type: string
+          format: date-time
+          description: When the node last enrolled.
         last_seen_at:
           type: [string, "null"]
           format: date-time
@@ -2412,7 +2432,7 @@ components:
           description: The runtime state the node last reported; absent before its first report.
         update_available:
           type: boolean
-          description: The node is enrolled and its version differs from the panel's release; always false on a panel that is not a release build.
+          description: The node's version differs from the panel's release; always false on a panel that is not a release build.
         last_update:
           description: The node's last update attempt as it last reported it; after its root update helper's attempt the node reports it once it runs again.
           oneOf:
@@ -2591,9 +2611,12 @@ components:
     NodeEnrollment:
       type: object
       additionalProperties: false
-      required: [node, code, command, expires_at]
+      required: [node_id, name, code, command, expires_at]
       properties:
-        node: {$ref: '#/components/schemas/Node'}
+        node_id:
+          type: string
+          description: The node the code enrolls; a new node takes this ID when it enrolls.
+        name: {type: string, minLength: 1, maxLength: 64}
         code:
           type: string
           description: >-

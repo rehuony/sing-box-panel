@@ -31,6 +31,8 @@ const tabsListVariants = cva(
       variant: {
         default: 'bg-muted',
         line: 'gap-1 bg-transparent',
+        // A bar's tabs: no track, the current one on the accent's soft fill.
+        pill: 'min-h-(--control-height-sm) gap-0.5 bg-transparent p-0',
       },
     },
     defaultVariants: {
@@ -61,7 +63,9 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
       className={cn(
         'relative inline-flex min-h-[calc(var(--control-height)-2*var(--tabs-inset,3px))] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap text-foreground/60 transition-[background-color,color,border-color,box-shadow] data-vertical:w-full data-vertical:justify-start hover:text-foreground outline-none disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=\'size-\'])]:size-4',
         'group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent',
-        'data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground',
+        'data-active:border-border data-active:bg-card data-active:text-foreground',
+        'group-data-[variant=pill]/tabs-list:min-h-(--control-height-sm) group-data-[variant=pill]/tabs-list:px-2.5 group-data-[variant=pill]/tabs-list:text-[var(--color-text-secondary)] dark:group-data-[variant=pill]/tabs-list:text-[var(--color-text-secondary)] group-data-[variant=pill]/tabs-list:hover:bg-[var(--color-hover)] group-data-[variant=pill]/tabs-list:hover:text-foreground group-data-[variant=pill]/tabs-list:focus-visible:ring-2 group-data-[variant=pill]/tabs-list:focus-visible:ring-ring',
+        'group-data-[variant=pill]/tabs-list:data-active:border-transparent group-data-[variant=pill]/tabs-list:data-active:bg-accent group-data-[variant=pill]/tabs-list:data-active:text-foreground group-data-[variant=pill]/tabs-list:data-active:shadow-none dark:group-data-[variant=pill]/tabs-list:data-active:border-transparent dark:group-data-[variant=pill]/tabs-list:data-active:bg-accent dark:group-data-[variant=pill]/tabs-list:data-active:text-foreground',
         'after:absolute after:bg-foreground after:opacity-0 after:transition-opacity data-horizontal:after:inset-x-0 data-horizontal:after:bottom-[-5px] data-horizontal:after:h-0.5 data-vertical:after:inset-y-0 data-vertical:after:-right-1 data-vertical:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100',
         className,
       )}

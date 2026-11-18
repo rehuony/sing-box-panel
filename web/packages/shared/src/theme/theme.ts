@@ -7,8 +7,8 @@ export const THEME_STORAGE_KEY = 'sing-box-panel.theme';
 export const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
 
 const THEME_COLORS: Record<ResolvedTheme, string> = {
-  light: '#f7f7fb',
-  dark: '#090b12',
+  light: '#eeeef2',
+  dark: '#1c1d24',
 };
 
 export function isThemePreference(value: unknown): value is ThemePreference {

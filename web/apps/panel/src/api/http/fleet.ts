@@ -64,6 +64,9 @@ export function createFleetHttpApi(context: HttpApiContext) {
         method: 'POST', headers: writeHeaders(), signal,
       });
     },
+    cancelNodeEnrollment(nodeID, keepalive = false) {
+      return request<void>(fetcher, `${nodeUrl(nodeID)}/enrollment`, { method: 'DELETE', headers: writeHeaders(), keepalive });
+    },
   } satisfies Pick<ApiClient, 'listFleetNodes' | 'getFleetStatus' | 'streamFleetStatus' | 'runFleetCommand' | 'createNode'
-  | 'renameNode' | 'deleteNode' | 'createNodeEnrollment'>;
+  | 'renameNode' | 'deleteNode' | 'createNodeEnrollment' | 'cancelNodeEnrollment'>;
 }

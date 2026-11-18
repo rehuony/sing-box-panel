@@ -6,6 +6,7 @@ export const dashboard = {
     memory: '主机内存',
     disk: '磁盘使用',
     transfer: '周期流量',
+    label: '节点概况',
     quota: '已用 {{used}} · 额度 {{total}}',
     noQuota: '未设置流量额度',
     countUnit: '个',

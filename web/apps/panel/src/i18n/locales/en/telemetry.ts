@@ -32,7 +32,6 @@ export const telemetry = {
     uptime: 'Uptime',
     version: 'Version',
   },
-  moreActions: 'Runtime actions',
   runtime: {
     evidenceUnavailable: 'Runtime evidence unavailable',
     inspectionUnavailable: 'Runtime inspection unavailable',

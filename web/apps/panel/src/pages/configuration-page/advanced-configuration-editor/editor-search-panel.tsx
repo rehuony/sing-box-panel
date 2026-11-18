@@ -50,7 +50,7 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
         {showReplace ? <ChevronDown /> : <ChevronRight />}
       </Button>
       <div className='col-start-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 pointer-coarse:grid-cols-1 @max-[420px]:grid-cols-1'>
-        <div className='flex min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] px-0.5 focus-within:border-[var(--input-focus)] *:aria-pressed:bg-accent *:aria-pressed:text-primary [&>input]:h-[calc(var(--control-height-sm)-2px)] [&>input]:min-h-0 [&>input]:w-0 [&>input]:flex-1 [&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-1 [&>input]:text-sm [&>input]:shadow-none [&>input]:outline-none dark:[&>input]:bg-transparent'>
+        <div className='flex min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] px-0.5 focus-within:border-[var(--input-focus)] *:aria-pressed:bg-accent *:aria-pressed:text-foreground [&>input]:h-[calc(var(--control-height-sm)-2px)] [&>input]:min-h-0 [&>input]:w-0 [&>input]:flex-1 [&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-1 [&>input]:text-sm [&>input]:shadow-none [&>input]:outline-none dark:[&>input]:bg-transparent'>
           <Input ref={inputRef} main-field='true' aria-label={t('configuration.advanced.find')} placeholder={t('configuration.advanced.find')} aria-invalid={invalid} autoComplete='off' spellCheck={false} value={query.search} onChange={event => update({ search: event.target.value })} onKeyDown={event => {
             if (event.key === 'Enter') {
               event.preventDefault();
@@ -77,7 +77,7 @@ export function EditorSearchPanel({ host }: { host: SearchPanelHost }) {
       </div>
       {showReplace && (
         <div className='col-start-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 pointer-coarse:grid-cols-1 @max-[420px]:grid-cols-1'>
-          <div className='flex min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] px-0.5 focus-within:border-[var(--input-focus)] *:aria-pressed:bg-accent *:aria-pressed:text-primary [&>input]:h-[calc(var(--control-height-sm)-2px)] [&>input]:min-h-0 [&>input]:w-0 [&>input]:flex-1 [&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-1 [&>input]:text-sm [&>input]:shadow-none [&>input]:outline-none dark:[&>input]:bg-transparent'>
+          <div className='flex min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] px-0.5 focus-within:border-[var(--input-focus)] *:aria-pressed:bg-accent *:aria-pressed:text-foreground [&>input]:h-[calc(var(--control-height-sm)-2px)] [&>input]:min-h-0 [&>input]:w-0 [&>input]:flex-1 [&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-1 [&>input]:text-sm [&>input]:shadow-none [&>input]:outline-none dark:[&>input]:bg-transparent'>
             <Input aria-label={t('configuration.advanced.replace')} placeholder={t('configuration.advanced.replace')} autoComplete='off' spellCheck={false} disabled={state.readOnly} value={query.replace} onChange={event => update({ replace: event.target.value })} onKeyDown={event => {
               if (event.key === 'Enter') {
                 event.preventDefault();

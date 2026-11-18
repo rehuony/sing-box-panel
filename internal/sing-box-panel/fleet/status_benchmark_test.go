@@ -77,8 +77,8 @@ func seedReportingFleet(b *testing.B, count int) reportingFleet {
 		if err != nil {
 			b.Fatal(err)
 		}
-		id := enrollment.Node.ID
-		if _, err := database.EnrollNode(ctx, nodeapi.TokenHash(code.Token), store.NodeEnrollment{
+		id := enrollment.NodeID
+		if _, _, err := database.EnrollNode(ctx, nodeapi.TokenHash(code.Token), store.NodeEnrollment{
 			PublicKey: publicKey, Hostname: "host", OS: "linux", Arch: "amd64", BuildVersion: "test", EnrolledAt: at,
 		}); err != nil {
 			b.Fatal(err)

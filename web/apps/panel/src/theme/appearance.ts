@@ -65,7 +65,6 @@ export function appearanceTokens(appearance: AppearanceSettings, dark = false): 
     '--appearance-color': color,
     '--primary': accent,
     '--primary-foreground': onAccent,
-    '--color-accent-hover': hex(mix(foreground, target, 0.12)),
     '--accent': soft,
     '--radius-card': `${radius}px`,
     '--radius-control': `${radius / 2}px`,

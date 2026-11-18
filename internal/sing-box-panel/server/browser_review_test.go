@@ -4,9 +4,6 @@ package server
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -26,6 +23,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -36,6 +34,9 @@ import (
 // TestBrowserReview serves the real HTTP boundary and built web assets against
 // an isolated database for manual browser verification on development hosts.
 // It deliberately has no runtime executor: it cannot validate process lifecycle.
+// Without a seeded fleet, nodes can enroll and connect on the same port, as
+// with the real server; a seeded fleet's sessions are recorded directly, and
+// the node service would clear them when it starts.
 // Run with SBP_BROWSER_REVIEW=1 go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 30m.
 // SBP_BROWSER_NODES sets the number of subscription nodes; SBP_BROWSER_FLEET
 // seeds that many fleet nodes, none with 0, in place of the two default ones.
@@ -101,7 +102,8 @@ func TestBrowserReview(t *testing.T) {
 	if fleetCount >= 0 {
 		go feedReviewFleet(ctx, commands.Telemetry, seedReviewFleet(t, db, fleetCount))
 	} else {
-		// Fleet nodes that never enrolled, so node-scoped pages show their states.
+		// Fleet nodes that never connected, so node-scoped pages show their
+		// offline states.
 		for _, name := range []string{"edge-tokyo", "edge-frankfurt"} {
 			testutil.CreateNode(t, db, name)
 		}
@@ -114,11 +116,17 @@ func TestBrowserReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	web := listener
+	if fleetCount <= 0 {
+		var nodes fleet.NodeListeners
+		web, nodes = fleet.SplitListener(listener)
+		go func() { _ = commands.Fleet.Serve(ctx, nodes) }()
+	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	defer server.Close()
 	go func() { <-ctx.Done(); _ = server.Close() }()
 	t.Log("Browser review: http://127.0.0.1:3337/panel (isolated database; no runtime executor)")
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+	if err := server.Serve(web); err != nil && err != http.ErrServerClosed {
 		t.Fatal(err)
 	}
 }
@@ -134,13 +142,13 @@ type reviewNode struct {
 	upload, download int64
 }
 
-// seedReviewFleet adds count fleet nodes in mixed states and returns the
-// online ones: every sixth never enrolled; of the rest, every other one has a
-// recorded session and a state report, which the review server shows online,
-// and the others went offline at increasing times. Every fourth has a long
-// name, every node carries one to three tags, every eighth enrolled one runs
-// an older release, and online nodes cycle through no quota, a reached quota,
-// a nearly reached one and a comfortable one.
+// seedReviewFleet enrolls count fleet nodes in mixed states and returns the
+// online ones: every other one has a recorded session and a state report,
+// which the review server shows online, and the others went offline at
+// increasing times. Every fourth has a long name, every node carries one to
+// three tags, every eighth runs an older release, and online nodes cycle
+// through no quota, a reached quota, a nearly reached one and a comfortable
+// one.
 func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNode {
 	t.Helper()
 	ctx, now := t.Context(), time.Now().UTC()
@@ -152,14 +160,17 @@ func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNo
 		if index%4 == 3 {
 			name = fmt.Sprintf("%s-equinix-premium-relay-%03d-with-a-rather-long-name", region, index+1)
 		}
-		token := sha256.Sum256(fmt.Appendf(nil, "token-review-%03d", index+1))
-		node, err := database.CreateNode(ctx, store.NewNode{
-			ID: fmt.Sprintf("node_review_%03d", index+1), Name: name,
-			CreatedAt: now.Add(-time.Duration(index) * time.Hour), ExpiresAt: now.Add(time.Hour), TokenHash: token,
-		})
-		if err != nil {
-			t.Fatal(err)
+		arch, version := "amd64", reviewRelease
+		if index%2 == 1 {
+			arch = "arm64"
 		}
+		if index%8 == 0 {
+			version = "v0.9.0"
+		}
+		id, key := testutil.EnrollNode(t, database, name, store.NodeEnrollment{
+			Hostname: name + ".review.example.net", OS: "linux", Arch: arch,
+			BuildVersion: version, EnrolledAt: now.Add(-time.Duration(index) * time.Hour),
+		})
 		tags := []string{region}
 		if index%4 == 3 {
 			tags = append(tags, "premium")
@@ -177,40 +188,20 @@ func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNo
 		case 4:
 			quota = new(int64(500))
 		}
-		if _, err := database.SaveNodeSettings(ctx, node.ID, 1, store.NodeSettings{
+		if _, err := database.SaveNodeSettings(ctx, id, 1, store.NodeSettings{
 			Traffic: store.NodeTrafficSettings{PeriodMonths: 1, ResetDay: 1, QuotaGiB: quota}, Tags: tags,
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if index%6 == 5 {
-			continue
-		}
-		key := make([]byte, ed25519.PublicKeySize)
-		if _, err := rand.Read(key); err != nil {
-			t.Fatal(err)
-		}
-		arch, version := "amd64", reviewRelease
-		if index%2 == 1 {
-			arch = "arm64"
-		}
-		if index%8 == 0 {
-			version = "v0.9.0"
-		}
-		if _, err := database.EnrollNode(ctx, token, store.NodeEnrollment{
-			PublicKey: key, Hostname: name + ".review.example.net", OS: "linux", Arch: arch,
-			BuildVersion: version, EnrolledAt: now.Add(-time.Duration(index) * time.Hour),
 		}); err != nil {
 			t.Fatal(err)
 		}
 		seen := now.Add(-time.Duration(index*7) * time.Minute)
 		if index%2 == 1 {
-			if err := database.TouchNode(ctx, node.ID, key, seen); err != nil {
+			if err := database.TouchNode(ctx, id, key, seen); err != nil {
 				t.Fatal(err)
 			}
 			continue
 		}
 		session := fmt.Sprintf("session_review_%03d", index+1)
-		if err := database.RecordNodeSession(ctx, node.ID, key, store.NodeSession{
+		if err := database.RecordNodeSession(ctx, id, key, store.NodeSession{
 			ID: session, InstanceID: "instance_" + session, OS: "linux", Arch: arch, BuildVersion: version, SeenAt: now,
 		}); err != nil {
 			t.Fatal(err)
@@ -220,10 +211,10 @@ func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNo
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := database.RecordNodeStateReport(ctx, node.ID, session, encoded, summary, now); err != nil {
+		if err := database.RecordNodeStateReport(ctx, id, session, encoded, summary, now); err != nil {
 			t.Fatal(err)
 		}
-		online = append(online, &reviewNode{id: node.ID, instance: "instance_" + session, index: index})
+		online = append(online, &reviewNode{id: id, instance: "instance_" + session, index: index})
 	}
 	return online
 }

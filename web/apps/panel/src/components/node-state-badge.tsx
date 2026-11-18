@@ -6,10 +6,9 @@ import type { FleetNode } from '@/api/api-client';
 const variants = {
   online: 'success',
   offline: 'destructive',
-  pending: 'secondary',
 } as const satisfies Record<FleetNode['state'], string>;
 
-/** The node's connection with the panel: online, offline, or not yet enrolled. */
+/** The node's connection with the panel: online or offline. */
 export function NodeStateBadge({ state }: { state: FleetNode['state'] }) {
   const { t } = useTranslation();
   return (

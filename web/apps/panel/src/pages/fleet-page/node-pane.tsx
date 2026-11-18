@@ -1,33 +1,26 @@
-import type { MouseEvent, ReactNode } from 'react';
+import type { MouseEvent, PointerEvent, ReactNode } from 'react';
 
 import { cn } from '@shared/lib/utils';
-import { memo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useMutation } from '@tanstack/react-query';
-import { Button } from '@shared/components/ui/button';
+import { memo, useEffect, useRef } from 'react';
 import { CellMeter } from '@shared/components/cell-meter';
 import { ReadoutParts, ReadoutRow } from '@shared/components/terminal';
-import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
+import { formatDateTime, formatRelativeTime, formatShortDateTime } from '@shared/lib/format-time';
 import { EM_DASH, formatBytes, formatDuration, formatRate, shareTone } from '@shared/lib/telemetry-format';
 
-import type { NodeEnrollment } from '@/api/api-client';
 import type { NodeStatus } from '@/utils/fleet-summary';
 
 import { useClock } from '@/hooks/use-clock';
 import { nodePath } from '@/utils/node-path';
-import { useApiClient } from '@/api/api-client-context';
-import { ErrorNotice } from '@/components/error-notice';
-import { NodeEnrollmentDialog } from '@/components/node-enrollment-dialog';
 import { attentionItems, hostLoad, nodeRates, percentOf } from '@/utils/fleet-summary';
 
 type Tone = 'danger' | 'warning';
 type Health = Tone | 'neutral' | 'success';
 
-const toneText: Record<'success' | Tone, string> = {
+const toneText: Record<Tone, string> = {
   danger: 'text-[var(--color-danger-text)]',
-  success: 'text-[var(--color-success-text)]',
   warning: 'text-[var(--color-warning-text)]',
 };
 
@@ -82,32 +75,27 @@ function HealthDot({ item, now }: { item: NodeStatus; now: number }) {
   const { node } = item;
   let tone: Health = 'success';
   let summary = t('fleet.pane.healthy');
-  if (node.state === 'pending') {
-    tone = 'neutral';
-    summary = t('fleet.attention.pending');
-  } else {
-    const found = attentionItems([item]);
-    const reasons = found.map(({ kind, percent }) => t(`fleet.attention.${kind}`, {
-      percent: percent === undefined ? '' : percentText(locale, percent),
-      time: formatRelativeTime(node.last_seen_at, locale, now),
-    }));
-    const tones: Tone[] = found.flatMap(({ tone: each }) => each === 'neutral' ? [] : [each]);
-    const load = hostLoad(item);
-    const kinds = new Set(found.map(({ kind }) => kind));
-    for (const [label, share, kind] of [
-      [t('fleet.pane.cpu'), load.cpu, null],
-      [t('fleet.pane.mem'), load.memory, 'memoryNear'],
-      [t('fleet.pane.disk'), load.disk, 'diskNear'],
-    ] as const) {
-      const high = shareTone(share);
-      if (high === undefined || share === null) continue;
-      tones.push(high);
-      if (kind === null || !kinds.has(kind)) reasons.push(`${label} ${percentText(locale, share)}`);
-    }
-    if (tones.includes('danger')) tone = 'danger';
-    else if (tones.includes('warning')) tone = 'warning';
-    if (reasons.length > 0) summary = reasons.join(' · ');
+  const found = attentionItems([item]);
+  const reasons = found.map(({ kind, percent }) => t(`fleet.attention.${kind}`, {
+    percent: percent === undefined ? '' : percentText(locale, percent),
+    time: formatRelativeTime(node.last_seen_at, locale, now),
+  }));
+  const tones: Tone[] = found.map(({ tone: each }) => each);
+  const load = hostLoad(item);
+  const kinds = new Set(found.map(({ kind }) => kind));
+  for (const [label, share, kind] of [
+    [t('fleet.pane.cpu'), load.cpu, null],
+    [t('fleet.pane.mem'), load.memory, 'memoryNear'],
+    [t('fleet.pane.disk'), load.disk, 'diskNear'],
+  ] as const) {
+    const high = shareTone(share);
+    if (high === undefined || share === null) continue;
+    tones.push(high);
+    if (kind === null || !kinds.has(kind)) reasons.push(`${label} ${percentText(locale, share)}`);
   }
+  if (tones.includes('danger')) tone = 'danger';
+  else if (tones.includes('warning')) tone = 'warning';
+  if (reasons.length > 0) summary = reasons.join(' · ');
   return (
     <Detail className='-m-1 flex flex-none p-1' content={summary}>
       <span aria-hidden='true' className={cn('size-2 rounded-full', healthDot[tone])} />
@@ -116,7 +104,7 @@ function HealthDot({ item, now }: { item: NodeStatus; now: number }) {
   );
 }
 
-/** What the title bar's end says, worst first: away, not enrolled, quota reached, or an update to run. */
+/** What the title bar's end says, worst first: away, quota reached, or an update to run. */
 function TitleEnd({ item, now, release }: { item: NodeStatus; now: number; release: string | null }) {
   const { t } = useTranslation();
   const locale = useLocale();
@@ -130,7 +118,6 @@ function TitleEnd({ item, now, release }: { item: NodeStatus; now: number; relea
       </span>
     );
   }
-  if (node.state === 'pending') return <span className='flex-none text-muted-foreground'>{t('fleet.pane.notEnrolled')}</span>;
   if (metrics.quota_exceeded) return <span className={cn('flex-none', toneText.danger)}>{t('fleet.pane.quotaReached')}</span>;
   if (node.update_available && release) {
     const version = `v${release.replace(/^v/i, '')}`;
@@ -162,7 +149,12 @@ function Share({ detail, percent }: { detail: string | null; percent: number | n
   );
 }
 
-/** The core's state, version and uptime; an offline node's when it was last seen and the version it last ran. */
+/**
+ * The core's state, version and uptime: running in the text colour, stopped
+ * in secondary text and unknown in warning. An offline node's row says when
+ * it was last seen and the version it last ran; the title already says how
+ * long ago.
+ */
 function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
   const { t } = useTranslation();
   const locale = useLocale();
@@ -170,22 +162,26 @@ function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
   const { node } = item;
   const version = versionLabel(item);
   if (node.state === 'offline') {
+    const seen = node.last_seen_at ? t('fleet.pane.lastSeen', { time: formatShortDateTime(node.last_seen_at, locale, now) }) : EM_DASH;
     return (
-      <ReadoutParts>
-        {[
-          <span className='text-[var(--color-text-secondary)]' key='seen' title={formatDateTime(node.last_seen_at, locale)}>
-            {t('fleet.pane.lastSeen', { time: formatRelativeTime(node.last_seen_at, locale, now) })}
-          </span>,
-          version ? <span className='text-muted-foreground' key='version'>{version}</span> : null,
-        ]}
-      </ReadoutParts>
+      <span className='flex min-w-0 text-[var(--color-text-secondary)]'>
+        <span className='truncate' title={formatDateTime(node.last_seen_at, locale)}>{seen}</span>
+        {version
+          ? (
+              <span className='flex-none'>
+                <span aria-hidden='true' className='text-muted-foreground'>{' · '}</span>
+                {version}
+              </span>
+            )
+          : null}
+      </span>
     );
   }
   const runtime = node.runtime;
   const started = runtime?.observation_state === 'running' ? runtime.running?.started_at : undefined;
   let state = <span className='text-[var(--color-warning-text)]' key='state'>{t('fleet.pane.unknown')}</span>;
-  if (started !== undefined) state = <span className={toneText.success} key='state'>{t('fleet.pane.running')}</span>;
-  else if (runtime?.observation_state === 'stopped') state = <span className='text-muted-foreground' key='state'>{t('fleet.pane.stopped')}</span>;
+  if (started !== undefined) state = <span key='state'>{t('fleet.pane.running')}</span>;
+  else if (runtime?.observation_state === 'stopped') state = <span className='text-[var(--color-text-secondary)]' key='state'>{t('fleet.pane.stopped')}</span>;
   const platform = node.os && node.arch ? `${node.os}/${node.arch}` : null;
   return (
     <Detail className='min-w-0' content={platform}>
@@ -201,7 +197,7 @@ function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
   );
 }
 
-/** Live download and upload rates in their series colours, then connections; a known zero reads 0. */
+/** Live download and upload rates after their arrows, then connections; a known zero reads 0. */
 function NetRow({ item }: { item: NodeStatus }) {
   const { t } = useTranslation();
   const locale = useLocale();
@@ -215,12 +211,12 @@ function NetRow({ item }: { item: NodeStatus }) {
     <ReadoutParts>
       {[
         <span key='download'>
-          <span aria-hidden='true' className='text-[var(--color-highlight-cyan)]'>↓ </span>
+          <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>↓ </span>
           <span className='sr-only'>{t('telemetry.metric.download')}</span>
           {formatRate(rates.download, locale)}
         </span>,
         <span key='upload'>
-          <span aria-hidden='true' className='text-[var(--color-highlight-magenta)]'>↑ </span>
+          <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>↑ </span>
           <span className='sr-only'>{t('telemetry.metric.upload')}</span>
           {formatRate(rates.upload, locale)}
         </span>,
@@ -231,9 +227,9 @@ function NetRow({ item }: { item: NodeStatus }) {
 }
 
 /**
- * What is left of this period's quota: a success meter that drains as the
+ * What is left of this period's quota: a neutral meter that drains as the
  * node uses traffic, warning from 10% left and empty once reached, which says
- * so; an unlimited quota keeps a full meter.
+ * so in danger text; an unlimited quota shows only its word.
  */
 function QuotaRow({ item }: { item: NodeStatus }) {
   const { t } = useTranslation();
@@ -244,7 +240,7 @@ function QuotaRow({ item }: { item: NodeStatus }) {
   let left = 100;
   if (reached) left = 0;
   else if (quota) left = percentOf(remaining, quota) ?? 0;
-  let tone: 'success' | Tone = 'success';
+  let tone: Tone | undefined;
   if (reached) tone = 'danger';
   else if (quota && left <= 10) tone = 'warning';
   const resets = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(period.period_end));
@@ -259,8 +255,9 @@ function QuotaRow({ item }: { item: NodeStatus }) {
   else if (remaining !== null) value = t('fleet.pane.left', { value: formatBytes(remaining, locale) });
   return (
     <Detail className='flex min-w-0 items-center gap-2' content={detail}>
-      <CellMeter percent={left} tone={tone} />
-      <span className={cn('truncate tabular-nums', tone !== 'success' && toneText[tone])}>{value}</span>
+      {/* A reached quota keeps its empty cells; the danger is in its word. */}
+      {quota ? <CellMeter className={tone === 'warning' ? undefined : 'text-muted-foreground'} percent={left} tone={tone === 'warning' ? tone : undefined} /> : null}
+      <span className={cn('truncate tabular-nums', tone ? toneText[tone] : !quota && 'text-[var(--color-text-secondary)]')}>{value}</span>
       <span className='sr-only'>{`, ${detail}`}</span>
     </Detail>
   );
@@ -290,96 +287,133 @@ function Readings({ item, now }: { item: NodeStatus; now: number }) {
   );
 }
 
-/** A node not enrolled yet: when it was added, and one action that shows its enrollment code. */
-function Enrollment({ item, now }: { item: NodeStatus; now: number }) {
-  const { t } = useTranslation();
-  const locale = useLocale();
-  const client = useApiClient();
-  const [enrollment, setEnrollment] = useState<NodeEnrollment | null>(null);
-  const issue = useMutation({
-    mutationFn: () => client.createNodeEnrollment(item.node.id),
-    onSuccess: setEnrollment,
-  });
-  return (
-    <div className='flex flex-1 flex-col items-center justify-center gap-3 px-3'>
-      <span className='text-muted-foreground'>{t('fleet.pane.added', { time: formatRelativeTime(item.node.created_at, locale, now) })}</span>
-      <Button
-        className='relative z-10 font-[family-name:var(--font-body)]'
-        onClick={() => {
-          if (!issue.isPending) issue.mutate();
-        }}
-        size='sm'
-        variant='outline'
-      >
-        {t(issue.isPending ? 'node.unavailable.issuing' : 'node.unavailable.issue')}
-      </Button>
-      {issue.error ? <ErrorNotice error={issue.error} title={t('node.unavailable.issueFailed')} /> : null}
-      <NodeEnrollmentDialog enrollment={enrollment} onClose={() => setEnrollment(null)} title={t('enrollment.title')} />
-    </div>
-  );
-}
+/** How long a touch holds a pane before it selects it. */
+const LONG_PRESS_MS = 500;
+/** How far, in pixels, a holding touch may move before it counts as a scroll. */
+const PRESS_SLOP = 10;
 
 interface NodePaneProps {
   /** Whether opening the node morphs the pane into its window. */
   morph: boolean;
   item: NodeStatus;
   selected: boolean;
+  /** While on, a click toggles the pane instead of opening the node. */
+  selecting: boolean;
   /** The panel's release, which a node with an update available can run. */
   release: string | null;
-  /** Shift extends the selection from the last pane toggled. */
+  /** Toggles the pane and enters selection mode; with range, selects from the last pane toggled to this one. */
   onToggle: (id: string, range: boolean) => void;
 }
 
 /**
- * One node as a terminal pane: a 32px title bar with its selection, health,
- * name, host and what needs saying, then six rows of readings. The whole pane
- * opens the node; its controls keep their own clicks.
+ * One node as a terminal pane: a 32px title bar with its health, name, host
+ * and what needs saying, then six rows of readings. A click opens the node;
+ * in selection mode, with Ctrl, Cmd or Shift, or after a touch held on it, it
+ * toggles the pane instead, and Space toggles the focused pane. The pane
+ * stays a link, so a middle click or its context menu opens a new tab.
  */
-export const NodePane = memo(({ item, morph, onToggle, release, selected }: NodePaneProps) => {
+export const NodePane = memo(({ item, morph, onToggle, release, selected, selecting }: NodePaneProps) => {
   const { t } = useTranslation();
   const now = useClock();
-  const { metrics, node } = item;
-  const pending = node.state === 'pending';
-  const danger = node.state === 'offline' || metrics.quota_exceeded;
+  const { node } = item;
   const host = [node.hostname, node.public_ip].filter(Boolean).join(' · ');
+  const pressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
+  // The click and context menu that end a long press are not the user's next action.
+  const swallowRef = useRef(false);
 
-  // Readings with details sit above the pane's link so they can show them; a click on one still opens the node.
-  function openFromDetail(event: MouseEvent<HTMLElement>) {
-    if (event.defaultPrevented || !(event.target instanceof Element) || !event.target.closest('[data-pane-detail]')) return;
-    event.currentTarget.querySelector<HTMLAnchorElement>('h2 a')?.click();
+  function cancelPress() {
+    if (pressRef.current) window.clearTimeout(pressRef.current.timer);
+    pressRef.current = null;
+  }
+  useEffect(() => cancelPress, []);
+
+  function longPress() {
+    cancelPress();
+    swallowRef.current = true;
+    if (!selected) onToggle(node.id, false);
   }
 
-  function open(event: MouseEvent<HTMLAnchorElement>) {
+  function toggles(event: MouseEvent): boolean {
+    return selecting || event.metaKey || event.ctrlKey || event.shiftKey;
+  }
+
+  function onLinkClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (swallowRef.current) {
+      swallowRef.current = false;
+      event.preventDefault();
+      return;
+    }
+    if (toggles(event)) {
+      event.preventDefault();
+      onToggle(node.id, event.shiftKey);
+      return;
+    }
     if (!morph) return;
     if (opening) opening.style.viewTransitionName = '';
     opening = event.currentTarget.closest('article');
     if (opening) opening.style.viewTransitionName = 'node-window';
   }
 
+  // Readings with details sit above the pane's link so they can show them; a click on one acts on the pane.
+  function onPaneClick(event: MouseEvent<HTMLElement>) {
+    if (event.defaultPrevented || !(event.target instanceof Element) || !event.target.closest('[data-pane-detail]')) return;
+    if (swallowRef.current) {
+      swallowRef.current = false;
+      return;
+    }
+    if (toggles(event)) onToggle(node.id, event.shiftKey);
+    else event.currentTarget.querySelector<HTMLAnchorElement>('h2 a')?.click();
+  }
+
+  function onPointerDown(event: PointerEvent<HTMLElement>) {
+    swallowRef.current = false;
+    if (event.pointerType !== 'touch') return;
+    cancelPress();
+    pressRef.current = { timer: window.setTimeout(longPress, LONG_PRESS_MS), x: event.clientX, y: event.clientY };
+  }
+
+  function onPointerMove(event: PointerEvent<HTMLElement>) {
+    const start = pressRef.current;
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > PRESS_SLOP) cancelPress();
+  }
+
+  function onContextMenu(event: MouseEvent<HTMLElement>) {
+    // A touch held this long is a long press, wherever the browser opens its menu first.
+    if (pressRef.current) longPress();
+    if (swallowRef.current) event.preventDefault();
+  }
+
   return (
-    // The click handler only forwards clicks on readings to the pane's own link, which keyboards reach directly.
+    // The handlers only route pointer input on readings or from touch; keyboards reach the pane's link directly.
     <article
       aria-label={node.name}
-      onClick={openFromDetail}
       className={cn(
-        'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-dense)] font-[family-name:var(--font-data)] text-compact transition-colors duration-[var(--dur-short)] ease-out has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring has-[a:focus-visible]:ring-inset',
-        danger ? 'border-[var(--color-danger-border)]' : 'hover:border-[var(--color-border-strong)]',
-        pending && 'border-dashed',
+        'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact transition-colors duration-[var(--dur-short)] ease-out pointer-coarse:select-none has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring has-[a:focus-visible]:ring-inset',
+        selected ? 'border-primary/50 bg-accent' : 'bg-[var(--color-surface-translucent)] hover:border-[var(--color-border-strong)]',
       )}
+      onClick={onPaneClick}
+      onContextMenu={onContextMenu}
+      onPointerCancel={cancelPress}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={cancelPress}
     >
-      <header className={cn('flex h-8 flex-none items-center gap-2 border-b px-3', pending && 'border-dashed', selected && 'bg-accent')}>
-        <input
-          aria-label={t('fleet.pane.select', { name: node.name })}
-          checked={selected}
-          className='relative z-10 size-3.5 flex-none cursor-pointer'
-          onChange={() => undefined}
-          onClick={event => onToggle(node.id, event.shiftKey)}
-          type='checkbox'
-        />
+      <header className={cn('flex h-8 flex-none items-center gap-2 border-b px-3', selected && 'border-primary/25')}>
         <HealthDot item={item} now={now} />
         <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium' title={node.name}>
-          <Link className='outline-none after:absolute after:inset-0 after:rounded-[inherit]' onClick={open} to={nodePath(node.id)} viewTransition={morph}>
+          <Link
+            className='outline-none [-webkit-touch-callout:none] after:absolute after:inset-0 after:rounded-[inherit]'
+            onClick={onLinkClick}
+            onKeyDown={(event) => {
+              if (event.key !== ' ') return;
+              event.preventDefault();
+              onToggle(node.id, event.shiftKey);
+            }}
+            to={nodePath(node.id)}
+            viewTransition={morph && !selecting}
+          >
             {node.name}
+            {selected ? <span className='sr-only'>{t('fleet.pane.selected')}</span> : null}
           </Link>
         </h2>
         {/* The host takes the room the name and the end leave, so it gives way first; its details add the tags. */}
@@ -387,11 +421,11 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected }: Node
           className='min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
           content={[host, node.tags.length > 0 ? t('fleet.pane.tags', { tags: node.tags.join(', ') }) : ''].filter(Boolean).join(' · ') || null}
         >
-          {pending ? null : host || t('fleet.pane.noHost')}
+          {host || t('fleet.pane.noHost')}
         </Detail>
         <TitleEnd item={item} now={now} release={release} />
       </header>
-      {pending ? <Enrollment item={item} now={now} /> : <Readings item={item} now={now} />}
+      <Readings item={item} now={now} />
     </article>
   );
 });

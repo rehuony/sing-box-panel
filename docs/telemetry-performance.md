@@ -124,9 +124,10 @@ SBP_BROWSER_REVIEW=1 SBP_BROWSER_FLEET=500 go test ./internal/sing-box-panel/ser
 ```
 
 The browser review serves the built interface from `web/apps/panel/dist` on
-`127.0.0.1:3337` with a seeded fleet of long names, tags and mixed states:
-every sixth node never enrolled, half the fleet online with reports and a
-sample every five seconds, the rest offline. Headless Chrome 157 on Apple M5, at 1440×900 and device scale
+`127.0.0.1:3337`. The measured run's seeded fleet had long names, tags and
+mixed states: every sixth node had not enrolled, half the fleet was online
+with reports and a sample every five seconds, and the rest were offline.
+Headless Chrome 157 on Apple M5, at 1440×900 and device scale
 2 in the light theme, signed in as the fixture administrator, opened the home
 screen and ran three passes. Each pass switched the state filter from offline
 to all five times, timing the click to the second frame after it, then scrolled

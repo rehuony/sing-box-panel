@@ -5,7 +5,6 @@ package httpapi
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -54,15 +53,47 @@ func TestNodeRoutesConformToOpenAPI(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &enrollment); err != nil {
 		t.Fatal(err)
 	}
-	if code, err := nodeapi.ParseEnrollmentCode(enrollment.Code); err != nil || code.Pin == "" || code.Endpoint != "127.0.0.1:3000" || code.Path != "" {
-		t.Fatalf("enrollment code = %+v, %v", code, err)
+	code, err := nodeapi.ParseEnrollmentCode(enrollment.Code)
+	if err != nil || code.Pin == "" || code.Endpoint != "127.0.0.1:3000" || code.Path != "" || enrollment.Name != "edge" {
+		t.Fatalf("enrollment = %+v, code %+v, %v", enrollment, code, err)
 	}
-	node := "/api/v1/nodes/" + enrollment.Node.ID
+	// The node exists once a host enrolls with its code; a canceled code
+	// creates nothing, and canceling again succeeds.
+	node := "/api/v1/nodes/" + enrollment.NodeID
+	serveConformingRequest(t, router, handler, http.MethodGet, node, "", http.StatusNotFound, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodDelete, node+"/enrollment", "", http.StatusNoContent, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodDelete, node+"/enrollment", "", http.StatusNoContent, true, nil)
+	// Only the cancellation that discarded a code is recorded.
+	logs := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?search_codes=node.enrollment.cancel.completed", "", "")
+	var page store.PanelLogPage
+	if logs.Code != http.StatusOK || json.Unmarshal(logs.Body.Bytes(), &page) != nil || page.Total != 1 {
+		t.Fatalf("cancellation logs: %d %s", logs.Code, logs.Body.String())
+	}
+	enroll := func(token string) error {
+		_, _, err := database.EnrollNode(t.Context(), nodeapi.TokenHash(token), store.NodeEnrollment{PublicKey: make([]byte, 32), EnrolledAt: time.Now().UTC()})
+		return err
+	}
+	if err := enroll(code.Token); !errors.Is(err, store.ErrEnrollmentInvalid) {
+		t.Fatalf("enrolling with a canceled code = %v, want ErrEnrollmentInvalid", err)
+	}
+	created = serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/nodes", `{"name":"edge"}`, http.StatusCreated, true, nil)
+	if err := json.Unmarshal(created.Body.Bytes(), &enrollment); err != nil {
+		t.Fatal(err)
+	}
+	if code, err = nodeapi.ParseEnrollmentCode(enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	if err := enroll(code.Token); err != nil {
+		t.Fatal(err)
+	}
+	node = "/api/v1/nodes/" + enrollment.NodeID
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/nodes", "", http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPut, node, `{"name":"edge-1"}`, http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/nodes", `{"name":"EDGE-1"}`, http.StatusConflict, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/nodes", `{"name":" edge"}`, http.StatusUnprocessableEntity, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, node+"/enrollment", "", http.StatusCreated, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodDelete, node+"/enrollment", "", http.StatusNoContent, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodGet, node, "", http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodDelete, node, "", http.StatusNoContent, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodGet, node, "", http.StatusNotFound, true, nil)
 }
@@ -75,8 +106,8 @@ func (failingDownloader) Download(context.Context, string, io.Writer, int64) (in
 }
 
 // fleetRoutesFixture serves the management API over a database with nodes
-// alpha, tagged eu, and beta, neither of them enrolled. Official archives
-// cannot be downloaded.
+// alpha, tagged eu, and beta, both offline without a recorded platform.
+// Official archives cannot be downloaded.
 func fleetRoutesFixture(t *testing.T) (routers.Router, *Handler, *store.Store, string, string) {
 	t.Helper()
 	router, err := legacy.NewRouter(loadOpenAPIContract(t))
@@ -148,7 +179,7 @@ func TestFleetStreamSendsChangesAndStatusPages(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	// Invalid filters fail before the stream opens; the stream does not page.
-	for _, query := range []string{"state=gone", "tag=EU", "limit=1", "cursor=x", "sort=name"} {
+	for _, query := range []string{"state=pending", "tag=EU", "limit=1", "cursor=x", "sort=name"} {
 		response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/fleet/stream?"+query, "", "")
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("stream ?%s status=%d body=%s", query, response.Code, response.Body.String())
@@ -157,8 +188,8 @@ func TestFleetStreamSendsChangesAndStatusPages(t *testing.T) {
 
 	// Without a stream every read is new, and an unchanged fleet keeps its
 	// encoding, so the same page answers 304.
-	first := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/fleet/status?state=pending", "", http.StatusOK, true, nil)
-	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/fleet/status?state=pending", "", http.StatusNotModified, true,
+	first := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/fleet/status?state=offline", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/fleet/status?state=offline", "", http.StatusNotModified, true,
 		map[string]string{"If-None-Match": first.Header().Get("ETag")})
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -290,12 +321,7 @@ func TestFleetCommandsStreamEveryNodesOutcome(t *testing.T) {
 		`{"action":"install_core","tag":"eu","exact_version":"1.13.20"}`, http.StatusUnprocessableEntity, true, nil)
 	enrolled := map[string]string{}
 	for name, arch := range map[string]string{"arm": "arm64", "amd": "amd64"} {
-		enrolled[arch] = testutil.CreateNode(t, database, name)
-		if _, err := database.EnrollNode(t.Context(), sha256.Sum256([]byte("token-"+name)), store.NodeEnrollment{
-			PublicKey: make([]byte, 32), OS: "linux", Arch: arch, EnrolledAt: time.Now().UTC(),
-		}); err != nil {
-			t.Fatal(err)
-		}
+		enrolled[arch], _ = testutil.EnrollNode(t, database, name, store.NodeEnrollment{OS: "linux", Arch: arch})
 	}
 	results, summary = commandEvents(t, router, handler,
 		`{"action":"install_core","node_ids":["`+alpha+`","`+enrolled["arm64"]+`","`+enrolled["amd64"]+`"],"exact_version":"1.13.19"}`)

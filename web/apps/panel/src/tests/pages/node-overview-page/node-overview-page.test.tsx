@@ -54,6 +54,12 @@ function show({
   return store;
 }
 
+/** The value and meta line of a key figure, found by its label. */
+function figure(label: string) {
+  const [value, meta] = screen.getByText(label).closest('div')!.querySelectorAll('dd');
+  return { meta: meta!, value: value! };
+}
+
 describe('dashboard evidence', () => {
   it('defaults to live peaks, retains them through history refresh, and separates historical averages', () => {
     const store = show({ dashboard: {
@@ -111,43 +117,43 @@ describe('dashboard evidence', () => {
 
   it('never replaces missing host readings with core process samples', () => {
     show();
-    const card = screen.getByText('Host memory').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('—');
+    const card = figure('Host memory');
+    expect(card.value).toHaveTextContent('—');
   });
 
   it('shows used traffic against infinity when quota is not configured', () => {
     show();
-    const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('6 KB');
-    expect(card.querySelector('small')).toHaveTextContent('0 / ∞ GiB');
+    const card = figure('Period traffic');
+    expect(card.value).toHaveTextContent('6 KB');
+    expect(card.meta).toHaveTextContent('0 / ∞ GiB');
   });
 
   it('keeps usage unknown until the first successful metrics response', () => {
     show({ metrics: null });
-    const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('Usage unknown');
+    const card = figure('Period traffic');
+    expect(card.value).toHaveTextContent('Usage unknown');
   });
 
   it('shows zero recorded usage for an empty period', () => {
     show({ metrics: { ...testMetrics, available: false,
       current_traffic_period: { ...testMetrics.current_traffic_period, inbound_bytes: 0, outbound_bytes: 0 },
     } });
-    const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('0 B');
-    expect(card.querySelector('small')).toHaveTextContent('0 / ∞ GiB');
+    const card = figure('Period traffic');
+    expect(card.value).toHaveTextContent('0 B');
+    expect(card.meta).toHaveTextContent('0 / ∞ GiB');
   });
 
   it('preserves recorded usage and quota when collection is stale', () => {
     show({ metrics: { ...testMetrics, available: false, reason_code: 'stale_collector_sample', quota_bytes: 12_288 } });
-    const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('strong')).toHaveTextContent('6 KB');
-    expect(card.querySelector('small')).toHaveTextContent('Used 50.0% · quota 12 KB');
+    const card = figure('Period traffic');
+    expect(card.value).toHaveTextContent('6 KB');
+    expect(card.meta).toHaveTextContent('Used 50.0% · quota 12 KB');
   });
 
   it('keeps the configured finite quota presentation', () => {
     show({ metrics: { ...testMetrics, quota_bytes: 12_288 } });
-    const card = screen.getByText('Period traffic').closest('section')!;
-    expect(card.querySelector('small')).toHaveTextContent('Used 50.0% · quota 12 KB');
+    const card = figure('Period traffic');
+    expect(card.meta).toHaveTextContent('Used 50.0% · quota 12 KB');
   });
 
   it('localizes recent events, preserves unknown messages, and links the entire row to panel logs', async () => {

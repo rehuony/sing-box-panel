@@ -72,7 +72,7 @@ export function TagInput({ id, invalid = false, onChange, onReject, value }: Tag
           <span className='truncate'>{tag}</span>
           <button
             aria-label={t('tags.remove', { tag })}
-            className='inline-flex size-5 flex-none cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-[var(--color-selection)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+            className='inline-flex size-5 flex-none cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
             onClick={() => onChange(value.filter(each => each !== tag))}
             type='button'
           >

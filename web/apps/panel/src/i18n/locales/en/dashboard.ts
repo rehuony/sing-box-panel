@@ -6,6 +6,7 @@ export const dashboard = {
     memory: 'Host memory',
     disk: 'Disk usage',
     transfer: 'Period traffic',
+    label: 'Node figures',
     quota: 'Used {{used}} · quota {{total}}',
     noQuota: 'No traffic quota',
     countUnit: 'count',

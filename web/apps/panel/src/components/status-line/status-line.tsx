@@ -9,13 +9,10 @@ import { setAppLanguage } from '@shared/i18n/language';
 import { Spinner } from '@shared/components/ui/spinner';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { LanguageMenu } from '@shared/components/language-menu';
-import { buttonVariants } from '@shared/components/ui/button-variants';
 import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import {
   ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
   Cpu,
   Ellipsis,
   FileJson,
@@ -83,12 +80,6 @@ const windowNames: Record<NodeWindow | PanelWindow, string> = {
   subscriptions: 'nav.subscriptions',
 };
 
-const stateDot: Record<NodeStatus['node']['state'], string> = {
-  offline: 'bg-[var(--color-danger)]',
-  online: 'bg-[var(--color-success)]',
-  pending: 'bg-[var(--color-text-faint)]',
-};
-
 /** The keys that open the command line on this platform. */
 function commandKeys(): string {
   return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K';
@@ -135,53 +126,20 @@ function CommandAction({ className }: { className?: string }) {
   );
 }
 
-/** The fleet, or the fleet and one node with its neighbours in name order. */
-function Scope({ shell }: { shell: ShellScopeState }) {
+/**
+ * The way back to the fleet, the same in every scope; a node window's title
+ * strip names the node and leads to its neighbours.
+ */
+function Scope() {
   const { t } = useTranslation();
-  const { items, node, scope } = shell;
-  const link = 'inline-flex h-(--control-height-xs) flex-none items-center rounded-[var(--radius-control)] px-2 outline-none hover:bg-[var(--color-surface-raised)] focus-visible:ring-2 focus-visible:ring-ring';
-  if (scope.kind === 'fleet') {
-    return <Link className={cn(link, 'text-foreground')} title={t('shell.scope.fleet')} to='/nodes'>fleet</Link>;
-  }
-  const index = items.findIndex(item => item.node.id === scope.nodeId);
-  const neighbour = (step: -1 | 1) => items[(index + step + items.length) % items.length]!;
-  const window = scope.window ?? 'overview';
-  const name = node?.node.name ?? scope.nodeId;
   return (
-    <div aria-label={t('shell.scope.label')} className='flex items-center' role='group'>
-      <Link className={cn(link, 'text-muted-foreground')} title={t('shell.scope.fleet')} to='/nodes'>fleet</Link>
-      <span aria-hidden='true' className='px-0.5 text-[var(--color-text-faint)]'>›</span>
-      <span className='flex items-center gap-2 px-2'>
-        {node ? <span aria-hidden='true' className={cn('size-2 flex-none rounded-full', stateDot[node.node.state])} /> : null}
-        {/* The name's track keeps ten characters (a shorter name stays whole); past that only the windows give way. */}
-        <span className={cn('grid', name.length > 10 ? 'grid-cols-[minmax(10ch,auto)]' : 'grid-cols-[max-content]')}>
-          <span className='max-w-64 truncate text-foreground' title={name}>{name}</span>
-        </span>
-      </span>
-      {index >= 0 && items.length > 1
-        ? (['previous', 'next'] as const).map((direction) => {
-            const target = neighbour(direction === 'previous' ? -1 : 1);
-            const label = t(`shell.bar.${direction}`, { name: target.node.name });
-            const Icon = direction === 'previous' ? ChevronLeft : ChevronRight;
-            return (
-              <Tooltip key={direction}>
-                <TooltipTrigger
-                  render={(
-                    <Link
-                      aria-label={label}
-                      className={cn(buttonVariants({ size: 'icon-xs', variant: 'ghost' }), 'max-md:hidden')}
-                      to={nodeWindowPath(target.node.id, window)}
-                    />
-                  )}
-                >
-                  <Icon aria-hidden='true' />
-                </TooltipTrigger>
-                <TooltipContent>{label}</TooltipContent>
-              </Tooltip>
-            );
-          })
-        : null}
-    </div>
+    <Link
+      className='inline-flex h-(--control-height-xs) flex-none items-center rounded-[var(--radius-control)] px-2 text-foreground outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring'
+      title={t('shell.scope.fleet')}
+      to='/nodes'
+    >
+      fleet
+    </Link>
   );
 }
 
@@ -194,7 +152,7 @@ function Windows({ shell }: { shell: ShellScopeState }) {
       {windows.map(({ page, path, window }, index) => (
         <NavLink
           aria-label={t('shell.window', { name: t(windowNames[window]), number: index + 1 })}
-          className='inline-flex h-(--control-height-xs) flex-none items-center gap-[1ch] rounded-[var(--radius-control)] px-2 whitespace-nowrap text-muted-foreground outline-none hover:bg-[var(--color-surface-raised)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-accent aria-[current=page]:text-foreground'
+          className='inline-flex h-(--control-height-xs) flex-none items-center gap-[1ch] rounded-[var(--radius-control)] px-2 whitespace-nowrap text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-accent aria-[current=page]:text-foreground'
           end
           key={window}
           onFocus={() => preloadPage(page)}
@@ -215,18 +173,19 @@ function FleetReadout({ items }: { items: readonly NodeStatus[] }) {
   const down = useFleetStreamState(state => state.down);
   const online = items.filter(item => item.node.state === 'online').length;
   const total = items.length;
+  // While the stream is down the dot alone says so, as a warning ring; its reason is in the tooltip and the name.
   let tone = 'bg-[var(--color-text-faint)]';
-  if (total > 0 && online === total) tone = 'bg-[var(--color-success)]';
+  if (down) tone = 'border-2 border-[var(--color-warning)]';
+  else if (total > 0 && online === total) tone = 'bg-[var(--color-success)]';
   else if (online > 0) tone = 'bg-[var(--color-warning)]';
   const label = [t('shell.readout.label', { online, total }), down ? t('shell.readout.stale') : null].filter(Boolean).join('. ');
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Link aria-label={label} className='inline-flex h-(--control-height-xs) flex-none items-center gap-2 rounded-[var(--radius-control)] px-2 whitespace-nowrap tabular-nums outline-none hover:bg-[var(--color-surface-raised)] focus-visible:ring-2 focus-visible:ring-ring' to='/nodes' />}
+        render={<Link aria-label={label} className='inline-flex h-(--control-height-xs) flex-none items-center gap-2 rounded-[var(--radius-control)] px-2 whitespace-nowrap tabular-nums outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring' to='/nodes' />}
       >
         <span aria-hidden='true' className={cn('size-2 rounded-full', tone)} />
         <span aria-hidden='true'>{t('shell.readout.online', { online, total })}</span>
-        {down ? <span aria-hidden='true' className='text-[var(--color-warning-text)]'>{t('shell.bar.stale')}</span> : null}
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
@@ -259,7 +218,7 @@ function PanelUpdateHint() {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Link aria-label={label} className={cn('inline-flex h-(--control-height-xs) flex-none items-center gap-1.5 rounded-[var(--radius-control)] px-2 whitespace-nowrap outline-none hover:bg-[var(--color-surface-raised)] focus-visible:ring-2 focus-visible:ring-ring', tone)} to='/settings' />}
+        render={<Link aria-label={label} className={cn('inline-flex h-(--control-height-xs) flex-none items-center gap-1.5 rounded-[var(--radius-control)] px-2 whitespace-nowrap outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring', tone)} to='/settings' />}
       >
         {update.state === 'updating' || update.state === 'restarting' ? <Spinner className='size-3.5' /> : null}
         <span aria-hidden='true'>{text}</span>
@@ -322,7 +281,7 @@ function DesktopLine({ shell }: { shell: ShellScopeState }) {
         ? <Selection nodes={selection} />
         : (
             <>
-              <Scope shell={shell} />
+              <Scope />
               <Divider />
               <Windows shell={shell} />
             </>
@@ -408,7 +367,7 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
                     key={window}
                     to={path}
                   >
-                    <Icon aria-hidden='true' className='size-5 group-aria-[current=page]:text-primary' />
+                    <Icon aria-hidden='true' className='size-5 group-aria-[current=page]:text-foreground' />
                     <span aria-hidden='true' className='hidden max-w-full truncate px-1 font-[family-name:var(--font-data)] text-2xs group-aria-[current=page]:block'>{window}</span>
                   </NavLink>
                 );

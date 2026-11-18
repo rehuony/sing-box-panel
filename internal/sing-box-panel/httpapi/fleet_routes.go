@@ -78,9 +78,9 @@ func (handler *Handler) fleetStatusFilter(w http.ResponseWriter, request *http.R
 		return fleet.StatusFilter{}, 0, "", false
 	}
 	switch filter.State {
-	case "", fleet.StatePending, fleet.StateOnline, fleet.StateOffline:
+	case "", fleet.StateOnline, fleet.StateOffline:
 	default:
-		return invalid("state must be pending, online or offline.")
+		return invalid("state must be online or offline.")
 	}
 	if filter.Tag != "" && !store.ValidNodeTag(filter.Tag) {
 		return invalid("tag must be 1 to 32 lowercase letters, digits, hyphens or underscores.")
@@ -489,6 +489,19 @@ func (handler *Handler) createNodeEnrollment(w http.ResponseWriter, request *htt
 		return
 	}
 	writeEnrollment(w, http.StatusCreated, enrollment)
+}
+
+// cancelNodeEnrollment discards the node ID's unused code; a node ID without
+// one succeeds as well.
+func (handler *Handler) cancelNodeEnrollment(w http.ResponseWriter, request *http.Request, id string) {
+	if !handler.fleetRequest(w, request) {
+		return
+	}
+	if err := handler.services.Fleet.CancelEnrollment(request.Context(), id); err != nil {
+		writeFleetProblem(w, request, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // writeEnrollment returns a one-time code, which must never be cached.

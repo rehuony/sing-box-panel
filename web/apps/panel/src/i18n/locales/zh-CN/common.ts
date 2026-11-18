@@ -3,6 +3,7 @@ export const common = {
   add: '添加',
   cancel: '取消',
   clear: '清空',
+  clearSearch: '清除搜索',
   close: '关闭',
   copy: '复制',
   create: '创建',

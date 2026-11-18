@@ -30,7 +30,7 @@ export function SettingsField({ id, label, help, invalid, children }: {
       data-invalid={invalid}
     >
       <div className='flex min-h-10 items-center gap-1'>
-        <FieldLabel className='font-normal text-[var(--color-text-secondary)] group-data-[invalid=true]/field:text-destructive' htmlFor={id}>
+        <FieldLabel className='font-normal text-[var(--color-text-secondary)] group-data-[invalid=true]/field:text-[var(--color-danger-text)]' htmlFor={id}>
           {label}
         </FieldLabel>
         {help && <InfoTooltip label={label}>{help}</InfoTooltip>}

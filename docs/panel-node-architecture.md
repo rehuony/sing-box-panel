@@ -125,15 +125,22 @@ a reverse proxy with a publicly trusted certificate, the enrollment code names
 that origin and selects system trust instead of a pin.
 
 **Enrollment.** An administrator adds a node in the Web UI or with the panel
-CLI. The panel stores the node record and a hash of a one-time enrollment token
-that expires after one hour. It shows one command, `sing-box-node enroll --code <code>`,
+CLI by naming it. The panel issues a one-time enrollment token for a new node:
+it stores the token's hash with a preassigned node ID, the name and an expiry
+one hour away, and shows one command, `sing-box-node enroll --code <code>`,
 where the code encodes the panel endpoint and base path, the trust mode or pin
-and the token.
+and the token. No node exists yet: a node appears in lists, status and
+commands only once a host enrolls. A new code for a name replaces an unused
+one, a name an enrolled node uses is refused, an unused code can be canceled,
+and an expired one is never accepted.
 The node generates an Ed25519 key in its data directory (mode 0600) and calls
-`Enroll` with the token, its public key and its platform. The panel stores the
-public key and consumes the token. Enrolling again requires a new code and
-replaces the key. Deleting a node removes its key and closes its session. The
-node's [console](#node-console) can exchange a code too, while the node runs.
+`Enroll` with the token, its public key and its platform. In one transaction
+the panel consumes the token and creates the node with the preassigned ID, the
+name, the key and the empty configuration; if another node took the name in
+the meantime, enrollment fails and creates nothing. Enrolling again requires a
+new code for the node and replaces the key. Deleting a node removes its key
+and closes its session. The node's [console](#node-console) can exchange a code
+too, while the node runs.
 
 **Boundaries.**
 
@@ -246,7 +253,7 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, add with enrollment code, rename, delete), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, panel logs, authentication |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{node_id}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, panel logs, authentication |
 | One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
 
 A fleet command runs the single-node operation on each selected node, at most
@@ -264,10 +271,11 @@ a platform the version has no archive for, and a platform whose archive cannot
 be cached fail on their own.
 
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
-[`DESIGN.md`](../DESIGN.md)'s node-first shell: a status line that names the
-scope and its windows and reads commands, the nodes home with the fleet's key
+[`DESIGN.md`](../DESIGN.md)'s node-first shell: a status line that lists the
+scope's windows and reads commands, the nodes home with the fleet's key
 figures and one pane per node, a node's windows (overview, cores,
-configuration, logs, settings), subscriptions, logs and settings.
+configuration, logs, settings) under a title strip that names the node and
+leads to its neighbours, subscriptions, logs and settings.
 
 ## Node console
 

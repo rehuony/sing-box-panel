@@ -216,10 +216,8 @@ CREATE TABLE nodes (
     id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 256),
     name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(name) BETWEEN 1 AND 256),
     created_at TEXT NOT NULL,
-    public_key BLOB CHECK (public_key IS NULL OR length(public_key) = 32),
-    enrolled_at TEXT,
-    enrollment_token_hash BLOB UNIQUE CHECK (enrollment_token_hash IS NULL OR length(enrollment_token_hash) = 32),
-    enrollment_expires_at TEXT,
+    public_key BLOB NOT NULL CHECK (length(public_key) = 32),
+    enrolled_at TEXT NOT NULL,
     hostname TEXT NOT NULL DEFAULT '' CHECK (length(hostname) <= 256),
     os TEXT NOT NULL DEFAULT '' CHECK (length(os) <= 64),
     arch TEXT NOT NULL DEFAULT '' CHECK (length(arch) <= 64),
@@ -248,9 +246,18 @@ CREATE TABLE nodes (
     reported_public_ip TEXT NOT NULL DEFAULT '' CHECK (length(reported_public_ip) <= 64),
     state_report BLOB,
     reported_at TEXT,
-    CHECK ((state_report IS NULL) = (reported_at IS NULL)),
-    CHECK ((enrollment_token_hash IS NULL) = (enrollment_expires_at IS NULL)),
-    CHECK ((public_key IS NULL) = (enrolled_at IS NULL))
+    CHECK ((state_report IS NULL) = (reported_at IS NULL))
+) STRICT;
+
+-- Unused one-time enrollment tokens. A token with a name creates node node_id
+-- with that name when a host enrolls with it; one without enrolls the existing
+-- node again. Expired tokens are never accepted.
+CREATE TABLE node_enrollments (
+    token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
+    node_id TEXT NOT NULL UNIQUE CHECK (length(node_id) BETWEEN 1 AND 256),
+    name TEXT UNIQUE COLLATE NOCASE CHECK (name IS NULL OR length(name) BETWEEN 1 AND 256),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    expires_at TEXT NOT NULL CHECK (expires_at > created_at)
 ) STRICT;
 
 CREATE TABLE cached_artifacts (

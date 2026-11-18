@@ -5,16 +5,19 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-primary bg-primary text-primary-foreground hover:bg-primary/90',
+        // The primary action takes the accent's tint, as a selected pane does; a destructive one takes the danger tint.
+        default: 'border-primary/50 bg-accent text-primary hover:bg-primary/15',
         outline:
-          'border-border bg-card text-foreground hover:bg-muted aria-expanded:bg-muted aria-pressed:border-primary/50 aria-pressed:bg-accent aria-pressed:text-primary',
+          'border-border bg-card text-foreground hover:bg-[var(--color-hover)] aria-expanded:bg-[var(--color-hover)] aria-pressed:border-primary/50 aria-pressed:bg-accent',
         secondary:
-          'border-border bg-muted text-foreground hover:bg-accent aria-expanded:bg-accent',
+          'border-border bg-muted text-foreground hover:bg-[var(--color-hover)] aria-expanded:bg-[var(--color-hover)]',
         ghost:
-          'text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground',
+          'text-muted-foreground hover:bg-[var(--color-hover)] hover:text-foreground aria-expanded:bg-[var(--color-hover)] aria-expanded:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground',
         destructive:
-          'border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/20',
+          'border-[var(--color-danger-border)] bg-[var(--color-danger-soft)] text-[var(--color-danger-text)] hover:bg-destructive/20',
         link: 'text-primary underline-offset-4 hover:underline',
+        // A bar's actions: no fill or border at rest, the text colour, and the accent's soft fill while pressed.
+        flat: 'text-foreground hover:bg-[var(--color-hover)] aria-expanded:bg-[var(--color-hover)] aria-pressed:bg-accent',
       },
       size: {
         'default': 'h-(--control-height) min-h-(--control-height) gap-2 px-4',

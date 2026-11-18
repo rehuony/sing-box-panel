@@ -494,7 +494,7 @@
 }
 .schema-dialog-tabs__nav > [data-active] {
   background: var(--accent);
-  color: var(--primary);
+  color: var(--foreground);
   box-shadow: none;
 }
 .schema-dialog-tabs__nav > [data-slot='tabs-trigger']::after {

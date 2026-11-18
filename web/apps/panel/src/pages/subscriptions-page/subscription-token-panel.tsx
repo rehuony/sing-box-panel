@@ -140,7 +140,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     <section className='min-h-full min-w-0 flex h-full min-h-0 flex-col' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='flex min-h-10 min-w-0 flex-1 items-center justify-end gap-2'>
-          <Button aria-label={t('subscriptions.keys.create')} title={t('subscriptions.keys.create')} size='icon-sm' variant='ghost' disabled={busy} onClick={() => setCreating(true)}><CirclePlus aria-hidden='true' /></Button>
+          <Button aria-label={t('subscriptions.keys.create')} title={t('subscriptions.keys.create')} size='icon-sm' variant='flat' disabled={busy} onClick={() => setCreating(true)}><CirclePlus aria-hidden='true' /></Button>
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}

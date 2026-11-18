@@ -23,7 +23,7 @@ func newNodeCommand(state *options) *cobra.Command {
 	command.AddCommand(
 		&cobra.Command{
 			Use:   "add NAME",
-			Short: "Register a node and print its one-time enrollment command",
+			Short: "Print the one-time command that enrolls a new node",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return withFleet(cmd, state, func(nodes *fleet.Service) error {
@@ -31,7 +31,8 @@ func newNodeCommand(state *options) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return writeResult(cmd.OutOrStdout(), state.format, enrollment, enrollmentText("Added node", enrollment))
+					text := enrollmentText("Issued a code for new node", enrollment) + "\nThe node appears in the node list once it enrolls."
+					return writeResult(cmd.OutOrStdout(), state.format, enrollment, text)
 				})
 			},
 		},
@@ -135,7 +136,7 @@ func withFleet(cmd *cobra.Command, state *options, action func(*fleet.Service) e
 
 func enrollmentText(action string, enrollment fleet.Enrollment) string {
 	return fmt.Sprintf("%s %s (%s). Before %s, run on the node:\n  %s",
-		action, enrollment.Node.Name, enrollment.Node.ID, enrollment.ExpiresAt.Local().Format(time.DateTime), enrollment.Command)
+		action, enrollment.Name, enrollment.NodeID, enrollment.ExpiresAt.Local().Format(time.DateTime), enrollment.Command)
 }
 
 func nodeTable(nodes []fleet.Node) string {

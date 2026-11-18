@@ -94,12 +94,12 @@ describe('theme contract', () => {
     expect(root).toHaveAttribute('data-theme', 'system');
     expect(root).toHaveAttribute('data-resolved-theme', 'dark');
     expect(root.style.colorScheme).toBe('dark');
-    expect(meta).toHaveAttribute('content', '#090b12');
+    expect(meta).toHaveAttribute('content', '#1c1d24');
 
     applyThemeToDocument(root, 'light', 'light', meta);
     expect(root).not.toHaveClass('dark');
     expect(root.style.colorScheme).toBe('light');
-    expect(meta).toHaveAttribute('content', '#f7f7fb');
+    expect(meta).toHaveAttribute('content', '#eeeef2');
   });
 });
 

@@ -11,7 +11,6 @@ export const shell = {
     more: '更多',
     next: '下一个节点：{{name}}',
     previous: '上一个节点：{{name}}',
-    stale: '已过时',
     windows: '窗口',
   },
   readout: {
@@ -21,7 +20,6 @@ export const shell = {
   },
   scope: {
     fleet: '全部节点',
-    label: '范围',
   },
   selection: {
     clear: '清除选择',
@@ -43,7 +41,6 @@ export const nodes = {
   state: {
     offline: '离线',
     online: '在线',
-    pending: '未接入',
   },
 } as const;
 
@@ -130,7 +127,7 @@ export const command = {
   help: {
     clear: '清空输出',
     exit: '退出登录',
-    filter: '筛选节点：文本、state:online|offline|pending 或 tag:<标签>；留空清除',
+    filter: '筛选节点：文本、state:online|offline 或 tag:<标签>；留空清除',
     goto: '打开节点，可指定窗口',
     help: '列出命令',
     logout: '退出登录',
@@ -146,7 +143,7 @@ export const command = {
   output: '输出',
   shortcut: '命令行（{{keys}} 或 :）',
   usage: {
-    filter: '用法：filter [文本 | state:online|offline|pending | tag:<标签>]',
+    filter: '用法：filter [文本 | state:online|offline | tag:<标签>]',
     goto: '用法：goto <节点> [overview|cores|configuration|logs|settings]',
     open: '用法：open nodes|subscriptions|logs|settings',
     restart: '用法：restart <节点 | 通配 | tag:<标签> | all>',

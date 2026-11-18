@@ -11,10 +11,10 @@ export const editorTheme = [
     '.cm-line': { padding: '0 16px 0 8px' },
     '.cm-gutters': { color: 'var(--muted-foreground)', backgroundColor: 'var(--color-surface-raised)', border: 'none' },
     // CodeMirror draws selections behind the content; active lines must stay translucent.
-    '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--primary) 5%, transparent)' },
+    '.cm-activeLine': { backgroundColor: 'var(--color-hover)' },
     '.cm-activeLineGutter': { backgroundColor: 'var(--color-surface-raised)' },
     '.cm-cursor': { borderLeftColor: 'var(--foreground)' },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 38%, transparent)' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'var(--color-selection)' },
     '.cm-line::selection, .cm-line ::selection': { color: 'var(--foreground)' },
     '.cm-foldPlaceholder': { color: 'var(--muted-foreground)', backgroundColor: 'var(--color-surface-raised)', borderColor: 'var(--border)' },
     '.cm-panels': { color: 'var(--foreground)', backgroundColor: 'var(--color-surface)' },

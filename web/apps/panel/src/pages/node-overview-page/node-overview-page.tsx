@@ -2,12 +2,14 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useState } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
-import { Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
+import { shareTone } from '@shared/lib/telemetry-format';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 
+import { percentOf } from '@/utils/fleet-summary';
 import { ErrorNotice } from '@/components/error-notice';
 import { PanelLogLevel } from '@/components/panel-log-level';
+import { KeyFigure, KeyFigures } from '@/components/key-figures';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/node-workspace';
 
@@ -82,59 +84,52 @@ function DashboardStatus() {
   );
 }
 
+/** The node's key figures: host load with its meters, and this period's traffic against the node's quota. */
 function DashboardMetrics() {
   const { t, i18n } = useTranslation();
   const snapshot = useOptionalSharedTelemetry(s => s.snapshot);
   const host = snapshot?.host;
   const traffic = snapshot?.current_traffic_period;
   const used = traffic ? traffic.inbound_bytes + traffic.outbound_bytes : undefined;
+  const quota = snapshot?.quota_bytes;
   const locale = i18n.language;
-  const metrics = [
-    {
-      key: 'cpu',
-      icon: Cpu,
-      value: host?.cpu_percent == null ? '—' : `${host.cpu_percent.toFixed(1)}%`,
-      detail: host
-        ? t('dashboard.metric.cpuDetail', { count: host.cpu_count, load: host.load_one ?? '—' })
-        : '—',
-    },
-    {
-      key: 'memory',
-      icon: MemoryStick,
-      value: percent(host?.memory_used, host?.memory_total),
-      detail: `${bytes(host?.memory_used, locale)} / ${bytes(host?.memory_total, locale)}`,
-    },
-    {
-      key: 'disk',
-      icon: HardDrive,
-      value: percent(host?.disk_used, host?.disk_total),
-      detail: `${bytes(host?.disk_used, locale)} / ${bytes(host?.disk_total, locale)}`,
-    },
-    {
-      key: 'transfer',
-      icon: Radio,
-      value: used === undefined ? t('dashboard.metric.usageUnknown') : bytes(used, locale),
-      detail: snapshot?.quota_bytes
-        ? t('dashboard.metric.quota', {
-            used: percent(used, snapshot.quota_bytes),
-            total: bytes(snapshot.quota_bytes, locale),
-          })
-        : `${gibibytes(used, locale)} / ∞ GiB`,
-    },
-  ];
+  const meter = (percent: number | null) => percent === null ? undefined : { percent, tone: shareTone(percent) };
+  let usageTone: 'danger' | 'warning' | undefined;
+  if (snapshot?.quota_exceeded) usageTone = 'danger';
+  else if (quota && used !== undefined && (quota - used) / quota <= 0.1) usageTone = 'warning';
   return (
-    <div className='grid flex-none grid-cols-4 gap-4 @max-[650px]:grid-cols-2'>
-      {metrics.map(({ key, icon: Icon, value, detail }) => (
-        <section key={key} className='grid min-w-0 gap-2.5 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] p-5 @max-[850px]:p-4'>
-          <div className='flex items-center justify-between text-compact text-muted-foreground'>
-            <span>{t(`dashboard.metric.${key}`)}</span>
-            <Icon size={18} />
-          </div>
-          <strong className='text-2xl font-semibold tabular-nums'>{value}</strong>
-          <small className='truncate text-xs text-muted-foreground'>{detail}</small>
-        </section>
-      ))}
-    </div>
+    <KeyFigures label={t('dashboard.metric.label')}>
+      <KeyFigure
+        label={t('dashboard.metric.cpu')}
+        meta={host ? t('dashboard.metric.cpuDetail', { count: host.cpu_count, load: host.load_one ?? '—' }) : '—'}
+        meter={meter(host?.cpu_percent ?? null)}
+      >
+        {host?.cpu_percent == null ? '—' : `${host.cpu_percent.toFixed(1)}%`}
+      </KeyFigure>
+      <KeyFigure
+        label={t('dashboard.metric.memory')}
+        meta={`${bytes(host?.memory_used, locale)} / ${bytes(host?.memory_total, locale)}`}
+        meter={meter(percentOf(host?.memory_used, host?.memory_total))}
+      >
+        {percent(host?.memory_used, host?.memory_total)}
+      </KeyFigure>
+      <KeyFigure
+        label={t('dashboard.metric.disk')}
+        meta={`${bytes(host?.disk_used, locale)} / ${bytes(host?.disk_total, locale)}`}
+        meter={meter(percentOf(host?.disk_used, host?.disk_total))}
+      >
+        {percent(host?.disk_used, host?.disk_total)}
+      </KeyFigure>
+      <KeyFigure
+        label={t('dashboard.metric.transfer')}
+        meta={quota
+          ? t('dashboard.metric.quota', { used: percent(used, quota), total: bytes(quota, locale) })
+          : `${gibibytes(used, locale)} / ∞ GiB`}
+        tone={usageTone}
+      >
+        {used === undefined ? t('dashboard.metric.usageUnknown') : bytes(used, locale)}
+      </KeyFigure>
+    </KeyFigures>
   );
 }
 
@@ -330,7 +325,7 @@ function DashboardHistory() {
               return (
                 <li key={entry.id}>
                   <Tooltip>
-                    <TooltipTrigger render={<Link className='grid min-h-11 grid-cols-[54px_minmax(0,1fr)_max-content] items-center gap-3 rounded-[var(--radius-control)] p-2 text-compact transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-surface-raised)] focus-visible:bg-[var(--color-surface-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none @max-[650px]:gap-2 @max-[650px]:px-0' to='/logs' />}>
+                    <TooltipTrigger render={<Link className='grid min-h-11 grid-cols-[54px_minmax(0,1fr)_max-content] items-center gap-3 rounded-[var(--radius-control)] p-2 text-compact transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none @max-[650px]:gap-2 @max-[650px]:px-0' to='/logs' />}>
                       <span className='flex justify-center'><PanelLogLevel level={entry.level} /></span>
                       <span className='min-w-0 truncate'>{title}</span>
                       <time className='text-end text-xs whitespace-nowrap text-muted-foreground tabular-nums' dateTime={entry.time} aria-label={fullTime}>

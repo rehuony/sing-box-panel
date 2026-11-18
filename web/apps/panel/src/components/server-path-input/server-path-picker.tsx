@@ -239,7 +239,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
                           const Icon = entry.kind === 'directory' ? Folder : entry.kind === 'socket' ? Plug : File;
                           return (
                             <li key={entry.path} className='flex min-w-0 items-center gap-1'>
-                              <Button type='button' variant='ghost' data-path-entry className='h-auto text-foreground transition-[background-color,border-color,color] aria-pressed:border-[color-mix(in_srgb,var(--primary)_30%,transparent)] aria-pressed:bg-accent aria-pressed:text-accent-foreground min-h-10 min-w-0 flex-1 justify-start gap-3 px-2.5 py-2 active:scale-100' title={entry.path}
+                              <Button type='button' variant='ghost' data-path-entry className='h-auto text-foreground transition-[background-color,border-color,color] aria-pressed:border-primary/50 aria-pressed:bg-accent aria-pressed:text-foreground min-h-10 min-w-0 flex-1 justify-start gap-3 px-2.5 py-2 active:scale-100' title={entry.path}
                                 aria-label={`${entry.name}${entry.kind === 'directory' ? '/' : ''}`} aria-pressed={selected}
                                 disabled={blocked || editingLocation || !canSelect(entry)}
                                 onClick={() => picker.select(entry)}
@@ -252,7 +252,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
                                     enterDirectory(entry.path);
                                   }
                                 }}>
-                                <Icon data-icon='inline-start' className={entry.kind === 'directory' ? 'text-primary/80' : 'text-muted-foreground'} aria-hidden='true' />
+                                <Icon data-icon='inline-start' className={entry.kind === 'directory' ? 'text-foreground' : 'text-muted-foreground'} aria-hidden='true' />
                                 <span className={entry.kind === 'directory' ? 'truncate font-medium' : 'truncate font-normal'}>{entry.name}</span>
                                 {entry.symlink && <Link data-icon='inline-end' aria-label={t('filesystem.symlink')} />}
                                 {entry.kind === 'directory' && <ChevronRight className='ml-auto text-muted-foreground/50' aria-hidden='true' />}

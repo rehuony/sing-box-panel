@@ -164,6 +164,8 @@ export const productLogs = {
     'node.delete.failed': 'Node deletion operation failed',
     'node.enrollment.issue.completed': 'Enrollment code issued',
     'node.enrollment.issue.failed': 'Enrollment code could not be issued',
+    'node.enrollment.cancel.completed': 'Enrollment code canceled',
+    'node.enrollment.cancel.failed': 'Enrollment code could not be canceled',
     'node.settings.save.completed': 'Node settings save operation completed',
     'node.settings.save.failed': 'Node settings save operation failed',
     'node.enrolled': 'Node enrolled',

@@ -83,7 +83,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
       // The button stays a small mark in the line; its target reaches past it.
       className={cn(
         'relative size-5 min-h-5 rounded-[var(--radius-control)] text-muted-foreground after:absolute after:-inset-2.5',
-        'hover:bg-[var(--color-selection)] hover:text-foreground',
+        'hover:bg-[var(--color-hover)] hover:text-foreground',
       )}
       onClick={() => {
         void navigator.clipboard?.writeText(value).then(() => setCopied(true), () => undefined);
