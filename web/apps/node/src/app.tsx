@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom';
 import { Power, Unplug } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { Toaster } from '@shared/components/ui/toast';
 import { Spinner } from '@shared/components/ui/spinner';
 import { GlyphField } from '@shared/components/glyph-field';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -119,17 +120,19 @@ export function App() {
   // One field behind every view, so sign-in and the signed-in view share it.
   // The wrapper isolates it above the page background.
   return (
-    <div className='relative isolate'>
-      <GlyphField
-        anchor={anchor}
-        busy={fieldBusy}
-        mode={state.kind === 'signed-in' ? 'calm' : 'interactive'}
-        ref={fieldRef}
-        // The first row of the console frame stays clear.
-        top={64}
-        words={fieldWords}
-      />
-      {view}
-    </div>
+    <Toaster>
+      <div className='relative isolate'>
+        <GlyphField
+          anchor={anchor}
+          busy={fieldBusy}
+          mode={state.kind === 'signed-in' ? 'calm' : 'interactive'}
+          ref={fieldRef}
+          // The first row of the console frame stays clear.
+          top={64}
+          words={fieldWords}
+        />
+        {view}
+      </div>
+    </Toaster>
   );
 }

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
+import { toast } from '@shared/components/ui/toast-manager';
 import { LanguageMenu } from '@shared/components/language-menu';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
@@ -22,6 +23,9 @@ import { LoginPrompt } from './login-prompt';
 
 /** How long a sign-in shows its success before the panel opens. */
 const SUCCESS_HOLD_MS = 520;
+
+/** One toast reports every refused attempt, so retries replace it instead of stacking. */
+const REFUSAL_TOAST = 'sign-in-refused';
 
 interface LoginLocationState {
   from?: string;
@@ -67,7 +71,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
+  const [refused, setRefused] = useState(false);
   const [invalid, setInvalid] = useState<PromptLine | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [phase, setPhase] = useState<PromptPhase>('idle');
@@ -76,7 +80,10 @@ export function LoginPage() {
   const passwordRef = useRef<HTMLInputElement>(null);
   const returnTarget = safeReturnTarget((location.state as LoginLocationState | null)?.from);
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
+  useEffect(() => () => {
+    controllerRef.current?.abort();
+    toast.close(REFUSAL_TOAST);
+  }, []);
 
   useEffect(() => {
     field.setBusy(phase === 'submitting');
@@ -115,18 +122,21 @@ export function LoginPage() {
   }
 
   function refuse(text: string, line: PromptLine | null) {
-    setMessage(text);
+    setRefused(true);
     setInvalid(line);
+    toast.add({ id: REFUSAL_TOAST, priority: 'high', title: text, type: 'error' });
     setAttempt(current => current + 1);
     field.pulse('error');
     if (line === 'email') emailRef.current?.focus();
     if (line === 'password') passwordRef.current?.focus();
   }
 
+  /** Typing again, or trying again, ends the last refusal. */
   function clear() {
-    if (message === '') return;
-    setMessage('');
+    if (!refused) return;
+    setRefused(false);
     setInvalid(null);
+    toast.close(REFUSAL_TOAST);
   }
 
   async function submit() {
@@ -187,7 +197,6 @@ export function LoginPage() {
           email={email}
           emailRef={emailRef}
           invalid={invalid}
-          message={message}
           onEmailChange={(value) => {
             if (value.length > email.length) field.pulse('key');
             setEmail(value);
@@ -207,6 +216,7 @@ export function LoginPage() {
           passwordRef={passwordRef}
           phase={phase}
           ref={field.anchor}
+          refused={refused}
         />
       </form>
     </SignInFrame>

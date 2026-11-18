@@ -209,13 +209,6 @@
   }
 }
 
-@keyframes prompt-output-in {
-  from {
-    opacity: 0;
-    translate: 0 -6px;
-  }
-}
-
 @keyframes prompt-cell-in {
   from {
     opacity: 0;
@@ -229,13 +222,9 @@
   }
 }
 
-/* A refused prompt shakes once; its output row slides down from it. */
+/* A refused prompt shakes once. */
 .prompt-shake {
   animation: prompt-shake 360ms var(--ease-out);
-}
-
-.prompt-output {
-  animation: prompt-output-in var(--dur-short) var(--ease-out);
 }
 
 /* One cell per character, as wide as the input's character with its letter spacing; the mirror sets --prompt-cell. */
@@ -301,7 +290,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .prompt-shake,
-  .prompt-output,
   .prompt-input__cell,
   .prompt-input__caret {
     animation: none;

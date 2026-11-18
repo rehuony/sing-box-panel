@@ -362,25 +362,26 @@ describe('application routes', () => {
     expect(client.login).not.toHaveBeenCalled();
   });
 
-  it('prints validation below the prompt and describes the focused invalid field', async () => {
+  it('reports validation in one toast and marks the focused invalid field', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({ getSession: vi.fn().mockResolvedValue(null) });
     renderRoutes('/login', client);
     const email = await screen.findByLabelText('Email');
     const password = screen.getByLabelText('Password');
+    const refusal = () => screen.queryAllByText(/./, { selector: '[data-slot="toast-title"]' }).map(title => title.textContent);
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(email).toHaveFocus();
     expect(email).toBeInvalid();
-    expect(email).toHaveAccessibleDescription('Enter a valid email address.');
-    expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address.');
+    await waitFor(() => expect(refusal()).toEqual(['Enter a valid email address.']));
 
+    // Typing again closes the refusal; the next one takes its place.
     await user.type(email, 'admin@example.com');
-    expect(email).not.toHaveAttribute('aria-describedby');
+    expect(email).toBeValid();
+    await waitFor(() => expect(refusal()).toEqual([]));
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(password).toHaveFocus();
     expect(password).toBeInvalid();
-    expect(password).toHaveAccessibleDescription('Enter your password to continue.');
-    expect(screen.getByRole('alert')).toHaveTextContent('Enter your password to continue.');
+    await waitFor(() => expect(refusal()).toEqual(['Enter your password to continue.']));
     expect(client.login).not.toHaveBeenCalled();
   });
 
@@ -405,10 +406,9 @@ describe('application routes', () => {
     expect(client.login).toHaveBeenCalledTimes(1);
 
     await act(async () => rejectLogin(new ApiRequestError('Invalid credentials', { status: 401, code: 'unauthorized' })));
-    expect(await screen.findByRole('alert')).toHaveTextContent('The email or password is incorrect.');
+    expect(await screen.findByText('The email or password is incorrect.', { selector: '[data-slot="toast-title"]' })).toBeInTheDocument();
     expect(email).toHaveValue('admin@example.com');
     expect(password).toHaveValue('incorrect-password');
-    expect(password).toHaveAccessibleDescription('The email or password is incorrect.');
     expect(password).not.toHaveAttribute('readonly');
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });

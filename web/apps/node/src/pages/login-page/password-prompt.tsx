@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { PromptInput } from '@shared/components/prompt-input';
-import { Check, CornerDownLeft, Eye, EyeOff, X } from 'lucide-react';
+import { Check, CornerDownLeft, Eye, EyeOff } from 'lucide-react';
 
 export type PromptPhase = 'idle' | 'submitting' | 'success';
 
@@ -14,9 +14,8 @@ interface PasswordPromptProps {
   value: string;
   /** Changes on every refused attempt, which shakes the prompt once. */
   attempt: number;
-  /** Why the last attempt was refused; empty while there is nothing to report. */
-  message: string;
-  messageId: string;
+  /** The last attempt was refused; the prompt stays marked until typing resumes. */
+  refused: boolean;
   phase: PromptPhase;
   ref?: Ref<HTMLDivElement>;
   onChange: (value: string) => void;
@@ -24,10 +23,10 @@ interface PasswordPromptProps {
 
 /**
  * The console password as a terminal prompt: `$`, the masked line, then the
- * visibility toggle and submit. A refusal prints below the prompt as its
- * output row, outside the flow so the prompt stays put.
+ * visibility toggle and submit. A refusal shakes the prompt and marks it in
+ * danger; the page reports why in a toast.
  */
-export function PasswordPrompt({ attempt, message, messageId, onChange, phase, ref, value }: PasswordPromptProps) {
+export function PasswordPrompt({ attempt, onChange, phase, ref, refused, value }: PasswordPromptProps) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -39,7 +38,6 @@ export function PasswordPrompt({ attempt, message, messageId, onChange, phase, r
 
   const busy = phase !== 'idle';
   const success = phase === 'success';
-  const invalid = message !== '';
 
   return (
     <div
@@ -53,8 +51,8 @@ export function PasswordPrompt({ attempt, message, messageId, onChange, phase, r
       <div
         className={cn(
           'flex h-14 items-center gap-3 rounded-[var(--radius-card)] border bg-card pr-2 pl-4 shadow-[var(--shadow-card)] transition-[border-color,box-shadow] duration-[var(--dur-short)] ease-out',
-          invalid
-            ? 'rounded-b-none border-[var(--color-danger-border)] focus-within:border-[var(--color-danger)]'
+          refused
+            ? 'border-[var(--color-danger-border)] focus-within:border-[var(--color-danger)]'
             : success
               ? 'border-[var(--color-success-border)] focus-within:border-[var(--color-success)] focus-within:ring-3 focus-within:ring-[var(--color-success-soft)]'
               : 'focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25',
@@ -64,8 +62,7 @@ export function PasswordPrompt({ attempt, message, messageId, onChange, phase, r
           {success ? <Check className='size-4' /> : '$'}
         </span>
         <PromptInput
-          aria-describedby={messageId}
-          aria-invalid={invalid || undefined}
+          aria-invalid={refused || undefined}
           aria-label={t('login.password')}
           autoComplete='current-password'
           // The page takes nothing else, so it opens on its password.
@@ -92,17 +89,6 @@ export function PasswordPrompt({ attempt, message, messageId, onChange, phase, r
         <Button aria-label={t('login.submit')} className='shrink-0' size='icon-sm' type='submit'>
           {phase === 'submitting' ? <Spinner /> : success ? <Check aria-hidden='true' /> : <CornerDownLeft aria-hidden='true' />}
         </Button>
-      </div>
-      {/* The live region stays in place; the row inside it prints the refusal. */}
-      <div className='absolute inset-x-0 top-full' id={messageId} role='alert'>
-        {invalid
-          ? (
-              <p className='prompt-output flex items-start gap-2 rounded-b-[var(--radius-card)] border border-t-0 border-[var(--color-danger-border)] bg-card px-4 py-2.5 text-sm text-[var(--color-danger-text)] shadow-[var(--shadow-card)]'>
-                <X aria-hidden='true' className='mt-0.5 size-4 shrink-0' strokeWidth={2.5} />
-                <span className='min-w-0'>{message}</span>
-              </p>
-            )
-          : null}
       </div>
     </div>
   );

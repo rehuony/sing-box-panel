@@ -3,6 +3,7 @@ import type { FieldControl } from '@shared/components/glyph-field';
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from '@shared/components/ui/toast-manager';
 
 import type { ConsoleStatus, Session } from '@/api/generated';
 
@@ -17,6 +18,9 @@ import './login-page.css';
 /** How long a sign-in shows its success before the console opens. */
 const SUCCESS_HOLD_MS = 520;
 
+/** One toast reports every refused attempt, so retries replace it instead of stacking. */
+const REFUSAL_TOAST = 'console-sign-in-refused';
+
 interface LoginPageProps {
   field: FieldControl;
   /** Receives the session and, when it could be read during the success, the node's status. */
@@ -26,7 +30,7 @@ interface LoginPageProps {
 export function LoginPage({ field, onSignedIn }: LoginPageProps) {
   const { t } = useTranslation();
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [refused, setRefused] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [phase, setPhase] = useState<PromptPhase>('idle');
 
@@ -35,10 +39,20 @@ export function LoginPage({ field, onSignedIn }: LoginPageProps) {
     return () => field.setBusy(false);
   }, [field, phase]);
 
+  useEffect(() => () => toast.close(REFUSAL_TOAST), []);
+
   function refuse(message: string) {
-    setError(message);
+    setRefused(true);
     setAttempt(current => current + 1);
     field.pulse('error');
+    toast.add({ id: REFUSAL_TOAST, priority: 'high', title: message, type: 'error' });
+  }
+
+  /** Typing again, or trying again, ends the last refusal. */
+  function clear() {
+    if (!refused) return;
+    setRefused(false);
+    toast.close(REFUSAL_TOAST);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -49,7 +63,7 @@ export function LoginPage({ field, onSignedIn }: LoginPageProps) {
       return;
     }
     setPhase('submitting');
-    setError('');
+    clear();
     let session: Session;
     try {
       session = await login(password);
@@ -80,15 +94,14 @@ export function LoginPage({ field, onSignedIn }: LoginPageProps) {
       <form aria-labelledby='console-login-title' className='w-full max-w-md' noValidate onSubmit={event => void handleSubmit(event)}>
         <PasswordPrompt
           attempt={attempt}
-          message={error}
-          messageId='console-login-error'
           onChange={(value) => {
             if (value.length > password.length) field.pulse('key');
             setPassword(value);
-            if (error) setError('');
+            clear();
           }}
           phase={phase}
           ref={field.anchor}
+          refused={refused}
           value={password}
         />
       </form>

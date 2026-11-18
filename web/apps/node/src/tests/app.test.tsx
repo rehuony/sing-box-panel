@@ -89,7 +89,8 @@ describe('node console', () => {
     const password = await screen.findByLabelText('Console password');
     await user.type(password, 'wrong-password');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('The password is incorrect.');
+    expect(await screen.findByText('The password is incorrect.', { selector: '[data-slot="toast-title"]' })).toBeInTheDocument();
+    expect(password).toBeInvalid();
 
     await user.clear(password);
     await user.type(password, 'console-password-one');
