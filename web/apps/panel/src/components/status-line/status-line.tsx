@@ -3,9 +3,9 @@ import type { supportedLanguages } from '@shared/i18n/language';
 
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { useLayoutEffect, useRef } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { setAppLanguage } from '@shared/i18n/language';
+import { useId, useLayoutEffect, useRef } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { LanguageMenu } from '@shared/components/language-menu';
@@ -101,8 +101,11 @@ function windowsOf({ scope }: ShellScopeState): WindowEntry[] {
     : panelWindows.map(window => ({ page: panelWindowPages[window], path: panelWindowPath(window), window }));
 }
 
-/** The line's first action: the prompt symbol, which opens the command line. */
-function CommandAction({ className }: { className?: string }) {
+/**
+ * The line's first action: the prompt symbol, which opens the command line.
+ * While the line is open, it names the line it controls.
+ */
+function CommandAction({ className, controls }: { className?: string; controls?: string }) {
   const { t } = useTranslation();
   const { open, setOpen } = useCommandSession();
   return (
@@ -110,6 +113,7 @@ function CommandAction({ className }: { className?: string }) {
       <TooltipTrigger
         render={(
           <Button
+            aria-controls={open ? controls : undefined}
             aria-expanded={open}
             aria-label={t('command.label')}
             className={cn('font-[family-name:var(--font-data)] text-sm text-[var(--color-highlight-yellow)]', className)}
@@ -357,7 +361,7 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
         ? <div className='flex min-w-0 flex-[4] items-center justify-center'><Selection compact nodes={selection} /></div>
         : (
             <nav aria-label={t('shell.bar.windows')} className='flex min-w-0 flex-[5] items-stretch'>
-              {windows.map(({ path, window }, index) => {
+              {windows.map(({ page, path, window }, index) => {
                 const Icon = windowIcons[window];
                 return (
                   <NavLink
@@ -365,6 +369,8 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
                     className={cn(item, 'group aria-[current=page]:flex-[1.6] aria-[current=page]:text-foreground')}
                     end
                     key={window}
+                    onFocus={() => preloadPage(page)}
+                    onPointerEnter={() => preloadPage(page)}
                     to={path}
                   >
                     <Icon aria-hidden='true' className='size-5 group-aria-[current=page]:text-foreground' />
@@ -388,6 +394,7 @@ export function StatusLine({ shell }: { shell: ShellScopeState }) {
   const { t } = useTranslation();
   const open = useCommandSession(state => state.open);
   const phone = usePhoneLayout();
+  const commandId = useId();
   const returnRef = useRef<HTMLElement | null>(null);
 
   // Closing the command line puts focus back where it was when the line opened.
@@ -412,9 +419,9 @@ export function StatusLine({ shell }: { shell: ShellScopeState }) {
       {open
         ? (
             <div className='flex h-full min-w-0 flex-1 items-center gap-1'>
-              <CommandAction className='max-sm:size-11' />
+              <CommandAction className='max-sm:size-11' controls={commandId} />
               <Divider />
-              <CommandMode shell={shell} />
+              <CommandMode id={commandId} shell={shell} />
             </div>
           )
         : phone ? <PhoneBar shell={shell} /> : <DesktopLine shell={shell} />}

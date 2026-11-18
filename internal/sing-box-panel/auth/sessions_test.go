@@ -85,6 +85,7 @@ func TestSessionsPersistAcrossDatabaseReopenAndExpire(t *testing.T) {
 	}
 	defer db.Close()
 	app = NewSessions(db, fixedCredentials{email: testutil.AdminEmail, hash: testutil.PasswordHash})
+	app.now = func() time.Time { return now }
 	if _, err := app.CurrentSession(t.Context(), first.Token); !errors.Is(err, store.ErrAuthSessionMissing) {
 		t.Fatal("expired session restored", err)
 	}

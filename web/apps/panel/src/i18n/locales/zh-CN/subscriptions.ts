@@ -15,6 +15,7 @@ export const subscriptions = {
     noDetour: '直接连接',
     detourHelp: '选择同一手动节点集合中的节点；分发渠道需包含完整的依赖链。',
     copy: '复制当前显示的 JSON',
+    copied: 'JSON 已复制',
     listener: '监听地址',
     publicAddress: '订阅地址',
     protocol: '协议',

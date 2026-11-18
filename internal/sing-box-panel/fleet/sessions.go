@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 )
@@ -32,6 +33,12 @@ type session struct {
 	// then does the session accept commands.
 	ready     chan struct{}
 	readyOnce sync.Once
+	// telemetryMu orders Welcome and the session's metrics interval
+	// changes; metricsInterval is the interval the node was last told,
+	// starting with the baseline Welcome names.
+	telemetryMu     sync.Mutex
+	welcomed        bool
+	metricsInterval time.Duration
 
 	cancel context.CancelCauseFunc
 	// done closes when the session ends.
@@ -46,7 +53,7 @@ type session struct {
 func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream nodeapi.NodeService_ConnectServer) *session {
 	var sendMu sync.Mutex
 	return &session{
-		ready:  make(chan struct{}),
+		ready: make(chan struct{}), metricsInterval: MetricsInterval,
 		cancel: cancel, done: ctx.Done(), pending: map[string]chan *nodeapi.Result{},
 		send: func(frame *nodeapi.ConnectResponse) error {
 			sendMu.Lock()

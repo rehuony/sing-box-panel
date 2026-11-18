@@ -181,6 +181,9 @@ func TestObservabilityHTTPIsAuthenticatedAndStrict(t *testing.T) {
 	}
 	method := authenticatedRequest(t, handler, http.MethodPost, nodePath+"/metrics", "", "")
 	assertCoreHTTPProblem(t, method, http.StatusMethodNotAllowed, "method_not_allowed")
+	// A literal path keeps its methods: deleting it is not deleting a log entry by that ID.
+	literal := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/logs/panel", "", "")
+	assertCoreHTTPProblem(t, literal, http.StatusMethodNotAllowed, "method_not_allowed")
 	missing := authenticatedRequest(t, handler, http.MethodGet, nodePath+"/traffic/periods/missing", "", "")
 	assertCoreHTTPProblem(t, missing, http.StatusNotFound, "traffic_period_not_found")
 }

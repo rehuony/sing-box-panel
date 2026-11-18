@@ -45,8 +45,25 @@ func (stream *eventStream) event(name string, data []byte) error {
 	return stream.write(fmt.Sprintf("event: %s\ndata: %s\n\n", name, data))
 }
 
+// eventWithID sends one event that a reconnecting client resumes after.
+func (stream *eventStream) eventWithID(id, name string, data []byte) error {
+	return stream.write(fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", id, name, data))
+}
+
 func (stream *eventStream) heartbeat() error {
 	return stream.write(": heartbeat\n\n")
+}
+
+// reconnect asks the client to open the stream again, which authenticates
+// it again; every stream ends this way within its lifetime.
+func (stream *eventStream) reconnect() error {
+	return stream.write("event: control\ndata: {\"type\":\"reconnect\"}\n\n")
+}
+
+// rotationTimer fires a second before a stream's lifetime ends, while its
+// write budget still has time left to announce the renewal.
+func rotationTimer(lifetime time.Duration) *time.Timer {
+	return time.NewTimer(max(time.Duration(0), lifetime-time.Second))
 }
 
 func (stream *eventStream) write(frame string) error {
@@ -101,8 +118,7 @@ func streamSnapshots[T any](w http.ResponseWriter, request *http.Request, event 
 	}
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
-	// Announce renewal while the authentication/write budget still has time left.
-	rotation := time.NewTimer(max(time.Duration(0), lifetime-time.Second))
+	rotation := rotationTimer(lifetime)
 	defer rotation.Stop()
 	for {
 		select {
@@ -134,7 +150,7 @@ func streamSnapshots[T any](w http.ResponseWriter, request *http.Request, event 
 			}
 		case <-rotation.C:
 			if stream.started {
-				_ = stream.write("event: control\ndata: {\"type\":\"reconnect\"}\n\n")
+				_ = stream.reconnect()
 				return
 			}
 		}

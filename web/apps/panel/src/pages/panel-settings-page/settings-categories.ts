@@ -45,6 +45,7 @@ export function invalidSettingsField(
   if (!integer(s.core_log_retention_days ?? 7, 1, 3650)) return fail('logs', 'core-log-retention');
   if (!integer(s.core_log_max_files ?? 0, 0, 1024)) return fail('logs', 'core-log-max-files');
   if (!integer(s.core_log_max_file_size_mib ?? 32, 1, 1024)) return fail('logs', 'core-log-size');
+  if (!integer(s.panel_log_retention_days ?? 90, 1, 3650)) return fail('logs', 'panel-log-retention');
   if (!/^#[\dA-F]{6}$/i.test(p.appearance.color)) return fail('interface', 'accent-color');
   if (!integer(p.appearance.radius, 0, 32)) return fail('interface', 'radius');
   return null;

@@ -3,6 +3,7 @@
 package nodeconfig
 
 import (
+	"context"
 	"crypto/rand"
 	"time"
 
@@ -16,6 +17,17 @@ type Service struct {
 	cores    *corecache.Service
 	now      func() time.Time
 	random   func([]byte) (int, error)
+}
+
+// keptRevisions is how many of each node's newest configuration revisions
+// stay; revisions still in use stay as well.
+const keptRevisions = 50
+
+// PruneRevisions removes each node's configuration revisions beyond the
+// newest keptRevisions that nothing uses: not the saved text's, not the
+// latest that parsed and not the one the node reports applied.
+func (service *Service) PruneRevisions(ctx context.Context) (int64, error) {
+	return service.database.PruneCanonicalRevisions(ctx, keptRevisions)
 }
 
 // New serves the configuration files in database. Configuration support

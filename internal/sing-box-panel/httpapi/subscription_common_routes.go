@@ -13,9 +13,6 @@ import (
 )
 
 func (handler *Handler) subscriptionReadRequest(w http.ResponseWriter, request *http.Request) bool {
-	if !handler.requireCommands(w, request) {
-		return false
-	}
 	_, ok := strictCoreQuery(w, request)
 	return ok
 }
@@ -25,9 +22,6 @@ func (handler *Handler) subscriptionListRequest(
 	request *http.Request,
 	additionalQuery ...string,
 ) (subscription.SubscriptionListRequest, bool) {
-	if !handler.requireCommands(w, request) {
-		return subscription.SubscriptionListRequest{}, false
-	}
 	query, ok := strictCoreQuery(w, request, append([]string{"limit", "before_time", "before_id"}, additionalQuery...)...)
 	if !ok {
 		return subscription.SubscriptionListRequest{}, false

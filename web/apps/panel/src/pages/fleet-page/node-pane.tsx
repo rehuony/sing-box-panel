@@ -310,7 +310,8 @@ interface NodePaneProps {
  * and what needs saying, then six rows of readings. A click opens the node;
  * in selection mode, with Ctrl, Cmd or Shift, or after a touch held on it, it
  * toggles the pane instead, and Space toggles the focused pane. The pane
- * stays a link, so a middle click or its context menu opens a new tab.
+ * stays a link, so a middle click or its context menu opens a new tab; in
+ * selection mode it reads as a checkbox, checked while the pane is selected.
  */
 export const NodePane = memo(({ item, morph, onToggle, release, selected, selecting }: NodePaneProps) => {
   const { t } = useTranslation();
@@ -402,6 +403,7 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected, select
         <HealthDot item={item} now={now} />
         <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium' title={node.name}>
           <Link
+            aria-checked={selecting ? selected : undefined}
             className='outline-none [-webkit-touch-callout:none] after:absolute after:inset-0 after:rounded-[inherit]'
             onClick={onLinkClick}
             onKeyDown={(event) => {
@@ -409,11 +411,11 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected, select
               event.preventDefault();
               onToggle(node.id, event.shiftKey);
             }}
+            role={selecting ? 'checkbox' : undefined}
             to={nodePath(node.id)}
             viewTransition={morph && !selecting}
           >
             {node.name}
-            {selected ? <span className='sr-only'>{t('fleet.pane.selected')}</span> : null}
           </Link>
         </h2>
         {/* The host takes the room the name and the end leave, so it gives way first; its details add the tags. */}

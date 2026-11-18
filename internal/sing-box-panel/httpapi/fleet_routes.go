@@ -10,14 +10,12 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -25,10 +23,6 @@ import (
 const maximumNodeRequestBytes = 4 << 10
 
 func (handler *Handler) fleetRequest(w http.ResponseWriter, request *http.Request) bool {
-	if handler.services.Fleet == nil {
-		writeProblem(w, request, http.StatusServiceUnavailable, "application_unavailable", "Application unavailable", "Node services are not ready.")
-		return false
-	}
 	_, ok := strictCoreQuery(w, request)
 	return ok
 }
@@ -60,10 +54,6 @@ const (
 // fleetStatusFilter reads the filters of a fleet status read or stream, and
 // with paged the page's limit and cursor, or writes the problem.
 func (handler *Handler) fleetStatusFilter(w http.ResponseWriter, request *http.Request, paged bool) (fleet.StatusFilter, int, string, bool) {
-	if handler.services.Fleet == nil {
-		writeProblem(w, request, http.StatusServiceUnavailable, "application_unavailable", "Application unavailable", "Node services are not ready.")
-		return fleet.StatusFilter{}, 0, "", false
-	}
 	names := []string{"state", "tag", "q"}
 	if paged {
 		names = append(names, "limit", "cursor")
@@ -263,10 +253,6 @@ func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Reque
 	case "update":
 		// Updates run one node at a time: each must come back with the
 		// panel's version before the next starts, and a failure stops them.
-		if handler.services.Releases == nil {
-			nodeUpdateProblem(releases.ErrUnavailable).write(w, request)
-			return
-		}
 		if _, err := handler.services.Releases.NodeVersion(); err != nil {
 			nodeUpdateProblem(err).write(w, request)
 			return
@@ -352,76 +338,38 @@ func (handler *Handler) streamBatch(w http.ResponseWriter, request *http.Request
 	}
 }
 
-// Failures of a batch install before a node is commanded.
-var (
-	errNodePlatformUnknown  = errors.New("the node has not reported its platform")
-	errCoreAssetUnavailable = errors.New("the version has no official archive for the node's platform")
-	errCoreDownloadFailed   = errors.New("the panel could not download and verify the release asset")
-)
-
 func batchInstallProblem(err error) (problemDetails, bool) {
 	switch {
-	case errors.Is(err, errNodePlatformUnknown):
+	case errors.Is(err, fleet.ErrNodePlatformUnknown):
 		return problemDetails{http.StatusConflict, "node_platform_unknown", "Node platform unknown", err.Error()}, true
-	case errors.Is(err, errCoreAssetUnavailable):
+	case errors.Is(err, fleet.ErrCoreAssetUnavailable):
 		return problemDetails{http.StatusConflict, "core_asset_unavailable", "Core archive unavailable", err.Error()}, true
-	case errors.Is(err, errCoreDownloadFailed):
+	case errors.Is(err, fleet.ErrCoreDownloadFailed):
 		return problemDetails{http.StatusBadGateway, "core_download_failed", "Core download failed", err.Error()}, true
 	}
 	return problemDetails{}, false
 }
 
-// platformArchive is the official archive of one platform in a batch
-// install, cached once, when the first node of that platform needs it.
-type platformArchive struct {
-	assetID int64
-	once    sync.Once
-	cached  store.CachedArtifact
-	err     error
-}
-
-// versionInstaller returns a command that installs exactVersion on a node
-// from the official catalog archive for the node's own platform, or writes
-// the problem when the catalog has no archive of that version.
+// versionInstaller returns the fleet's command that installs exactVersion on
+// each node, or writes the problem when it cannot be prepared.
 func (handler *Handler) versionInstaller(w http.ResponseWriter, request *http.Request, exactVersion string) (func(context.Context, fleet.Node) error, bool) {
 	if _, err := coreartifact.ParseExactVersion(exactVersion); err != nil {
 		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "exact_version must be an exact sing-box version.")
 		return nil, false
 	}
-	assets, err := handler.services.Cores.ListCatalogAssets(request.Context(), corecache.CatalogAssetFilter{ExactVersion: exactVersion})
+	install, err := handler.services.Fleet.VersionInstaller(request.Context(), exactVersion)
 	switch {
 	case corecache.IsCatalogNotInitialized(err):
 		writeProblem(w, request, http.StatusConflict, "catalog_not_initialized", "Catalog not initialized", "Refresh the core catalog before installing an asset.")
 		return nil, false
+	case errors.Is(err, fleet.ErrVersionNotInCatalog):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog has no official archive of this version.")
+		return nil, false
 	case err != nil:
 		writeProblem(w, request, http.StatusInternalServerError, "core_install_failed", "Core install failed", "The catalog could not be inspected before installation.")
 		return nil, false
-	case len(assets.Assets) == 0:
-		writeProblem(w, request, http.StatusUnprocessableEntity, "core_install_invalid", "Core install request invalid", "The catalog has no official archive of this version.")
-		return nil, false
 	}
-	archives := map[string]*platformArchive{}
-	for _, asset := range assets.Assets {
-		platform := string(asset.OperatingSystem) + "/" + string(asset.Architecture)
-		if archives[platform] == nil {
-			archives[platform] = &platformArchive{assetID: asset.AssetID}
-		}
-	}
-	return func(ctx context.Context, node fleet.Node) error {
-		if node.OS == "" || node.Arch == "" {
-			return errNodePlatformUnknown
-		}
-		archive := archives[node.OS+"/"+node.Arch]
-		if archive == nil {
-			return errCoreAssetUnavailable
-		}
-		archive.once.Do(func() { archive.cached, archive.err = handler.services.Cores.CacheOfficial(ctx, archive.assetID) })
-		if archive.err != nil {
-			return errCoreDownloadFailed
-		}
-		_, err := handler.services.Fleet.InstallCore(ctx, node.ID, archive.cached)
-		return err
-	}, true
+	return install, true
 }
 
 func (handler *Handler) createNode(w http.ResponseWriter, request *http.Request) {

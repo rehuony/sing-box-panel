@@ -6,7 +6,7 @@ import { followStream } from '@/api/stream-connection';
 import { useApiClient } from '@/api/api-client-context';
 import { usePageVisible } from '@/hooks/use-page-visible';
 
-import { appendCoreText } from './core-log-lines';
+import { appendCoreText, emptyCoreText } from './core-log-lines';
 
 export function useCoreLogs(active = true) {
   const client = useApiClient();
@@ -24,7 +24,7 @@ export function useCoreLogs(active = true) {
   const [selection, setSelection] = useState('');
   const [paused, setPaused] = useState(false);
   const [pausedFile, setPausedFile] = useState('');
-  const [text, setText] = useState('');
+  const [content, setContent] = useState(emptyCoreText);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [clearing, setClearing] = useState(false);
@@ -38,13 +38,13 @@ export function useCoreLogs(active = true) {
     if (paused || clearing || !enabled) return;
     if (offsetRef.current.file !== file) {
       offsetRef.current = { file, value: -1, generation: '' };
-      setText('');
+      setContent(previous => appendCoreText(previous, '', true));
       setError(null);
     }
     if (!file) return;
     const receive = (chunk: import('@/api/api-client').CoreLogChunk) => {
       offsetRef.current = { file, value: chunk.next_offset, generation: chunk.generation };
-      setText(previous => appendCoreText(chunk.reset ? '' : previous, chunk.text));
+      setContent(previous => appendCoreText(previous, chunk.text, chunk.reset));
       setError(null);
       setConnected(current);
     };
@@ -72,7 +72,9 @@ export function useCoreLogs(active = true) {
     files,
     file,
     current,
-    text,
+    text: content.text,
+    /** The sequence number of the first line of text, which row keys follow. */
+    firstLine: content.first,
     connected: connected && !paused && !clearing && enabled,
     loading,
     error: error ?? listError,
@@ -88,7 +90,7 @@ export function useCoreLogs(active = true) {
         await client.clearCoreLog(name);
         if (offsetRef.current.file === name) {
           offsetRef.current = { file: name, value: 0, generation: '' };
-          setText('');
+          setContent(previous => appendCoreText(previous, '', true));
           setError(null);
         }
         await cache.cancelQueries({ queryKey: ['coreLogFiles'] });

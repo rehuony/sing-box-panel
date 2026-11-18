@@ -36,6 +36,7 @@ const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
 const sourceChange: readonly QueryRoot[] = ['sources', 'nodes', 'channels'];
 const nodeChange: readonly QueryRoot[] = ['nodes', 'channels'];
 const fleetChange: readonly QueryRoot[] = ['fleetNodes', 'fleetStatus', 'nodes'];
+const releaseChange: readonly QueryRoot[] = ['fleetNodes', 'fleetStatus'];
 
 // Keyed by ApiClient method, so renaming or removing a write is a type error
 // here instead of a silently skipped invalidation.
@@ -73,8 +74,26 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   saveNodeSettings: ['nodeSettings', 'fleetStatus', 'nodes'],
   checkSystemUpdate: ['systemUpdate'],
   startSystemUpdate: ['systemUpdate'],
-  updateNode: ['fleetNodes', 'fleetStatus'],
+  updateNode: releaseChange,
 };
+
+// A fleet batch runs the single-node commands, so it changes what they change.
+const fleetCommandChange: readonly QueryRoot[] = [...runtimeChange, ...coreArtifactChange, ...releaseChange];
+// Of those, what one node owns, keyed by the node after the root.
+const nodeScoped: readonly QueryRoot[] = ['installed', 'runtime'];
+
+/**
+ * A fleet batch streams its results, so this boundary cannot see it end. Its
+ * reader calls this once the batch ends, however it ends: views of the fleet
+ * and of the touched nodes read what the batch can have changed again.
+ */
+export function invalidateFleetCommand(cache: QueryClient, nodeIDs: readonly string[]): Promise<void> {
+  const touched = new Set<unknown>(nodeIDs);
+  return cache.invalidateQueries({
+    predicate: ({ queryKey: [root, node] }) => fleetCommandChange.includes(root as QueryRoot)
+      && (!nodeScoped.includes(root as QueryRoot) || touched.has(node)),
+  });
+}
 
 function affectedQueries(method: string): readonly QueryRoot[] {
   return Object.hasOwn(invalidations, method) ? invalidations[method as keyof ApiClient] ?? [] : [];

@@ -62,7 +62,11 @@ function NodeLayout({ node }: { node: FleetNode }) {
   );
 }
 
-/** Scopes the API client, configuration session and telemetry to one node. */
+/**
+ * Scopes the API client, configuration session and telemetry to one node.
+ * The tree stays the same whether the node is online or not, so a view's
+ * state, such as an unsaved settings draft, outlives a change of state.
+ */
 function NodeScope({ node }: { node: FleetNode }) {
   const client = useApiClient();
   const cache = useQueryClient();
@@ -71,9 +75,7 @@ function NodeScope({ node }: { node: FleetNode }) {
     <CurrentNodeContext value={node}>
       <ApiClientContext value={scoped}>
         <ConfigurationSessionProvider sessionKey={node.id}>
-          {node.state === 'online'
-            ? <TelemetryProvider><NodeLayout node={node} /></TelemetryProvider>
-            : <NodeLayout node={node} />}
+          <TelemetryProvider online={node.state === 'online'}><NodeLayout node={node} /></TelemetryProvider>
         </ConfigurationSessionProvider>
       </ApiClientContext>
     </CurrentNodeContext>
@@ -82,17 +84,20 @@ function NodeScope({ node }: { node: FleetNode }) {
 
 /**
  * The node's title strip above the window's view; every view inside reads
- * this node only. The status line lists the windows.
+ * this node only. The node is the one the fleet stream reports, as the status
+ * line shows it. The status line lists the windows.
  */
 export function NodeWorkspace() {
   const { t } = useTranslation();
   const { nodeId = '' } = useParams();
   const client = useApiClient();
-  const nodes = useQuery({ ...queries.fleetNodes(client), refetchInterval: 15_000 });
-  const node = nodes.data?.items.find(item => item.id === nodeId);
+  const nodes = useQuery(queries.fleetStatus(client));
+  const node = nodes.data?.items.find(item => item.node.id === nodeId)?.node;
 
   if (node !== undefined) return <NodeScope key={node.id} node={node} />;
   if (nodes.isPending) return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
+  // A fleet that was read but lacks the node no longer has it; without any reading, the read failed.
+  const failed = nodes.data === undefined;
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
       <Empty className='rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]' role='status'>
@@ -100,11 +105,11 @@ export function NodeWorkspace() {
           <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
             <SearchX aria-hidden='true' strokeWidth={1.5} />
           </EmptyMedia>
-          <EmptyTitle>{t(nodes.isError ? 'nodes.loadFailed' : 'node.missing.title')}</EmptyTitle>
-          {nodes.isError ? <EmptyDescription>{describeRequestError(nodes.error)}</EmptyDescription> : null}
+          <EmptyTitle>{t(failed ? 'nodes.loadFailed' : 'node.missing.title')}</EmptyTitle>
+          {failed ? <EmptyDescription>{describeRequestError(nodes.error)}</EmptyDescription> : null}
         </EmptyHeader>
         <EmptyContent className='flex-row justify-center'>
-          {nodes.isError
+          {failed
             ? <Button onClick={() => void nodes.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
             : null}
           <Link className={buttonVariants()} to='/nodes'>{t('node.missing.action')}</Link>

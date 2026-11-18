@@ -12,10 +12,6 @@ import (
 )
 
 func (handler *Handler) releasesRequest(w http.ResponseWriter, request *http.Request) bool {
-	if handler.services.Releases == nil {
-		writeProblem(w, request, http.StatusServiceUnavailable, "application_unavailable", "Application unavailable", "Release services are not ready.")
-		return false
-	}
 	_, ok := strictCoreQuery(w, request)
 	return ok
 }

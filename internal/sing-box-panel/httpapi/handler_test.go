@@ -192,9 +192,8 @@ func TestRequestIDIsBoundedAndConsistentAcrossResponses(t *testing.T) {
 func TestLoginAndAuthenticatedStatus(t *testing.T) {
 	handler := testHandler(t)
 	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
-	login.Header.Set("Content-Type", "application/json")
 	login.Header.Set("Origin", "http://example.com")
-	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("Content-Type", "application/json; charset=utf-8")
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
 	if loginResponse.Code != http.StatusOK {

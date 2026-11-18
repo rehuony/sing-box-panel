@@ -45,7 +45,6 @@ export const fleet = {
     reached: 'reached',
     resets: 'Resets {{date}}',
     running: 'running',
-    selected: ', selected',
     stopped: 'stopped',
     tags: 'Tags: {{tags}}',
     unknown: 'not reported',

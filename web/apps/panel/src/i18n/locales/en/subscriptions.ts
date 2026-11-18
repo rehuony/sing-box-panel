@@ -16,6 +16,7 @@ export const subscriptions = {
     detourHelp:
       'Choose another manual node. The channel must include the complete dependency chain.',
     copy: 'Copy displayed JSON',
+    copied: 'JSON copied',
     listener: 'Listen address',
     publicAddress: 'Subscription address',
     protocol: 'Protocol',

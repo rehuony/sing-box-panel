@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/netguard"
 )
 
 type PublicIPDetector struct {
@@ -118,13 +120,8 @@ func (d *PublicIPDetector) detect(ctx context.Context) string {
 		return ""
 	}
 	address = address.Unmap()
-	if !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast() {
+	if !netguard.Public(address) {
 		return ""
-	}
-	for _, reserved := range []string{"100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32"} {
-		if netip.MustParsePrefix(reserved).Contains(address) {
-			return ""
-		}
 	}
 	return address.String()
 }

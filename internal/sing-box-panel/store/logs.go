@@ -228,7 +228,7 @@ func (s *Store) TailLogEntries(ctx context.Context, filter LogTailFilter) ([]Log
 
 func (s *Store) ClearLogEntries(ctx context.Context, filter LogClearFilter) (int64, error) {
 	if filter.Source != "" && !validLogSource(filter.Source) {
-		return 0, fmt.Errorf("invalid log source %q", filter.Source)
+		return 0, invalidQuery("invalid log source %q", filter.Source)
 	}
 	clauses := []string{"1 = 1"}
 	args := make([]any, 0, 2)
@@ -238,7 +238,7 @@ func (s *Store) ClearLogEntries(ctx context.Context, filter LogClearFilter) (int
 	}
 	if filter.Before != nil {
 		if filter.Before.IsZero() {
-			return 0, errors.New("log clear before time is zero")
+			return 0, invalidQuery("log clear before time is zero")
 		}
 		clauses = append(clauses, "occurred_at < ?")
 		args = append(args, formatTime(filter.Before.UTC()))
@@ -339,22 +339,22 @@ func logFilterClauses(
 	until *time.Time,
 ) ([]string, []any, error) {
 	if source != "" && !validLogSource(source) {
-		return nil, nil, fmt.Errorf("invalid log source %q", source)
+		return nil, nil, invalidQuery("invalid log source %q", source)
 	}
 	if level != "" && !validLogLevel(level) {
-		return nil, nil, fmt.Errorf("invalid log level %q", level)
+		return nil, nil, invalidQuery("invalid log level %q", level)
 	}
 	if code != "" && (len(code) > MaximumLogCodeBytes || !logCodePattern.MatchString(code)) {
-		return nil, nil, errors.New("log code filter is invalid")
+		return nil, nil, invalidQuery("log code filter is invalid")
 	}
 	if since != nil && since.IsZero() {
-		return nil, nil, errors.New("log since time is zero")
+		return nil, nil, invalidQuery("log since time is zero")
 	}
 	if until != nil && until.IsZero() {
-		return nil, nil, errors.New("log until time is zero")
+		return nil, nil, invalidQuery("log until time is zero")
 	}
 	if since != nil && until != nil && !since.Before(*until) {
-		return nil, nil, errors.New("log since time must be before until time")
+		return nil, nil, invalidQuery("log since time must be before until time")
 	}
 	clauses := []string{"1 = 1"}
 	args := make([]any, 0, 8)
@@ -386,10 +386,10 @@ func validateLogCursor(cursor *LogCursor) error {
 		return nil
 	}
 	if cursor.Time.IsZero() {
-		return errors.New("log cursor time is zero")
+		return invalidQuery("log cursor time is zero")
 	}
 	if err := validateLogID(cursor.ID); err != nil {
-		return fmt.Errorf("log cursor: %w", err)
+		return invalidQuery("log cursor: %v", err)
 	}
 	return nil
 }

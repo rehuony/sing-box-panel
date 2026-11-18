@@ -11,9 +11,6 @@ import (
 
 func (handler *Handler) listFilesystemEntries(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "path", "search", "show_hidden", "offset", "limit")
 	if !ok {
 		return
@@ -43,9 +40,6 @@ func (handler *Handler) listFilesystemEntries(w http.ResponseWriter, request *ht
 
 func (handler *Handler) resolveFilesystemPath(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "path", "mode")
 	if !ok {
 		return

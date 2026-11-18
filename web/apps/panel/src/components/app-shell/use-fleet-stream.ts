@@ -4,10 +4,10 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import type { FleetStatus, FleetStreamFrame } from '@/api/api-client';
 
-import { queries } from '@/api/queries';
 import { followStream } from '@/api/stream-connection';
 import { useApiClient } from '@/api/api-client-context';
 import { usePageVisible } from '@/hooks/use-page-visible';
+import { applyFleetStreamFrame, queries } from '@/api/queries';
 
 type NodeStatus = FleetStatus['items'][number];
 
@@ -49,9 +49,9 @@ export const useFleetStreamState = create<{ down: boolean }>()(() => ({ down: fa
 
 /**
  * Feeds the fleet status query from the panel's shared fleet stream while
- * the page is visible, so every fleet view reads one live fleet. A stream
- * that stays down hands over to a read of the status, whose failure marks
- * the views' last reading as no longer updating.
+ * the page is visible, so every fleet view, and every node's workspace,
+ * reads one live fleet. A stream that stays down hands over to a read of the
+ * status, whose failure marks the views' last reading as no longer updating.
  */
 export function useFleetStream() {
   const client = useApiClient();
@@ -64,7 +64,7 @@ export function useFleetStream() {
       signal => client.streamFleetStatus(signal),
       (frame) => {
         useFleetStreamState.setState({ down: false });
-        queryClient.setQueryData<FleetStatus>(queryKey, current => applyFleetFrame(current, frame));
+        applyFleetStreamFrame(queryClient, current => applyFleetFrame(current, frame));
       },
       () => {
         useFleetStreamState.setState({ down: true });

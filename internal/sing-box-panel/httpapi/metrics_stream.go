@@ -14,9 +14,6 @@ import (
 // streamMetrics streams one node's live metrics. While it streams, the node
 // samples once a second.
 func (handler *Handler) streamMetrics(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

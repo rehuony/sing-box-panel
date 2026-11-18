@@ -80,16 +80,33 @@ func (handler *Handler) serveIndex(w http.ResponseWriter, request *http.Request)
 	_, _ = w.Write(data)
 }
 
+// errBodyTooLarge reports a request body over its operation's limit; any
+// other error from readBoundedBody is a failed read, such as a client that
+// stopped sending.
+var errBodyTooLarge = errors.New("request body is too large")
+
 func readBoundedBody(request *http.Request, limit int64) ([]byte, error) {
 	defer request.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(request.Body, limit+1))
-	if err != nil {
+	var maxBytes *http.MaxBytesError
+	switch {
+	case errors.As(err, &maxBytes):
+		return nil, errBodyTooLarge
+	case err != nil:
 		return nil, fmt.Errorf("read request body: %w", err)
-	}
-	if int64(len(data)) > limit {
-		return nil, errors.New("request body is too large")
+	case int64(len(data)) > limit:
+		return nil, errBodyTooLarge
 	}
 	return data, nil
+}
+
+// writeBodyProblem answers a request body readBoundedBody refused.
+func writeBodyProblem(w http.ResponseWriter, request *http.Request, err error) {
+	if errors.Is(err, errBodyTooLarge) {
+		writeProblem(w, request, http.StatusRequestEntityTooLarge, "request_too_large", "Request rejected", "The request body is too large.")
+		return
+	}
+	writeProblem(w, request, http.StatusBadRequest, "request_body_unreadable", "Request invalid", "The request body could not be read.")
 }
 
 func newRequestID() string {

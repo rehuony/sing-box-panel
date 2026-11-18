@@ -1,5 +1,5 @@
 export const cores = {
-  library: { officialLink: '官网链接', version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', installed: '已安装', notInstalled: '未安装', download: '下载', operationFailed: '操作状态：{{status}}。可在面板日志查看操作失败，请查看面板日志。', completed: '操作已完成', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消' },
+  library: { officialLink: '官网链接', version: '版本', source: '来源', status: '状态', actions: '操作', enable: '启用', disable: '禁用', enabled: '已启用', disabled: '未启用', unknown: '状态未知', installed: '已安装', notInstalled: '未安装', download: '下载', completed: '操作已完成', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消' },
   action: { remove: '移除', configure: '前往配置' },
   artifact: { changed: '版本已移除。' },
   confirm: {

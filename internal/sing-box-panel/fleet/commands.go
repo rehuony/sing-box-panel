@@ -47,44 +47,30 @@ func IsProblem(err error, code string) bool {
 }
 
 // run sends body to nodeID and waits for the node's result until ctx ends or
-// the command's deadline passes. A command that can change the node's state
-// keeps only ctx's deadline: cancelling ctx, as a client that disconnects
+// the command's deadline passes; without a deadline on ctx the command has
+// DefaultCommandTimeout. The deadline also bounds the wait for a session's
+// first state report. A command that can change the node's state keeps only
+// its deadline once it is sent: cancelling ctx, as a client that disconnects
 // does, would otherwise interrupt a change that already started on the node.
 func (service *Service) run(ctx context.Context, nodeID string, body nodeapi.CommandBody) (*nodeapi.Result, error) {
-	current := service.sessions.get(nodeID)
-	if current == nil {
-		return nil, ErrNodeOffline
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = service.now().Add(DefaultCommandTimeout)
 	}
-	if current.protocolMinor < commandMinor(body) {
-		return nil, ErrNodeUpgradeRequired
-	}
-	// The panel acts on a node only once it knows the node's state.
-	select {
-	case <-current.ready:
-	case <-current.done:
-		return nil, ErrNodeOffline
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	current, err := service.readySession(ctx, nodeID, commandMinor(body))
+	if err != nil {
+		return nil, err
 	}
 	if nodeapi.ChangesState(body) {
-		deadline, ok := ctx.Deadline()
-		ctx = context.WithoutCancel(ctx)
-		if ok {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithDeadline(ctx, deadline)
-			defer cancel()
-		}
+		var detached context.CancelFunc
+		ctx, detached = context.WithDeadline(context.WithoutCancel(ctx), deadline)
+		defer detached()
 	}
 	requestID, err := database.NewID(service.random, "request")
 	if err != nil {
 		return nil, err
-	}
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = service.now().Add(DefaultCommandTimeout)
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, deadline)
-		defer cancel()
 	}
 	waiting := current.expect(requestID)
 	defer current.forget(requestID)
@@ -93,17 +79,57 @@ func (service *Service) run(ctx context.Context, nodeID string, body nodeapi.Com
 	}}}); err != nil {
 		return nil, ErrNodeResultUnknown
 	}
-	select {
-	case result := <-waiting:
+	answer := func(result *nodeapi.Result) (*nodeapi.Result, error) {
 		if problem := result.GetProblem(); problem != nil {
 			return nil, &CommandProblem{Code: problem.GetCode(), Title: problem.GetTitle(), Detail: problem.GetDetail()}
 		}
 		return result, nil
+	}
+	select {
+	case result := <-waiting:
+		return answer(result)
 	case <-current.done:
-		return nil, ErrNodeResultUnknown
+		// A result delivered just before the session ended still counts.
+		select {
+		case result := <-waiting:
+			return answer(result)
+		default:
+			return nil, ErrNodeResultUnknown
+		}
 	case <-ctx.Done():
+		select {
+		case result := <-waiting:
+			return answer(result)
+		default:
+		}
 		_ = current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Cancel{Cancel: &nodeapi.Cancel{RequestId: requestID}}})
 		return nil, ctx.Err()
+	}
+}
+
+// readySession returns the node's session once its first state report is
+// recorded: the panel acts on a node only once it knows the node's state. A
+// session replaced before it reported hands over to its successor.
+func (service *Service) readySession(ctx context.Context, nodeID string, minor uint32) (*session, error) {
+	for {
+		current := service.sessions.get(nodeID)
+		if current == nil {
+			return nil, ErrNodeOffline
+		}
+		if current.protocolMinor < minor {
+			return nil, ErrNodeUpgradeRequired
+		}
+		select {
+		case <-current.ready:
+			return current, nil
+		case <-current.done:
+			if next := service.sessions.get(nodeID); next != nil && next != current {
+				continue
+			}
+			return nil, ErrNodeOffline
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 

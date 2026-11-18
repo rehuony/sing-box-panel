@@ -13,9 +13,11 @@ import (
 
 const gibibyte = int64(1 << 30)
 
-type TrafficSampleRetentionResult struct {
-	Deleted int64     `json:"deleted"`
-	Cutoff  time.Time `json:"cutoff"`
+// RetentionResult counts the records one retention pass deleted.
+type RetentionResult struct {
+	TrafficSamples     int64 `json:"traffic_samples"`
+	LogEntries         int64 `json:"log_entries"`
+	RuntimeTransitions int64 `json:"runtime_transitions"`
 }
 
 // NodeTrafficUsage is one node's recorded traffic in its current period,
@@ -117,26 +119,33 @@ func (application *Service) MetricsHistory(
 	return application.database.MetricsHistory(ctx, filter)
 }
 
-// EnforceTrafficSampleRetention removes only raw samples. Aggregated traffic
-// periods are intentionally retained as the long-lived accounting record.
-func (application *Service) EnforceTrafficSampleRetention(ctx context.Context) (TrafficSampleRetentionResult, error) {
+// EnforceRetention deletes raw traffic samples older than the sample
+// retention, and log entries and runtime history older than the panel log
+// retention. Daily traffic and traffic periods are the long-lived
+// accounting record and stay.
+func (application *Service) EnforceRetention(ctx context.Context) (RetentionResult, error) {
 	if application.settings == nil {
-		return TrafficSampleRetentionResult{}, errors.New("traffic sample retention setting is unavailable")
+		return RetentionResult{}, errors.New("retention settings are unavailable")
 	}
 	effective, err := application.settings.EffectiveSettings(ctx)
 	if err != nil {
-		return TrafficSampleRetentionResult{}, err
+		return RetentionResult{}, err
 	}
-	days := effective.Traffic.SampleRetentionDays
-	if days < 1 || days > 366 {
-		return TrafficSampleRetentionResult{}, errors.New("traffic sample retention setting is unavailable")
+	sampleDays, logDays := effective.Traffic.SampleRetentionDays, effective.Logs.PanelRetentionDays
+	if sampleDays < 1 || sampleDays > 366 || logDays < 1 || logDays > 3650 {
+		return RetentionResult{}, errors.New("retention settings are unavailable")
 	}
-	cutoff := application.now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
-	deleted, err := application.database.DeleteTrafficSamplesBefore(ctx, cutoff)
-	if err != nil {
-		return TrafficSampleRetentionResult{}, err
+	now := application.now().UTC()
+	var result RetentionResult
+	if result.TrafficSamples, err = application.database.DeleteTrafficSamplesBefore(ctx, now.AddDate(0, 0, -sampleDays)); err != nil {
+		return result, err
 	}
-	return TrafficSampleRetentionResult{Deleted: deleted, Cutoff: cutoff}, nil
+	logCutoff := now.AddDate(0, 0, -logDays)
+	if result.LogEntries, err = application.database.DeleteLogEntriesBefore(ctx, logCutoff); err != nil {
+		return result, err
+	}
+	result.RuntimeTransitions, err = application.database.DeleteRuntimeTransitionsBefore(ctx, logCutoff)
+	return result, err
 }
 
 func (application *Service) TrafficPeriod(ctx context.Context, nodeID, periodID string) (store.TrafficPeriod, error) {

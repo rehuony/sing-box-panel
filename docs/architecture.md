@@ -73,6 +73,7 @@ nothing imports.
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
 | | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files |
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
+| | `netguard` | Which addresses count as public: the only addresses the panel's source and core downloads reach without an operator's permission, and the only ones a node reports as its public address |
 | | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, same-origin and CSRF checks, and security headers |
 | Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `run`, `console` and `systemd` |
 | | `settings` | The node's data directory, its enrollment (panel endpoint, trust, IDs and the Ed25519 identity key) and its console settings |
@@ -102,8 +103,11 @@ nothing imports.
 | | `cli`, `server` | The panel's command tree; the server lifecycle around the composed services, the node listener and the HTTP server |
 | | `testutil` | Fixtures shared by panel tests |
 
-The panel `store` imports no domain package; services above it validate domain
-rules and the store keeps structural integrity and transactional invariants.
+The panel `store` imports no panel service package; it uses the shared
+`configuration` package to canonicalize the documents it stores. Services above
+it validate domain rules and choose policies such as how many revisions to
+keep; the store keeps structural integrity and the invariants that must hold
+inside one transaction, such as traffic deltas against the checkpoint.
 Transport packages translate input and output but do not own use-case rules.
 Infrastructure packages own process, network, filesystem and database effects.
 The web client depends on the documented HTTP contract rather than Go
@@ -117,14 +121,15 @@ Production imports between the module's packages, as reported by
 `internal/sing-box-node/`:
 
 ```text
-atomicfile, buildinfo, console, coreartifact, database, jsonstrict, pathguard,
-procctl, release, singbox, webauth, node:host (no module imports)
+atomicfile, buildinfo, console, coreartifact, database, jsonstrict, netguard,
+pathguard, procctl, release, singbox, webauth (no module imports)
 
 configuration      -> jsonstrict
 logredact          -> jsonstrict
 nodeapi            -> jsonstrict
 selfupdate         -> atomicfile, jsonstrict, release
 systemd            -> atomicfile, database, pathguard
+node:host          -> netguard
 node:artifacts     -> atomicfile, coreartifact
 node:runtime       -> atomicfile, coreartifact, singbox
 node:corelogs      -> logredact
@@ -150,11 +155,11 @@ panel:settings     -> atomicfile, database, jsonstrict, nodeapi, panel:auth,
                       panel:store, webauth
 panel:telemetry    -> database, panel:settings, panel:store
 panel:schema       -> coreartifact, singbox
-panel:corecache    -> atomicfile, coreartifact, jsonstrict, panel:settings,
-                      panel:store, panel:telemetry
+panel:corecache    -> atomicfile, coreartifact, jsonstrict, netguard,
+                      panel:settings, panel:store, panel:telemetry
 panel:nodeconfig   -> configuration, panel:corecache, panel:schema, panel:store
 panel:subscription -> configuration, coreartifact, database, jsonstrict,
-                      panel:schema, panel:settings, panel:store,
+                      netguard, panel:schema, panel:settings, panel:store,
                       panel:telemetry, singbox
 panel:releases     -> buildinfo, release, selfupdate, systemd, panel:settings,
                       panel:store, panel:telemetry
@@ -326,7 +331,7 @@ persistence, security boundaries and runtime semantics.
 ### Persistence and preserved guarantees
 
 `internal/sing-box-panel/store/schema.sql` is the panel's storage baseline,
-schema version 23. It creates each node's editable configuration and canonical
+schema version 24. It creates each node's editable configuration and canonical
 revisions, the cached core archives, subscription state, shared subscription
 node order, each node's runtime history, traffic samples, counter checkpoint
 and durable daily traffic accounting, login sessions, the node registry with

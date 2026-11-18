@@ -5,7 +5,6 @@ package fleet
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"time"
 
@@ -298,37 +297,8 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 	service := server.service
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
-	frames := make(chan *nodeapi.FetchReleaseRequest, 1)
-	ended := make(chan error, 1)
-	go func() {
-		for {
-			frame, err := stream.Recv()
-			if err != nil {
-				ended <- err
-				return
-			}
-			select {
-			case frames <- frame:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	next := func() (*nodeapi.FetchReleaseRequest, error) {
-		timer := time.NewTimer(handshakeTimeout)
-		defer timer.Stop()
-		select {
-		case frame := <-frames:
-			return frame, nil
-		case err := <-ended:
-			return nil, err
-		case <-timer.C:
-			return nil, status.Error(codes.DeadlineExceeded, "handshake timed out")
-		case <-ctx.Done():
-			return nil, status.FromContextError(ctx.Err()).Err()
-		}
-	}
-	frame, err := next()
+	receiver := receiveFrames(ctx, stream.Recv)
+	frame, err := receiver.next()
 	if err != nil {
 		return err
 	}
@@ -362,7 +332,7 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 	}}); err != nil {
 		return err
 	}
-	if frame, err = next(); err != nil {
+	if frame, err = receiver.next(); err != nil {
 		return err
 	}
 	if !nodeapi.VerifyReleaseProof(node.PublicKey, panelID, node.ID, nonce, frame.GetProof()) {
@@ -389,20 +359,11 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 	}}}); err != nil {
 		return err
 	}
-	buffer := make([]byte, artifactChunkSize)
-	for {
-		n, err := file.Read(buffer)
-		if n > 0 {
-			// Send encodes the frame before it returns, so buffer can be reused.
-			if err := stream.Send(&nodeapi.FetchReleaseResponse{Frame: &nodeapi.FetchReleaseResponse_Chunk{Chunk: buffer[:n]}}); err != nil {
-				return err
-			}
-		}
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return status.Error(codes.Internal, "read the node release")
-		}
+	err = sendChunks(file, func(chunk []byte) error {
+		return stream.Send(&nodeapi.FetchReleaseResponse{Frame: &nodeapi.FetchReleaseResponse_Chunk{Chunk: chunk}})
+	})
+	if errors.Is(err, errChunkRead) {
+		return status.Error(codes.Internal, "read the node release")
 	}
+	return err
 }

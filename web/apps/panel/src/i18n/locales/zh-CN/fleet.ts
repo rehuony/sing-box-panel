@@ -45,7 +45,6 @@ export const fleet = {
     reached: '已用尽',
     resets: '{{date}}重置',
     running: '运行中',
-    selected: '，已选中',
     stopped: '已停止',
     tags: '标签：{{tags}}',
     unknown: '未上报',

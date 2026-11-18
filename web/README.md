@@ -182,9 +182,15 @@ for limits, proxy behavior and privacy boundaries.
 
 ## Data loading and caching
 
-The status line's windows preload route modules on hover and keyboard focus, sharing each pending download with navigation. A failed speculative import
+The status line's windows, on the desktop line and the phone tab bar, preload
+route modules on hover and keyboard focus, and the command line preloads the
+window it opens, so navigation shares each pending download. A failed speculative import
 does not interrupt the current page; the next unloaded route reloads the document
-to recover Vite's shared CSS/module preload state. Configuration downloads the
+to recover Vite's shared CSS/module preload state. A view that fails, such as a
+route module that fails to load without a preload, shows one line in its place
+inside the shell with a reload action, and opening another window leaves it; a
+failure outside the shell shows the router's root fallback with the same
+action. Configuration downloads the
 reviewed Schema/validator modules in parallel with the authenticated Schema
 contract; version, digest and full-schema checks
 still gate structured editing. Subscription lists and their node catalog load
@@ -193,22 +199,30 @@ Runtime responses are published independently of artifact listings and discarded
 when newer shared runtime evidence arrives while the request is pending.
 
 TanStack Query v5 owns session-local query state: the fleet status, fed by the
-fleet stream, the fleet's nodes and traffic status (15 seconds), installed core lists (15 seconds), release catalogs (60
+fleet stream, the fleet's node list for the configuration copy dialog (15
+seconds), installed core lists (15 seconds), release catalogs (60
 seconds), subscription summaries and node catalogs (5 seconds), and resolved
 artifact-bound Schema contracts (5 minutes). Node-scoped reads carry the node in
 their key, so nodes never share cached data. Inactive queries expire after 5 minutes. Configuration,
 credentials and file content are read on demand; settings are retained only by
-an active provider. Nothing is persisted in browser storage. Shared query keys
+an active provider. No query data is persisted in browser storage; it holds only
+the theme and language preferences (localStorage) and the marker that allows one
+reload per panel version after an update (sessionStorage). Shared query keys
 coalesce pending reads and preserve unchanged object references. Background
 refresh retains content, pagination, selection and scroll position. GET requests
 have a 15-second total budget and retry a network/temporary service failure once;
 writes are never automatically retried. Writes invalidate related resources,
-apply returned evidence, and reconcile ambiguous failures. Session changes cancel
+apply returned evidence, and reconcile ambiguous failures. A fleet batch streams
+its results, so its reader invalidates once the batch ends what its single-node
+commands change: the fleet, and the touched nodes' runtime status and installed
+cores. Session changes cancel
 queries, clear the cache and reject responses from earlier sessions.
 
 The shell renders after authentication while settings and page queries load
-independently. The fleet list and an open node's workspace refresh the node list
-every 15 seconds; a failed refresh keeps the last report, the workspace and drafts.
+independently. An open node's workspace reads its node from the fleet status,
+as the status line and the panes do, so they never disagree on its state; a
+failed read keeps the last report, the workspace and drafts, and the workspace's
+views and drafts stay mounted while the node goes offline or comes back.
 Sources poll every 15 seconds only while their page and browser tab are visible;
 sources and channels share the node catalog. Batch source refresh uses at most
 three concurrent operations and one final list refresh. The backend also limits
@@ -226,14 +240,18 @@ the running server handles periodic refresh using the configured interval.
 The shell follows the panel's fleet stream while the page is visible and
 applies each event to the fleet status query: a reset event replaces the fleet,
 later events replace the nodes that changed and drop the removed ones, in the
-panel's order. The nodes home, the status line and the command line read one live fleet
-without polling; a stream that stays down for its five-second grace hands over
-to one read of the status, whose failure marks the last reading as no longer
-updating.
+panel's order. The nodes home, the status line, the command line and the node
+workspaces read one live fleet without polling. While the stream drives the
+query, a status read never replaces it: returning to the tab restarts the
+stream, whose first event carries every node, instead of reading the status,
+and a read that an event overtakes keeps the event's fleet. A stream that stays
+down for its five-second grace hands over to one read of the status, whose
+failure marks the last reading as no longer updating.
 
 Each node workspace owns one telemetry store for that node, a stable Zustand
 store with separate subscriptions for runtime, metrics, history and connection
-health. History is subscribed only by the node's overview; core logs only by its
+health. Its streams run only while the node is online; going offline drops its
+readings. History is subscribed only by the node's overview; core logs only by its
 visible logs tab. The live metrics stream stays
 connected across browser tab switches so received samples remain continuous.
 Hidden tabs pause history, logs and polling until they become visible again.
@@ -333,7 +351,9 @@ with the node console from `packages/shared/src/components/terminal`.
 The nodes home renders every node as a memoized pane that redraws only when
 its own fleet entry changes or the shared 30-second clock moves; panes off
 screen skip layout and paint through `content-visibility` with their fixed
-height. Selection mode lives in `stores/fleet-view.store.ts`. The shell holds
+height. Selection mode lives in `stores/fleet-view.store.ts`; a filter or search
+that hides selected panes drops them from the selection, so a batch from it
+names only panes on screen, while command-line targets address the whole fleet. The shell holds
 the one enrollment dialog (`components/enrollment-dialog.tsx`, opened through
 `stores/enrollment-dialog.store.ts`), so a view that remounts while a host
 enrolls keeps it; the dialog reads the fleet status the stream feeds, polls

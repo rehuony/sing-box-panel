@@ -6,11 +6,13 @@ import type { NodeStatus } from '@/utils/fleet-summary';
 
 import i18n from '@/i18n';
 import { deferred } from '@/tests/deferred';
+import { createQueryClient } from '@/api/query-client';
 import { runBatch } from '@/components/status-line/run-batch';
 import { useCommandSession } from '@/stores/command-session.store';
 import { createMockApiClient, testMetrics, testNode } from '@/tests/api/mock-api-client';
 
 const t = i18n.getFixedT('en');
+const cache = createQueryClient();
 
 function fleet(count: number): NodeStatus[] {
   return Array.from({ length: count }, (_, index) => ({ metrics: testMetrics, node: { ...testNode, id: `node_${index}`, name: `node-${index}` } }));
@@ -34,8 +36,8 @@ describe('runBatch', () => {
         yield { done: { failed: 0, skipped: 0, succeeded: 1, total: 1 } };
       }),
     });
-    const first = runBatch({ action: 'restart', client, nodes: fleet(1), t });
-    await runBatch({ action: 'stop', client, nodes: fleet(1), t });
+    const first = runBatch({ cache, action: 'restart', client, nodes: fleet(1), t });
+    await runBatch({ cache, action: 'stop', client, nodes: fleet(1), t });
     expect(client.runFleetCommand).toHaveBeenCalledTimes(1);
     expect(texts()).toContain('a batch is still running; wait for it to finish');
     expect(useCommandSession.getState().running).toBe(true);
@@ -46,7 +48,7 @@ describe('runBatch', () => {
 
   it('keeps every node\'s line of a batch larger than the terminal keeps', async () => {
     const client = createMockApiClient();
-    await runBatch({ action: 'restart', client, nodes: fleet(300), t });
+    await runBatch({ cache, action: 'restart', client, nodes: fleet(300), t });
     const lines = texts();
     expect(lines[0]).toBe('Restart on 300 nodes…');
     expect(lines.filter(text => text === 'done')).toHaveLength(300);
@@ -60,7 +62,7 @@ describe('runBatch', () => {
         yield { result: { node_id: 'node_0', ok: true } };
       }),
     });
-    await runBatch({ action: 'restart', client, nodes: fleet(2), t });
+    await runBatch({ cache, action: 'restart', client, nodes: fleet(2), t });
     expect(texts().at(-1)).toBe('the batch stopped reporting before its summary; check each node\'s state');
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Restart did not report its outcome', type: 'error' }));
   });
@@ -74,7 +76,7 @@ describe('runBatch', () => {
         yield { done: { failed: 0, skipped: 0, succeeded: 1, total: 1 } };
       }),
     });
-    const batch = runBatch({ action: 'restart', client, nodes: fleet(1), t });
+    const batch = runBatch({ cache, action: 'restart', client, nodes: fleet(1), t });
     useCommandSession.getState().reset();
     release.resolve();
     await batch;

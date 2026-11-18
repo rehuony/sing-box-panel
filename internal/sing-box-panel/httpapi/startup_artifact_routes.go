@@ -12,9 +12,6 @@ import (
 )
 
 func (handler *Handler) listStartupArtifacts(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(
 		w, request,
 		"canonical_revision_id", "core_version", "core_artifact_id", "state",

@@ -111,7 +111,7 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
     },
     onSettled: () => Promise.all([
       cache.invalidateQueries({ queryKey: ['nodeSettings', node.id] }),
-      cache.invalidateQueries({ queryKey: ['fleetNodes'] }),
+      cache.invalidateQueries({ queryKey: ['fleetStatus'] }),
     ]),
   });
   useUnsavedChanges(dirty, () => setDraft(saved), save.isPending);
@@ -206,7 +206,7 @@ function VersionRow({ node }: { node: FleetNode }) {
       setConfirming(false);
       toast.add({ title: t(`node.version.result.${result.state}`, { name: node.name, version: result.version }), type: 'success' });
     },
-    onSettled: () => cache.invalidateQueries({ queryKey: ['fleetNodes'] }),
+    onSettled: () => cache.invalidateQueries({ queryKey: ['fleetStatus'] }),
   });
   const last = node.last_update;
   const detail = last && !last.succeeded
@@ -269,7 +269,7 @@ function DangerZone({ node }: { node: FleetNode }) {
       setConfirm(null);
       toast.add({ title: t('node.danger.removed', { name: node.name }), type: 'success' });
       await navigate('/nodes', { replace: true });
-      await cache.invalidateQueries({ queryKey: ['fleetNodes'] });
+      await cache.invalidateQueries({ queryKey: ['fleetStatus'] });
     },
   });
   const pending = reenroll.isPending || remove.isPending;

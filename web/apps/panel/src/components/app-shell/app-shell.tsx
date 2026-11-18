@@ -13,6 +13,7 @@ import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
 import { useFleetView } from '@/stores/fleet-view.store';
 import { LoadingState } from '@/components/loading-state';
+import { ViewErrorBoundary } from '@/components/route-error';
 import { useAuthSession } from '@/stores/auth-session.store';
 import { EnrollmentDialog } from '@/components/enrollment-dialog';
 import { useReloadOnPanelVersion } from '@/hooks/use-panel-update';
@@ -125,9 +126,11 @@ export function AppShell() {
         viewportRef={scrollRef}
       >
         <main className='@container flex min-w-0 flex-1 flex-col outline-none' id='main-content' ref={mainRef} tabIndex={-1}>
-          <Suspense fallback={<WorkspaceLoadingState />}>
-            <Outlet />
-          </Suspense>
+          <ViewErrorBoundary resetKey={location.pathname}>
+            <Suspense fallback={<WorkspaceLoadingState />}>
+              <Outlet />
+            </Suspense>
+          </ViewErrorBoundary>
         </main>
       </ScrollArea>
       <StatusLine shell={shell} />

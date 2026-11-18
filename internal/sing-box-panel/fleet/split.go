@@ -11,8 +11,10 @@ import (
 )
 
 // classifyTimeout bounds how long a new connection may stay silent before
-// its first bytes decide where it goes.
-const classifyTimeout = 10 * time.Second
+// its first bytes decide where it goes. It matches the time the Web server
+// gives a request's headers, so a silent connection is held no longer than
+// one that sends nothing after connecting to the Web server.
+const classifyTimeout = 5 * time.Second
 
 // NodeListeners carry the node connections split off the Web listener.
 type NodeListeners struct {

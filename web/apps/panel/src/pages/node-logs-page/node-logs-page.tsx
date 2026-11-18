@@ -46,12 +46,12 @@ export function NodeLogsPage() {
   const followRef = useRef(true);
   const lines = useMemo(
     () =>
-      parseCoreLines(log.text).filter(
+      parseCoreLines({ first: log.firstLine, text: log.text }).filter(
         (line) =>
           (!level || line.level === level)
           && `${line.prefix}${line.message}`.toLowerCase().includes(search.toLowerCase()),
       ),
-    [log.text, level, search],
+    [log.firstLine, log.text, level, search],
   );
   useEffect(() => {
     followRef.current = true;
@@ -116,7 +116,7 @@ export function NodeLogsPage() {
           className='min-w-28'
           value={level}
           onValueChange={setLevel}
-          items={[{ value: '', label: 'ALL' }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
+          items={[{ value: '', label: t('productLogs.allLevels') }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
         />
       </div>
       {log.error != null && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}

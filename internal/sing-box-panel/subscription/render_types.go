@@ -59,6 +59,10 @@ type RenderResult struct {
 	// PreviewDiagnostics is explicitly projected only by authenticated preview.
 	// Public output and diagnostic serialization never include node identities.
 	PreviewDiagnostics []PreviewDiagnostic `json:"-"`
+	// carried holds the publication IDs of the nodes the channel delivers:
+	// with a policy, the nodes the output contains; without one, the nodes
+	// its filters keep.
+	carried map[string]bool
 }
 
 // PreviewDiagnostic adds actionable context without reflecting configuration values.

@@ -25,6 +25,10 @@ interface FleetViewState {
   select: (ids: readonly string[]) => void;
   /** Enters selection mode, or leaves it and clears the selection. */
   setSelecting: (selecting: boolean) => void;
+  /**
+   * Sets the nodes the home screen shows and drops the selected ones it no
+   * longer shows, so a batch only names nodes the operator can see.
+   */
   setVisible: (ids: readonly string[]) => void;
   /**
    * Toggles one node, entering selection mode; with a range, selects every
@@ -48,7 +52,11 @@ export const useFleetView = create<FleetViewState>()(set => ({
   selecting: false,
   setFilter: filter => set(filter),
   setSelecting: selecting => set(selecting ? { selecting } : cleared),
-  setVisible: visible => set({ visible }),
+  setVisible: visible => set((state) => {
+    const shown = new Set(visible);
+    const selected = [...state.selected].filter(id => shown.has(id));
+    return selected.length === state.selected.size ? { visible } : { selected: new Set(selected), visible };
+  }),
   state: 'all',
   tag: null,
   visible: [],

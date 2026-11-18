@@ -1,4 +1,5 @@
 import type { TFunction } from 'i18next';
+import type { QueryClient } from '@tanstack/react-query';
 
 import { logLine } from '@shared/components/terminal';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -6,6 +7,7 @@ import { toast } from '@shared/components/ui/toast-manager';
 import type { NodeStatus } from '@/utils/fleet-summary';
 import type { ApiClient, FleetCommand, FleetCommandSummary } from '@/api/api-client';
 
+import { invalidateFleetCommand } from '@/api/query-client';
 import { useCommandSession } from '@/stores/command-session.store';
 import { describeProblem, describeRequestError } from '@/components/error-notice';
 
@@ -33,6 +35,8 @@ export function batchNeedsConfirmation(action: BatchAction, count: number): bool
 interface BatchRun {
   t: TFunction;
   client: ApiClient;
+  /** The cache whose views of the fleet and its nodes the batch can change. */
+  cache: QueryClient;
   action: BatchAction;
   /** The version install_core installs. */
   exactVersion?: string;
@@ -46,9 +50,10 @@ interface BatchRun {
  * line is closed at the end, a toast carries the summary, or says that the
  * batch stopped reporting before it. One batch runs at a time, and signing
  * out stops following it: the panel still finishes it, but its lines never
- * reach the next session.
+ * reach the next session. Once it ends, the views of what it can change read
+ * again.
  */
-export async function runBatch({ action, client, exactVersion, nodes, t }: BatchRun): Promise<void> {
+export async function runBatch({ action, cache, client, exactVersion, nodes, t }: BatchRun): Promise<void> {
   const session = useCommandSession.getState();
   if (session.running) {
     session.print(logLine('danger', t('command.batch.busy')));
@@ -56,6 +61,12 @@ export async function runBatch({ action, client, exactVersion, nodes, t }: Batch
   }
   const { generation } = session;
   const current = () => useCommandSession.getState().generation === generation;
+  // The session owns the reader: signing out stops reading at once, as the
+  // panel keeps running a confirmed batch whether or not anyone reads it.
+  const reading = new AbortController();
+  const unsubscribe = useCommandSession.subscribe((state) => {
+    if (state.generation !== generation) reading.abort();
+  });
   const label = t(`command.batch.action.${action}`);
   const names = new Map(nodes.map(item => [item.node.id, item.node.name]));
   const header = logLine('muted', t('command.batch.running', { action: label, count: nodes.length }), { pending: true });
@@ -64,13 +75,14 @@ export async function runBatch({ action, client, exactVersion, nodes, t }: Batch
   session.print(header);
   let summary: FleetCommandSummary | null = null;
   let failure: string | null = null;
+  const nodeIDs = nodes.map(item => item.node.id);
   try {
     const command: FleetCommand = {
       action,
-      node_ids: nodes.map(item => item.node.id),
+      node_ids: nodeIDs,
       ...(exactVersion ? { exact_version: exactVersion } : {}),
     };
-    for await (const event of client.runFleetCommand(command)) {
+    for await (const event of client.runFleetCommand(command, reading.signal)) {
       if (!current()) break;
       if ('done' in event) {
         summary = event.done;
@@ -85,9 +97,11 @@ export async function runBatch({ action, client, exactVersion, nodes, t }: Batch
   } catch (error) {
     failure = describeRequestError(error);
   } finally {
+    unsubscribe();
     if (current()) {
       session.settle(header.id);
       session.setRunning(false);
+      void invalidateFleetCommand(cache, nodeIDs);
     }
   }
   if (!current()) return;

@@ -9,6 +9,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func TestCredentialChangesSerializeWithLoginsAndRevokeAllSessions(t *testing.T) {
@@ -42,7 +43,8 @@ func TestCredentialChangesSerializeWithLoginsAndRevokeAllSessions(t *testing.T) 
 	close(sessions)
 	close(failures)
 	for err := range failures {
-		if !errors.Is(err, auth.ErrInvalidCredentials) {
+		// Password checks run outside the settings lock, at most two at once.
+		if !errors.Is(err, auth.ErrInvalidCredentials) && !errors.Is(err, webauth.ErrBusy) {
 			t.Fatal(err)
 		}
 	}

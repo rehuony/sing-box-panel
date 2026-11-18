@@ -132,6 +132,15 @@ type Logs struct {
 	CoreRetentionDays  int `json:"core_retention_days"`
 	CoreMaxFiles       int `json:"core_max_files"`
 	CoreMaxFileSizeMiB int `json:"core_max_file_size_mib"`
+	// PanelRetentionDays is how long the panel keeps its log entries and
+	// each node's runtime history.
+	PanelRetentionDays int `json:"panel_retention_days"`
+}
+
+// defaultLogs is the log retention of a new settings file and of a file
+// that omits a log setting.
+func defaultLogs() Logs {
+	return Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32, PanelRetentionDays: 90}
 }
 
 // Defaults returns safe defaults for the current effective user.
@@ -146,7 +155,7 @@ func Defaults() Settings {
 		Subscription: Subscription{
 			PrivateSourceCIDRs: []string{},
 		},
-		Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32},
+		Logs: defaultLogs(),
 	}
 }
 
@@ -195,7 +204,7 @@ func parse(path string, data []byte) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Logs: Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32}}
+	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Logs: defaultLogs()}
 	if err := decodeSettings(path, data, &value); err != nil {
 		return Settings{}, err
 	}
@@ -286,6 +295,9 @@ func (value Settings) Validate() error {
 	}
 	if value.Logs.CoreRetentionDays < 1 || value.Logs.CoreRetentionDays > 3650 || value.Logs.CoreMaxFiles < 0 || value.Logs.CoreMaxFiles > 1024 || value.Logs.CoreMaxFileSizeMiB < 1 || value.Logs.CoreMaxFileSizeMiB > 1024 {
 		return errors.New("core log retention must be 1–3650 days, 0–1024 files and 1–1024 MiB per file")
+	}
+	if value.Logs.PanelRetentionDays < 1 || value.Logs.PanelRetentionDays > 3650 {
+		return errors.New("logs.panel_retention_days must be between 1 and 3650")
 	}
 	if runtime.GOOS == "windows" {
 		return errors.New("Windows is not supported")

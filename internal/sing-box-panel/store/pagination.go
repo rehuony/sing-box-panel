@@ -2,14 +2,31 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"time"
 )
 
+// ErrInvalidQuery marks a filter, range, cursor or page the caller supplied
+// that a query refuses. Any other query error is a storage failure.
+var ErrInvalidQuery = errors.New("invalid query")
+
+type invalidQueryError string
+
+func (message invalidQueryError) Error() string { return string(message) }
+
+func (invalidQueryError) Is(target error) bool { return target == ErrInvalidQuery }
+
+// invalidQuery returns an error that matches ErrInvalidQuery and whose text
+// describes the caller's input, so it is safe to show.
+func invalidQuery(format string, args ...any) error {
+	return invalidQueryError(fmt.Sprintf(format, args...))
+}
+
 func validatePageOffset(offset int, hasCursor bool) error {
 	if offset < 0 || offset > math.MaxInt32 || (offset > 0 && hasCursor) {
-		return errors.New("page offset must be between 0 and 2147483647 and cannot be combined with a cursor")
+		return invalidQuery("page offset must be between 0 and 2147483647 and cannot be combined with a cursor")
 	}
 	return nil
 }
@@ -27,13 +44,13 @@ type CreatedAtCursor struct {
 
 func normalizePageLimit(limit int) (int, error) {
 	if limit < 0 {
-		return 0, errors.New("page limit must not be negative")
+		return 0, invalidQuery("page limit must not be negative")
 	}
 	if limit == 0 {
 		return defaultPageLimit, nil
 	}
 	if limit > maximumPageLimit {
-		return 0, errors.New("page limit exceeds maximum of 200")
+		return 0, invalidQuery("page limit exceeds maximum of 200")
 	}
 	return limit, nil
 }

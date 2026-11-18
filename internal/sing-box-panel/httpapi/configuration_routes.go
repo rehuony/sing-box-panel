@@ -15,9 +15,6 @@ import (
 )
 
 func (handler *Handler) previewConfiguration(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	var input nodeconfig.ConfigurationPreviewRequest
 	if !decodeStrictRequest(w, request, maximumRuntimeRequestBytes, &input) {
 		return
@@ -35,9 +32,6 @@ func (handler *Handler) previewConfiguration(w http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) compileConfiguration(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	var input struct {
 		CoreArtifactID string `json:"core_artifact_id"`
 	}
@@ -57,9 +51,6 @@ func (handler *Handler) compileConfiguration(w http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) coreConfigurationSupport(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -72,9 +63,6 @@ func (handler *Handler) coreConfigurationSupport(w http.ResponseWriter, request 
 }
 
 func (handler *Handler) coreConfigurationSchema(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

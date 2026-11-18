@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,21 +34,31 @@ const LiveMetricsInterval = time.Second
 const metricsStreamInterval = time.Second
 
 // receiveEvent applies one event from a node's session. A failure to apply
-// one event is recorded and does not end the session.
-func (service *Service) receiveEvent(ctx context.Context, current *session, event *nodeapi.Event) {
+// one event is recorded and does not end the session, with one exception: it
+// returns an error, which ends the session, when the session's first state
+// report could not be recorded. Such a session would never accept commands,
+// while the node's next session starts with a new full report.
+func (service *Service) receiveEvent(ctx context.Context, current *session, event *nodeapi.Event) error {
 	var err error
 	code := ""
+	opening := false
 	switch body := event.GetBody().(type) {
 	case *nodeapi.Event_StateReport:
+		opening = !current.isReady()
 		code, err = "node.state_report_failed", service.receiveStateReport(ctx, current, body.StateReport)
 	case *nodeapi.Event_RuntimeTransition:
 		code, err = "node.runtime_history_failed", service.records.RecordRuntimeTransition(ctx, runtimeTransitionInput(current, body.RuntimeTransition))
 	case *nodeapi.Event_MetricsSample:
-		code, err = "node.metrics_failed", service.records.RecordNodeSample(ctx, current.nodeID, current.instanceID, nodeSample(body.MetricsSample))
+		code, err = "node.metrics_failed", service.records.RecordNodeSample(ctx, current.nodeID, current.instanceID, nodeSample(body.MetricsSample, service.now()))
 	}
-	if err != nil && ctx.Err() == nil {
-		service.recordNodeEvent(store.LogLevelWarn, code, "A node report could not be recorded", current.nodeID)
+	if err == nil || ctx.Err() != nil {
+		return nil
 	}
+	service.recordNodeEvent(store.LogLevelWarn, code, "A node report could not be recorded", current.nodeID)
+	if opening {
+		return status.Error(codes.Unavailable, "the panel could not record the session's first state report")
+	}
+	return nil
 }
 
 // receiveStateReport stores the node's observed state. The first report of a
@@ -150,12 +162,9 @@ type FleetSnapshot struct {
 }
 
 // Status returns the fleet snapshot: the shared one while it is at most
-// StatusStreamInterval old, or else a new read.
+// StatusStreamInterval old, or else a new read that later readers share.
 func (service *Service) Status(ctx context.Context) (FleetSnapshot, error) {
-	if snapshot, ok := service.statusFeed.Latest(StatusStreamInterval); ok {
-		return snapshot, nil
-	}
-	return service.collectStatus(ctx)
+	return service.statusFeed.Read(ctx, StatusStreamInterval)
 }
 
 // expireStatus makes the next fleet read see a write the panel answered,
@@ -279,33 +288,55 @@ func (service *Service) SubscribeMetrics(nodeID string) (<-chan telemetry.Snapsh
 		service.metricsFeeds[nodeID] = feed
 	}
 	service.viewers[nodeID]++
-	if service.viewers[nodeID] == 1 {
-		service.setMetricsInterval(nodeID, LiveMetricsInterval)
-	}
 	service.viewersMu.Unlock()
+	service.syncMetricsInterval(nodeID)
 	snapshots, unsubscribe := feed.Subscribe()
 	var once sync.Once
 	return snapshots, func() {
 		once.Do(func() {
 			unsubscribe()
 			service.viewersMu.Lock()
-			defer service.viewersMu.Unlock()
 			service.viewers[nodeID]--
 			if service.viewers[nodeID] == 0 {
 				delete(service.viewers, nodeID)
-				service.setMetricsInterval(nodeID, MetricsInterval)
+				// The feed has no subscribers left and stopped reading.
+				delete(service.metricsFeeds, nodeID)
 			}
+			service.viewersMu.Unlock()
+			service.syncMetricsInterval(nodeID)
 		})
 	}
 }
 
-// setMetricsInterval tells the node's session, if any, how often to sample.
-// The caller holds viewersMu, so the node receives changes in order.
-func (service *Service) setMetricsInterval(nodeID string, interval time.Duration) {
-	if current := service.sessions.get(nodeID); current != nil {
-		_ = current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_TelemetryControl{
-			TelemetryControl: &nodeapi.TelemetryControl{MetricsInterval: durationpb.New(interval)},
-		}})
+// syncMetricsInterval tells the node's session, if any, how often to sample:
+// every LiveMetricsInterval while anyone views its live metrics, else every
+// MetricsInterval. Each session applies changes one at a time and reads the
+// viewer count only once it holds its turn, so the node ends with the
+// interval of the newest count; no fleet-wide lock is held while sending.
+func (service *Service) syncMetricsInterval(nodeID string) {
+	current := service.sessions.get(nodeID)
+	if current == nil {
+		return
+	}
+	current.telemetryMu.Lock()
+	defer current.telemetryMu.Unlock()
+	if !current.welcomed {
+		// The session syncs once it has sent Welcome.
+		return
+	}
+	service.viewersMu.Lock()
+	interval := MetricsInterval
+	if service.viewers[nodeID] > 0 {
+		interval = LiveMetricsInterval
+	}
+	service.viewersMu.Unlock()
+	if current.metricsInterval == interval {
+		return
+	}
+	if err := current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_TelemetryControl{
+		TelemetryControl: &nodeapi.TelemetryControl{MetricsInterval: durationpb.New(interval)},
+	}}); err == nil {
+		current.metricsInterval = interval
 	}
 }
 
@@ -343,8 +374,21 @@ func optionalTime(value *timestamppb.Timestamp) *time.Time {
 
 // nodeSample maps a node's metrics sample, dropping counters too large to
 // be real.
-func nodeSample(sample *nodeapi.MetricsSample) telemetry.NodeSample {
-	result := telemetry.NodeSample{SampledAt: sample.GetSampledAt().AsTime()}
+// maximumSampleSkew is how far a sample's time may lie behind the panel's
+// clock before the panel's own time replaces it. A sample that old still
+// counts as live until the next baseline sample arrives.
+const maximumSampleSkew = 20 * time.Second
+
+// nodeSample converts a metrics sample received at now. Samples are sent
+// live, so a time from the node's clock that lies ahead of the panel's or
+// more than maximumSampleSkew behind it is replaced with now: a node whose
+// clock is wrong never stores a time that later samples cannot pass.
+func nodeSample(sample *nodeapi.MetricsSample, now time.Time) telemetry.NodeSample {
+	sampledAt := sample.GetSampledAt().AsTime()
+	if now = now.UTC(); sampledAt.After(now) || now.Sub(sampledAt) > maximumSampleSkew {
+		sampledAt = now
+	}
+	result := telemetry.NodeSample{SampledAt: sampledAt}
 	if sample.GetCpuCount() > 0 {
 		result.Host = &telemetry.HostMetrics{
 			SampledAt: result.SampledAt, CPUPercent: sample.CpuPercent, CPUCount: int(sample.GetCpuCount()), LoadOne: sample.LoadOne,

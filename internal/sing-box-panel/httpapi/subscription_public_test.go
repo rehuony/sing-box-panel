@@ -64,8 +64,19 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	if other.Code != http.StatusOK || other.Header().Get("Subscription-Userinfo") != conditional.Header().Get("Subscription-Userinfo") {
 		t.Fatalf("other channel status=%d traffic=%q", other.Code, other.Header().Get("Subscription-Userinfo"))
 	}
+	// A channel that leaves the node out does not report the node's traffic.
+	without, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
+		Name: "Without VLESS", Format: store.SubscriptionFormatSingBox, Enabled: true, Config: json.RawMessage(`{"exclude_types":["vless"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded := publicSubscriptionRequest(handler, "/panel/sub/"+key.Token+"/"+without.ID)
+	if excluded.Code != http.StatusOK || excluded.Header().Get("Subscription-Userinfo") != "upload=0; download=0; total=0" {
+		t.Fatalf("channel without the node status=%d traffic=%q", excluded.Code, excluded.Header().Get("Subscription-Userinfo"))
+	}
 	usage, err := app.Subscriptions.SubscriptionToken(ctx, key.Metadata.ID)
-	if err != nil || usage.SuccessfulRequestCount != 3 || usage.BodyResponseCount != 2 || usage.BytesServed != int64(first.Body.Len()+other.Body.Len()) {
+	if err != nil || usage.SuccessfulRequestCount != 4 || usage.BodyResponseCount != 3 || usage.BytesServed != int64(first.Body.Len()+other.Body.Len()+excluded.Body.Len()) {
 		t.Fatalf("unexpected response accounting: %+v, %v", usage, err)
 	}
 }

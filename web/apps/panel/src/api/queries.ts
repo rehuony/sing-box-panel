@@ -1,17 +1,43 @@
+import type { QueryClient } from '@tanstack/react-query';
+
 import { queryOptions } from '@tanstack/react-query';
 
 import { listInstalledCoreArtifacts } from '@/utils/installed-core-artifacts';
 
-import type { ApiClient, SubscriptionChannelSummary, SubscriptionSourceSummary, SystemStatus } from './api-client';
+import type { ApiClient, FleetStatus, SubscriptionChannelSummary, SubscriptionSourceSummary, SystemStatus } from './api-client';
 
 import { ApiRequestError } from './api-client';
 
 type Platform = NonNullable<SystemStatus['platform']>;
 
+/** How many fleet stream frames each cache has applied, so a read can tell that one overtook it. */
+const fleetStreamFrames = new WeakMap<QueryClient, number>();
+
+/**
+ * Applies a fleet stream frame to the fleet status query. A read of the
+ * status that was in flight when the frame arrived is older than the frame,
+ * so it keeps what the frame wrote instead of its own answer.
+ */
+export function applyFleetStreamFrame(cache: QueryClient, update: (current: FleetStatus | undefined) => FleetStatus) {
+  fleetStreamFrames.set(cache, (fleetStreamFrames.get(cache) ?? 0) + 1);
+  cache.setQueryData<FleetStatus>(['fleetStatus'], update);
+}
+
 export const queries = {
   settings: (client: ApiClient) => queryOptions({ queryKey: ['settings'], queryFn: ({ signal }) => client.getPanelSettings(signal), staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false }),
   fleetNodes: (client: ApiClient) => queryOptions({ queryKey: ['fleetNodes'], queryFn: ({ signal }) => client.listFleetNodes(signal), staleTime: 15_000 }),
-  fleetStatus: (client: ApiClient) => queryOptions({ queryKey: ['fleetStatus'], queryFn: ({ signal }) => client.getFleetStatus(signal), staleTime: 5_000 }),
+  // The fleet stream drives this query. It restarts with every node whenever
+  // the page shows again, so focus does not read the status as well; a stream
+  // that stays down hands over to a read.
+  fleetStatus: (client: ApiClient) => queryOptions({
+    queryKey: ['fleetStatus'], staleTime: 5_000, refetchOnWindowFocus: false,
+    queryFn: async ({ client: cache, queryKey, signal }) => {
+      const frames = fleetStreamFrames.get(cache) ?? 0;
+      const status = await client.getFleetStatus(signal);
+      if ((fleetStreamFrames.get(cache) ?? 0) === frames) return status;
+      return cache.getQueryData<FleetStatus>(queryKey) ?? status;
+    },
+  }),
   nodeSettings: (client: ApiClient) => queryOptions({ queryKey: ['nodeSettings', client.nodeID], queryFn: ({ signal }) => client.getNodeSettings(signal), staleTime: 0, gcTime: 0, refetchOnWindowFocus: false }),
   systemUpdate: (client: ApiClient) => queryOptions({ queryKey: ['systemUpdate'], queryFn: ({ signal }) => client.getSystemUpdate(signal), staleTime: 0 }),
   // Node-scoped reads carry the node in their key, so nodes never share data.

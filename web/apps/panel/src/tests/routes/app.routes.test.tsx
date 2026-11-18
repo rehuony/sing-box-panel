@@ -9,8 +9,9 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import type { ApiClient, Session } from '@/api/api-client';
 
 import { ThemeProvider } from '@/theme';
-import { AppRoutes } from '@/routes/app.routes';
+import { deferred } from '@/tests/deferred';
 import '@/i18n';
+import { AppRoutes } from '@/routes/app.routes';
 import { ApiRequestError } from '@/api/api-client';
 import { pageLoaders } from '@/routes/page-loaders';
 import { appearanceTokens } from '@/theme/appearance';
@@ -20,7 +21,7 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { useCommandSession } from '@/stores/command-session.store';
 import { AuthSessionProvider } from '@/stores/auth-session-provider';
-import { createMockApiClient, testNode, testSession } from '@/tests/api/mock-api-client';
+import { createMockApiClient, testFleetStatus, testMetrics, testNode, testSession } from '@/tests/api/mock-api-client';
 
 function LocationProbe() {
   const location = useLocation();
@@ -110,13 +111,35 @@ describe('application routes', () => {
   it('shows an offline node’s state in place of views that command it, and keeps its settings', async () => {
     const user = userEvent.setup();
     const offline = { ...testNode, state: 'offline' as const };
-    const client = createMockApiClient({ listFleetNodes: vi.fn().mockResolvedValue({ items: [offline] }) });
+    const client = createMockApiClient({
+      getFleetStatus: vi.fn().mockResolvedValue({ items: [{ metrics: testMetrics, node: offline }] }),
+    });
     renderRoutes(`/nodes/${testNode.id}/cores`, client);
     expect(await screen.findByText('Node offline')).toBeVisible();
     expect(client.listCoreArtifacts).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Windows' })).getByRole('link', { name: '5: Settings' }));
     expect(await screen.findByRole('textbox', { name: 'Published host' })).toBeInTheDocument();
+  });
+
+  it('keeps an unsaved settings draft when the fleet stream reports the node offline', async () => {
+    const user = userEvent.setup();
+    const disconnect = deferred<void>();
+    const client = createMockApiClient({
+      streamFleetStatus: vi.fn(async function* (signal) {
+        yield { removed: [], reset: true, items: testFleetStatus.items };
+        await disconnect.promise;
+        yield { removed: [], reset: false, items: [{ metrics: testMetrics, node: { ...testNode, state: 'offline' as const } }] };
+        await new Promise(resolve => signal?.addEventListener('abort', resolve, { once: true }));
+      }),
+    });
+    renderRoutes(`/nodes/${testNode.id}/settings`, client);
+    const host = await screen.findByRole('textbox', { name: 'Published host' });
+    await user.clear(host);
+    await user.type(host, 'edge.example.com');
+    await act(async () => disconnect.resolve());
+    await waitFor(() => expect(screen.getByRole('group', { name: `Node ${testNode.name}` })).toHaveTextContent('Offline'));
+    expect(screen.getByRole('textbox', { name: 'Published host' })).toHaveValue('edge.example.com');
   });
 
   it('keeps the shared saved appearance when signing out and loading login again', async () => {
@@ -262,7 +285,7 @@ describe('application routes', () => {
     expect(log).toHaveTextContent('Restarting a core briefly drops its connections.');
     expect(client.runFleetCommand).not.toHaveBeenCalled();
     await user.type(screen.getByRole('textbox', { name: 'Confirm with y' }), 'y{Enter}');
-    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'restart', node_ids: [testNode.id] });
+    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'restart', node_ids: [testNode.id] }, expect.any(AbortSignal));
     await waitFor(() => expect(log).toHaveTextContent('1 succeeded · 0 failed · 0 skipped'));
     expect(log).toHaveTextContent(`${testNode.name}done`);
   });
@@ -275,17 +298,17 @@ describe('application routes', () => {
     await user.keyboard('{Control>}');
     await user.click(await screen.findByRole('link', { name: testNode.name }));
     await user.keyboard('{/Control}');
-    expect(screen.getByRole('link', { name: `${testNode.name}, selected` })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: testNode.name, checked: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Select', pressed: true })).toBeInTheDocument();
     const actions = screen.getByRole('group', { name: 'Batch actions' });
     await user.click(within(actions).getByRole('button', { name: 'Stop' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Stop 1 node?' });
     expect(dialog).toHaveTextContent('Stopping a core drops its connections until it starts again.');
     await user.click(within(dialog).getByRole('button', { name: 'Stop 1 node' }));
-    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'stop', node_ids: [testNode.id] });
+    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'stop', node_ids: [testNode.id] }, expect.any(AbortSignal));
     expect(await screen.findByRole('log')).toHaveTextContent('1 succeeded');
     await user.keyboard('{Escape}');
-    expect(screen.getByRole('link', { name: `${testNode.name}, selected` })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: testNode.name, checked: true })).toBeInTheDocument();
     // Leaving selection mode clears the selection; a click then opens the node again.
     await user.click(screen.getByRole('button', { name: 'Select', pressed: true }));
     await user.click(screen.getByRole('link', { name: testNode.name }));

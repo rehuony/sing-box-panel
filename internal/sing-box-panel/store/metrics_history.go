@@ -146,8 +146,12 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		return MetricsHistory{}, fmt.Errorf("close metrics history samples: %w", err)
 	}
 
+	// An interval ends at its sample, so sampled_at bounds the node's
+	// history from below: the history index reads only the samples after
+	// From, where the interval index would read every interval before To.
 	evidenceClauses := []string{
 		"sample.node_id = ?",
+		"sample.sampled_at > ?",
 		"sample.interval_start IS NOT NULL",
 		"sample.accepted = 1",
 		"sample.interval_end > ?",
@@ -156,7 +160,7 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 	evidenceArgs := []any{
 		formatTime(prepared.From), formatTime(prepared.To),
 		prepared.BucketSeconds, bucketCount,
-		prepared.NodeID, formatTime(prepared.From), formatTime(prepared.To),
+		prepared.NodeID, formatTime(prepared.From), formatTime(prepared.From), formatTime(prepared.To),
 	}
 	if prepared.ActivationBundleID != "" {
 		evidenceClauses = append(evidenceClauses, "sample.activation_bundle_id = ?")
@@ -173,7 +177,7 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 			       unixepoch(sample.interval_start, 'subsec') AS start_epoch,
 			       unixepoch(sample.interval_end, 'subsec') AS end_epoch,
 			       sample.upload_delta, sample.download_delta, sample.coverage
-			  FROM traffic_samples AS sample
+			  FROM traffic_samples AS sample INDEXED BY traffic_samples_history
 			 WHERE `+strings.Join(evidenceClauses, " AND ")+`
 		), mapped AS (
 			SELECT candidate.*,
@@ -294,47 +298,28 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 
 func prepareMetricsHistoryFilter(filter MetricsHistoryFilter) (MetricsHistoryFilter, int, error) {
 	if !ValidIdentifier(filter.NodeID) {
-		return MetricsHistoryFilter{}, 0, errors.New("metrics history requires a node")
+		return MetricsHistoryFilter{}, 0, invalidQuery("metrics history requires a node")
 	}
 	if filter.From.IsZero() || filter.To.IsZero() || !filter.To.After(filter.From) {
-		return MetricsHistoryFilter{}, 0, errors.New("metrics history requires an increasing from/to range")
+		return MetricsHistoryFilter{}, 0, invalidQuery("metrics history requires an increasing from/to range")
 	}
 	filter.From, filter.To = filter.From.UTC(), filter.To.UTC()
 	span := filter.To.Sub(filter.From)
 	if span > maximumMetricsHistorySpan {
-		return MetricsHistoryFilter{}, 0, errors.New("metrics history range exceeds 90 days")
+		return MetricsHistoryFilter{}, 0, invalidQuery("metrics history range exceeds 90 days")
 	}
 	if filter.BucketSeconds < 1 || filter.BucketSeconds > int64(maximumMetricsHistorySpan/time.Second) {
-		return MetricsHistoryFilter{}, 0, errors.New("metrics history bucket_seconds is invalid")
+		return MetricsHistoryFilter{}, 0, invalidQuery("metrics history bucket_seconds is invalid")
 	}
 	bucketDuration := time.Duration(filter.BucketSeconds) * time.Second
 	bucketCount := int((span + bucketDuration - 1) / bucketDuration)
 	if bucketCount < 1 || bucketCount > maximumMetricsBuckets {
-		return MetricsHistoryFilter{}, 0, errors.New("metrics history exceeds 512 buckets")
+		return MetricsHistoryFilter{}, 0, invalidQuery("metrics history exceeds 512 buckets")
 	}
 	if filter.ActivationBundleID != strings.TrimSpace(filter.ActivationBundleID) {
-		return MetricsHistoryFilter{}, 0, errors.New("metrics history activation bundle id is invalid")
+		return MetricsHistoryFilter{}, 0, invalidQuery("metrics history activation bundle id is invalid")
 	}
 	return filter, bucketCount, nil
-}
-
-func (s *Store) DeleteTrafficSamplesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	if cutoff.IsZero() {
-		return 0, errors.New("traffic sample retention cutoff is required")
-	}
-	result, err := s.db.ExecContext(
-		ctx,
-		`DELETE FROM traffic_samples WHERE sampled_at < ?`,
-		formatTime(cutoff.UTC()),
-	)
-	if err != nil {
-		return 0, fmt.Errorf("delete expired traffic samples: %w", err)
-	}
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("read deleted traffic sample count: %w", err)
-	}
-	return deleted, nil
 }
 
 // DashboardMetricsHistory reads both ranges and their accepted persistence

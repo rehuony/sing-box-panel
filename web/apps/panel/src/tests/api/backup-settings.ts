@@ -28,6 +28,7 @@ export function backupSettings(view: PanelSettingsView, secrets: { github: strin
       core_retention_days: s.core_log_retention_days ?? 7,
       core_max_files: s.core_log_max_files ?? 0,
       core_max_file_size_mib: s.core_log_max_file_size_mib ?? 32,
+      panel_retention_days: s.panel_log_retention_days ?? 90,
     },
   };
 }

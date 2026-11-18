@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -113,7 +115,7 @@ func (limiter *LoginLimiter) Admit(w http.ResponseWriter, request *http.Request,
 	if allowed, retryAfter := limiter.Fingerprint(fingerprint); !allowed {
 		return login, RateLimited(retryAfter)
 	}
-	if !SameOrigin(request, trustedOrigin) || request.Header.Get("Content-Type") != "application/json" {
+	if !SameOrigin(request, trustedOrigin) || !jsonContentType(request.Header.Get("Content-Type")) {
 		return login, &Rejection{Status: http.StatusForbidden, Code: "csrf_failed", Title: "Request rejected", Detail: "A same-origin JSON login request is required."}
 	}
 	invalidBody := &Rejection{Status: http.StatusBadRequest, Code: "invalid_body", Title: "Invalid request", Detail: "The login payload is invalid."}
@@ -127,4 +129,19 @@ func (limiter *LoginLimiter) Admit(w http.ResponseWriter, request *http.Request,
 	}
 	login.Body = body
 	return login, nil
+}
+
+// jsonContentType accepts application/json with at most a UTF-8 charset; a
+// cross-site form cannot send it without a preflight the panel never allows.
+func jsonContentType(value string) bool {
+	mediaType, parameters, err := mime.ParseMediaType(value)
+	if err != nil || mediaType != "application/json" {
+		return false
+	}
+	for name, parameter := range parameters {
+		if name != "charset" || !strings.EqualFold(parameter, "utf-8") {
+			return false
+		}
+	}
+	return true
 }

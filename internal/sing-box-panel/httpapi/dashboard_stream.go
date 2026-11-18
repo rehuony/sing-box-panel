@@ -13,9 +13,6 @@ import (
 const dashboardStreamLifetime = time.Minute
 
 func (handler *Handler) streamDashboard(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

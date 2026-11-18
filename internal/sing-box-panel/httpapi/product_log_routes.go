@@ -2,9 +2,8 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,9 +14,6 @@ import (
 )
 
 func (handler *Handler) listCoreLogFiles(w http.ResponseWriter, r *http.Request) {
-	if !handler.requireCommands(w, r) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, r); !ok {
 		return
 	}
@@ -30,9 +26,6 @@ func (handler *Handler) listCoreLogFiles(w http.ResponseWriter, r *http.Request)
 }
 
 func (handler *Handler) deleteCoreLogFile(w http.ResponseWriter, r *http.Request) {
-	if !handler.requireCommands(w, r) {
-		return
-	}
 	query, ok := strictCoreQuery(w, r, "file")
 	if !ok || !requireEmptyCoreBody(w, r) {
 		return
@@ -45,9 +38,6 @@ func (handler *Handler) deleteCoreLogFile(w http.ResponseWriter, r *http.Request
 }
 
 func (handler *Handler) clearCoreLog(w http.ResponseWriter, r *http.Request) {
-	if !handler.requireCommands(w, r) {
-		return
-	}
 	query, ok := strictCoreQuery(w, r, "file")
 	if !ok || !requireEmptyCoreBody(w, r) {
 		return
@@ -71,9 +61,6 @@ func writeCoreLogProblem(w http.ResponseWriter, r *http.Request, code string, er
 // readCoreLog reads a node's core log. The stream reads the node again every
 // second until it closes after a minute for the client to reconnect.
 func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stream bool) {
-	if !handler.requireCommands(w, r) {
-		return
-	}
 	query, ok := strictCoreQuery(w, r, "file", "offset", "generation")
 	if !ok {
 		return
@@ -101,51 +88,36 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 		writeJSON(w, 200, chunk)
 		return
 	}
-	_, ok = w.(http.Flusher)
+	ctx, cancel := context.WithTimeout(r.Context(), coreLogStreamLifetime)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	events, ok := newEventStream(ctx, w, deadline, maximumSnapshotFrameBytes)
 	if !ok {
 		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Accel-Buffering", "no")
-	deadline := time.Now().Add(time.Minute)
-	controller := http.NewResponseController(w)
-	writeFrame := func(frame string) error {
-		if len(frame) > maximumSnapshotFrameBytes {
-			return errors.New("log frame exceeds limit")
-		}
-		if err := controller.SetWriteDeadline(minTime(time.Now().Add(10*time.Second), deadline)); err != nil && !errors.Is(err, http.ErrNotSupported) {
-			return err
-		}
-		defer controller.SetWriteDeadline(time.Time{})
-		if _, err := fmt.Fprint(w, frame); err != nil {
-			return err
-		}
-		return controller.Flush()
 	}
 	send := func() error {
 		data, err := json.Marshal(chunk)
 		if err != nil {
 			return err
 		}
-		return writeFrame(fmt.Sprintf("event: output\ndata: %s\n\n", data))
+		return events.event("output", data)
 	}
 	if err := send(); err != nil {
 		return
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	expiry := time.NewTimer(time.Until(deadline) - time.Second)
-	defer expiry.Stop()
+	rotation := rotationTimer(coreLogStreamLifetime)
+	defer rotation.Stop()
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
-		case <-expiry.C:
-			_ = writeFrame("event: control\ndata: {\"type\":\"reconnect\"}\n\n")
+		case <-rotation.C:
+			_ = events.reconnect()
 			return
 		case <-ticker.C:
-			chunk, err = handler.services.Fleet.ReadCoreLog(r.Context(), nodeID, chunk.File, chunk.NextOffset, chunk.Generation)
+			chunk, err = handler.services.Fleet.ReadCoreLog(ctx, nodeID, chunk.File, chunk.NextOffset, chunk.Generation)
 			if err != nil {
 				return
 			}
@@ -156,14 +128,15 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 	}
 }
 
+// coreLogStreamLifetime is how long one core log stream runs before it asks
+// its client to reconnect.
+const coreLogStreamLifetime = time.Minute
+
 // Covers all 128 codes of 128 bytes even when every byte is percent-encoded,
 // plus the other filters. Other endpoints retain their existing query limit.
 const maximumPanelLogQueryBytes = 64 << 10
 
 func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
-	if !handler.requireCommands(w, r) {
-		return
-	}
 	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "offset")
 	if !ok {
 		return

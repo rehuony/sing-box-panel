@@ -112,6 +112,11 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 </div>
               </SettingsField>
             </SettingsGroup>
+            <SettingsGroup title={t('panelSettings.panelLogs')}>
+              <SettingsField id='panel-log-retention' invalid={invalidField === 'panel-log-retention'} label={t('panelSettings.panelLogRetention')} help={t('panelSettings.panelLogRetentionHelp')}>
+                <Input id='panel-log-retention' aria-invalid={invalidField === 'panel-log-retention' || undefined} type='number' min={1} max={3650} required value={service.panel_log_retention_days ?? 90} onChange={e => updateService('panel_log_retention_days', Number(e.target.value))} />
+              </SettingsField>
+            </SettingsGroup>
           </TabsContent>
           <TabsContent value='interface'>
             <SettingsGroup title={t('panelSettings.appearanceGroup')}>

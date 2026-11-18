@@ -4,7 +4,6 @@ package subscription
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strconv"
 )
@@ -482,21 +481,13 @@ func marshalMihomo(nodes []mihomoNode) []byte {
 func yamlScalar(value any) string {
 	switch typed := value.(type) {
 	case string:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			panic(err)
-		}
-		return string(encoded)
+		return jsonText(typed)
 	case bool:
 		return strconv.FormatBool(typed)
 	case int64:
 		return strconv.FormatInt(typed, 10)
 	case []string, map[string]any:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			panic(err)
-		}
-		return string(encoded)
+		return jsonText(typed)
 	default:
 		panic(fmt.Sprintf("unsupported YAML scalar %T", value))
 	}

@@ -106,10 +106,11 @@ Subscription-Userinfo: upload=123; download=456; total=0
 
 Values are integer bytes, separated by a semicolon and a space. `upload` is the
 recorded outbound traffic of the nodes whose local inbounds the subscription
-may carry, each in its own current period, and `download` is the same for
-inbound traffic. Those are the nodes with a local inbound the key may receive
-in this channel and that is not hidden; a subscription with no local inbounds
-reports zero. `total` is always `0`: each node has its own quota, and their sum
+delivers, each in its own current period, and `download` is the same for
+inbound traffic. Those are the nodes with a local inbound the key may receive,
+that is not hidden and that the channel keeps: its policy's selection, or
+without a policy its tag and type exclusions; a subscription with no local
+inbounds reports zero. `total` is always `0`: each node has its own quota, and their sum
 would tell a client nothing about how much it can still use on the node it
 actually uses. The counters belong to the nodes, so every key that reaches the
 same nodes sees the same values. They do not represent individual user usage,
@@ -183,15 +184,19 @@ share-link lists. URI lists strictly recognize `ss`, `socks`/`socks5`,
 `tuic`, and `anytls`. Successful versions are append-only and store a raw
 digest, normalized nodes, detected format, fetch time, and diagnostics. An
 older successful version can be restored as current. Parse or fetch failure
-never replaces the current version.
+never replaces the current version. Each source keeps its current version and
+its ten newest other versions; the daily retention pass removes older ones.
 
 Remote refresh returns the fetched version and node count after completion. New
 remote sources receive an initial fetch, retried after 15 minutes on failure.
 Periodic refresh is otherwise disabled by default; a configured interval is at
 least 15 minutes. Its next deadline is persisted per source. Fetches allow at most
 4 MiB, 20 seconds, and five redirects. DNS and every redirect target are
-checked against the SSRF policy. Loopback, link-local, and private addresses
-are denied unless `subscription.private_source_cidrs` explicitly allows them.
+checked against the SSRF policy. Only public unicast addresses are allowed:
+loopback, private, link-local, shared (`100.64.0.0/10`), benchmarking,
+documentation, reserved and multicast ranges, and the IPv6 translation prefixes
+that embed them, are denied unless `subscription.private_source_cidrs`
+explicitly allows them. Core downloads apply the same address rules.
 Public subscription requests never fetch upstream data.
 
 Channel policy, user grants, token state, and source current-version pointers
@@ -612,7 +617,8 @@ Each initial file read loads the last 64 KiB; the browser retains at most 2,000
 lines and searches/filters only this buffer. File lists refresh every 10 seconds
 without overlapping requests and refresh when the page becomes visible again;
 the output stream checks for appended content every second. Core capture
-retention applies only to sing-box capture files. Panel events are retained indefinitely.
+retention applies only to sing-box capture files; panel events follow
+`logs.panel_retention_days`, described under [Durable logs](#durable-logs).
 The neutral status dot and icon buttons float over the output in the same softly
 bordered, translucent toolbar used by the Advanced JSON editor. Status tooltips
 and the pause/resume icon identify the current state without changing the toolbar's
@@ -678,11 +684,19 @@ panel, core, and security events. Use the Web UI to inspect stored events;
 reads the service journal.
 
 `GET /api/v1/logs/stream` is a durable server-sent event stream and accepts
-`Last-Event-ID` for reconnection. Panel events and runtime history have no automatic
-expiration, including on startup, settings changes, or backup restore. The unused
-`logs.retention_days` file field and `log_retention_days` API field have been
-removed and are rejected. Explicit log clear/delete API operations
-remain available. Configuration bytes, subscription bodies, token
+`Last-Event-ID` for reconnection. Like the other streams it ends within a
+minute with a `control` event of type `reconnect`, so a client reconnects and
+authenticates again; `Last-Event-ID` resumes it after the last entry it
+received. Each write has its own deadline.
+
+Panel events and each node's runtime history follow
+`logs.panel_retention_days` (1–3650 days, 90 by default, and 90 for a settings
+file without the field). The retention pass that also removes expired raw
+traffic samples deletes older entries during startup, every 24 hours and after
+a settings save; it keeps the newest runtime transition of each node instance,
+which gives the state a timeline starts in and where the node's next session
+resumes its history. Explicit log clear/delete API operations remain
+available. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
 
@@ -914,9 +928,17 @@ from a reset event, and a stream that stays down hands over to one
 Raw samples follow the required `traffic.sample_retention_days` setting, which
 is initialized to 90 and accepts 1 through 366 days. A settings file without
 the field is rejected. The server removes expired raw samples during startup
-and every 24 hours, and rechecks immediately after a Web settings save. Daily
-and traffic period totals remain retained after raw samples
-are removed.
+and every 24 hours, and rechecks immediately after a Web settings save, in
+small batches so arriving samples are not held up. Daily and traffic period
+totals remain retained after raw samples are removed. The same pass keeps each
+node's 50 newest configuration revisions and every revision still in use: the
+saved text's, the latest that parsed and the one the node reports applied.
+
+A sample carries the node's own time unless that time lies ahead of the
+panel's clock or more than 20 seconds behind it; then the panel's time replaces
+it, so a node with a wrong clock never records a time later samples cannot
+pass. Counters that decrease within one node instance start a new baseline:
+that sample proves no traffic and the next ones count from it.
 
 The authenticated history endpoint is:
 

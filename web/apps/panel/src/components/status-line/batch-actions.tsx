@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { Button } from '@shared/components/ui/button';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Package, Play, RotateCw, Square, Upload } from 'lucide-react';
 import {
   DropdownMenu,
@@ -68,6 +68,7 @@ function CoreVersion({ onChange, value }: { onChange: (version: string) => void;
 export function BatchActions({ compact, nodes }: { compact: boolean; nodes: readonly NodeStatus[] }) {
   const { t } = useTranslation();
   const client = useApiClient();
+  const cache = useQueryClient();
   const running = useCommandSession(state => state.running);
   const [action, setAction] = useState<BatchAction | null>(null);
   const [version, setVersion] = useState('');
@@ -82,7 +83,7 @@ export function BatchActions({ compact, nodes }: { compact: boolean; nodes: read
   function confirm() {
     if (action === null || running || (action === 'install_core' && version === '')) return;
     useCommandSession.getState().setOpen(true);
-    void runBatch({ action, client, exactVersion: action === 'install_core' ? version : undefined, nodes, t });
+    void runBatch({ action, cache, client, exactVersion: action === 'install_core' ? version : undefined, nodes, t });
     setAction(null);
   }
 

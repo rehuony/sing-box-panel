@@ -12,9 +12,6 @@ import (
 )
 
 func (handler *Handler) getPanelSettings(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -28,9 +25,6 @@ func (handler *Handler) getPanelSettings(w http.ResponseWriter, request *http.Re
 }
 
 func (handler *Handler) savePanelSettings(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

@@ -19,7 +19,7 @@ import {
 } from '@/tests/api/mock-api-client';
 
 function useTelemetry() {
-  const store = useTelemetryStore();
+  const store = useTelemetryStore(true);
   useEffect(() => store.getState().retainDashboard(), [store]);
   return useStore(store);
 }
@@ -366,7 +366,7 @@ describe('useTelemetry', () => {
         await waitForAbort(signal);
       }),
     });
-    const { result } = renderHook(() => useTelemetryStore(), { wrapper: wrapper(client) });
+    const { result } = renderHook(() => useTelemetryStore(true), { wrapper: wrapper(client) });
     await waitFor(() => expect(result.current.getState().rates.uploadBytesPerSecond).toBe(200));
     expect(client.streamDashboard).not.toHaveBeenCalled();
     let release!: () => void;

@@ -99,9 +99,11 @@ type trafficCheckpoint struct {
 // The period is the node's period that contains the sample.
 // A delta is proven only from the node's last accepted sample of the same
 // instance, so a recreated node database starts a new segment whose first
-// counters are not guessed as traffic. A decrease within one instance or
-// out-of-order evidence is kept as a rejected sample and cannot corrupt the
-// checkpoint.
+// counters are not guessed as traffic. Out-of-order evidence is kept as a
+// rejected sample and cannot corrupt the checkpoint. Counters that decrease
+// within one instance start a new baseline, like a new instance: the sample
+// proves no traffic, and later samples prove theirs from it instead of being
+// refused until the counters pass their old totals.
 func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInput) (TrafficSampleResult, error) {
 	prepared, err := prepareTrafficSampleInput(input)
 	if err != nil {
@@ -122,7 +124,7 @@ func (s *Store) RecordTrafficSample(ctx context.Context, input TrafficSampleInpu
 			accepted = false
 			diagnostic = "sample_out_of_order"
 		} else if sameSegment && (prepared.UploadTotal < checkpoint.LastUpload || prepared.DownloadTotal < checkpoint.LastDownload) {
-			accepted = false
+			sameSegment = false
 			diagnostic = "counter_decreased"
 		}
 		var uploadDelta, downloadDelta *int64
@@ -283,7 +285,7 @@ func validateTrafficPeriodCursor(cursor *TrafficPeriodCursor) error {
 		return nil
 	}
 	if cursor.PeriodStart.IsZero() || strings.TrimSpace(cursor.ID) == "" || strings.TrimSpace(cursor.ID) != cursor.ID {
-		return errors.New("traffic period cursor is invalid")
+		return invalidQuery("traffic period cursor is invalid")
 	}
 	return nil
 }
@@ -321,10 +323,17 @@ func aggregateTrafficPeriod(ctx context.Context, q queryRower, nodeID string, st
 	}
 	var inbound, outbound int64
 	var first, last sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT coalesce(sum(inbound_bytes),0),coalesce(sum(outbound_bytes),0),
+	// A node's range reads its own days through the primary key; the whole
+	// fleet's reads the day index.
+	query := `SELECT coalesce(sum(inbound_bytes),0),coalesce(sum(outbound_bytes),0),
         min(first_observed_at),max(last_sample_at)
-        FROM traffic_days WHERE (? = '' OR node_id = ?) AND day_start>=? AND day_start<? AND day_start<=?`,
-		nodeID, nodeID, formatTime(start), formatTime(end), formatTime(dayStart(at))).Scan(&inbound, &outbound, &first, &last)
+        FROM traffic_days WHERE day_start>=? AND day_start<? AND day_start<=?`
+	args := []any{formatTime(start), formatTime(end), formatTime(dayStart(at))}
+	if nodeID != "" {
+		query += ` AND node_id = ?`
+		args = append(args, nodeID)
+	}
+	err := q.QueryRowContext(ctx, query, args...).Scan(&inbound, &outbound, &first, &last)
 	if err != nil {
 		return TrafficPeriod{}, err
 	}

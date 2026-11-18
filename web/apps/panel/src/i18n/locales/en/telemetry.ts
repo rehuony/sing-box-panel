@@ -29,7 +29,6 @@ export const telemetry = {
     connections: 'Connections',
     download: 'Download',
     upload: 'Upload',
-    uptime: 'Uptime',
     version: 'Version',
   },
   runtime: {

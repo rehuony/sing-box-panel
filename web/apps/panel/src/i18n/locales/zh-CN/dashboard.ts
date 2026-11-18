@@ -8,7 +8,6 @@ export const dashboard = {
     transfer: '周期流量',
     label: '节点概况',
     quota: '已用 {{used}} · 额度 {{total}}',
-    noQuota: '未设置流量额度',
     countUnit: '个',
     lastHour: '最近 1 小时',
     lastDay: '最近 24 小时',

@@ -37,6 +37,12 @@ export interface TelemetryState {
   acceptRuntimeStatus: (status: RuntimeStatus, ifCurrent?: RuntimeStatusEvidence | null) => void;
 }
 const emptyRates: TrafficRates = { downloadBytesPerSecond: null, uploadBytesPerSecond: null };
+/** What the store holds before its node's first reading. */
+const noReadings = {
+  rates: emptyRates, liveTail: [], liveStale: true, dashboardStale: true,
+  runtimeError: null, trafficError: null, dashboardError: null,
+  snapshot: null, runtimeStatus: null, dashboardSnapshot: null,
+} satisfies Partial<TelemetryState>;
 
 function trafficRates(snapshot: MetricsSnapshot): TrafficRates {
   const sample = snapshot.live_sample;
@@ -53,9 +59,7 @@ function trafficRates(snapshot: MetricsSnapshot): TrafficRates {
 
 export function createTelemetryStore(initial: Partial<TelemetryState> = {}) {
   return createStore<TelemetryState>((set) => ({
-    rates: emptyRates, liveTail: [], liveStale: true, dashboardStale: true,
-    runtimeError: null, trafficError: null, dashboardError: null,
-    snapshot: null, runtimeStatus: null, dashboardSnapshot: null, dashboardSubscribers: 0,
+    ...noReadings, dashboardSubscribers: 0,
     acceptRuntimeStatus: (status, ifCurrent) => set(current => {
       if (ifCurrent !== undefined && current.runtimeStatus !== ifCurrent) return current;
       return { runtimeStatus: replaceEqualDeep(current.runtimeStatus, status), runtimeError: null };
@@ -75,8 +79,12 @@ export function createTelemetryStore(initial: Partial<TelemetryState> = {}) {
 }
 export type TelemetryStore = ReturnType<typeof createTelemetryStore>;
 
-/** The provider owns stable state; components subscribe only to their fields. */
-export function useTelemetryStore(): TelemetryStore {
+/**
+ * The provider owns stable state; components subscribe only to their fields.
+ * The node's streams run only while it is online; going offline drops its
+ * readings, so a node that returns starts from its first new reading.
+ */
+export function useTelemetryStore(online: boolean): TelemetryStore {
   const client = useApiClient();
   const settings = use(PanelSettingsContext);
   const revision = settings?.view?.revision;
@@ -86,17 +94,23 @@ export function useTelemetryStore(): TelemetryStore {
   const needsDashboard = useStore(store, s => s.dashboardSubscribers > 0);
 
   useEffect(() => {
+    if (!online) return;
+    return () => store.setState(noReadings);
+  }, [online, store]);
+
+  useEffect(() => {
     const previous = previousRevisionRef.current;
     previousRevisionRef.current = revision;
-    if (previous === undefined || previous === revision || !visible) return;
+    if (previous === undefined || previous === revision || !visible || !online) return;
     const controller = new AbortController();
     void client.getMetrics(controller.signal).then(snapshot => {
       if (!controller.signal.aborted && Date.parse(store.getState().snapshot?.collected_at ?? '1970-01-01') <= Date.parse(snapshot.collected_at)) store.setState({ snapshot });
     }).catch(() => undefined);
     return () => controller.abort();
-  }, [client, store, revision, visible]);
+  }, [client, store, revision, visible, online]);
 
   useEffect(() => {
+    if (!online) return;
     // Keep live samples flowing across tab switches; only history pauses below.
     let previous: TrafficSample | null = null;
     let receivedAt = Date.now();
@@ -150,10 +164,10 @@ export function useTelemetryStore(): TelemetryStore {
       stop();
       clearInterval(freshness);
     };
-  }, [client, store]);
+  }, [client, store, online]);
 
   useEffect(() => {
-    if (!visible || !needsDashboard) return;
+    if (!online || !visible || !needsDashboard) return;
     let receivedAt = Date.now();
     const stop = followStream(signal => client.streamDashboard(signal), dashboardSnapshot => {
       receivedAt = Date.now();
@@ -170,6 +184,6 @@ export function useTelemetryStore(): TelemetryStore {
       stop();
       clearInterval(freshness);
     };
-  }, [client, store, visible, needsDashboard]);
+  }, [client, store, online, visible, needsDashboard]);
   return store;
 }

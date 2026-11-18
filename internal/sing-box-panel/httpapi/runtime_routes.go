@@ -15,9 +15,6 @@ import (
 )
 
 func (handler *Handler) coreRuntimeStatus(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -30,9 +27,6 @@ func (handler *Handler) coreRuntimeStatus(w http.ResponseWriter, request *http.R
 }
 
 func (handler *Handler) coreRuntimeHistory(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(
 		w,
 		request,
@@ -148,9 +142,6 @@ func runtimeTransitionCursor(
 }
 
 func (handler *Handler) checkStartup(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -173,9 +164,6 @@ func (handler *Handler) checkStartup(w http.ResponseWriter, request *http.Reques
 }
 
 func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.Request, id string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
@@ -188,9 +176,6 @@ func (handler *Handler) enableCoreArtifact(w http.ResponseWriter, request *http.
 }
 
 func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http.Request, id string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
@@ -203,9 +188,6 @@ func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http
 }
 
 func (handler *Handler) activateCore(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -229,9 +211,6 @@ func (handler *Handler) activateCore(w http.ResponseWriter, request *http.Reques
 }
 
 func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Request, operation string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

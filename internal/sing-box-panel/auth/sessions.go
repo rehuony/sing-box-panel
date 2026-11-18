@@ -57,17 +57,36 @@ func (app *Sessions) withCredentials(ctx context.Context, action func(email, pas
 	return app.credentials.WithCredentials(ctx, action)
 }
 
+// Login verifies the administrator's email and password and issues a new
+// session, replacing the browser's previous one. The password hash is
+// computed outside the settings lock, so a login never holds up other
+// requests; the session is created under the lock only if the credentials
+// it verified are still the current ones.
 func (app *Sessions) Login(ctx context.Context, input LoginInput, previous string) (result AuthSession, err error) {
+	var verified [32]byte
+	var adminEmail, passwordHash string
+	err = app.withCredentials(ctx, func(email, hash string) error {
+		adminEmail, passwordHash = email, hash
+		return nil
+	})
+	if err != nil {
+		return result, err
+	}
+	email, emailErr := NormalizeEmail(input.Email)
+	matches, err := webauth.VerifyPassword(ctx, input.Password, passwordHash)
+	if err != nil {
+		return result, err
+	}
+	if !matches || emailErr != nil || email != adminEmail {
+		return result, ErrInvalidCredentials
+	}
+	verified = Fingerprint(adminEmail, passwordHash)
 	err = app.withCredentials(ctx, func(adminEmail, passwordHash string) error {
-		email, emailErr := NormalizeEmail(input.Email)
-		matches, err := webauth.VerifyPassword(ctx, input.Password, passwordHash)
-		if err != nil {
-			return err
-		}
-		if !matches || emailErr != nil || email != adminEmail {
+		credential := Fingerprint(adminEmail, passwordHash)
+		if credential != verified {
+			// The credentials changed while the password was verified.
 			return ErrInvalidCredentials
 		}
-		credential := Fingerprint(adminEmail, passwordHash)
 		now := app.now()
 		if err := app.database.ReconcileAuthSessions(ctx, credential, now); err != nil {
 			return err
@@ -90,16 +109,16 @@ func (app *Sessions) Login(ctx context.Context, input LoginInput, previous strin
 	return result, err
 }
 
+// CurrentSession returns the session token names under the current
+// credentials. A session issued under earlier credentials never matches; the
+// next login removes such sessions together with expired ones, so reading a
+// session writes nothing.
 func (app *Sessions) CurrentSession(ctx context.Context, token string) (result AuthSession, err error) {
 	if token == "" || len(token) > 128 {
 		return result, store.ErrAuthSessionMissing
 	}
 	err = app.withCredentials(ctx, func(adminEmail, passwordHash string) error {
-		credential := Fingerprint(adminEmail, passwordHash)
-		if err := app.database.ReconcileAuthSessions(ctx, credential, app.now()); err != nil {
-			return err
-		}
-		session, err := app.database.AuthSession(ctx, sha256.Sum256([]byte(token)), credential, app.now())
+		session, err := app.database.AuthSession(ctx, sha256.Sum256([]byte(token)), Fingerprint(adminEmail, passwordHash), app.now())
 		if err != nil {
 			return err
 		}

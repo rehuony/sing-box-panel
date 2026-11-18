@@ -190,11 +190,13 @@ func (handler *Handler) serveOperation(w http.ResponseWriter, request *http.Requ
 }
 
 // matchRoute selects the route for a path below /api/v1 and sets its path
-// values on request. A literal segment wins over a template variable, so
-// /logs/panel is not read as a log ID.
+// values on request. The path that matches with the most literal segments
+// wins whatever the method, so /logs/panel is never read as a log ID: a
+// method that path lacks is not allowed rather than routed elsewhere.
 func matchRoute(request *http.Request, contractPath string) (route, bool, bool) {
 	segments := strings.Split(strings.TrimPrefix(contractPath, "/"), "/")
-	best, bestLiterals, pathFound := -1, -1, false
+	literalsByRoute := make(map[int]int)
+	bestLiterals := -1
 	for index, candidate := range routes {
 		if candidate.access == accessDownload {
 			continue
@@ -203,13 +205,21 @@ func matchRoute(request *http.Request, contractPath string) (route, bool, bool) 
 		if !ok {
 			continue
 		}
-		pathFound = true
-		if candidate.Method == request.Method && literals > bestLiterals {
-			best, bestLiterals = index, literals
+		literalsByRoute[index] = literals
+		bestLiterals = max(bestLiterals, literals)
+	}
+	if bestLiterals < 0 {
+		return route{}, false, false
+	}
+	best := -1
+	for index := range routes {
+		if literals, ok := literalsByRoute[index]; ok && literals == bestLiterals && routes[index].Method == request.Method {
+			best = index
+			break
 		}
 	}
 	if best < 0 {
-		return route{}, false, pathFound
+		return route{}, false, true
 	}
 	matched := routes[best]
 	for index, part := range strings.Split(strings.TrimPrefix(matched.Path, "/"), "/") {
@@ -254,10 +264,6 @@ func templateVariable(part string) (string, bool) {
 // requireNode runs next only for an existing {nodeId} node.
 func (handler *Handler) requireNode(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		if handler.services.Fleet == nil {
-			writeProblem(w, request, http.StatusServiceUnavailable, "application_unavailable", "Application unavailable", "Node services are not ready.")
-			return
-		}
 		if _, err := handler.services.Fleet.Node(request.Context(), requestNodeID(request)); err != nil {
 			writeFleetProblem(w, request, err)
 			return

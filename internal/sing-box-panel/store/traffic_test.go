@@ -117,9 +117,16 @@ func TestTrafficSamplesUseProvenDeltasAcrossPeriodsAndNodeInstances(t *testing.T
 	regressed := restarted
 	regressed.SampledAt = regressed.SampledAt.Add(10 * time.Second)
 	regressed.UploadTotal = 79
-	if result := record(regressed); result.Sample.Accepted || result.Sample.DiagnosticCode != "counter_decreased" ||
+	if result := record(regressed); !result.Sample.Accepted || result.Sample.DiagnosticCode != "counter_decreased" ||
 		result.Sample.IntervalStart != nil || result.Period.OutboundBytes != 180 {
 		t.Fatalf("regressed sample = %+v", result)
+	}
+	// The decreased counters are the new baseline, not a wall later samples
+	// must climb over.
+	regressed.SampledAt = regressed.SampledAt.Add(10 * time.Second)
+	regressed.UploadTotal, regressed.DownloadTotal = 89, 120
+	if result := record(regressed); result.Sample.UploadDelta == nil || *result.Sample.UploadDelta != 10 || result.Period.OutboundBytes != 190 {
+		t.Fatalf("sample after a counter decrease = %+v", result)
 	}
 }
 

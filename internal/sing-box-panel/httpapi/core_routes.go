@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,9 +23,6 @@ const (
 )
 
 func (handler *Handler) listCatalogAssets(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "exact_version", "architecture", "variant")
 	if !ok {
 		return
@@ -54,9 +50,6 @@ func (handler *Handler) listCatalogAssets(w http.ResponseWriter, request *http.R
 }
 
 func (handler *Handler) refreshCatalog(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -89,9 +82,6 @@ func (handler *Handler) refreshCatalog(w http.ResponseWriter, request *http.Requ
 }
 
 func (handler *Handler) listCoreArtifacts(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(
 		w, request,
 		"exact_version", "architecture", "variant", "source_kind",
@@ -152,9 +142,6 @@ func coreArtifactCursor(
 }
 
 func (handler *Handler) getCoreArtifact(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -167,9 +154,6 @@ func (handler *Handler) getCoreArtifact(w http.ResponseWriter, request *http.Req
 }
 
 func (handler *Handler) deleteCoreArtifact(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
@@ -182,9 +166,6 @@ func (handler *Handler) deleteCoreArtifact(w http.ResponseWriter, request *http.
 }
 
 func (handler *Handler) installCore(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -242,11 +223,18 @@ func (handler *Handler) cacheCatalogAsset(w http.ResponseWriter, request *http.R
 	return cached, true
 }
 
+// coreImportReadTimeout bounds reading one core import, enough for the
+// largest archive at about 1.2 Mbit/s.
+const coreImportReadTimeout = 15 * time.Minute
+
 func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
+	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	if _, ok := strictCoreQuery(w, request); !ok {
+	// The server's read timeout suits ordinary requests; an archive of up
+	// to its limit gets as long as a slow link needs.
+	if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(coreImportReadTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		writeProblem(w, request, http.StatusInternalServerError, "core_import_unavailable", "Core import unavailable", "The upload could not be prepared.")
 		return
 	}
 	request.Body = http.MaxBytesReader(w, request.Body, maximumCoreUploadBytes+(64<<10))
@@ -278,7 +266,7 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 				writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "Exactly one archive file is required.")
 				return
 			}
-			stagedPath, err = handler.stageCoreUpload(part)
+			stagedPath, err = handler.services.Cores.StageUpload(part, maximumCoreUploadBytes)
 			_ = part.Close()
 			if err != nil {
 				writeProblem(w, request, http.StatusUnprocessableEntity, "core_import_invalid", "Core import request invalid", "The uploaded archive is empty, too large, or could not be staged privately.")
@@ -326,47 +314,4 @@ func (handler *Handler) importCore(w http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// stageCoreUpload writes an uploaded archive to the panel's private upload
-// staging directory, where the core cache accepts it from.
-func (handler *Handler) stageCoreUpload(source io.Reader) (string, error) {
-	directory := filepath.Join(handler.settings.DataDir, "imports")
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return "", err
-	}
-	info, err := os.Lstat(directory)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
-		return "", errors.New("private import directory is unsafe")
-	}
-	file, err := os.CreateTemp(directory, "core-upload-*")
-	if err != nil {
-		return "", err
-	}
-	path := file.Name()
-	keep := false
-	defer func() {
-		_ = file.Close()
-		if !keep {
-			_ = os.Remove(path)
-		}
-	}()
-	if err := file.Chmod(0o600); err != nil {
-		return "", err
-	}
-	written, err := io.Copy(file, io.LimitReader(source, maximumCoreUploadBytes+1))
-	if err != nil || written < 1 || written > maximumCoreUploadBytes {
-		return "", errors.New("uploaded core archive size is invalid")
-	}
-	if err := file.Sync(); err != nil {
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		return "", err
-	}
-	keep = true
-	return path, nil
 }

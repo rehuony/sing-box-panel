@@ -23,7 +23,7 @@ function mount(client: ApiClient) {
     wrapper: ({ children }: PropsWithChildren) => (
       <ApiClientProvider client={client}>
         <CurrentNodeContext value={testNode}>
-          <TelemetryProvider>{children}</TelemetryProvider>
+          <TelemetryProvider online>{children}</TelemetryProvider>
         </CurrentNodeContext>
       </ApiClientProvider>
     ),

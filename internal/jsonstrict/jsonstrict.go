@@ -30,6 +30,14 @@ func Decode(data []byte, maxBytes int64, target any) error {
 	decoder.DisallowUnknownFields()
 	decoder.UseNumber()
 	if err := decoder.Decode(target); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			// The decoder's own text names Go types, which callers show.
+			if typeErr.Field == "" {
+				return fmt.Errorf("decode JSON: unexpected %s value", typeErr.Value)
+			}
+			return fmt.Errorf("decode JSON: field %q has an unexpected %s value", typeErr.Field, typeErr.Value)
+		}
 		return fmt.Errorf("decode JSON: %w", err)
 	}
 	var trailing any

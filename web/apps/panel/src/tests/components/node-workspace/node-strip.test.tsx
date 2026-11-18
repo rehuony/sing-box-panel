@@ -97,7 +97,7 @@ function renderBanner(client: ApiClient) {
       <ThemeProvider>
         <TooltipProvider delay={0}>
           <TestRouter>
-            <TelemetryProvider>
+            <TelemetryProvider online>
               <NodeStrip node={testNode} />
             </TelemetryProvider>
           </TestRouter>

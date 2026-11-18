@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 	"unicode"
@@ -28,6 +29,9 @@ const (
 	// still enrolled with the key it authenticated with, so a node removed by
 	// another process loses its session.
 	validationInterval = 30 * time.Second
+	// firstReportTimeout bounds the wait for a session's first state report,
+	// which opens it to commands.
+	firstReportTimeout = 30 * time.Second
 	// MetricsInterval is the baseline interval between metrics samples. It
 	// matches the spacing of stored traffic samples, so history charts get
 	// one interval per sample.
@@ -91,38 +95,9 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	service := server.service
 	ctx, cancel := context.WithCancelCause(stream.Context())
 	defer cancel(nil)
-	frames := make(chan *nodeapi.ConnectRequest)
-	ended := make(chan error, 1)
-	go func() {
-		for {
-			frame, err := stream.Recv()
-			if err != nil {
-				ended <- err
-				return
-			}
-			select {
-			case frames <- frame:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	next := func() (*nodeapi.ConnectRequest, error) {
-		timer := time.NewTimer(handshakeTimeout)
-		defer timer.Stop()
-		select {
-		case frame := <-frames:
-			return frame, nil
-		case err := <-ended:
-			return nil, err
-		case <-timer.C:
-			return nil, status.Error(codes.DeadlineExceeded, "handshake timed out")
-		case <-ctx.Done():
-			return nil, status.FromContextError(ctx.Err()).Err()
-		}
-	}
+	receiver := receiveFrames(ctx, stream.Recv)
 
-	frame, err := next()
+	frame, err := receiver.next()
 	if err != nil {
 		return err
 	}
@@ -157,7 +132,7 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	}}); err != nil {
 		return err
 	}
-	frame, err = next()
+	frame, err = receiver.next()
 	if err != nil {
 		return err
 	}
@@ -174,6 +149,13 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	if reported := nodeState(node); reported != nil {
 		current.lastUpdate = reported.Report.GetLastUpdate()
 	}
+	historyAfter, err := service.records.LatestRuntimeTransitionSource(ctx, node.ID, instanceID)
+	if err != nil {
+		return status.Error(codes.Internal, "read runtime history")
+	}
+	// Nothing fails between recording the session and replacing the node's
+	// previous one, so the record always names the session the registry
+	// holds: a later failure ends this session, never a live one.
 	err = service.database.RecordNodeSession(ctx, node.ID, node.PublicKey, store.NodeSession{
 		ID: sessionID, InstanceID: instanceID, OS: hello.GetPlatform().GetOs(), Arch: hello.GetPlatform().GetArch(), BuildVersion: hello.GetBuildVersion(),
 		ProtocolMinor: int(hello.GetProtocol().GetMinor()), SeenAt: service.now().UTC(),
@@ -188,54 +170,138 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		endCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer stop()
 		_ = service.database.EndNodeSession(endCtx, node.ID, sessionID, service.now().UTC())
+		if errors.Is(context.Cause(ctx), errNodeRemoved) {
+			// The loop has ended, so no late sample brings the node back.
+			service.records.ForgetNode(node.ID)
+		}
 		service.recordNodeEvent(store.LogLevelInfo, "node.disconnected", "Node disconnected", node.ID)
 	}()
-	historyAfter, err := service.records.LatestRuntimeTransitionSource(ctx, node.ID, instanceID)
-	if err != nil {
-		return status.Error(codes.Internal, "read runtime history")
-	}
-	if err := current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Welcome{Welcome: &nodeapi.Welcome{
+	service.sessions.replace(node.ID, current)
+	defer service.sessions.remove(node.ID, current)
+	// Commands wait for the first state report, which follows Welcome;
+	// telemetry control waits for Welcome itself.
+	current.telemetryMu.Lock()
+	err = current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Welcome{Welcome: &nodeapi.Welcome{
 		SessionId: sessionID, PanelBuildVersion: service.build.Version,
 		Protocol:        &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor, Minor: nodeapi.ProtocolMinor},
 		MetricsInterval: durationpb.New(MetricsInterval), RuntimeHistoryAfter: historyAfter,
-	}}}); err != nil {
+	}}})
+	current.welcomed = err == nil
+	current.telemetryMu.Unlock()
+	if err != nil {
 		return err
 	}
-	// Only a welcomed session receives commands and telemetry control.
-	service.sessions.replace(node.ID, current)
-	defer service.sessions.remove(node.ID, current)
-	service.viewersMu.Lock()
-	if service.viewers[node.ID] > 0 {
-		service.setMetricsInterval(node.ID, LiveMetricsInterval)
-	}
-	service.viewersMu.Unlock()
+	service.syncMetricsInterval(node.ID)
 	service.recordNodeEvent(store.LogLevelInfo, "node.connected", "Node connected", node.ID)
 
 	validation := time.NewTicker(validationInterval)
 	defer validation.Stop()
+	// A session that does not report its state in time never accepts
+	// commands, so it ends and the node reconnects with a new report.
+	firstReport := time.NewTimer(firstReportTimeout)
+	defer firstReport.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return sessionEnd(context.Cause(ctx))
-		case err := <-ended:
+		case err := <-receiver.ended:
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
-		case frame := <-frames:
+		case frame := <-receiver.frames:
+			if ctx.Err() != nil {
+				return sessionEnd(context.Cause(ctx))
+			}
 			switch {
 			case frame.GetResult() != nil:
 				current.deliver(frame.GetResult())
 			case frame.GetEvent() != nil:
-				service.receiveEvent(ctx, current, frame.GetEvent())
+				if err := service.receiveEvent(ctx, current, frame.GetEvent()); err != nil {
+					return err
+				}
 			case frame.GetHello() != nil || frame.GetProof() != nil:
 				return status.Error(codes.InvalidArgument, "handshake frames are not allowed after Welcome")
+			}
+		case <-firstReport.C:
+			if !current.isReady() {
+				return status.Error(codes.DeadlineExceeded, "the node sent no state report after Welcome")
 			}
 		case <-validation.C:
 			err := service.database.TouchNode(ctx, node.ID, node.PublicKey, service.now().UTC())
 			if errors.Is(err, store.ErrNodeNotFound) {
 				return sessionEnd(errNodeRemoved)
 			}
+		}
+	}
+}
+
+// frameReceiver reads a stream's frames on its own goroutine until the
+// stream or ctx ends, so a handler can wait for a frame with a timeout.
+type frameReceiver[T any] struct {
+	ctx    context.Context
+	frames chan T
+	// ended receives the error that ended the stream, io.EOF when the
+	// node closed it.
+	ended chan error
+}
+
+func receiveFrames[T any](ctx context.Context, receive func() (T, error)) *frameReceiver[T] {
+	receiver := &frameReceiver[T]{ctx: ctx, frames: make(chan T), ended: make(chan error, 1)}
+	go func() {
+		for {
+			frame, err := receive()
+			if err != nil {
+				receiver.ended <- err
+				return
+			}
+			select {
+			case receiver.frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return receiver
+}
+
+// next waits for the next frame of a handshake, at most handshakeTimeout.
+func (receiver *frameReceiver[T]) next() (T, error) {
+	var none T
+	timer := time.NewTimer(handshakeTimeout)
+	defer timer.Stop()
+	select {
+	case frame := <-receiver.frames:
+		return frame, nil
+	case err := <-receiver.ended:
+		return none, err
+	case <-timer.C:
+		return none, status.Error(codes.DeadlineExceeded, "handshake timed out")
+	case <-receiver.ctx.Done():
+		return none, status.FromContextError(receiver.ctx.Err()).Err()
+	}
+}
+
+// errChunkRead reports a file that failed while sendChunks read it.
+var errChunkRead = errors.New("read the file being sent")
+
+// sendChunks reads file in pieces of artifactChunkSize and hands each
+// nonempty piece to send, which must encode it before it returns, since the
+// buffer is reused.
+func sendChunks(file io.Reader, send func(chunk []byte) error) error {
+	buffer := make([]byte, artifactChunkSize)
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 {
+			if err := send(buffer[:n]); err != nil {
+				return err
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %w", errChunkRead, err)
 		}
 	}
 }
@@ -312,23 +378,20 @@ func (server *nodeServer) FetchArtifact(request *nodeapi.FetchArtifactRequest, s
 	if err != nil {
 		return status.Error(codes.Internal, "read cached artifact identity")
 	}
+	// The first frame carries the artifact's identity with the first data.
 	frame := &nodeapi.FetchArtifactResponse{Artifact: identity, Size: artifact.Size}
-	buffer := make([]byte, artifactChunkSize)
-	for {
-		n, err := file.Read(buffer)
-		if n > 0 || frame.Artifact != nil {
-			// Send encodes the frame before it returns, so buffer can be reused.
-			frame.Data = buffer[:n]
-			if err := stream.Send(frame); err != nil {
-				return err
-			}
-			frame = &nodeapi.FetchArtifactResponse{}
-		}
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return status.Error(codes.Internal, "read cached artifact")
-		}
+	err = sendChunks(file, func(chunk []byte) error {
+		frame.Data = chunk
+		sent := stream.Send(frame)
+		frame = &nodeapi.FetchArtifactResponse{}
+		return sent
+	})
+	if errors.Is(err, errChunkRead) {
+		return status.Error(codes.Internal, "read cached artifact")
 	}
+	if err == nil && frame.Artifact != nil {
+		// An empty archive still names itself.
+		err = stream.Send(frame)
+	}
+	return err
 }

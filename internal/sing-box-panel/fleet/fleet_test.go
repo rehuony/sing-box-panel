@@ -731,6 +731,46 @@ func TestStatusShowsThePanelsWritesWhileStreamed(t *testing.T) {
 	}
 }
 
+func TestSessionWhoseFirstReportFailsEndsInsteadOfHangingCommands(t *testing.T) {
+	served := startFleet(t, nil)
+	service := served.service
+	enrollment, err := service.AddNode(t.Context(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	if err := node.enroll(t, enrollment.Code); err != nil {
+		t.Fatal(err)
+	}
+	stream, _, err := node.handshake(t, node.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A command without a deadline of its own waits for the first report.
+	failed := make(chan error, 1)
+	go func() {
+		_, err := service.RuntimeStatus(context.Background(), node.id)
+		failed <- err
+	}()
+	sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_StateReport{StateReport: &nodeapi.StateReport{
+		Host: &nodeapi.Host{PublicIp: "203.0.113.7\n"},
+	}}})
+	for {
+		if _, err := stream.Recv(); err != nil {
+			requireCode(t, err, codes.Unavailable)
+			break
+		}
+	}
+	select {
+	case err := <-failed:
+		if !errors.Is(err, fleet.ErrNodeOffline) {
+			t.Fatalf("waiting command = %v, want node offline", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the command kept waiting for a session that ended")
+	}
+}
+
 func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
 	served := startFleet(t, nil)
 	service := served.service

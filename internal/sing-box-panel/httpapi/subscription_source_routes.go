@@ -132,7 +132,7 @@ func (handler *Handler) createSubscriptionSourceVersion(w http.ResponseWriter, r
 		Format  subscription.SourceFormat `json:"format"`
 		RawBody []byte                    `json:"raw_body"`
 	}
-	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
+	if !decodeStrictRequest(w, request, maximumSourceVersionRequestBytes, &input) {
 		return
 	}
 	if len(input.RawBody) == 0 {

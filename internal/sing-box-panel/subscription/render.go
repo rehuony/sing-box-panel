@@ -61,5 +61,22 @@ func RenderNodes(nodes []Node, channel RenderChannel) (RenderResult, error) {
 			issue.NodeID, issue.NodeName, issue.NodeType = PublicationID(node), node.Tag, node.Type
 		}
 	}
+	filter, err := validateChannel(channel)
+	if err != nil {
+		return RenderResult{}, err
+	}
+	result.carried = map[string]bool{}
+	for _, node := range ordered {
+		_, excludedTag := filter.tags[node.Tag]
+		_, excludedType := filter.types[node.Type]
+		if !excludedTag && !excludedType && publishableOutbound(node.Type) {
+			result.carried[PublicationID(node)] = true
+		}
+	}
 	return result, nil
+}
+
+// CarriesNode reports whether the rendered channel delivers node.
+func (result RenderResult) CarriesNode(node Node) bool {
+	return result.carried[PublicationID(node)]
 }

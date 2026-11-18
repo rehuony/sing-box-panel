@@ -1,7 +1,10 @@
 export const shell = {
   error: {
     logout: '退出失败，当前会话仍然有效',
+    page: '无法显示面板。',
+    reload: '重新加载',
     retry: '重试',
+    view: '无法加载此视图。',
   },
   loading: {
     page: '正在载入工作台…',
@@ -122,7 +125,6 @@ export const command = {
     noNode: '没有名为 {{name}} 的节点',
     noWindow: '没有编号为 {{position}} 的窗口',
     notFound: '未找到命令：{{command}}',
-    unavailable: '{{command}} 在此处不可用',
   },
   help: {
     clear: '清空输出',

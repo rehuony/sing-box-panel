@@ -8,7 +8,6 @@ export const dashboard = {
     transfer: 'Period traffic',
     label: 'Node figures',
     quota: 'Used {{used}} · quota {{total}}',
-    noQuota: 'No traffic quota',
     countUnit: 'count',
     lastHour: 'Last hour',
     lastDay: 'Last 24 hours',

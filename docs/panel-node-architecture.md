@@ -76,11 +76,13 @@ The session handshake runs inside `Connect` before any command:
 2. The panel answers `Challenge` with a random nonce and the panel ID.
 3. The node answers `Proof`, an Ed25519 signature over a fixed context string, the panel ID, the node ID and the nonce.
 4. The panel verifies it against the enrolled public key and answers `Welcome` with the baseline metrics interval and the newest runtime transition it holds for that instance, or closes the stream with a status code.
-5. The node sends a full `StateReport`, then the runtime transitions after the one the panel named. The panel accepts commands for the node once that report is recorded.
+5. The node sends a full `StateReport`, then the runtime transitions after the one the panel named. The panel accepts commands for the node once that report is recorded. A session whose first report does not arrive within 30 seconds, or cannot be recorded, ends, and the node reconnects with a new one.
 
-A new authenticated session for a node replaces the previous one. gRPC
-keepalives detect dead sessions; the panel marks a node offline when its
-session ends.
+A new authenticated session for a node replaces the previous one. The panel
+records the new session and replaces the previous one in one step that cannot
+fail between them, so a handshake that fails never leaves a live session
+recorded as ended. gRPC keepalives detect dead sessions; the panel marks a node
+offline when its session ends.
 
 Frames are `oneof` envelopes:
 
@@ -188,7 +190,7 @@ baseline schema. Neither has an upgrade path from an earlier format.
 - The panel checks a revision against the exact Schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
 - A command that can change the node's state keeps only its deadline once sent: a browser that disconnects does not cancel a change the node already started.
 - A management mutation for a node waits for that node's result within the command deadline and returns the completed result.
-- An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. A command to a node whose session has not yet reported its state waits for that report within its deadline. Saving a node's configuration stays a panel-local write and works while the node is offline.
+- An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. A command without a deadline of its own has two minutes, batches included. A command to a node whose session has not yet reported its state waits for that report within its deadline, follows a session that replaces it, and fails as `node_offline` when the session ends first. Saving a node's configuration stays a panel-local write and works while the node is offline.
 - When a session drops while a command is in flight, the API returns a `node_result_unknown` problem. The node's next state report settles the outcome. The UI shows reported state and never assumes success.
 - A node reports the state a state-changing command left before it sends the command's result, so the panel's reported state is current when the API answers.
 - Applying a configuration sends the revision, its digest and bytes, and the selected artifact identity. The node checks that the artifact is installed and verified, runs `sing-box check`, replaces the process through the existing preflight, keeps the previous bundle for rollback, and reports the new bundle. A failed check leaves the running process untouched.
@@ -210,7 +212,9 @@ baseline schema. Neither has an upgrade path from an earlier format.
 
 A node sends a state report when its state changes: after a state-changing
 command, after a new runtime transition, and when a periodic check finds a
-change such as a new public IP. It sends a metrics sample every ten seconds.
+change such as a new public IP. It sends a metrics sample every ten seconds;
+the panel keeps the sample's time unless it lies ahead of the panel's clock or
+more than 20 seconds behind it, and then uses its own.
 While a browser views a node's live metrics, the panel sends `TelemetryControl`
 to raise that node to one sample per second and lowers it again when the last
 viewer leaves. The nodes home and the status line read every node's baseline samples at once,
@@ -218,9 +222,11 @@ with rates averaged over ten seconds, from one fleet snapshot: `/fleet/stream`
 shares it among every client and refreshes it every two seconds while anyone
 streams it, sending each client every node once and then only the nodes that
 changed, and `/fleet/status` answers from it while it is at most two seconds
-old. A panel write that changes what the snapshot shows, such as a rename,
-saved node settings or a command's result, makes the next read a new one; node
-reports reach readers with the next shared read. Streaming the fleet does not
+old, or reads it anew and shares that read for two seconds. A panel write that
+changes what the snapshot shows, such as a rename, saved node settings or a
+command's result, makes the next read a new one, even while a read that began
+before the write is still running; node reports reach readers with the next
+shared read. Streaming the fleet does not
 change how often nodes sample. Traffic counters ride
 on metrics samples. The panel stores each node's last state report, keeping it
 visible while the node is offline, and stores metrics history, traffic periods
@@ -345,6 +351,7 @@ internal/
   Infrastructure: knows nothing of sing-box, subscriptions or the fleet
   atomicfile/ buildinfo/ console/ jsonstrict/ release/ selfupdate/
   procctl/               local service control and lease
+  netguard/              which addresses count as public for outbound fetches and reported host addresses
   database/              SQLite opening, pragmas and data-directory locks shared by both stores
   logredact/             log redaction applied by both services
   webauth/               password hashing, login limits, origin and CSRF checks of both management APIs

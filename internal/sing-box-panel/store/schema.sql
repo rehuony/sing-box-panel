@@ -4,7 +4,8 @@ CREATE TABLE canonical_revisions (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     sequence INTEGER NOT NULL CHECK (sequence > 0),
-    parent_id TEXT REFERENCES canonical_revisions(id) ON DELETE CASCADE,
+    -- Pruning an old revision leaves its child without a parent.
+    parent_id TEXT REFERENCES canonical_revisions(id) ON DELETE SET NULL,
     schema_version INTEGER NOT NULL CHECK (schema_version = 1),
     document_json TEXT NOT NULL CHECK (
         json_valid(document_json)
@@ -28,6 +29,11 @@ CREATE TABLE node_configurations (
     head_revision_id TEXT REFERENCES canonical_revisions(id) ON DELETE CASCADE,
     updated_at TEXT NOT NULL CHECK (updated_at <> '')
 ) STRICT;
+
+-- Revision pruning checks these references and clears parent links.
+CREATE INDEX canonical_revisions_parent ON canonical_revisions(parent_id);
+CREATE INDEX node_configurations_canonical ON node_configurations(canonical_revision_id);
+CREATE INDEX node_configurations_head ON node_configurations(head_revision_id);
 
 CREATE TABLE catalog_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -315,6 +321,8 @@ CREATE INDEX runtime_transitions_timeline
 CREATE INDEX runtime_transitions_bundle_timeline
     ON runtime_transitions(node_id, activation_bundle_id, occurred_at DESC, id DESC);
 
+CREATE INDEX runtime_transitions_age ON runtime_transitions(occurred_at);
+
 CREATE TRIGGER runtime_transitions_reject_update
 BEFORE UPDATE ON runtime_transitions
 BEGIN
@@ -388,6 +396,9 @@ CREATE TABLE traffic_days (
     last_sample_at TEXT NOT NULL CHECK (last_sample_at >= first_observed_at),
     PRIMARY KEY (node_id, day_start)
 ) STRICT;
+
+-- The whole fleet's usage in a range of days.
+CREATE INDEX traffic_days_day ON traffic_days(day_start);
 
 -- The traffic periods each node has recorded, in the period settings in
 -- force when they were recorded. Their totals are read from traffic_days.

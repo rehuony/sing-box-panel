@@ -443,6 +443,7 @@ changes take effect after restart.
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
+| `logs.panel_retention_days` | Panel log and runtime history retention | `90` |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `system` |
 | `panel.appearance.color` | Color | `#6D4ED1` |

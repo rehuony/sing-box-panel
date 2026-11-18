@@ -12,9 +12,6 @@ import (
 )
 
 func (handler *Handler) configurationFile(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -28,9 +25,6 @@ func (handler *Handler) configurationFile(w http.ResponseWriter, request *http.R
 }
 
 func (handler *Handler) saveConfigurationFile(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

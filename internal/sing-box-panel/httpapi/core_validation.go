@@ -72,7 +72,7 @@ func optionalStrictBool(w http.ResponseWriter, request *http.Request, query url.
 func requireEmptyCoreBody(w http.ResponseWriter, request *http.Request) bool {
 	body, err := readBoundedBody(request, maximumCoreEmptyRequestBytes)
 	if err != nil {
-		writeProblem(w, request, http.StatusRequestEntityTooLarge, "request_too_large", "Request rejected", "The request body is too large.")
+		writeBodyProblem(w, request, err)
 		return false
 	}
 	if len(strings.TrimSpace(string(body))) != 0 {

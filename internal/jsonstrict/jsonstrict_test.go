@@ -25,6 +25,7 @@ func TestDecode(t *testing.T) {
 		{name: "duplicate nested", input: `{"name":"a","nested":{"enabled":true,"enabled":false}}`, wantErr: "duplicate object key"},
 		{name: "unknown", input: `{"name":"a","nested":{"enabled":true},"extra":1}`, wantErr: "unknown field"},
 		{name: "trailing", input: `{"name":"a","nested":{"enabled":true}} {}`, wantErr: "trailing"},
+		{name: "wrong type", input: `{"name":"a","nested":{"enabled":"yes"}}`, wantErr: `field "nested.enabled" has an unexpected string value`},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

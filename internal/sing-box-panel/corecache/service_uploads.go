@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,6 +113,52 @@ func (application *Service) isPrivateUploadedCorePath(path string) bool {
 	}
 	base := filepath.Base(path)
 	return filepath.Dir(path) == directory && strings.HasPrefix(base, coreUploadPrefix) && len(base) > len(coreUploadPrefix)
+}
+
+// StageUpload writes an uploaded archive of 1 to limit bytes to a new file in
+// the private upload staging directory and returns its path.
+func (application *Service) StageUpload(source io.Reader, limit int64) (string, error) {
+	directory, err := application.privateCoreUploadDirectory()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		return "", errors.New("private import directory is unsafe")
+	}
+	file, err := os.CreateTemp(directory, coreUploadPrefix+"*")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	keep := false
+	defer func() {
+		_ = file.Close()
+		if !keep {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return "", err
+	}
+	written, err := io.Copy(file, io.LimitReader(source, limit+1))
+	if err != nil || written < 1 || written > limit {
+		return "", errors.New("uploaded core archive size is invalid")
+	}
+	if err := file.Sync(); err != nil {
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	keep = true
+	return path, nil
 }
 
 // ValidateStagedUpload checks that path is a regular file in the private

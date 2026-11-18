@@ -27,6 +27,9 @@ type Feed[T any] struct {
 	generation  uint64
 	cached      *SnapshotResult[T]
 	collected   time.Time
+	// expired counts Expire calls; a read that began before one is not
+	// fresh, because it may miss the write that expired the value.
+	expired uint64
 }
 
 // NewFeed returns a feed that loads a value every interval while subscribed.
@@ -79,6 +82,9 @@ func (f *Feed[T]) run(ctx context.Context, generation uint64, delay time.Duratio
 			return
 		case <-timer.C:
 		}
+		f.mu.Lock()
+		expired := f.expired
+		f.mu.Unlock()
 		value, err := f.load(ctx)
 		if ctx.Err() != nil {
 			return
@@ -89,9 +95,15 @@ func (f *Feed[T]) run(ctx context.Context, generation uint64, delay time.Duratio
 			f.mu.Unlock()
 			return
 		}
+		next := f.interval
 		if err == nil {
 			f.cached = &result
 			f.collected = time.Now()
+			if expired != f.expired {
+				// The value may predate the write that expired it: deliver it,
+				// keep it stale and read again at once.
+				f.collected, next = time.Time{}, 0
+			}
 		}
 		for ch := range f.subscribers {
 			select {
@@ -101,19 +113,33 @@ func (f *Feed[T]) run(ctx context.Context, generation uint64, delay time.Duratio
 			ch <- result
 		}
 		f.mu.Unlock()
-		timer.Reset(f.interval)
+		timer.Reset(next)
 	}
 }
 
-// Latest returns the newest value read within maxAge, if any.
-func (f *Feed[T]) Latest(maxAge time.Duration) (T, bool) {
+// Read returns the newest value read within maxAge or else reads a new one,
+// which also serves later readers and new subscribers within the same age.
+func (f *Feed[T]) Read(ctx context.Context, maxAge time.Duration) (T, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.cached == nil || time.Since(f.collected) > maxAge {
-		var zero T
-		return zero, false
+	if f.cached != nil && !f.collected.IsZero() && time.Since(f.collected) <= maxAge {
+		value := f.cached.Value
+		f.mu.Unlock()
+		return value, nil
 	}
-	return f.cached.Value, true
+	expired, started := f.expired, time.Now()
+	f.mu.Unlock()
+	value, err := f.load(ctx)
+	if err != nil {
+		return value, err
+	}
+	f.mu.Lock()
+	// A read that finished after this one began is at least as fresh.
+	if expired == f.expired && f.collected.Before(started) {
+		f.cached = &SnapshotResult[T]{Value: value}
+		f.collected = time.Now()
+	}
+	f.mu.Unlock()
+	return value, nil
 }
 
 // Expire stops the newest value counting as fresh for Latest and for new
@@ -122,6 +148,7 @@ func (f *Feed[T]) Expire() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.collected = time.Time{}
+	f.expired++
 }
 
 // Bind sets the lifetime of shared reads before the first subscriber.

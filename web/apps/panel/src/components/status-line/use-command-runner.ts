@@ -2,15 +2,25 @@ import type { Completion, Prompt } from '@shared/components/terminal';
 
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { echo, logLine } from '@shared/components/terminal';
 
+import type { PagePath } from '@/routes/page-loaders';
 import type { CommandVerb } from '@/utils/panel-commands';
 
+import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
 import { useFleetView } from '@/stores/fleet-view.store';
 import { useCommandSession } from '@/stores/command-session.store';
-import { nodeWindowPath, nodeWindows, panelWindowPath, panelWindows } from '@/utils/shell-windows';
 import { commandCompletions, commandVerbs, parseCommand, resolveNode, resolveTargets } from '@/utils/panel-commands';
+import {
+  nodeWindowPages,
+  nodeWindowPath,
+  nodeWindows,
+  panelWindowPages,
+  panelWindowPath,
+  panelWindows,
+} from '@/utils/shell-windows';
 
 import type { ShellScopeState } from './use-shell-scope';
 
@@ -28,13 +38,16 @@ const CONFIRM_PROMPT: Prompt = { kind: 'confirm' };
 export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   const { t } = useTranslation();
   const client = useApiClient();
+  const cache = useQueryClient();
   const navigate = useNavigate();
   const { signOut } = useSignOut();
   const { clear, pending, print, running, setOpen, setPending } = useCommandSession();
 
   const verbCompletions: Completion[] = commandVerbs.map(verb => ({ description: t(`command.help.${verb}`), name: verb }));
 
-  function go(path: string) {
+  /** Opens a window as its link does: the navigation shares the page's preload, which recovers a failed one. */
+  function go(path: string, page: PagePath) {
+    preloadPage(page);
     setOpen(false);
     void navigate(path);
   }
@@ -65,26 +78,32 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
         break;
       case 'window': {
         const window = windows[command.position - 1];
-        if (window === undefined) fail(line, t('command.error.noWindow', { position: command.position }));
-        else if (scope.kind === 'node') go(nodeWindowPath(scope.nodeId, window as typeof nodeWindows[number]));
-        else go(panelWindowPath(window as typeof panelWindows[number]));
+        if (window === undefined) {
+          fail(line, t('command.error.noWindow', { position: command.position }));
+        } else if (scope.kind === 'node') {
+          const nodeWindow = window as typeof nodeWindows[number];
+          go(nodeWindowPath(scope.nodeId, nodeWindow), nodeWindowPages[nodeWindow]);
+        } else {
+          const panelWindow = window as typeof panelWindows[number];
+          go(panelWindowPath(panelWindow), panelWindowPages[panelWindow]);
+        }
         break;
       }
       case 'open':
-        go(panelWindowPath(command.window));
+        go(panelWindowPath(command.window), panelWindowPages[command.window]);
         break;
       case 'goto': {
         const found = resolveNode(command.node, items);
         const window = command.window ?? (scope.kind === 'node' && scope.window ? scope.window : 'overview');
         if (found.length === 0) fail(line, t('command.error.noNode', { name: command.node }));
         else if (found.length > 1) fail(line, t('command.error.ambiguous', { name: command.node }));
-        else go(nodeWindowPath(found[0]!.node.id, window));
+        else go(nodeWindowPath(found[0]!.node.id, window), nodeWindowPages[window]);
         break;
       }
       case 'filter': {
         const { setFilter } = useFleetView.getState();
         setFilter({ search: command.text, state: command.state ?? 'all', tag: command.tag });
-        go(panelWindowPath('nodes'));
+        go(panelWindowPath('nodes'), panelWindowPages.nodes);
         break;
       }
       case 'batch': {
@@ -99,7 +118,7 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
         }
         print(echo(prompt, line));
         if (!batchNeedsConfirmation(command.verb, nodes.length)) {
-          void runBatch({ action: command.verb, client, nodes, t });
+          void runBatch({ action: command.verb, cache, client, nodes, t });
           break;
         }
         const label = t(`command.batch.action.${command.verb}`);
@@ -129,7 +148,7 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
     const batch = pending;
     setPending(null);
     if (batch === null) return;
-    if (/^y(?:es)?$/i.test(reply)) void runBatch({ action: batch.action, client, nodes: batch.nodes, t });
+    if (/^y(?:es)?$/i.test(reply)) void runBatch({ action: batch.action, cache, client, nodes: batch.nodes, t });
     else print(logLine('muted', t('command.batch.cancelled')));
   }
 

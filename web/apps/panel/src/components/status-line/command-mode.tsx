@@ -16,7 +16,7 @@ import { useCommandRunner } from './use-command-runner';
  * completion menu and the output. On a phone the panel and the line read as
  * one sheet at the window's foot.
  */
-export function CommandMode({ shell }: { shell: ShellScopeState }) {
+export function CommandMode({ id, shell }: { id: string; shell: ShellScopeState }) {
   const { t } = useTranslation();
   const { clear, entries, setOpen } = useCommandSession();
   const { cancel, completions, prompt, submit } = useCommandRunner(shell);
@@ -28,8 +28,10 @@ export function CommandMode({ shell }: { shell: ShellScopeState }) {
     inputRef.current?.focus({ preventScroll: true });
   }, []);
 
+  // The command action controls this element. It sets no position, so the
+  // panel inside still floats against the status line.
   return (
-    <>
+    <div className='flex h-full min-w-0 flex-1 items-center' id={id}>
       <div
         // The panel shows while there is output or a menu; it never pushes the workspace.
         className='absolute inset-x-0 bottom-[calc(100%+var(--space-xs))] z-[var(--z-sticky)] hidden max-h-[40vh] flex-col overflow-hidden rounded-[var(--radius-card)] border bg-popover text-compact shadow-[var(--shadow-panel)] has-[[role=listbox]]:flex data-[output]:flex max-sm:bottom-full max-sm:max-h-[50dvh] max-sm:rounded-b-none max-sm:border-x-0 max-sm:border-b-0'
@@ -63,6 +65,6 @@ export function CommandMode({ shell }: { shell: ShellScopeState }) {
         onExit={() => setOpen(false)}
         onSubmit={submit}
       />
-    </>
+    </div>
   );
 }

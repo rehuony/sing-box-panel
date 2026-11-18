@@ -365,11 +365,20 @@ func validLoonAtom(value string) bool {
 }
 
 func loonQuoted(value string) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
+	return jsonText(value)
+}
+
+// jsonText encodes value as compact JSON without escaping &, < and >, which
+// clients that read quoted text literally would otherwise receive as \u0026
+// and the like.
+func jsonText(value any) string {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
 		panic(err)
 	}
-	return string(encoded)
+	return strings.TrimSuffix(output.String(), "\n")
 }
 
 func loonOptionBool(name string, value bool) string {

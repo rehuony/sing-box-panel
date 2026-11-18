@@ -110,18 +110,8 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			Metadata: telemetry.LogMetadata(map[string]any{"version": build.Version}),
 		})
 	}()
-	trafficRetention, err := records.EnforceTrafficSampleRetention(ctx)
-	if err != nil {
-		return startupError(ctx, "enforce traffic sample retention", err)
-	}
-	if trafficRetention.Deleted > 0 {
-		records.RecordEvent(telemetry.LogRecordRequest{
-			Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "traffic.retention_enforced",
-			Message: "Expired raw traffic samples were deleted",
-			Metadata: telemetry.LogMetadata(map[string]any{
-				"deleted": trafficRetention.Deleted, "cutoff": trafficRetention.Cutoff,
-			}),
-		})
+	if err := enforceRetention(ctx, services); err != nil {
+		return startupError(ctx, "enforce record retention", err)
 	}
 	uploadGC, uploadGCErr := services.Cores.GarbageCollectCoreUploads(ctx)
 	if uploadGCErr != nil {
@@ -137,11 +127,11 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 			Metadata: telemetry.LogMetadata(map[string]any{"deleted": uploadGC.Deleted, "retained": uploadGC.Retained}),
 		})
 	}
-	sampleRetentionContext, stopSampleRetention := context.WithCancel(ctx)
-	sampleRetentionDone := startTrafficSampleRetention(sampleRetentionContext, services.Settings, records)
+	retentionContext, stopRetention := context.WithCancel(ctx)
+	retentionDone := startRetention(retentionContext, services)
 	defer func() {
-		stopSampleRetention()
-		<-sampleRetentionDone
+		stopRetention()
+		<-retentionDone
 	}()
 	handler := httpapi.NewHandler(httpapi.HandlerOptions{
 		Settings: configuration,

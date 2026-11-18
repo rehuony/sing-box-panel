@@ -1,7 +1,10 @@
 export const shell = {
   error: {
     logout: 'Sign out failed; your current session is still active',
+    page: 'The panel could not be displayed.',
+    reload: 'Reload',
     retry: 'Try again',
+    view: 'This view could not be loaded.',
   },
   loading: {
     page: 'Loading workspace…',
@@ -122,7 +125,6 @@ export const command = {
     noNode: 'no node named {{name}}',
     noWindow: 'no window {{position}}',
     notFound: 'command not found: {{command}}',
-    unavailable: '{{command}} is not available here',
   },
   help: {
     clear: 'Clear the output',

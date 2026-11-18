@@ -29,7 +29,6 @@ export const telemetry = {
     connections: '连接',
     download: '下行',
     upload: '上行',
-    uptime: '运行时长',
     version: '版本',
   },
   runtime: {

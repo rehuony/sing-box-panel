@@ -103,8 +103,8 @@ func (application *Service) publicSubscriptionTraffic(ctx context.Context, at ti
 	return PublicSubscriptionTraffic{UploadBytes: status.UploadBytes, DownloadBytes: status.DownloadBytes}, nil
 }
 
-// renderSubscriptionState renders the channel and returns the nodes whose
-// local inbounds it may carry.
+// renderSubscriptionState renders the channel and returns the panel nodes
+// whose local inbounds it delivers.
 func (application *Service) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (RenderResult, []string, error) {
 	locals := application.localNodes(state.Nodes, false)
 	manual, err := manualPublicationNodes(state.ManualNodes)
@@ -157,7 +157,13 @@ func (application *Service) renderSubscriptionState(ctx context.Context, state s
 	diagnostics = append(diagnostics, rendered.Diagnostics...)
 	rendered.Diagnostics = diagnostics
 	rendered.PreviewDiagnostics = append(inboundPreviewDiagnostics(locals, rendered.Format), rendered.PreviewDiagnostics...)
-	return rendered, nodeIDsOf(selectedNodes), nil
+	carried := make([]Node, 0, len(selectedNodes))
+	for _, node := range selectedNodes {
+		if rendered.CarriesNode(node) {
+			carried = append(carried, node)
+		}
+	}
+	return rendered, nodeIDsOf(carried), nil
 }
 
 func (application *Service) RecordPublicSubscriptionUse(

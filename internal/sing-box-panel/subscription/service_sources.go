@@ -99,6 +99,16 @@ func (application *Service) UpdateSubscriptionSource(
 	return applicationSubscriptionSource(stored), nil
 }
 
+// keptPreviousSourceVersions is how many versions besides the current one
+// each source keeps, for review and for restoring an earlier version.
+const keptPreviousSourceVersions = 10
+
+// PruneSourceVersions removes each source's versions beyond its current
+// version and the newest keptPreviousSourceVersions others.
+func (application *Service) PruneSourceVersions(ctx context.Context) (int64, error) {
+	return application.database.PruneSubscriptionSourceVersions(ctx, keptPreviousSourceVersions)
+}
+
 func (application *Service) CreateSubscriptionSourceVersion(
 	ctx context.Context,
 	sourceID string,

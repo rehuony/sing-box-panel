@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,9 +16,6 @@ import (
 )
 
 func (handler *Handler) clearDurableLogs(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "source", "before")
 	if !ok || !requireEmptyCoreBody(w, request) {
 		return
@@ -31,16 +29,13 @@ func (handler *Handler) clearDurableLogs(w http.ResponseWriter, request *http.Re
 		Before: before,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "log_clear_filter_invalid", "Log clear filter invalid", err.Error())
+		writeQueryProblem(w, request, "log_clear_filter_invalid", "Log clear filter invalid", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) deleteDurableLog(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
@@ -57,9 +52,6 @@ func (handler *Handler) deleteDurableLog(w http.ResponseWriter, request *http.Re
 }
 
 func (handler *Handler) streamDurableLogs(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(
 		w,
 		request,
@@ -104,77 +96,68 @@ func (handler *Handler) streamDurableLogs(w http.ResponseWriter, request *http.R
 		Source: store.LogSource(query.Get("source")), Level: store.LogLevel(query.Get("level")),
 		Code: query.Get("code"), Since: since, After: cursor, Limit: limit,
 	}
-	initial, err := handler.services.Telemetry.TailLogs(request.Context(), filter)
+	ctx, cancel := context.WithTimeout(request.Context(), logStreamLifetime)
+	defer cancel()
+	initial, err := handler.services.Telemetry.TailLogs(ctx, filter)
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "log_filter_invalid", "Log filter invalid", err.Error())
+		writeQueryProblem(w, request, "log_filter_invalid", "Log filter invalid", err)
 		return
 	}
-	flusher, ok := w.(http.Flusher)
+	deadline, _ := ctx.Deadline()
+	stream, ok := newEventStream(ctx, w, deadline, maximumSnapshotFrameBytes)
 	if !ok {
 		writeProblem(w, request, http.StatusInternalServerError, "log_stream_unavailable", "Log stream unavailable", "The HTTP transport does not support streaming responses.")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	if err := writeLogEvents(w, initial, &filter); err != nil {
+	send := func(entries []store.LogEntry) error {
+		for _, entry := range entries {
+			encoded, err := json.Marshal(entry)
+			if err != nil {
+				return err
+			}
+			if err := stream.eventWithID(logEventID(entry), "log", encoded); err != nil {
+				return err
+			}
+			filter.After = &store.LogCursor{Time: entry.Time, ID: entry.ID}
+			filter.Since = nil
+		}
+		return nil
+	}
+	// The first event sends the headers with it; without one, the headers
+	// go at once so the client knows the stream is open.
+	if len(initial) == 0 && stream.open() != nil || send(initial) != nil {
 		return
 	}
-	flusher.Flush()
-
 	poll := time.NewTicker(500 * time.Millisecond)
-	heartbeat := time.NewTicker(15 * time.Second)
 	defer poll.Stop()
+	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	rotation := rotationTimer(logStreamLifetime)
+	defer rotation.Stop()
 	for {
 		select {
-		case <-request.Context().Done():
+		case <-ctx.Done():
 			return
 		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+			if stream.heartbeat() != nil {
 				return
 			}
-			flusher.Flush()
+		case <-rotation.C:
+			_ = stream.reconnect()
+			return
 		case <-poll.C:
-			entries, err := handler.services.Telemetry.TailLogs(request.Context(), filter)
-			if err != nil {
+			entries, err := handler.services.Telemetry.TailLogs(ctx, filter)
+			if err != nil || send(entries) != nil {
 				return
 			}
-			if len(entries) == 0 {
-				continue
-			}
-			if err := writeLogEvents(w, entries, &filter); err != nil {
-				return
-			}
-			flusher.Flush()
 		}
 	}
 }
 
-func writeLogEvents(
-	w http.ResponseWriter,
-	entries []store.LogEntry,
-	filter *telemetry.LogTailRequest,
-) error {
-	for _, entry := range entries {
-		encoded, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(
-			w,
-			"id: %s\nevent: log\ndata: %s\n\n",
-			logEventID(entry),
-			encoded,
-		); err != nil {
-			return err
-		}
-		filter.After = &store.LogCursor{Time: entry.Time, ID: entry.ID}
-		filter.Since = nil
-	}
-	return nil
-}
+// logStreamLifetime is how long one log stream runs before it asks its
+// client to reconnect, which authenticates it again; Last-Event-ID resumes
+// it after the last entry it delivered.
+const logStreamLifetime = time.Minute
 
 func logEventID(entry store.LogEntry) string {
 	return entry.Time.UTC().Format(time.RFC3339Nano) + "|" + entry.ID
@@ -193,9 +176,6 @@ func parseLogEventID(value string) (*store.LogCursor, error) {
 }
 
 func (handler *Handler) listDurableLogs(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "source", "level", "code", "since", "until", "after_time", "after_id", "limit")
 	if !ok {
 		return
@@ -225,16 +205,13 @@ func (handler *Handler) listDurableLogs(w http.ResponseWriter, request *http.Req
 		Code: query.Get("code"), Since: since, Until: until, Cursor: cursor, Limit: limit,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "log_filter_invalid", "Log filter invalid", err.Error())
+		writeQueryProblem(w, request, "log_filter_invalid", "Log filter invalid", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
 }
 
 func (handler *Handler) getDurableLog(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -251,9 +228,6 @@ func (handler *Handler) getDurableLog(w http.ResponseWriter, request *http.Reque
 }
 
 func (handler *Handler) currentMetrics(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -266,9 +240,6 @@ func (handler *Handler) currentMetrics(w http.ResponseWriter, request *http.Requ
 }
 
 func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "from", "to", "bucket_seconds", "activation_bundle_id")
 	if !ok {
 		return
@@ -295,16 +266,13 @@ func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Requ
 		NodeID: requestNodeID(request), From: *from, To: *to, BucketSeconds: bucketSeconds, ActivationBundleID: bundleID,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "metrics_history_filter_invalid", "Metrics history filter invalid", err.Error())
+		writeQueryProblem(w, request, "metrics_history_filter_invalid", "Metrics history filter invalid", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
@@ -317,9 +285,6 @@ func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Reque
 }
 
 func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.Request) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	query, ok := strictCoreQuery(w, request, "from", "to", "before_time", "before_id", "limit")
 	if !ok {
 		return
@@ -350,7 +315,7 @@ func (handler *Handler) listTrafficPeriods(w http.ResponseWriter, request *http.
 		NodeID: requestNodeID(request), OverlapsStart: from, OverlapsEnd: to, Cursor: cursor, Limit: limit,
 	})
 	if err != nil {
-		writeProblem(w, request, http.StatusBadRequest, "traffic_filter_invalid", "Traffic filter invalid", err.Error())
+		writeQueryProblem(w, request, "traffic_filter_invalid", "Traffic filter invalid", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -377,9 +342,6 @@ func optionalTrafficPeriodCursor(
 }
 
 func (handler *Handler) getTrafficPeriod(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.requireCommands(w, request) {
-		return
-	}
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}

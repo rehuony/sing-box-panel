@@ -19,8 +19,8 @@ func TestSnapshotFeedSharesLatestAndStopsWithoutSubscribers(t *testing.T) {
 		if got := <-fast; got.Value != 1 {
 			t.Fatal(got)
 		}
-		if value, ok := feed.Latest(2 * time.Second); !ok || value != 1 {
-			t.Fatalf("latest = %d, %t; want the shared read", value, ok)
+		if value, err := feed.Read(t.Context(), 2*time.Second); err != nil || value != 1 || calls.Load() != 1 {
+			t.Fatalf("read = %d, %v after %d loads; want the shared read", value, err, calls.Load())
 		}
 		time.Sleep(6 * time.Second)
 		synctest.Wait()
@@ -37,8 +37,40 @@ func TestSnapshotFeedSharesLatestAndStopsWithoutSubscribers(t *testing.T) {
 		if calls.Load() != 4 {
 			t.Fatal("collector continued without subscribers")
 		}
-		if _, ok := feed.Latest(time.Second); ok {
-			t.Fatal("a read older than the allowed age was returned")
+		if value, err := feed.Read(t.Context(), time.Second); err != nil || value != 5 {
+			t.Fatalf("read = %d, %v; want a new read instead of one older than the allowed age", value, err)
+		}
+		if value, _ := feed.Read(t.Context(), time.Second); value != 5 || calls.Load() != 5 {
+			t.Fatal("a direct read was not shared with the next reader")
+		}
+	})
+}
+
+func TestSnapshotFeedReadBeforeExpireIsNotFresh(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		loading := make(chan struct{})
+		release := make(chan struct{})
+		feed := NewFeed(time.Minute, func(context.Context) (int32, error) {
+			call := calls.Add(1)
+			if call == 1 {
+				close(loading)
+				<-release
+			}
+			return call, nil
+		})
+		results, unsubscribe := feed.Subscribe()
+		defer unsubscribe()
+		<-loading
+		// A write lands while the shared read runs.
+		feed.Expire()
+		close(release)
+		synctest.Wait()
+		if value, err := feed.Read(t.Context(), time.Minute); err != nil || value != 2 {
+			t.Fatalf("read = %d, %v; want a read that follows the expiring write", value, err)
+		}
+		if got := <-results; got.Value != 2 {
+			t.Fatalf("subscriber kept the read from before the write: %+v", got)
 		}
 	})
 }

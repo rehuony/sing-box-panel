@@ -145,7 +145,11 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	} else if channel.Format == RenderFormatLoon {
 		media = "text/plain; charset=utf-8"
 	}
-	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, values)}, nil
+	carried := make(map[string]bool, len(available))
+	for id := range available {
+		carried[id] = true
+	}
+	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, values), carried: carried}, nil
 }
 
 func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) ([]outbound, map[string]string, error) {

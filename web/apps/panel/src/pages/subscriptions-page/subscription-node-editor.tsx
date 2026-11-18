@@ -186,7 +186,7 @@ export function SubscriptionNodeEditor({
   async function copyJSON() {
     try {
       await navigator.clipboard.writeText(raw);
-      if (activeRef.current) toast.add({ title: t('subscriptions.keys.copied'), type: 'success' });
+      if (activeRef.current) toast.add({ title: t('subscriptions.nodes.copied'), type: 'success' });
     } catch (reason) {
       if (activeRef.current) toast.add({ title: describeRequestError(reason), type: 'error' });
     }

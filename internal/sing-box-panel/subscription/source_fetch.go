@@ -11,10 +11,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/netguard"
 )
 
 const (
@@ -186,14 +189,16 @@ func (policy *networkPolicy) lookup(ctx context.Context, host string) ([]net.IP,
 	return addresses, nil
 }
 
+// permitted allows the private source CIDRs the operator configured and
+// otherwise only public addresses.
 func (policy *networkPolicy) permitted(address net.IP) bool {
 	for _, allowed := range policy.allowed {
 		if allowed.Contains(address) {
 			return true
 		}
 	}
-	return !address.IsLoopback() && !address.IsPrivate() && !address.IsLinkLocalUnicast() &&
-		!address.IsLinkLocalMulticast() && !address.IsUnspecified() && !address.IsMulticast()
+	parsed, ok := netip.AddrFromSlice(address)
+	return ok && netguard.Public(parsed)
 }
 
 func parseAllowedCIDRs(values []string) ([]*net.IPNet, error) {
