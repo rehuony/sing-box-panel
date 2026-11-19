@@ -1,3 +1,4 @@
+import type { MeterLimits } from '@shared/lib/telemetry-format';
 import type { MouseEvent, PointerEvent, ReactNode } from 'react';
 
 import { cn } from '@shared/lib/utils';
@@ -104,20 +105,14 @@ function HealthDot({ item, now }: { item: NodeStatus; now: number }) {
   );
 }
 
-/** What the title bar's end says, worst first: away, quota reached, or an update to run. */
-function TitleEnd({ item, now, release }: { item: NodeStatus; now: number; release: string | null }) {
+/**
+ * What the title bar's end says while the node is online, worst first: quota
+ * reached or an update to run. An offline node's headline says it is away.
+ */
+function TitleEnd({ item, release }: { item: NodeStatus; release: string | null }) {
   const { t } = useTranslation();
-  const locale = useLocale();
-  const units = useUnits();
   const { metrics, node } = item;
-  if (node.state === 'offline') {
-    const since = node.last_seen_at ? formatDuration(now - Date.parse(node.last_seen_at), units).split(' ')[0] : EM_DASH;
-    return (
-      <span className={cn('flex-none', toneText.danger)} title={formatDateTime(node.last_seen_at, locale)}>
-        {t('fleet.pane.offline', { time: since })}
-      </span>
-    );
-  }
+  if (node.state === 'offline') return null;
   if (metrics.quota_exceeded) return <span className={cn('flex-none', toneText.danger)}>{t('fleet.pane.quotaReached')}</span>;
   if (node.update_available && release) {
     const version = `v${release.replace(/^v/i, '')}`;
@@ -131,50 +126,104 @@ function TitleEnd({ item, now, release }: { item: NodeStatus; now: number; relea
   return null;
 }
 
-function Unknown() {
-  return <span className='text-muted-foreground'>{EM_DASH}</span>;
+/** A rate's number and its unit apart, so the number can lead. */
+function rateParts(value: number | null, locale: string): [string, string] {
+  const text = formatRate(value, locale);
+  const at = text.lastIndexOf(' ');
+  return at < 0 ? [text, ''] : [text.slice(0, at), text.slice(at + 1)];
 }
 
-/** A share as ten cells with its number; load stays muted at rest and takes a tone only near its limit. */
-function Share({ detail, percent }: { detail: string | null; percent: number | null }) {
+/** One live rate after its arrow: the number large, a known zero in secondary text, the unit small. */
+function Rate({ arrow, label, value }: { arrow: string; label: string; value: number | null }) {
   const locale = useLocale();
-  if (percent === null) return <Unknown />;
-  const tone = shareTone(percent);
+  const [amount, unit] = rateParts(value, locale);
   return (
-    <Detail className='flex min-w-0 items-center gap-2' content={detail}>
-      <CellMeter className={tone ? undefined : 'text-muted-foreground'} percent={percent} tone={tone} />
-      <span className={cn('tabular-nums', tone && toneText[tone])}>{percentText(locale, percent)}</span>
-      {detail ? <span className='sr-only'>{`, ${detail}`}</span> : null}
-    </Detail>
+    <span className='min-w-0'>
+      <span aria-hidden='true' className='mr-1 text-[var(--color-text-secondary)]'>{arrow}</span>
+      <span className='sr-only'>{label}</span>
+      <span className={cn('text-xl font-semibold tabular-nums', value === null && 'text-muted-foreground', value === 0 && 'text-[var(--color-text-secondary)]')}>
+        {amount}
+      </span>
+      {unit ? <span className='ml-1 text-xs text-muted-foreground'>{unit}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * The pane's headline answers what the node is doing now, in one place for
+ * every state: live download and upload with connections at the end while it
+ * is online; how long it has been away in danger, with when it was last seen
+ * at the end, while it is offline.
+ */
+function Headline({ item, now }: { item: NodeStatus; now: number }) {
+  const { t } = useTranslation();
+  const locale = useLocale();
+  const units = useUnits();
+  const { metrics, node } = item;
+  if (node.state === 'offline') {
+    const since = node.last_seen_at ? formatDuration(now - Date.parse(node.last_seen_at), units).split(' ')[0] : EM_DASH;
+    const seen = formatShortDateTime(node.last_seen_at, locale, now);
+    return (
+      <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
+        <span className={cn('truncate text-xl font-semibold', toneText.danger)} title={formatDateTime(node.last_seen_at, locale)}>
+          {t('fleet.pane.offline', { time: since })}
+        </span>
+        {seen
+          ? (
+              <span className='flex-none text-xs text-muted-foreground'>
+                <span aria-hidden='true'>{seen}</span>
+                <span className='sr-only'>{t('fleet.pane.lastSeen', { time: seen })}</span>
+              </span>
+            )
+          : null}
+      </div>
+    );
+  }
+  const rates = nodeRates(item);
+  const live = metrics.live_sample;
+  const idle = node.runtime?.observation_state === 'stopped';
+  const connections = live ? live.active_connections : idle ? 0 : null;
+  return (
+    <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
+      <span className='flex min-w-0 items-baseline gap-4 overflow-hidden'>
+        <Rate arrow='↓' label={t('telemetry.metric.download')} value={rates.download} />
+        <Rate arrow='↑' label={t('telemetry.metric.upload')} value={rates.upload} />
+      </span>
+      {connections === null ? null : <span className='flex-none text-xs text-[var(--color-text-secondary)]'>{t('fleet.pane.connections', { count: connections })}</span>}
+    </div>
   );
 }
 
 /**
  * The core's state, version and uptime: running in the text colour, stopped
- * in secondary text and unknown in warning. An offline node's row says when
- * it was last seen and the version it last ran; the title already says how
- * long ago.
+ * in secondary text and unknown in warning. An offline node's line holds the
+ * version it last ran and the traffic its period has recorded.
  */
-function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
+function CoreLine({ item, now }: { item: NodeStatus; now: number }) {
   const { t } = useTranslation();
   const locale = useLocale();
   const units = useUnits();
   const { node } = item;
   const version = versionLabel(item);
   if (node.state === 'offline') {
-    const seen = node.last_seen_at ? t('fleet.pane.lastSeen', { time: formatShortDateTime(node.last_seen_at, locale, now) }) : EM_DASH;
+    const period = item.metrics.current_traffic_period;
     return (
-      <span className='flex min-w-0 text-[var(--color-text-secondary)]'>
-        <span className='truncate' title={formatDateTime(node.last_seen_at, locale)}>{seen}</span>
-        {version
-          ? (
-              <span className='flex-none'>
-                <span aria-hidden='true' className='text-muted-foreground'>{' · '}</span>
-                {version}
-              </span>
-            )
-          : null}
-      </span>
+      <ReadoutParts className='text-[var(--color-text-secondary)]'>
+        {[
+          version,
+          <span key='download'>
+            <span className='text-muted-foreground'>{`${t('fleet.pane.period')} `}</span>
+            <span aria-hidden='true'>↓ </span>
+            <span className='sr-only'>{t('telemetry.metric.download')}</span>
+            {formatBytes(period.inbound_bytes, locale)}
+          </span>,
+          <span key='upload'>
+            <span aria-hidden='true'>↑ </span>
+            <span className='sr-only'>{t('telemetry.metric.upload')}</span>
+            {formatBytes(period.outbound_bytes, locale)}
+          </span>,
+        ]}
+      </ReadoutParts>
     );
   }
   const runtime = node.runtime;
@@ -197,52 +246,63 @@ function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
   );
 }
 
-/** Live download and upload rates after their arrows, then connections; a known zero reads 0. */
-function NetRow({ item }: { item: NodeStatus }) {
-  const { t } = useTranslation();
-  const locale = useLocale();
-  const { metrics, node } = item;
-  if (node.state !== 'online') return <Unknown />;
-  const rates = nodeRates(item);
-  const live = metrics.live_sample;
-  const idle = node.runtime?.observation_state === 'stopped';
-  const connections = live ? live.active_connections : idle ? 0 : null;
+/** How many cells a pane's meters have; they stretch across the room their row leaves. */
+const METER_CELLS = 20;
+
+/** Where a node's traffic turns warning against its quota, and danger once it is reached. */
+const QUOTA_LIMITS: MeterLimits = { danger: 100, warning: 90 };
+
+/**
+ * A share as an htop meter: its cells across the row between faint brackets,
+ * its value at the end in a column every meter shares, so the meters of a
+ * pane end together. The fill reveals the meter's scale; the value takes the
+ * tone near the limits and sits in secondary text at rest. An unknown share
+ * hatches its cells.
+ */
+interface MeterProps {
+  value: ReactNode;
+  limits?: MeterLimits;
+  detail: string | null;
+  percent: number | null;
+  tone: Tone | undefined;
+}
+
+function Meter({ detail, limits, percent, tone, value }: MeterProps) {
   return (
-    <ReadoutParts>
-      {[
-        <span key='download'>
-          <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>↓ </span>
-          <span className='sr-only'>{t('telemetry.metric.download')}</span>
-          {formatRate(rates.download, locale)}
-        </span>,
-        <span key='upload'>
-          <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>↑ </span>
-          <span className='sr-only'>{t('telemetry.metric.upload')}</span>
-          {formatRate(rates.upload, locale)}
-        </span>,
-        connections === null ? null : t('fleet.pane.connections', { count: connections }),
-      ]}
-    </ReadoutParts>
+    <Detail className='flex min-w-0 flex-1 items-center' content={detail}>
+      <span aria-hidden='true' className='text-[var(--color-text-faint)]'>[</span>
+      <CellMeter cells={METER_CELLS} className='mr-2 ml-0.5' limits={limits} percent={percent} />
+      <span className={cn('min-w-[4ch] flex-none text-right tabular-nums', tone ? toneText[tone] : 'text-[var(--color-text-secondary)]')}>{value}</span>
+      <span aria-hidden='true' className='text-[var(--color-text-faint)]'>]</span>
+      {detail ? <span className='sr-only'>{`, ${detail}`}</span> : null}
+    </Detail>
   );
 }
 
+/** Host load, neutral at rest and toned past 80%; unknown while the node does not report it. */
+function Share({ detail, percent }: { detail: string | null; percent: number | null }) {
+  const locale = useLocale();
+  const value = percent === null ? <span className='text-muted-foreground'>{EM_DASH}</span> : percentText(locale, percent);
+  return <Meter detail={detail} percent={percent} tone={shareTone(percent)} value={value} />;
+}
+
 /**
- * What is left of this period's quota: a neutral meter that drains as the
- * node uses traffic, warning from 10% left and empty once reached, which says
- * so in danger text; an unlimited quota shows only its word.
+ * This period's traffic against its quota, filling as the node uses it like
+ * every other meter: warning from 90% and danger once reached, when it shows
+ * full. An unlimited quota never fills and says so in secondary text.
  */
-function QuotaRow({ item }: { item: NodeStatus }) {
+function QuotaMeter({ item }: { item: NodeStatus }) {
   const { t } = useTranslation();
   const locale = useLocale();
   const { current_traffic_period: period, quota_bytes: quota, quota_exceeded: reached } = item.metrics;
   const used = period.inbound_bytes + period.outbound_bytes;
-  const remaining = quota ? Math.max(0, quota - used) : null;
-  let left = 100;
-  if (reached) left = 0;
-  else if (quota) left = percentOf(remaining, quota) ?? 0;
+  // A quota shows full only once it is reached, so a share just short of it rounds down.
+  let share = 0;
+  if (reached) share = 100;
+  else if (quota) share = Math.floor(percentOf(used, quota) ?? 0);
   let tone: Tone | undefined;
   if (reached) tone = 'danger';
-  else if (quota && left <= 10) tone = 'warning';
+  else if (quota && share >= QUOTA_LIMITS.warning) tone = 'warning';
   const resets = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(period.period_end));
   const detail = [
     t('fleet.pane.used', { value: quota ? `${formatBytes(used, locale)} / ${formatBytes(quota, locale)}` : formatBytes(used, locale) }),
@@ -250,19 +310,18 @@ function QuotaRow({ item }: { item: NodeStatus }) {
     `↑ ${formatBytes(period.outbound_bytes, locale)}`,
     t('fleet.pane.resets', { date: resets }),
   ].join(' · ');
-  let value = t('fleet.pane.unlimited');
-  if (reached) value = t('fleet.pane.reached');
-  else if (remaining !== null) value = t('fleet.pane.left', { value: formatBytes(remaining, locale) });
-  return (
-    <Detail className='flex min-w-0 items-center gap-2' content={detail}>
-      {/* A reached quota keeps its empty cells; the danger is in its word. */}
-      {quota ? <CellMeter className={tone === 'warning' ? undefined : 'text-muted-foreground'} percent={left} tone={tone === 'warning' ? tone : undefined} /> : null}
-      <span className={cn('truncate tabular-nums', tone ? toneText[tone] : !quota && 'text-[var(--color-text-secondary)]')}>{value}</span>
-      <span className='sr-only'>{`, ${detail}`}</span>
-    </Detail>
-  );
+  const value = quota
+    ? percentText(locale, share)
+    : (
+        <>
+          <span aria-hidden='true'>{t('fleet.pane.unlimitedShort')}</span>
+          <span className='sr-only'>{t('fleet.pane.unlimited')}</span>
+        </>
+      );
+  return <Meter detail={detail} percent={share} limits={QUOTA_LIMITS} tone={tone} value={value} />;
 }
 
+/** The headline, the core's line, then host load and quota as meters. */
 function Readings({ item, now }: { item: NodeStatus; now: number }) {
   const { t } = useTranslation();
   const locale = useLocale();
@@ -270,20 +329,22 @@ function Readings({ item, now }: { item: NodeStatus; now: number }) {
   const host = item.node.state === 'online' ? item.metrics.host : undefined;
   const pair = (used: number | undefined, total: number | undefined) => host ? `${formatBytes(used, locale)} / ${formatBytes(total, locale)}` : null;
   return (
-    // Each reading keeps one line, so the pane's six rows hold its fixed height.
-    <dl className='grid grid-cols-[max-content_minmax(0,1fr)] content-center gap-x-3 px-3 py-2.5 [&_dd]:overflow-hidden [&_dd]:whitespace-nowrap'>
-      <ReadoutRow label={t('fleet.pane.core')}><CoreRow item={item} now={now} /></ReadoutRow>
-      <ReadoutRow label={t('fleet.pane.net')}><NetRow item={item} /></ReadoutRow>
-      <ReadoutRow label={t('fleet.pane.cpu')}>
-        <Share
-          detail={host ? `${t('fleet.pane.cores', { count: host.cpu_count })} · ${t('fleet.pane.load', { value: host.load_one.toFixed(2) })}` : null}
-          percent={load.cpu}
-        />
-      </ReadoutRow>
-      <ReadoutRow label={t('fleet.pane.mem')}><Share detail={pair(host?.memory_used, host?.memory_total)} percent={load.memory} /></ReadoutRow>
-      <ReadoutRow label={t('fleet.pane.disk')}><Share detail={pair(host?.disk_used, host?.disk_total)} percent={load.disk} /></ReadoutRow>
-      <ReadoutRow label={t('fleet.pane.quota')}><QuotaRow item={item} /></ReadoutRow>
-    </dl>
+    // Each line keeps to one line, so the pane holds its fixed height.
+    <div className='flex min-h-0 flex-1 flex-col justify-center px-3 whitespace-nowrap'>
+      <Headline item={item} now={now} />
+      <div className='flex h-5 min-w-0 items-center overflow-hidden'><CoreLine item={item} now={now} /></div>
+      <dl className='mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3'>
+        <ReadoutRow label={t('fleet.pane.cpu')}>
+          <Share
+            detail={host ? `${t('fleet.pane.cores', { count: host.cpu_count })} · ${t('fleet.pane.load', { value: host.load_one.toFixed(2) })}` : null}
+            percent={load.cpu}
+          />
+        </ReadoutRow>
+        <ReadoutRow label={t('fleet.pane.mem')}><Share detail={pair(host?.memory_used, host?.memory_total)} percent={load.memory} /></ReadoutRow>
+        <ReadoutRow label={t('fleet.pane.disk')}><Share detail={pair(host?.disk_used, host?.disk_total)} percent={load.disk} /></ReadoutRow>
+        <ReadoutRow label={t('fleet.pane.quota')}><QuotaMeter item={item} /></ReadoutRow>
+      </dl>
+    </div>
   );
 }
 
@@ -307,9 +368,10 @@ interface NodePaneProps {
 
 /**
  * One node as a terminal pane: a 32px title bar with its health, name, host
- * and what needs saying, then six rows of readings. A click opens the node;
- * in selection mode, with Ctrl, Cmd or Shift, or after a touch held on it, it
- * toggles the pane instead, and Space toggles the focused pane. The pane
+ * and what needs saying, then its headline, its core's line and four meters.
+ * A click opens the node; in selection mode, with Ctrl, Cmd or Shift, or
+ * after a touch held on it, it toggles the pane instead, and Space toggles
+ * the focused pane. The pane
  * stays a link, so a middle click or its context menu opens a new tab; in
  * selection mode it reads as a checkbox, checked while the pane is selected.
  */
@@ -425,7 +487,7 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected, select
         >
           {host || t('fleet.pane.noHost')}
         </Detail>
-        <TitleEnd item={item} now={now} release={release} />
+        <TitleEnd item={item} release={release} />
       </header>
       <Readings item={item} now={now} />
     </article>

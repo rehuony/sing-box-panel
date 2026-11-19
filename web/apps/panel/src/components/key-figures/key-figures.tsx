@@ -18,12 +18,12 @@ interface KeyFigureProps {
   /** What the label alone cannot say, behind a help trigger. */
   help?: string;
   label: string;
+  /** A share drawn as cells beside the value. */
+  meter?: number;
   /** One line under the value. */
   meta: ReactNode;
   /** The value in the data face. */
   children: ReactNode;
-  /** A share drawn as cells beside the value, toned as it nears its limit. */
-  meter?: { percent: number; tone?: Tone };
 }
 
 /** One key figure: its label, its value in the data face and one line of meta. */
@@ -37,10 +37,10 @@ export function KeyFigure({ children, help, label, meta, meter, tone }: KeyFigur
       </dt>
       <dd className={cn('flex min-w-0 flex-wrap items-center gap-x-3 font-[family-name:var(--font-data)] text-base font-semibold tabular-nums @3xl/figures:text-xl', tone && toneText[tone])}>
         <span className='min-w-0'>{children}</span>
-        {meter
+        {meter !== undefined
           ? (
               <span className='flex text-xs'>
-                <CellMeter className={meter.tone ? undefined : 'text-muted-foreground'} percent={meter.percent} tone={meter.tone} />
+                <CellMeter percent={meter} />
               </span>
             )
           : null}

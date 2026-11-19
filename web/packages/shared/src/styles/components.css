@@ -296,24 +296,31 @@
   }
 }
 
-/* Ten cells of the monospace grid, filled from the left. */
+/*
+ * Ten cells of the monospace grid, filled from the left. The fill reveals one
+ * scale laid along the whole meter: success at empty, warning at the share
+ * where warning begins and danger from where danger does; empty cells cover it.
+ */
 .cell-meter {
-  --meter-color: currentcolor;
-
   flex: none;
   width: 10ch;
   height: 0.75em;
-  background: linear-gradient(
-    90deg,
-    var(--meter-color) var(--meter-fill, 0%),
-    color-mix(in oklab, var(--muted-foreground) 30%, transparent) 0
-  );
+  background:
+    linear-gradient(90deg, transparent var(--meter-fill, 0%), var(--color-meter-track) 0),
+    linear-gradient(
+      in oklch 90deg,
+      var(--color-success),
+      var(--color-warning) var(--meter-warning, 80%),
+      var(--color-danger) var(--meter-danger, 95%)
+    );
   mask: repeating-linear-gradient(90deg, #000 0 calc(1ch - 2px), transparent 0 1ch);
 }
 
-/* A set number of cells across its container, each an equal share of the width. */
+/* A set number of cells across the room its row leaves, each an equal share of the width. */
 .cell-meter[data-cells] {
+  flex: 1 1 0;
   width: 100%;
+  min-width: 0;
   mask: repeating-linear-gradient(
     90deg,
     #000 0 calc(100% / var(--meter-cells) - 2px),
@@ -321,16 +328,9 @@
   );
 }
 
-.cell-meter[data-tone='success'] {
-  --meter-color: var(--color-success);
-}
-
-.cell-meter[data-tone='warning'] {
-  --meter-color: var(--color-warning);
-}
-
-.cell-meter[data-tone='danger'] {
-  --meter-color: var(--color-danger);
+/* An unknown share: the hatch of the unknown state in every cell, so it never reads as zero. */
+.cell-meter[data-unknown] {
+  background: repeating-linear-gradient(135deg, var(--color-border-strong) 0 1px, var(--color-surface-raised) 0 3px);
 }
 
 /* A terminal's new output types itself out from the left, a cell at a time. */

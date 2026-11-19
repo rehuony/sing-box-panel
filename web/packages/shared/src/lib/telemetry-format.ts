@@ -48,8 +48,17 @@ export function formatUptime(
   return formatDuration(now - new Date(startedAt).getTime(), labels);
 }
 
+/** The shares where a meter's scale reaches warning and danger. */
+export interface MeterLimits {
+  danger: number;
+  warning: number;
+}
+
+/** Where a load turns warning and danger. */
+export const SHARE_LIMITS: MeterLimits = { danger: 95, warning: 80 };
+
 /** The tone a share takes as it nears full: warning from 80%, danger from 95%. */
 export function shareTone(percent: number | null): 'danger' | 'warning' | undefined {
   if (percent === null) return undefined;
-  return percent >= 95 ? 'danger' : percent >= 80 ? 'warning' : undefined;
+  return percent >= SHARE_LIMITS.danger ? 'danger' : percent >= SHARE_LIMITS.warning ? 'warning' : undefined;
 }

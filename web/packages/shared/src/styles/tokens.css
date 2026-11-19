@@ -28,6 +28,8 @@
   --color-selection: oklch(24% 0.015 280 / 14%);
   /* Hover and highlight: a wash of the text colour over whatever surface lies below. */
   --color-hover: color-mix(in oklab, var(--foreground) 6%, transparent);
+  /* A cell meter's empty cells, opaque so they cover the scale beneath them. */
+  --color-meter-track: color-mix(in oklab, var(--muted-foreground) 30%, var(--card));
 
   /* Accent. The panel recomputes these from the saved accent. */
   --primary: #6d4ed1;
@@ -119,7 +121,7 @@
   --shell-bar-height: 2.5rem;
   --shell-strip-height: 3rem;
   --pane-min-width: 20rem;
-  --pane-height: 11rem;
+  --pane-height: 11.5rem;
 
   /* Surfaces and motion. */
   --shadow-card: 0 2px 5px -2px oklch(24% 0.015 280 / 6%), 0 10px 24px -18px oklch(24% 0.015 280 / 16%);

@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useState } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
-import { shareTone } from '@shared/lib/telemetry-format';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 
@@ -93,7 +92,6 @@ function DashboardMetrics() {
   const used = traffic ? traffic.inbound_bytes + traffic.outbound_bytes : undefined;
   const quota = snapshot?.quota_bytes;
   const locale = i18n.language;
-  const meter = (percent: number | null) => percent === null ? undefined : { percent, tone: shareTone(percent) };
   let usageTone: 'danger' | 'warning' | undefined;
   if (snapshot?.quota_exceeded) usageTone = 'danger';
   else if (quota && used !== undefined && (quota - used) / quota <= 0.1) usageTone = 'warning';
@@ -102,21 +100,21 @@ function DashboardMetrics() {
       <KeyFigure
         label={t('dashboard.metric.cpu')}
         meta={host ? t('dashboard.metric.cpuDetail', { count: host.cpu_count, load: host.load_one ?? '—' }) : '—'}
-        meter={meter(host?.cpu_percent ?? null)}
+        meter={host?.cpu_percent}
       >
         {host?.cpu_percent == null ? '—' : `${host.cpu_percent.toFixed(1)}%`}
       </KeyFigure>
       <KeyFigure
         label={t('dashboard.metric.memory')}
         meta={`${bytes(host?.memory_used, locale)} / ${bytes(host?.memory_total, locale)}`}
-        meter={meter(percentOf(host?.memory_used, host?.memory_total))}
+        meter={percentOf(host?.memory_used, host?.memory_total) ?? undefined}
       >
         {percent(host?.memory_used, host?.memory_total)}
       </KeyFigure>
       <KeyFigure
         label={t('dashboard.metric.disk')}
         meta={`${bytes(host?.disk_used, locale)} / ${bytes(host?.disk_total, locale)}`}
-        meter={meter(percentOf(host?.disk_used, host?.disk_total))}
+        meter={percentOf(host?.disk_used, host?.disk_total) ?? undefined}
       >
         {percent(host?.disk_used, host?.disk_total)}
       </KeyFigure>

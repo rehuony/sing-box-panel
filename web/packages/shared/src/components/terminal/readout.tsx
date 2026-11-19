@@ -5,7 +5,6 @@ import { Check, Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Fragment, useEffect, useState } from 'react';
-import { shareTone } from '@shared/lib/telemetry-format';
 import { CellMeter } from '@shared/components/cell-meter';
 
 /** How long a copy action shows that it copied. */
@@ -106,8 +105,8 @@ export function ReadoutCopyable({ label, value }: { label: string; value: string
   );
 }
 
-/** A share as ten cells, toned as it nears full. Its number beside it carries the value, so a phone leaves it out. */
+/** A share as ten cells along the meter's scale. Its number beside it carries the value, so a phone leaves it out. */
 export function ReadoutMeter({ className, percent }: { className?: string; percent: number | null }) {
   if (percent === null) return null;
-  return <CellMeter className={cn('max-sm:hidden', className)} percent={percent} tone={shareTone(percent)} />;
+  return <CellMeter className={cn('max-sm:hidden', className)} percent={percent} />;
 }
