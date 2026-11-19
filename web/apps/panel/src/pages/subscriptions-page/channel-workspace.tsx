@@ -87,7 +87,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     applyOptions,
   } = useChannelDraft(channel, nodes, onSaved);
   return (
-    <div className='@container/channel-editor flex h-full min-h-0 min-w-0 flex-col gap-2 [&_[data-slot=button][data-variant=ghost]]:border-transparent'>
+    <div className='@container/channel-editor flex h-full min-h-0 min-w-0 flex-col gap-2 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 [&_[data-slot=button][data-variant=ghost]]:border-transparent'>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='ms-auto flex min-w-0 flex-none items-center justify-end gap-2'>
           <Button size='icon-sm' variant='flat' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>

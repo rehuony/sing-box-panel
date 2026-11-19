@@ -193,7 +193,11 @@ describe('server path input', () => {
     expect(api.listFilesystemEntries).toHaveBeenLastCalledWith(
       expect.objectContaining({ path: '/new-directory', search: 'cert', show_hidden: true }), expect.any(AbortSignal),
     );
-    expect(dialog.getByRole('combobox', { name: 'Items per page' })).toBeDisabled();
+    await user.click(dialog.getByRole('combobox', { name: 'Items per page' }));
+    await user.click(await screen.findByRole('option', { name: '5 per page' }));
+    expect(api.listFilesystemEntries).toHaveBeenLastCalledWith(
+      expect.objectContaining({ path: '/new-directory', limit: 5, offset: 0 }), expect.any(AbortSignal),
+    );
     await user.click(dialog.getByRole('button', { name: 'Close' }));
     expect(api.listFilesystemEntries.mock.calls.at(-1)![1]?.aborted).toBe(true);
   });

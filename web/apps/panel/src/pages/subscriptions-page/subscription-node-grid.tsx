@@ -173,7 +173,7 @@ export function SubscriptionNodeGrid({
   }
   return (
     <div className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
-      <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={loading}>
+      <div className='flex min-h-0 flex-1 flex-col overflow-auto p-4' aria-busy={loading}>
         {filtered.length === 0
           ? (
               loading ? <SubscriptionContentState loading /> : !error && <SubscriptionContentState kind={search ? 'search' : 'nodes'} title={t(search ? 'channels.noMatchingNodes' : 'subscriptions.nodes.empty')} />
@@ -198,7 +198,7 @@ export function SubscriptionNodeGrid({
                   );
                 }}
               >
-                <div data-slot='subscription-node-grid' className='grid grid-cols-[repeat(auto-fill,min(100%,18rem))] content-start gap-3 p-0.5'>
+                <div data-slot='subscription-node-grid' className='grid grid-cols-[repeat(auto-fill,min(100%,18rem))] content-start gap-3'>
                   {pageNodes.map((node) => (
                     <SourceNodeCard
                       key={node.id}
@@ -216,10 +216,10 @@ export function SubscriptionNodeGrid({
             )}
       </div>
       <ListPagination
+        className='border-t px-2 pb-2'
         page={current}
         pages={pages}
         pageSize={size}
-        disabled={filtered.length === 0}
         onPageChange={setPage}
         onPageSizeChange={setSize}
       />

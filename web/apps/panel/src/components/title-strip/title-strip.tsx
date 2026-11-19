@@ -19,7 +19,7 @@ export function TitleStrip({ children, className, label }: TitleStripProps) {
     <div
       aria-label={label}
       className={cn(
-        'flex min-h-[var(--shell-strip-height)] min-w-0 flex-none flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-2 py-1',
+        'flex min-h-[var(--shell-strip-height)] min-w-0 flex-none flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-4 py-1',
         className,
       )}
       data-slot='title-strip'

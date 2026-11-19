@@ -50,7 +50,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     submit,
   } = usePanelSettingsDraft(initial);
   return (
-    <Tabs className='min-h-0 flex-1 gap-3' value={category} onValueChange={value => setCategory(String(value))}>
+    <Tabs className='min-h-0 flex-1 gap-[var(--workspace-content-gap)]' value={category} onValueChange={value => setCategory(String(value))}>
       <TitleStrip>
         <TabsList aria-label={t('panelSettings.title')} className='max-w-full overflow-x-auto [scrollbar-width:none] max-sm:hidden' variant='pill'>
           {settingsCategories.map(key => <TabsTrigger className='flex-none' value={key} key={key}>{t(`panelSettings.${key}`)}</TabsTrigger>)}

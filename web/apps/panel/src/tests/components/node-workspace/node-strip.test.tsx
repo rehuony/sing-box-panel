@@ -179,11 +179,13 @@ describe('node strip', () => {
 
     renderBanner(client);
 
-    expect(await screen.findByTitle('Runtime evidence is stale')).toBeInTheDocument();
+    expect(await screen.findByTitle('Runtime evidence is stale')).toHaveTextContent('not reported');
     expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
     expect(screen.queryByText('6 KB')).not.toBeInTheDocument();
     expect(screen.queryByText(/^up /)).not.toBeInTheDocument();
-    expect(screen.getByText('net').closest('dl')).toHaveTextContent(/Download—.*Upload—/);
+    // Traffic it cannot know leaves the strip rather than reading "—".
+    expect(screen.queryByText('net')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Node edge' })).not.toHaveTextContent('—');
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restart' })).not.toBeInTheDocument();
@@ -222,6 +224,20 @@ describe('node strip', () => {
     expect(screen.getByText('300 B/s')).toBeInTheDocument();
   });
 
+  it('keeps the newest traffic between samples instead of blanking it', async () => {
+    vi.useFakeTimers();
+    const client = createMockApiClient({
+      getRuntimeStatus: vi.fn().mockResolvedValue(runningStatus()),
+      getMetrics: vi.fn().mockResolvedValue(trafficSnapshot('2026-08-30T11:00:00Z', 1_000, 2_000)),
+    });
+    renderBanner(client);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText('300 B/s')).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(screen.getByText('300 B/s')).toBeInTheDocument();
+    expect(screen.getByText('200 B/s')).toBeInTheDocument();
+  });
+
   it('waits for start to finish and verifies the returned runtime', async () => {
     const user = userEvent.setup();
     let finish!: (status: RuntimeStatus) => void;
@@ -239,23 +255,6 @@ describe('node strip', () => {
     await act(async () => finish(runningStatus()));
     expect(await screen.findByText('Start verified')).toBeInTheDocument();
     expect(screen.getByText('Running')).toBeInTheDocument();
-  });
-
-  it('leads to the neighbouring nodes in the current window', async () => {
-    const other = { ...testNode, id: 'node_other', name: 'other' };
-    const items = [{ metrics: testMetrics, node: testNode }, { metrics: testMetrics, node: other }];
-    const client = createMockApiClient({ getFleetStatus: vi.fn().mockResolvedValue({ items }) });
-    render(
-      <ApiClientProvider client={client}>
-        <TooltipProvider delay={0}>
-          <TestRouter initialEntries={[`/nodes/${testNode.id}/configuration`]}>
-            <NodeStrip node={{ ...testNode, state: 'offline' }} />
-          </TestRouter>
-        </TooltipProvider>
-      </ApiClientProvider>,
-    );
-    expect(await screen.findByRole('link', { name: 'Next node: other' })).toHaveAttribute('href', '/nodes/node_other/configuration');
-    expect(screen.getByRole('link', { name: 'Previous node: other' })).toHaveAttribute('href', '/nodes/node_other/configuration');
   });
 
   it('requires confirmation for stop and restart actions', async () => {

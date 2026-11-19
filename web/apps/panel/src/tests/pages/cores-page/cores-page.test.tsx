@@ -249,7 +249,7 @@ describe('inline version library', () => {
     }
   });
 
-  it('paginates the available list and disables navigation for an empty search', async () => {
+  it('paginates the available list and returns an empty search to its only page', async () => {
     const user = userEvent.setup();
     const assets = Array.from({ length: 12 }, (_, index) => ({
       ...testCatalog.assets[0], asset_id: index + 2000, version: `1.14.${index}`,
@@ -265,7 +265,6 @@ describe('inline version library', () => {
     expect(screen.getByText('1.14.0')).toBeVisible();
     await user.type(screen.getByRole('textbox', { name: 'Filter artifacts' }), 'missing');
     expect(screen.getByRole('spinbutton', { name: 'Current page' })).toHaveValue(1);
-    expect(screen.getByRole('spinbutton', { name: 'Current page' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
   });

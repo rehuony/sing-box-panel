@@ -226,7 +226,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 </div>
               </ToolbarActions>
               <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={list.isPending}>
-                <table className='workspace-table w-full min-w-240 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-2 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[32%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[16%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[32%] max-[900px]:[&_td]:px-2 max-[900px]:[&_th]:px-2'>
+                <table className='workspace-table w-full min-w-240 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-2 [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[32%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[16%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[32%]'>
                   <thead>
                     <tr>
                       <th>{t('channels.name')}</th>
@@ -268,10 +268,10 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
               </div>
               <ListPagination
+                className='border-t px-2 pb-2'
                 page={current}
                 pages={pages}
                 pageSize={size}
-                disabled={filtered.length === 0}
                 onPageChange={setPage}
                 onPageSizeChange={value => {
                   setSize(value);

@@ -125,7 +125,6 @@ export function PanelLogsPage() {
           page={page}
           pages={pages}
           pageSize={limit}
-          disabled={loading || result.total === 0}
           onPageChange={setPage}
           onPageSizeChange={value => {
             setLimit(value);

@@ -39,7 +39,6 @@ export const telemetry = {
     stale: 'Runtime evidence is stale',
     stopped: 'Stopped',
     stoppedDetail: 'Verified stopped state',
-    unknown: '—',
   },
   startedAt: 'Started {{value}}',
   stream: {

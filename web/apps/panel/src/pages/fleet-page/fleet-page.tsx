@@ -80,7 +80,9 @@ function useEscapeClearsSelection(active: boolean) {
 /**
  * The home screen: a title strip that filters the fleet by state and tag and
  * searches it, the fleet's key figures, then every node as a pane in a grid
- * that scrolls in its own region.
+ * that scrolls in its own region. The strip stays whole while the fleet loads,
+ * fails to load or has no nodes; only the region below it changes, and with
+ * no nodes it leads with adding one whatever the filters say.
  */
 export function FleetPage() {
   const { i18n, t } = useTranslation();
@@ -114,6 +116,8 @@ export function FleetPage() {
   const totals = useMemo(() => counts(items), [items]);
   const figures = useMemo(() => fleetFigures(items), [items]);
   const tags = useMemo(() => fleetTags(items), [items]);
+  // A tag filter no node carries, such as one the command line set, stays a choice so the strip shows it.
+  const tagChoices = tag === null || tags.includes(tag) ? tags : [...tags, tag];
   const matching = useMemo(() => items.filter(item => (state === 'all' || item.node.state === state)
     && (tag === null || item.node.tags.includes(tag))
     && (query === '' || matches(item, query))), [items, query, state, tag]);
@@ -125,6 +129,8 @@ export function FleetPage() {
   }, [toggle]);
   const refresh = () => void status.refetch();
   const release = update.data?.current_version ?? null;
+  // Until the fleet loads, its counts are unknown rather than zero.
+  const loaded = status.data !== undefined;
   const fleet = items.length > 0;
   const figuresCard = fleet ? <FleetFigures figures={figures} /> : null;
   // On a phone the figures scroll with the panes, so the strip alone stays at the top.
@@ -194,59 +200,53 @@ export function FleetPage() {
   // Size containment keeps the panes out of the workspace's height, so the
   // screen fills it exactly and the grid scrolls below the strip and figures.
   return (
-    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-3 [contain:size]'>
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)] [contain:size]'>
       <h1 className='sr-only'>{t('nav.nodes')}</h1>
       <TitleStrip>
-        {fleet
-          ? (
-              <>
-                {/* Filters at the start, then search filling the room between the dividers, then the actions. */}
-                <Tabs className='max-w-full min-w-0' onValueChange={value => setFilter({ state: value as FleetStateFilter })} value={state}>
-                  <TabsList aria-label={t('fleet.filter.label')} className='max-w-full overflow-x-auto [scrollbar-width:none]' variant='pill'>
-                    {FILTERS.map(value => (
-                      <TabsTrigger className='flex-none' key={value} value={value}>
-                        {value === 'all' ? t('fleet.filter.all') : t(`nodes.state.${value}`)}
-                        <span className='font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums'>{totals[value]}</span>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-                {/* Below 48rem the tabs keep the first line and the rest the second; no divider starts a line. */}
-                <div className='flex min-w-0 flex-1 items-center gap-2 max-md:basis-full'>
-                  <StripDivider className='max-md:hidden' />
-                  {tags.length > 0
-                    ? (
-                        <>
-                          <SelectField
-                            active={tag !== null}
-                            aria-label={t('fleet.filter.tag')}
-                            className='max-w-48 min-w-0 flex-none'
-                            items={[{ label: t('fleet.filter.allTags'), value: ALL_TAGS }, ...tags.map(value => ({ label: value, value }))]}
-                            onValueChange={value => setFilter({ tag: value === ALL_TAGS ? null : value })}
-                            value={tag ?? ALL_TAGS}
-                            variant='flat'
-                          />
-                          <StripDivider />
-                        </>
-                      )
-                    : null}
-                  <StripSearch label={t('fleet.search')} onValueChange={value => setFilter({ search: value })} value={search} />
-                  <StripDivider />
-                  <Button
-                    aria-pressed={selecting}
-                    className='max-sm:w-(--control-height-sm) max-sm:px-0'
-                    onClick={() => setSelecting(!selecting)}
-                    size='sm'
+        {/* Filters at the start, then search filling the room between the dividers, then the actions. */}
+        <Tabs className='max-w-full min-w-0' onValueChange={value => setFilter({ state: value as FleetStateFilter })} value={state}>
+          <TabsList aria-label={t('fleet.filter.label')} className='max-w-full overflow-x-auto [scrollbar-width:none]' variant='pill'>
+            {FILTERS.map(value => (
+              <TabsTrigger className='flex-none' key={value} value={value}>
+                {value === 'all' ? t('fleet.filter.all') : t(`nodes.state.${value}`)}
+                <span className='font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums'>{loaded ? totals[value] : '—'}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        {/* Below 48rem the tabs keep the first line and the rest the second; no divider starts a line. */}
+        <div className='flex min-w-0 flex-1 items-center gap-2 max-md:basis-full'>
+          <StripDivider className='max-md:hidden' />
+          {tagChoices.length > 0
+            ? (
+                <>
+                  <SelectField
+                    active={tag !== null}
+                    aria-label={t('fleet.filter.tag')}
+                    className='max-w-48 min-w-0 flex-none'
+                    items={[{ label: t('fleet.filter.allTags'), value: ALL_TAGS }, ...tagChoices.map(value => ({ label: value, value }))]}
+                    onValueChange={value => setFilter({ tag: value === ALL_TAGS ? null : value })}
+                    value={tag ?? ALL_TAGS}
                     variant='flat'
-                  >
-                    <ListChecks aria-hidden='true' data-icon='inline-start' />
-                    <span className='max-sm:sr-only'>{t('fleet.selectMode')}</span>
-                  </Button>
-                  <AddNodeAction strip />
-                </div>
-              </>
-            )
-          : null}
+                  />
+                  <StripDivider />
+                </>
+              )
+            : null}
+          <StripSearch label={t('fleet.search')} onValueChange={value => setFilter({ search: value })} value={search} />
+          <StripDivider />
+          <Button
+            aria-pressed={selecting}
+            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+            onClick={() => setSelecting(!selecting)}
+            size='sm'
+            variant='flat'
+          >
+            <ListChecks aria-hidden='true' data-icon='inline-start' />
+            <span className='max-sm:sr-only'>{t('fleet.selectMode')}</span>
+          </Button>
+          <AddNodeAction strip />
+        </div>
       </TitleStrip>
       {figuresScroll ? null : figuresCard}
       <div className='flex min-h-0 flex-1 flex-col'>{content}</div>

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { Link } from 'react-router-dom';
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useId, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -9,11 +9,9 @@ import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { ReadoutParts } from '@shared/components/terminal';
 import { toast } from '@shared/components/ui/toast-manager';
-import { buttonVariants } from '@shared/components/ui/button-variants';
+import { formatRate, formatUptime } from '@shared/lib/telemetry-format';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
-import { EM_DASH, formatRate, formatUptime } from '@shared/lib/telemetry-format';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, CircleCheck, Play, RotateCw, Square, TriangleAlert } from 'lucide-react';
+import { CircleCheck, Play, RotateCw, Square, TriangleAlert } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,9 +23,8 @@ import {
   AlertDialogTitle,
 } from '@shared/components/ui/alert-dialog';
 
-import type { FleetNode } from '@/api/api-client';
+import type { FleetNode, MetricsSnapshot } from '@/api/api-client';
 
-import { nodeWindowPath } from '@/utils/shell-windows';
 import { useShellScope } from '@/components/status-line';
 import { NodeStateBadge } from '@/components/node-state-badge';
 import { StripDivider, TitleStrip } from '@/components/title-strip';
@@ -46,17 +43,69 @@ function useNow(interval: number): number {
   return now;
 }
 
-function versionLabel(version: string | undefined): string {
-  return version ? `v${version.replace(/^v/i, '')}` : EM_DASH;
+function versionLabel(version: string): string {
+  return `v${version.replace(/^v/i, '')}`;
 }
 
-/** One labelled reading, as a pane's row reads: its label, then its parts set apart by dots. */
-function Reading({ children, label }: { children: ReactNode[]; label: string }) {
+/**
+ * How long a sample's traffic stands for the present. A node samples every
+ * second while it is watched and every ten seconds otherwise, and derives no
+ * rate over a longer gap.
+ */
+const SAMPLE_LIFETIME_MS = 15_000;
+
+interface Traffic {
+  connections: number;
+  upload: number | null;
+  download: number | null;
+}
+
+const idleTraffic: Traffic = { connections: 0, download: 0, upload: 0 };
+
+function rateOf(value: number | null): number | null {
+  return value !== null && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * The newest traffic a snapshot holds, or null when it holds none that still
+ * stands. It lasts until the next sample replaces it, so the strip does not
+ * blink between samples.
+ */
+function sampledTraffic(metrics: MetricsSnapshot | undefined): Traffic | null {
+  const sample = metrics?.live_sample;
+  if (metrics === undefined || !sample?.accepted) return null;
+  const age = Date.parse(metrics.collected_at) - Date.parse(sample.sampled_at);
+  if (!(age <= SAMPLE_LIFETIME_MS)) return null;
+  return {
+    connections: sample.active_connections,
+    download: rateOf(sample.download_bytes_per_second),
+    upload: rateOf(sample.upload_bytes_per_second),
+  };
+}
+
+/**
+ * One labelled reading, as a pane's row reads: its label, then its parts set
+ * apart by dots; a part it lacks is left out. Stale values turn muted.
+ */
+function Reading({ children, label, stale = false }: { children: ReactNode[]; label: string; stale?: boolean }) {
   return (
     <dl className='flex shrink-0 items-center gap-2 px-1'>
       <dt className='text-muted-foreground'>{label}</dt>
-      <dd className='whitespace-nowrap tabular-nums'><ReadoutParts>{children}</ReadoutParts></dd>
+      <dd className={cn('whitespace-nowrap tabular-nums', stale && 'text-muted-foreground')}><ReadoutParts>{children}</ReadoutParts></dd>
     </dl>
+  );
+}
+
+/** A rate after its arrow, in a slot as wide as the longest rate, so the line stays still as it changes. */
+function Rate({ arrow, label, value }: { arrow: string; label: string; value: number }) {
+  const { i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  return (
+    <span>
+      <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>{`${arrow} `}</span>
+      <span className='sr-only'>{label}</span>
+      <span className='inline-block min-w-[9ch] text-end'>{formatRate(value, locale)}</span>
+    </span>
   );
 }
 
@@ -132,6 +181,7 @@ function StreamStatus({ reconnecting }: { reconnecting: boolean }) {
 
 interface StripLayoutProps {
   node: FleetNode;
+  /** The readings; none leaves the strip without their group. */
   context: ReactNode;
   actions?: ReactNode;
 }
@@ -139,22 +189,28 @@ interface StripLayoutProps {
 /**
  * The node scope's title strip: the node's name and state, its labelled
  * readings in the data face, and actions on this node only at the end, with
- * dividers between the groups. Below 1024px the readings take a second line
- * that scrolls sideways.
+ * dividers between the groups. The status line leads back to the fleet and to
+ * the neighbouring nodes. Below 1024px the readings take a second line that
+ * scrolls sideways.
  */
 function StripLayout({ actions, context, node }: StripLayoutProps) {
   const { t } = useTranslation();
   return (
     <TitleStrip className='[view-transition-name:node-window]' label={t('node.objectRow', { name: node.name })}>
       <div className='flex min-w-0 flex-1 items-center gap-2 lg:flex-none'>
-        <Neighbours nodeId={node.id} />
-        <span className='truncate text-sm font-semibold' title={node.name}>{node.name}</span>
+        <span className='truncate font-[family-name:var(--font-display)] text-xl font-semibold' title={node.name}>{node.name}</span>
         <NodeStateBadge state={node.state} />
       </div>
-      <StripDivider className='max-lg:hidden' />
-      <div className='flex min-w-0 items-center gap-2 overflow-x-auto font-[family-name:var(--font-data)] text-compact whitespace-nowrap [scrollbar-width:none] max-lg:order-last max-lg:basis-full lg:flex-1'>
-        {context}
-      </div>
+      {context === null
+        ? null
+        : (
+            <>
+              <StripDivider className='max-lg:hidden' />
+              <div className='flex min-w-0 items-center gap-2 overflow-x-auto font-[family-name:var(--font-data)] text-compact whitespace-nowrap [scrollbar-width:none] max-lg:order-last max-lg:basis-full lg:flex-1'>
+                {context}
+              </div>
+            </>
+          )}
       <div className='ml-auto flex shrink-0 items-center gap-1' data-slot='runtime-controls'>
         {actions}
       </div>
@@ -163,50 +219,24 @@ function StripLayout({ actions, context, node }: StripLayoutProps) {
 }
 
 /**
- * The previous and next nodes in the fleet's name order, wrapping around and
- * keeping the current window. They lead the strip so they stay under the
- * pointer while names of other lengths come and go.
+ * The live strip of a connected node, with its runtime readings and controls.
+ * Until the node's own stream answers it reads what the fleet last heard from
+ * the node, so a window opens, and a switch to the next node lands, with its
+ * readings and controls already in place.
  */
-function Neighbours({ nodeId }: { nodeId: string }) {
-  const { t } = useTranslation();
-  const { items, scope } = useShellScope();
-  const index = items.findIndex(item => item.node.id === nodeId);
-  if (index < 0 || items.length < 2) return null;
-  const window = scope.kind === 'node' ? scope.window ?? 'overview' : 'overview';
-  return (
-    <div className='flex flex-none items-center gap-0.5 max-md:hidden'>
-      {(['previous', 'next'] as const).map((direction) => {
-        const target = items[(index + (direction === 'previous' ? -1 : 1) + items.length) % items.length]!;
-        const label = t(`shell.bar.${direction}`, { name: target.node.name });
-        const Icon = direction === 'previous' ? ChevronLeft : ChevronRight;
-        return (
-          <Tooltip key={direction}>
-            <TooltipTrigger
-              render={<Link aria-label={label} className={buttonVariants({ size: 'icon-sm', variant: 'flat' })} to={nodeWindowPath(target.node.id, window)} />}
-            >
-              <Icon aria-hidden='true' />
-            </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
-          </Tooltip>
-        );
-      })}
-    </div>
-  );
-}
-
-/** The live strip of a connected node, with its runtime readings and controls. */
 function LiveStrip({ node }: { node: FleetNode }) {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const telemetry = useSharedTelemetry(useShallow(s => ({
-    runtimeStatus: s.runtimeStatus, snapshot: s.snapshot, rates: s.rates,
+    runtimeStatus: s.runtimeStatus, snapshot: s.snapshot,
     liveStale: s.liveStale, trafficError: s.trafficError, acceptRuntimeStatus: s.acceptRuntimeStatus,
   })));
+  const reported = useShellScope().items.find(item => item.node.id === node.id);
   const reconnecting = telemetry.trafficError !== null || (telemetry.liveStale && telemetry.snapshot !== null);
   const runtimeControl = useRuntimeControl({ onRuntimeStatus: telemetry.acceptRuntimeStatus });
   const now = useNow(30_000);
 
-  const runtimeStatus = telemetry.runtimeStatus;
+  const runtimeStatus = telemetry.runtimeStatus ?? node.runtime ?? null;
   const verifiedRunning = runtimeStatus?.observation_state === 'running'
     && runtimeStatus.running !== undefined;
   const verifiedStopped = runtimeStatus?.observation_state === 'stopped';
@@ -214,7 +244,7 @@ function LiveStrip({ node }: { node: FleetNode }) {
     ? t('telemetry.runtime.running')
     : verifiedStopped
       ? t('telemetry.runtime.stopped')
-      : t('telemetry.runtime.unknown');
+      : t('fleet.pane.unknown');
   const runtimeDetail = verifiedRunning
     ? t('telemetry.runtime.runningDetail')
     : verifiedStopped
@@ -228,15 +258,9 @@ function LiveStrip({ node }: { node: FleetNode }) {
   const enabledVersion = runtimeStatus?.enabled_core?.exact_core_version;
   // The version that runs, as a pane reads it, or the one a start would run.
   const coreVersion = runningIdentity?.exact_core_version ?? enabledVersion;
-  const trafficAvailable = telemetry.snapshot?.live_sample?.accepted === true && !telemetry.liveStale;
-  const uploadRate = verifiedStopped ? 0 : trafficAvailable ? telemetry.rates.uploadBytesPerSecond : null;
-  const downloadRate = verifiedStopped ? 0 : trafficAvailable ? telemetry.rates.downloadBytesPerSecond : null;
-  const liveConnections = telemetry.snapshot?.live_sample?.active_connections ?? null;
-  const connections = verifiedStopped ? 0 : trafficAvailable ? liveConnections : null;
-  const startedAt = formatDateTime(runningIdentity?.started_at, locale);
-  const uptimeTitle = verifiedStopped || startedAt === ''
-    ? runtimeDetail
-    : t('telemetry.startedAt', { value: startedAt });
+  // A stopped core moves nothing; otherwise the newest sample, until the next one replaces it.
+  const traffic = verifiedStopped ? idleTraffic : sampledTraffic(telemetry.snapshot ?? reported?.metrics);
+  const startedAt = runningIdentity?.started_at;
   const action = runtimeControl.state.action;
   const actionLabel = action === null ? '' : t(`telemetry.control.${action}`);
   const actionMessage = action === null || runtimeControl.state.phase === 'idle'
@@ -256,33 +280,36 @@ function LiveStrip({ node }: { node: FleetNode }) {
     void runtimeControl.run(nextAction, runtimeStatus);
   }
 
+  // Readings the node has not given are left out rather than marked; traffic leaves with its group.
   const context = (
     <>
       <Reading label={t('fleet.pane.core')}>
         {[
           <span className={runtimeTone} key='state' title={runtimeDetail}>{runtimeLabel}</span>,
-          <span key='version' title={`${t('telemetry.metric.version')}: ${coreVersion ?? EM_DASH}`}>{versionLabel(coreVersion)}</span>,
-          verifiedRunning ? <span key='uptime' title={uptimeTitle}>{t('fleet.pane.uptime', { value: formatUptime(runningIdentity?.started_at, now, units) })}</span> : null,
+          coreVersion ? <span key='version' title={t('telemetry.metric.version')}>{versionLabel(coreVersion)}</span> : null,
+          startedAt
+            ? (
+                <span key='uptime' title={t('telemetry.startedAt', { value: formatDateTime(startedAt, locale) })}>
+                  {t('fleet.pane.uptime', { value: formatUptime(startedAt, now, units) })}
+                </span>
+              )
+            : null,
         ]}
       </Reading>
-      <StripDivider />
-      <Reading label={t('fleet.pane.net')}>
-        {[
-          <span key='download'>
-            <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>↓ </span>
-            <span className='sr-only'>{t('telemetry.metric.download')}</span>
-            <span>{formatRate(downloadRate, locale)}</span>
-          </span>,
-          <span key='upload'>
-            <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>↑ </span>
-            <span className='sr-only'>{t('telemetry.metric.upload')}</span>
-            <span>{formatRate(uploadRate, locale)}</span>
-          </span>,
-          connections === null
-            ? <span key='connections' title={t('telemetry.metric.connections')}>{EM_DASH}</span>
-            : <span key='connections'>{t('fleet.pane.connections', { count: connections })}</span>,
-        ]}
-      </Reading>
+      {traffic === null
+        ? null
+        : (
+            <>
+              <StripDivider />
+              <Reading label={t('fleet.pane.net')} stale={reconnecting}>
+                {[
+                  traffic.download === null ? null : <Rate arrow='↓' key='download' label={t('telemetry.metric.download')} value={traffic.download} />,
+                  traffic.upload === null ? null : <Rate arrow='↑' key='upload' label={t('telemetry.metric.upload')} value={traffic.upload} />,
+                  <span key='connections'>{t('fleet.pane.connections', { count: traffic.connections })}</span>,
+                ]}
+              </Reading>
+            </>
+          )}
       <StreamStatus reconnecting={reconnecting} />
     </>
   );
@@ -318,22 +345,37 @@ function LiveStrip({ node }: { node: FleetNode }) {
   return <StripLayout actions={actions} context={context} node={node} />;
 }
 
-/** The strip of a node that is not connected: what it last reported, marked stale. */
+/**
+ * The strip of a node that is not connected: when it was last seen, in
+ * warning, then the core it last reported; what it never reported is left out.
+ */
 function ReportedStrip({ node }: { node: FleetNode }) {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const now = useNow(60_000);
+  const seen = node.last_seen_at;
   const version = node.runtime?.enabled_core?.exact_core_version;
-  const context = (
-    <Reading label={t('fleet.pane.core')}>
-      {[
-        <span key='version' title={`${t('telemetry.metric.version')}: ${version ?? EM_DASH}`}>{versionLabel(version)}</span>,
-        <span className='text-[var(--color-warning-text)]' key='seen' title={formatDateTime(node.last_seen_at, locale)}>
-          {t('node.lastSeen', { time: formatRelativeTime(node.last_seen_at, locale, now) })}
-        </span>,
-      ]}
-    </Reading>
-  );
+  const context = seen || version
+    ? (
+        <>
+          {seen
+            ? (
+                <span className='px-1 text-[var(--color-warning-text)]' title={formatDateTime(seen, locale)}>
+                  {t('node.lastSeen', { time: formatRelativeTime(seen, locale, now) })}
+                </span>
+              )
+            : null}
+          {seen && version ? <StripDivider /> : null}
+          {version
+            ? (
+                <Reading label={t('fleet.pane.core')}>
+                  {[<span key='version' title={t('telemetry.metric.version')}>{versionLabel(version)}</span>]}
+                </Reading>
+              )
+            : null}
+        </>
+      )
+    : null;
   return <StripLayout context={context} node={node} />;
 }
 

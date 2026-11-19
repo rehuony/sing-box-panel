@@ -9,14 +9,17 @@ import { useId, useLayoutEffect, useRef } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { LanguageMenu } from '@shared/components/language-menu';
+import { buttonVariants } from '@shared/components/ui/button-variants';
 import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import {
-  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Cpu,
   Ellipsis,
   FileJson,
   Gauge,
+  House,
   LogOut,
   Rss,
   ScrollText,
@@ -130,20 +133,53 @@ function CommandAction({ className, controls }: { className?: string; controls?:
   );
 }
 
-/**
- * The way back to the fleet, the same in every scope; a node window's title
- * strip names the node and leads to its neighbours.
- */
-function Scope() {
-  const { t } = useTranslation();
+/** One of the scope's embedded icon links, named by its tooltip. */
+function ScopeLink({ icon: Icon, label, to }: { icon: LucideIcon; label: string; to: string }) {
   return (
-    <Link
-      className='inline-flex h-(--control-height-xs) flex-none items-center rounded-[var(--radius-control)] px-2 text-foreground outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring'
-      title={t('shell.scope.fleet')}
-      to='/nodes'
-    >
-      fleet
-    </Link>
+    <Tooltip>
+      <TooltipTrigger render={<Link aria-label={label} className={buttonVariants({ size: 'icon-xs', variant: 'ghost' })} to={to} />}>
+        <Icon aria-hidden='true' />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * The way back to the fleet: `fleet` in the panel's windows. In a node's
+ * windows it becomes the previous node, the fleet and the next node as icons;
+ * the neighbours follow the fleet's name order, wrap around, keep the window
+ * and leave with a single node.
+ */
+function Scope({ shell }: { shell: ShellScopeState }) {
+  const { t } = useTranslation();
+  const { items, scope } = shell;
+  if (scope.kind !== 'node') {
+    return (
+      <Link
+        className='inline-flex h-(--control-height-xs) flex-none items-center rounded-[var(--radius-control)] px-2 text-foreground outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring'
+        title={t('shell.scope.fleet')}
+        to='/nodes'
+      >
+        fleet
+      </Link>
+    );
+  }
+  const index = items.findIndex(item => item.node.id === scope.nodeId);
+  const window = scope.window ?? 'overview';
+  const neighbours = index >= 0 && items.length > 1;
+  const previous = neighbours ? items[(index - 1 + items.length) % items.length]!.node : null;
+  const next = neighbours ? items[(index + 1) % items.length]!.node : null;
+  return (
+    <div className='flex flex-none items-center gap-0.5'>
+      {previous
+        ? <ScopeLink icon={ChevronLeft} label={t('shell.bar.previous', { name: previous.name })} to={nodeWindowPath(previous.id, window)} />
+        : null}
+      <ScopeLink icon={House} label={t('shell.scope.fleet')} to='/nodes' />
+      {next
+        ? <ScopeLink icon={ChevronRight} label={t('shell.bar.next', { name: next.name })} to={nodeWindowPath(next.id, window)} />
+        : null}
+    </div>
   );
 }
 
@@ -285,7 +321,7 @@ function DesktopLine({ shell }: { shell: ShellScopeState }) {
         ? <Selection nodes={selection} />
         : (
             <>
-              <Scope />
+              <Scope shell={shell} />
               <Divider />
               <Windows shell={shell} />
             </>
@@ -339,8 +375,8 @@ function MoreMenu({ className }: { className: string }) {
 }
 
 /**
- * The phone's tab bar: back to the fleet in a node, the windows as icons with
- * the current one named, the command line and more.
+ * The phone's tab bar: the fleet as a home icon in a node, the windows as
+ * icons with the current one named, the command line and more.
  */
 function PhoneBar({ shell }: { shell: ShellScopeState }) {
   const { t } = useTranslation();
@@ -353,7 +389,7 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
       {shell.scope.kind === 'node'
         ? (
             <button aria-label={t('shell.scope.fleet')} className={item} onClick={() => void navigate('/nodes')} type='button'>
-              <ArrowLeft aria-hidden='true' className='size-5' />
+              <House aria-hidden='true' className='size-5' />
             </button>
           )
         : null}

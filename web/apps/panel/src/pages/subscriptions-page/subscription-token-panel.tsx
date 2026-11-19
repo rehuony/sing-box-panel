@@ -27,7 +27,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
 }) {
   const { t, i18n } = useTranslation();
   const client = useApiClient();
-  const { items, total, page, pageSize, pages, loading, error, refresh, setPage, setPageSize } = list;
+  const { items, page, pageSize, pages, loading, error, refresh, setPage, setPageSize } = list;
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState('');
   const [expiry, setExpiry] = useState('');
@@ -139,13 +139,13 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   return (
     <section className='min-h-full min-w-0 flex h-full min-h-0 flex-col' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
-        <div className='flex min-h-10 min-w-0 flex-1 items-center justify-end gap-2'>
+        <div className='flex min-w-0 flex-1 items-center justify-end gap-2'>
           <Button aria-label={t('subscriptions.keys.create')} title={t('subscriptions.keys.create')} size='icon-sm' variant='flat' disabled={busy} onClick={() => setCreating(true)}><CirclePlus aria-hidden='true' /></Button>
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
       <div className='relative min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={loading}>
-        <table className='workspace-table w-full min-w-256 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td]:whitespace-nowrap [&_td:first-child]:max-w-60 [&_td:first-child]:truncate [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:px-4 [&_th]:text-center [&_th]:whitespace-nowrap [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[20%] [&_th:nth-child(2)]:w-[22%] [&_th:nth-child(3)]:w-[12%] [&_th:nth-child(4)]:w-[12%] [&_th:nth-child(5)]:w-[34%] [&>thead]:bg-[var(--color-surface-raised)] [&>thead]:text-muted-foreground'>
+        <table className='workspace-table w-full min-w-256 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td]:whitespace-nowrap [&_td:first-child]:max-w-60 [&_td:first-child]:truncate [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:px-4 [&_th]:text-center [&_th]:whitespace-nowrap [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[20%] [&_th:nth-child(2)]:w-[22%] [&_th:nth-child(3)]:w-[12%] [&_th:nth-child(4)]:w-[12%] [&_th:nth-child(5)]:w-[34%] [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&>thead]:text-muted-foreground'>
           <thead>
             <tr>
               <th>{t('subscriptions.common.name')}</th>
@@ -182,10 +182,10 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
           : !error && <SubscriptionContentState kind='keys' title={t('subscriptions.keys.empty')} />)}
       </div>
       <ListPagination
+        className='border-t px-2 pb-2'
         page={page}
         pages={pages}
         pageSize={pageSize}
-        disabled={loading || total === 0}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
       />

@@ -39,7 +39,6 @@ export const telemetry = {
     stale: '运行证据已过期',
     stopped: '已停止',
     stoppedDetail: '已验证停止状态',
-    unknown: '—',
   },
   startedAt: '启动于 {{value}}',
   stream: {

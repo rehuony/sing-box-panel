@@ -266,7 +266,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
         </div>
         <ListPagination page={Math.floor((data?.offset ?? 0) / (query.limit ?? 10)) + 1}
           pages={Math.max(1, Math.ceil((data?.total ?? 0) / (query.limit ?? 10)))}
-          pageSize={query.limit ?? 10} disabled={blocked}
+          pageSize={query.limit ?? 10}
           onPageChange={page => picker.setQuery(current => ({
             ...current, path: data?.path ?? current.path, offset: (page - 1) * (current.limit ?? 10),
           }))}

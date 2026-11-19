@@ -7,13 +7,12 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { SelectField } from '@/components/select-field';
 
-export function ListPagination({ className, page, pages, pageSize, disabled = false, onPageChange, onPageSizeChange }: {
+export function ListPagination({ className, page, pages, pageSize, onPageChange, onPageSizeChange }: {
   /** Places the footer on its list's surface, such as with a hairline above it. */
   className?: string;
   page: number;
   pages: number;
   pageSize: number;
-  disabled?: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
 }) {
@@ -38,7 +37,6 @@ export function ListPagination({ className, page, pages, pageSize, disabled = fa
       <SelectField
         aria-label={t('pagination.pageSize')}
         className='border-0 bg-transparent px-2 text-muted-foreground dark:bg-transparent'
-        disabled={disabled}
         value={pageSize}
         onValueChange={onPageSizeChange}
         items={[5, 10, 50].map(value => ({ value, label: t('pagination.perPage', { count: value }) }))}
@@ -48,12 +46,12 @@ export function ListPagination({ className, page, pages, pageSize, disabled = fa
           variant='ghost'
           size='icon-sm'
           aria-label={t('pagination.previous')}
-          disabled={disabled || page <= 1}
+          disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
         >
           <ChevronLeft aria-hidden='true' />
         </Button>
-        <div className='flex h-[var(--control-height-sm)] items-center rounded-[var(--radius-control)] border border-transparent bg-[color-mix(in_oklch,var(--foreground)_4%,var(--color-surface))] tabular-nums focus-within:border-[var(--input-focus)] data-disabled:opacity-50' data-disabled={disabled || undefined}>
+        <div className='flex h-[var(--control-height-sm)] items-center rounded-[var(--radius-control)] border border-transparent bg-[color-mix(in_oklch,var(--foreground)_4%,var(--color-surface))] tabular-nums focus-within:border-[var(--input-focus)]'>
           <Input
             aria-label={t('pagination.currentPage')}
             aria-describedby={totalId}
@@ -63,7 +61,6 @@ export function ListPagination({ className, page, pages, pageSize, disabled = fa
             min={1}
             max={pages}
             step={1}
-            disabled={disabled}
             value={draft.value}
             onChange={event => setDraft({ page, pages, value: event.target.value })}
             onBlur={event => commit(event.currentTarget.value)}
@@ -87,7 +84,7 @@ export function ListPagination({ className, page, pages, pageSize, disabled = fa
           variant='ghost'
           size='icon-sm'
           aria-label={t('pagination.next')}
-          disabled={disabled || page >= pages}
+          disabled={page >= pages}
           onClick={() => onPageChange(page + 1)}
         >
           <ChevronRight aria-hidden='true' />

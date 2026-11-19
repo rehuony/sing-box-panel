@@ -47,16 +47,17 @@ it('shares page entry, boundaries and totals linked to the selected page size', 
   expect(input).toHaveValue(2);
 });
 
-it('disables empty or loading navigation and synchronizes externally changed pages', () => {
+it('keeps page size and page entry usable on an empty list and follows an externally changed page', () => {
   const change = vi.fn();
   const { rerender } = render(
     <ListPagination page={3} pages={4} pageSize={10} onPageChange={change} onPageSizeChange={change} />,
   );
   rerender(
-    <ListPagination page={1} pages={1} pageSize={10} disabled onPageChange={change} onPageSizeChange={change} />,
+    <ListPagination page={1} pages={1} pageSize={10} onPageChange={change} onPageSizeChange={change} />,
   );
   expect(screen.getByRole('spinbutton')).toHaveValue(1);
-  expect(screen.getByRole('spinbutton')).toBeDisabled();
+  expect(screen.getByRole('spinbutton')).toBeEnabled();
+  expect(screen.getByRole('combobox', { name: 'Items per page' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
   expect(change).not.toHaveBeenCalled();

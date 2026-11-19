@@ -329,7 +329,6 @@ export function CoresPage() {
             page={page}
             pages={pages}
             pageSize={size}
-            disabled={listLoading || count === 0}
             onPageChange={next => setPagination({ tab, search, size, page: next })}
             onPageSizeChange={setSize}
           />

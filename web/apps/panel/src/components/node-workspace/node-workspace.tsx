@@ -53,7 +53,7 @@ function NodeLayout({ node }: { node: FleetNode }) {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [location.pathname]);
   return (
-    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
+    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
       <NodeStrip node={node} />
       <ScrollArea className='-mx-1 flex-1' viewportClassName='flex flex-col px-1' viewportRef={scrollRef}>
         {node.state === 'online' || settings ? <Outlet /> : <NodeUnavailable node={node} />}
