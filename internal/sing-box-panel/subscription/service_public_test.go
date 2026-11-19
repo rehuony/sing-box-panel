@@ -22,11 +22,39 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	app := newSubscriptionTestApplication(db)
-	if _, err := app.CreateSubscriptionNode(ctx, json.RawMessage(`{"type":"socks","tag":"manual","server":"manual.example","server_port":1080}`)); err != nil {
+	if _, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
+		Name: "manual", Kind: store.SubscriptionSourceFile, Filter: &SourceFilter{},
+		Content: new("socks5://manual.example:1080#manual"),
+	}); err != nil {
 		t.Fatal(err)
 	}
+	// Seed durable daily totals of two nodes without live samples. Node b
+	// resets on the 15th and has a quota of its own, which the header must
+	// not present as a total. A third node's inbound is not in the channel,
+	// so its traffic is not counted.
+	nodes := []string{
+		testutil.PublishNode(t, db, "edge-a", testutil.InboundDocument, "", "203.0.113.1"),
+		testutil.PublishNode(t, db, "edge-b", testutil.InboundDocument, "", "203.0.113.2"),
+	}
+	unpublished := testutil.PublishNode(t, db, "edge-c", testutil.InboundDocument, "", "203.0.113.3")
+	if err := app.SyncPool(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.SubscriptionPool(ctx)
+	if err != nil || len(pool) != 4 {
+		t.Fatalf("pool = %+v, %v", pool, err)
+	}
+	members := []any{}
+	for _, node := range pool {
+		if node.NodeID != unpublished {
+			members = append(members, map[string]any{"kind": "node", "id": node.ID})
+		}
+	}
+	config, _ := json.Marshal(map[string]any{"groups": []any{map[string]any{
+		"id": "main", "name": "Main", "enabled": true, "type": "select", "members": members, "rules": []any{},
+	}}, "default_exit": map[string]any{"kind": "group", "id": "main"}})
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "public", Format: store.SubscriptionFormatMihomo, Enabled: true,
+		Name: "public", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,14 +62,6 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	key, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{Label: "traffic"})
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// Seed durable daily totals of two nodes without live samples. Node b
-	// resets on the 15th and has a quota of its own, which the header must
-	// not present as a total.
-	nodes := []string{
-		testutil.PublishNode(t, db, "edge-a", testutil.InboundDocument, "", "203.0.113.1"),
-		testutil.PublishNode(t, db, "edge-b", testutil.InboundDocument, "", "203.0.113.2"),
 	}
 	quota := int64(100)
 	if _, err := db.SaveNodeSettings(ctx, nodes[1], 2, store.NodeSettings{Traffic: store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 15}}); err != nil {
@@ -63,6 +83,7 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	recordDay(nodes[0], "2026-08-10T00:00:00.000000000Z", 100, 400)
 	recordDay(nodes[1], "2026-08-14T00:00:00.000000000Z", 5, 6)
 	recordDay(nodes[1], "2026-08-20T00:00:00.000000000Z", 23, 56)
+	recordDay(unpublished, "2026-08-20T00:00:00.000000000Z", 1000, 1000)
 	original, err := app.PublicSubscription(ctx, key.Token, channel.ID)
 	if err != nil {
 		t.Fatal(err)

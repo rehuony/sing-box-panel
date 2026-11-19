@@ -15,7 +15,7 @@ type SubscriptionChannel struct {
 	ID        string                   `json:"id"`
 	Name      string                   `json:"name"`
 	Format    store.SubscriptionFormat `json:"format"`
-	Config    json.RawMessage          `json:"config"`
+	Config    ChannelConfig            `json:"config"`
 	Enabled   bool                     `json:"enabled"`
 	CreatedAt time.Time                `json:"created_at"`
 	UpdatedAt time.Time                `json:"updated_at"`
@@ -43,72 +43,6 @@ type UpdateSubscriptionChannelRequest struct {
 	Config            json.RawMessage          `json:"config"`
 	Enabled           bool                     `json:"enabled"`
 	ExpectedUpdatedAt time.Time                `json:"expected_updated_at"`
-}
-
-type SubscriptionSource struct {
-	ID               string                       `json:"id"`
-	Name             string                       `json:"name"`
-	SourceKind       store.SubscriptionSourceKind `json:"source_kind"`
-	Config           json.RawMessage              `json:"config"`
-	CurrentVersionID string                       `json:"current_version_id,omitempty"`
-	Enabled          bool                         `json:"enabled"`
-	CreatedAt        time.Time                    `json:"created_at"`
-	UpdatedAt        time.Time                    `json:"updated_at"`
-}
-
-type SubscriptionSourceSummary struct {
-	ID               string                       `json:"id"`
-	Name             string                       `json:"name"`
-	SourceKind       store.SubscriptionSourceKind `json:"source_kind"`
-	HasVersion       bool                         `json:"has_version"`
-	CurrentVersionID string                       `json:"current_version_id,omitempty"`
-	Enabled          bool                         `json:"enabled"`
-	CreatedAt        time.Time                    `json:"created_at"`
-	UpdatedAt        time.Time                    `json:"updated_at"`
-}
-
-type CreateSubscriptionSourceRequest struct {
-	Name       string                       `json:"name"`
-	SourceKind store.SubscriptionSourceKind `json:"source_kind"`
-	Config     json.RawMessage              `json:"config"`
-	Enabled    bool                         `json:"enabled"`
-}
-
-type UpdateSubscriptionSourceRequest struct {
-	Name              string                       `json:"name"`
-	SourceKind        store.SubscriptionSourceKind `json:"source_kind"`
-	Config            json.RawMessage              `json:"config"`
-	Enabled           bool                         `json:"enabled"`
-	ExpectedUpdatedAt time.Time                    `json:"expected_updated_at"`
-}
-
-type SubscriptionSourceVersion struct {
-	ID              string          `json:"id"`
-	SourceID        string          `json:"source_id"`
-	Format          string          `json:"format"`
-	RawBody         []byte          `json:"raw_body,omitempty"`
-	NormalizedNodes json.RawMessage `json:"normalized_nodes"`
-	Diagnostics     json.RawMessage `json:"diagnostics"`
-	SHA256          string          `json:"sha256"`
-	FetchedAt       time.Time       `json:"fetched_at"`
-	CreatedAt       time.Time       `json:"created_at"`
-}
-
-type SubscriptionSourceVersionPage struct {
-	Items []SubscriptionSourceVersion `json:"items"`
-	Next  *SubscriptionCursor         `json:"next,omitempty"`
-}
-
-type CreateSubscriptionSourceVersionRequest struct {
-	Format            SourceFormat
-	RawBody           []byte
-	ExpectedUpdatedAt time.Time
-	FetchedAt         time.Time
-}
-
-type SubscriptionSourceVersionSave struct {
-	Source  SubscriptionSource        `json:"source"`
-	Version SubscriptionSourceVersion `json:"version"`
 }
 
 type SubscriptionUser struct {
@@ -141,44 +75,6 @@ type SubscriptionUserPage struct {
 type SubscriptionUserGrants struct {
 	User   SubscriptionUser `json:"user"`
 	Grants []string         `json:"grants"`
-}
-
-type SubscriptionNodeDetail struct {
-	SubscriptionNodeSummary
-	OutboundJSON string `json:"outbound_json"`
-}
-
-type SubscriptionNodeSummary struct {
-	ID                 string   `json:"id"`
-	Name               string   `json:"name"`
-	SourceName         string   `json:"source_name"`
-	Origin             string   `json:"origin"`
-	Hidden             bool     `json:"hidden"`
-	VisibilityRevision int64    `json:"visibility_revision"`
-	Revision           int64    `json:"revision,omitempty"`
-	Available          bool     `json:"available"`
-	Server             string   `json:"server"`
-	Port               int      `json:"port"`
-	ServerPorts        []string `json:"server_ports,omitempty"`
-	RealmURL           string   `json:"realm_url,omitempty"`
-	Listener           string   `json:"listener,omitempty"`
-	TLS                bool     `json:"tls"`
-	Reality            bool     `json:"reality"`
-	SNI                string   `json:"sni,omitempty"`
-	Key                string   `json:"key"`
-	SourceID           string   `json:"source_id"`
-	Type               string   `json:"type"`
-	Tag                string   `json:"tag"`
-	Credential         string   `json:"credential,omitempty"`
-	// NodeID names the node a local inbound comes from.
-	NodeID string `json:"node_id,omitempty"`
-}
-
-type SubscriptionNodeCatalog struct {
-	NodeOrders       map[string]NodeOrder      `json:"node_orders"`
-	NodePublications []NodePublicationSummary  `json:"node_publications"`
-	Nodes            []SubscriptionNodeSummary `json:"nodes"`
-	Diagnostics      []ConversionDiagnostic    `json:"diagnostics"`
 }
 
 // SubscriptionToken deliberately omits both plaintext and token_sha256. The
@@ -224,11 +120,6 @@ type SubscriptionListRequest struct {
 type SubscriptionChannelPage struct {
 	Items []SubscriptionChannelSummary `json:"items"`
 	Next  *SubscriptionCursor          `json:"next,omitempty"`
-}
-
-type SubscriptionSourcePage struct {
-	Items []SubscriptionSourceSummary `json:"items"`
-	Next  *SubscriptionCursor         `json:"next,omitempty"`
 }
 
 type SubscriptionTokenPage struct {

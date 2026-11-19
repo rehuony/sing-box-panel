@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 )
 
 type rowScanner interface {
@@ -64,16 +62,4 @@ func compactJSON(value json.RawMessage, defaultValue string) (json.RawMessage, e
 
 func validProcessStartToken(value string) bool {
 	return value != "" && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
-}
-
-func canonicalJSONArrayWithLimit(value json.RawMessage, fallback string, maximum int64) (json.RawMessage, error) {
-	if len(value) == 0 {
-		value = json.RawMessage(fallback)
-	}
-	var array []any
-	if err := jsonstrict.Decode(value, maximum, &array); err != nil || array == nil {
-		return nil, errors.New("value must be one strict JSON array")
-	}
-	encoded, err := json.Marshal(array)
-	return bytes.Clone(encoded), err
 }

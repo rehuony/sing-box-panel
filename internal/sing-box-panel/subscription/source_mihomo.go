@@ -5,47 +5,111 @@ package subscription
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"maps"
+	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
 
-func parseMihomoSource(raw []byte) ([]map[string]any, error) {
-	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+// mihomoSourceParser reads a Mihomo configuration's proxies, or a proxy
+// list. Proxy groups, rules and proxy providers are not nodes, and providers
+// are never fetched.
+type mihomoSourceParser struct{}
+
+func (mihomoSourceParser) Format() SourceFormat { return SourceFormatMihomo }
+
+var (
+	mihomoProxiesKey  = regexp.MustCompile(`(?m)^proxies[ \t]*:`)
+	mihomoProxyListed = regexp.MustCompile(`(?m)^-[ \t]+\{?[ \t]*name[ \t]*:`)
+)
+
+func (mihomoSourceParser) Sniff(body []byte) int {
+	switch {
+	case mihomoProxiesKey.Match(body):
+		return 100
+	case bytes.Contains(body, []byte(`"proxies"`)):
+		return 90
+	case mihomoProxyListed.Match(body):
+		return 50
+	}
+	return 0
+}
+
+func (mihomoSourceParser) Items(body []byte) ([]SourceItem, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(body))
 	decoder.KnownFields(false)
-	var yamlDocument yaml.Node
-	if err := decoder.Decode(&yamlDocument); err != nil {
-		return nil, errors.New("malformed YAML")
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return nil, contentError("", "the YAML document is invalid")
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err == nil && len(extra.Content) != 0 {
-		return nil, errors.New("multiple YAML documents")
+		return nil, contentError("", "the content holds several YAML documents")
 	}
 	count := 0
-	if err := inspectSourceYAML(&yamlDocument, 0, &count); err != nil {
-		return nil, err
+	if err := inspectSourceYAML(&document, 0, &count); err != nil {
+		return nil, contentError("", err.Error())
 	}
-	var root map[string]any
-	if err := yamlDocument.Decode(&root); err != nil || root == nil {
-		return nil, errors.New("YAML root is not an object")
+	var root any
+	if err := document.Decode(&root); err != nil {
+		return nil, contentError("", "the YAML document is invalid")
 	}
-	rawProxies, ok := root["proxies"].([]any)
-	if !ok {
-		return nil, errors.New("YAML proxies is not an array")
+	var proxies []any
+	prefix := ""
+	switch value := root.(type) {
+	case []any:
+		proxies = value
+	case map[string]any:
+		raw, exists := value["proxies"]
+		if !exists {
+			return nil, contentError("", "the configuration has no proxies")
+		}
+		if raw != nil {
+			list, ok := raw.([]any)
+			if !ok {
+				return nil, contentError("proxies", "not a list")
+			}
+			proxies = list
+		}
+		prefix = "proxies"
+	default:
+		return nil, contentError("", "the document is not a configuration or proxy list")
 	}
-	values := make([]map[string]any, 0, len(rawProxies))
-	for _, rawProxy := range rawProxies {
-		proxy, ok := rawProxy.(map[string]any)
+	items := make([]SourceItem, 0, len(proxies))
+	for index, raw := range proxies {
+		location := fmt.Sprintf("%s[%d]", prefix, index)
+		proxy, ok := raw.(map[string]any)
 		if !ok {
-			return nil, errors.New("YAML proxy is not an object")
+			return nil, contentError(location, "not a mapping")
 		}
-		converted, err := convertMihomoProxy(proxy)
-		if err != nil {
-			return nil, err
+		kind, _ := proxy["type"].(string)
+		protocol := mihomoProxyTypes[strings.ToLower(kind)]
+		if protocol == "" {
+			protocol = strings.ToLower(kind)
 		}
-		values = append(values, converted)
+		name, _ := proxy["name"].(string)
+		if name == "" {
+			server, _ := proxy["server"].(string)
+			port, _ := DocumentInteger(proxy["port"], 1, 65535)
+			name = unnamedNode(protocol, server, port)
+		}
+		items = append(items, SourceItem{Location: location, Name: name, Protocol: protocol, convert: func() (map[string]any, error) {
+			named := maps.Clone(proxy)
+			named["name"] = name
+			return convertMihomoProxy(named)
+		}})
 	}
-	return values, nil
+	return items, nil
+}
+
+// mihomoProxyTypes maps the Mihomo proxy types sources convert to sing-box
+// outbound types.
+var mihomoProxyTypes = map[string]string{
+	"ss": "shadowsocks", "socks5": "socks", "http": "http", "vmess": "vmess",
+	"vless": "vless", "trojan": "trojan", "hysteria": "hysteria",
+	"hysteria2": "hysteria2", "tuic": "tuic", "anytls": "anytls",
 }
 
 func inspectSourceYAML(value *yaml.Node, depth int, count *int) error {
@@ -88,14 +152,12 @@ func convertMihomoProxy(proxy map[string]any) (map[string]any, error) {
 	tag, _ := proxy["name"].(string)
 	server, _ := proxy["server"].(string)
 	port, ok := DocumentInteger(proxy["port"], 1, 65535)
-	typeMap := map[string]string{
-		"ss": "shadowsocks", "socks5": "socks", "http": "http", "vmess": "vmess",
-		"vless": "vless", "trojan": "trojan", "hysteria": "hysteria",
-		"hysteria2": "hysteria2", "tuic": "tuic", "anytls": "anytls",
+	outboundType, supported := mihomoProxyTypes[strings.ToLower(typeID)]
+	if !supported {
+		return nil, errors.New("unsupported proxy type")
 	}
-	outboundType, supported := typeMap[strings.ToLower(typeID)]
-	if !supported || !ValidTag(tag) || server == "" || !ok {
-		return nil, errors.New("invalid or unsupported YAML proxy")
+	if !ValidTag(tag) || server == "" || !ok {
+		return nil, errors.New("the proxy's name, server or port is invalid")
 	}
 	result := map[string]any{"type": outboundType, "tag": tag, "server": server, "server_port": port}
 	copyMihomoFields(result, proxy, outboundType)

@@ -102,7 +102,7 @@ func seedReportingFleet(b *testing.B, count int) reportingFleet {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := database.RecordNodeStateReport(ctx, id, session, report, store.NodeReport{
+		if _, err := database.RecordNodeStateReport(ctx, id, session, report, store.NodeReport{
 			PublicIP: "203.0.113.7", Applied: store.AppliedBundle{ID: bundle, ExactCoreVersion: "1.14.3"},
 		}, at); err != nil {
 			b.Fatal(err)

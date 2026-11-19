@@ -34,6 +34,36 @@ var (
 	ErrSourceRequestFailed    = errors.New("subscription source request failed")
 )
 
+// sourceStatusError is a fetch answered with a status other than 2xx.
+type sourceStatusError struct{ status int }
+
+func (err *sourceStatusError) Error() string {
+	return fmt.Sprintf("%v: http_status_%d", ErrSourceRequestFailed, err.status)
+}
+
+func (err *sourceStatusError) Unwrap() error { return ErrSourceRequestFailed }
+
+// FetchErrorCode is the fixed code of a fetch failure, or "" for another
+// error.
+func FetchErrorCode(err error) string {
+	var status *sourceStatusError
+	switch {
+	case errors.As(err, &status):
+		return fmt.Sprintf("http_status_%d", status.status)
+	case errors.Is(err, ErrInvalidSourceURL):
+		return "invalid_url"
+	case errors.Is(err, ErrSourceAddressDenied):
+		return "address_denied"
+	case errors.Is(err, ErrTooManySourceRedirects):
+		return "too_many_redirects"
+	case errors.Is(err, ErrSourceBodyTooLarge):
+		return "body_too_large"
+	case errors.Is(err, ErrSourceRequestFailed):
+		return "request_failed"
+	}
+	return ""
+}
+
 type resolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
 }
@@ -94,7 +124,7 @@ func FetchSource(ctx context.Context, rawURL string, allowedCIDRs []string) ([]b
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return nil, fmt.Errorf("%w: http_status_%d", ErrSourceRequestFailed, response.StatusCode)
+		return nil, &sourceStatusError{status: response.StatusCode}
 	}
 	limited := io.LimitReader(response.Body, MaximumSourceBodyBytes+1)
 	body, err := io.ReadAll(limited)

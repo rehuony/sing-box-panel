@@ -3,50 +3,31 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 )
 
-type PublicSubscriptionSourceVersion struct {
-	SourceKind      SubscriptionSourceKind
-	Name            string
-	Enabled         bool
-	SourceID        string
-	VersionID       string
-	NormalizedNodes json.RawMessage
-}
-
 // PublicSubscriptionState is one point-in-time authorization and publication
-// view. Mutable channel, user, grants, and source pointers are read in the same
-// transaction as every node's applied configuration.
+// view: the key and its user, the channel and the pool nodes it may publish,
+// read in one transaction.
 type PublicSubscriptionState struct {
-	SubscriptionNodeControls
 	TokenID string
 	UserID  string
 	Channel SubscriptionChannel
-	Nodes   []NodePublication
-	Grants  []string
-	Sources []PublicSubscriptionSourceVersion
+	// Pool is the pool in its saved order, only the user's granted nodes for
+	// a user-scoped key.
+	Pool []SubscriptionPoolNode
 }
 
-type SubscriptionNodeCatalogState struct {
-	SubscriptionNodeControls
-	Nodes   []NodePublication
-	Sources []PublicSubscriptionSourceVersion
-}
-
-// ErrNoAppliedBundle means there is nothing to publish: no node with an
-// applied configuration, source or manual node.
+// ErrNoAppliedBundle means there is nothing to publish: the pool is empty.
 var ErrNoAppliedBundle = errors.New("no applied configuration is available")
 
 // NodePublication is one node's applied configuration, the input of its
-// local inbounds. Document is the panel's revision the node reports running,
-// nil when the panel no longer holds it.
+// inbounds in the pool. Document is the panel's revision the node reports
+// running, nil when the panel no longer holds it.
 type NodePublication struct {
 	NodeID           string
 	NodeName         string
@@ -59,8 +40,21 @@ type NodePublication struct {
 	Document         []byte
 }
 
-// loadNodePublications reads every node that reports an applied bundle,
-// with the revision it runs.
+// LoadNodePublications reads every node that reports an applied bundle, with
+// the revision it runs, ordered by name.
+func (s *Store) LoadNodePublications(ctx context.Context) ([]NodePublication, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	publications, err := loadNodePublications(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	return publications, tx.Commit()
+}
+
 func loadNodePublications(ctx context.Context, tx *sql.Tx) ([]NodePublication, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT n.id, n.name, n.public_host, n.reported_public_ip, n.applied_bundle_id,
            coalesce(n.applied_core_version, ''), coalesce(n.applied_config_sha256, ''), coalesce(n.applied_revision_id, ''), r.document_json
@@ -88,33 +82,8 @@ func loadNodePublications(ctx context.Context, tx *sql.Tx) ([]NodePublication, e
 	return publications, rows.Err()
 }
 
-func (s *Store) LoadSubscriptionNodeCatalogState(ctx context.Context) (SubscriptionNodeCatalogState, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return SubscriptionNodeCatalogState{}, fmt.Errorf("begin subscription node catalog read: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	var state SubscriptionNodeCatalogState
-	state.Sources, err = loadSubscriptionSourceVersions(ctx, tx, false)
-	if err != nil {
-		return state, err
-	}
-	state.Nodes, err = loadNodePublications(ctx, tx)
-	if err != nil {
-		return state, err
-	}
-	state.SubscriptionNodeControls, err = loadSubscriptionNodeControls(ctx, tx)
-	if err != nil {
-		return state, err
-	}
-	if err := tx.Commit(); err != nil {
-		return SubscriptionNodeCatalogState{}, err
-	}
-	return state, nil
-}
-
-// LoadPublicSubscriptionState authenticates the token and assembles all live
-// authorization and version pointers in one consistent SQLite read.
+// LoadPublicSubscriptionState authenticates the token and assembles its
+// channel and pool in one consistent SQLite read.
 func (s *Store) LoadPublicSubscriptionState(
 	ctx context.Context,
 	tokenSHA256 string,
@@ -165,9 +134,9 @@ func (s *Store) LoadPublicSubscriptionState(
 	return state, nil
 }
 
-// LoadSubscriptionPreviewState assembles the same live view as a public
-// request, but starts from an administrator-selected enabled user instead of a
-// token. It is one read transaction so the preview cannot mix versions.
+// LoadSubscriptionPreviewState assembles the same view as a public request,
+// starting from an administrator-selected enabled user, or none for the
+// channel itself, instead of a token.
 func (s *Store) LoadSubscriptionPreviewState(ctx context.Context, userID, channelID string) (PublicSubscriptionState, error) {
 	if userID != "" {
 		if err := validateSubscriptionID(userID, "user"); err != nil {
@@ -208,75 +177,38 @@ func loadSubscriptionPublicationState(
 ) error {
 	var err error
 	state.Channel, err = getSubscriptionChannel(ctx, tx, channelID)
-	if err != nil || publicDelivery && !state.Channel.Enabled {
+	if errors.Is(err, ErrSubscriptionChannelNotFound) || err == nil && publicDelivery && !state.Channel.Enabled {
 		return ErrSubscriptionChannelNotFound
 	}
-
-	grantRows, err := tx.QueryContext(ctx, `SELECT node_key FROM subscription_user_node_grants WHERE user_id = ? ORDER BY node_key`, state.UserID)
-	if err != nil {
-		return fmt.Errorf("read public subscription grants: %w", err)
-	}
-	for grantRows.Next() {
-		var key string
-		if err := grantRows.Scan(&key); err != nil {
-			_ = grantRows.Close()
-			return err
-		}
-		state.Grants = append(state.Grants, key)
-	}
-	if err := grantRows.Close(); err != nil {
-		return err
-	}
-	if err := grantRows.Err(); err != nil {
-		return err
-	}
-
-	state.Sources, err = loadSubscriptionSourceVersions(ctx, tx, true)
 	if err != nil {
 		return err
 	}
-	state.Nodes, err = loadNodePublications(ctx, tx)
+	pool, err := loadSubscriptionPool(ctx, tx)
 	if err != nil {
 		return err
 	}
-	state.SubscriptionNodeControls, err = loadSubscriptionNodeControls(ctx, tx)
-	if err != nil {
-		return err
-	}
-	// Management preview can validate a draft before the first source exists.
-	// Public delivery retains its existing publication availability boundary.
-	if publicDelivery && len(state.Nodes) == 0 && len(state.Sources) == 0 && len(state.ManualNodes) == 0 {
+	// Management preview can validate a draft before the pool has nodes;
+	// public delivery has nothing to publish.
+	if publicDelivery && len(pool) == 0 {
 		return ErrNoAppliedBundle
 	}
-	return nil
-}
-
-func loadSubscriptionSourceVersions(ctx context.Context, tx *sql.Tx, enabledOnly bool) ([]PublicSubscriptionSourceVersion, error) {
-	query := `SELECT s.id, s.name, s.source_kind, s.enabled, v.id, v.normalized_nodes_json FROM subscription_sources AS s
-        JOIN subscription_source_versions AS v ON v.id = s.current_version_id AND v.source_id = s.id`
-	if enabledOnly {
-		query += ` WHERE s.enabled = 1`
+	if state.UserID == "" {
+		state.Pool = pool
+		return nil
 	}
-	query += ` ORDER BY s.created_at, s.id`
-	rows, err := tx.QueryContext(ctx, query)
+	granted, err := loadSubscriptionUserGrants(ctx, tx, state.UserID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
-	sources := []PublicSubscriptionSourceVersion{}
-	var total int64
-	for rows.Next() {
-		var source PublicSubscriptionSourceVersion
-		var raw []byte
-		if err := rows.Scan(&source.SourceID, &source.Name, &source.SourceKind, &source.Enabled, &source.VersionID, &raw); err != nil {
-			return nil, err
-		}
-		total += int64(len(raw))
-		if total > MaximumSubscriptionInputBytes {
-			return nil, ErrSubscriptionLimitExceeded
-		}
-		source.NormalizedNodes = bytes.Clone(raw)
-		sources = append(sources, source)
+	allowed := make(map[string]bool, len(granted))
+	for _, id := range granted {
+		allowed[id] = true
 	}
-	return sources, rows.Err()
+	state.Pool = []SubscriptionPoolNode{}
+	for _, node := range pool {
+		if allowed[node.ID] {
+			state.Pool = append(state.Pool, node)
+		}
+	}
+	return nil
 }

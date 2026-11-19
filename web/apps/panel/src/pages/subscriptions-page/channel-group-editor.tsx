@@ -12,7 +12,7 @@ import type {
   ChannelRule,
   ChannelRuleGroup,
   SubscriptionFormat,
-  SubscriptionNodeSummary,
+  SubscriptionNode,
 } from '@/api/api-client';
 
 import { ErrorNotice } from '@/components/error-notice';
@@ -20,14 +20,14 @@ import { ErrorNotice } from '@/components/error-notice';
 import type { RuleTextResult } from './channel-rule-text';
 import type { ChannelNodeCard } from './channel-node-cards';
 
-import { candidateOrder } from './channel-node-order';
+import { nodeOrigin } from './subscription-node-pool';
 import { ChannelNodeCards } from './channel-node-cards';
 import { ChannelNodePicker } from './channel-node-picker';
 import { ChannelRuleEditor } from './channel-rule-editor';
 import { ChannelNodeActions } from './channel-node-actions';
 import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionContentState } from './subscription-content-state';
-import { compareChannelRules, ruleFormats, updateGroupCandidates } from './channel-policy';
+import { compareChannelRules, memberKey, ruleFormats, updateGroupMembers } from './channel-policy';
 
 export type ChannelGroupTab = 'nodes' | 'rules';
 
@@ -36,9 +36,10 @@ interface Props {
   tab: ChannelGroupTab;
   nextSortIndex: number;
   group: ChannelRuleGroup;
+  /** The pool in its saved order. */
+  nodes: SubscriptionNode[];
   format: SubscriptionFormat;
   groups: ChannelRuleGroup[];
-  nodes: SubscriptionNodeSummary[];
   onRuleTextChange: (text: string) => void;
   onChange: (group: ChannelRuleGroup) => void;
   onTabChange: (tab: ChannelGroupTab) => void;
@@ -55,29 +56,26 @@ export function ChannelGroupEditor({
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const matches = (value: string) => value.toLowerCase().includes(search.trim().toLowerCase());
-  const builtins = group.builtin_nodes;
-  const order = candidateOrder(group);
+  const order = group.members.map(memberKey);
   const selectedIDs = new Set(order.filter((id) => selected.includes(id)));
   const groupCatalog = new Map(groups.map(value => [value.id, value]));
   const catalog = new Map(nodes.map((node) => [node.id, node]));
-  const cards: ChannelNodeCard[] = order.flatMap((id) => {
-    const builtin = id === 'builtin:direct' ? 'direct' : id === 'builtin:reject' ? 'reject' : undefined;
-    const node = id.startsWith('node:') ? catalog.get(id.slice(5)) : undefined;
-    const candidate = id.startsWith('group:') ? groupCatalog.get(id.slice(6)) : undefined;
-    const label = builtin ? builtin.toUpperCase() : candidate ? candidate.name : node ? `${node.name} ${node.source_name}` : t('channels.missingNode');
-    if (!matches(builtin ? `${label} ${t(`channels.${builtin}`)}` : `${label} ${candidate ? `${t('channels.strategyGroup')} ${t(`channels.groupTypes.${candidate.type}`)}` : node?.type ?? id}`)) return [];
-    return [{
-      id, label, node, builtin, group: candidate, selected: selectedIDs.has(id), disabled: busy,
-      unavailable: builtin
-        ? (format === 'sing-box' && builtin === 'reject') || (format === 'loon' && group.type !== 'select')
-        : candidate ? !candidate.enabled : !node || node.hidden || !node.available,
-    }];
+  const cards: ChannelNodeCard[] = group.members.flatMap((member) => {
+    const id = memberKey(member);
+    const builtin = member.kind === 'builtin' ? member.id as 'direct' | 'reject' : undefined;
+    const node = member.kind === 'node' ? catalog.get(member.id) : undefined;
+    const candidate = member.kind === 'group' ? groupCatalog.get(member.id) : undefined;
+    let label = node?.display_name ?? candidate?.name ?? t('channels.missingNode');
+    if (builtin) label = builtin.toUpperCase();
+    let searched = `${label} ${node ? `${nodeOrigin(node)} ${node.protocol}` : member.id}`;
+    if (builtin) searched = `${label} ${t(`channels.${builtin}`)}`;
+    if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${t(`channels.groupTypes.${candidate.type}`)}`;
+    if (!matches(searched)) return [];
+    let unavailable = !node;
+    if (builtin) unavailable = (format === 'sing-box' && builtin === 'reject') || (format === 'loon' && group.type !== 'select');
+    if (member.kind === 'group') unavailable = !candidate?.enabled;
+    return [{ id, label, node, builtin, group: candidate, selected: selectedIDs.has(id), disabled: busy, unavailable }];
   });
-  function updateCandidates(
-    node_ids: string[], builtin_nodes = builtins, candidate_order = order, group_ids = group.group_ids ?? [],
-  ) {
-    onChange(updateGroupCandidates(group, node_ids, builtin_nodes, candidate_order, group_ids));
-  }
 
   const textResult = ruleText?.result;
   function changeRuleView(view: unknown) {
@@ -91,7 +89,7 @@ export function ChannelGroupEditor({
   }
 
   function exitLabel(exit: ChannelRouteExit) {
-    if (exit.kind === 'node') return nodes.find((node) => node.id === exit.id)?.name ?? t('channels.missingNode');
+    if (exit.kind === 'node') return nodes.find((node) => node.id === exit.id)?.display_name ?? t('channels.missingNode');
     return t(exit.kind === 'group-default' ? 'channels.follow' : exit.kind === 'reject' ? 'channels.reject' : 'channels.direct');
   }
   function newRule(remote: boolean) {
@@ -128,13 +126,10 @@ export function ChannelGroupEditor({
           groups={groups}
           format={format}
           onClose={() => setAddingNodes(false)}
-          onAdd={(ids, builtinNodes, addedOrder, groupIDs) => {
-            updateCandidates(
-              [...new Set([...group.node_ids, ...ids])],
-              [...new Set([...builtins, ...builtinNodes])],
-              [...order, ...addedOrder],
-              [...new Set([...(group.group_ids ?? []), ...groupIDs])],
-            );
+          onAdd={(members) => {
+            const present = new Set(order);
+            const added = members.filter(member => !present.has(memberKey(member)));
+            onChange(updateGroupMembers(group, [...group.members, ...added]));
             setAddingNodes(false);
           }} />
       )}
@@ -180,12 +175,8 @@ export function ChannelGroupEditor({
                     ...current, ...cards.map((card) => card.id),
                   ])])}
                   onRemove={() => {
-                    updateCandidates(
-                      group.node_ids.filter((id) => !selectedIDs.has(`node:${id}`)),
-                      builtins.filter((kind) => !selectedIDs.has(`builtin:${kind}`)),
-                      order,
-                      (group.group_ids ?? []).filter(id => !selectedIDs.has(`group:${id}`)),
-                    );
+                    const kept = group.members.filter(member => !selectedIDs.has(memberKey(member)));
+                    onChange(updateGroupMembers(group, kept));
                     setSelected([]);
                   }}
                   onAdd={() => setAddingNodes(true)}
@@ -202,9 +193,11 @@ export function ChannelGroupEditor({
               items={cards}
               onToggle={(id) => setSelected((current) =>
                 current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
-              onMove={(active, over) => onChange({
-                ...group, candidate_order: reorderVisibleNodes(order, cards.map((card) => card.id), active, over),
-              })}
+              onMove={(active, over) => {
+                const byKey = new Map(group.members.map(member => [memberKey(member), member]));
+                const next = reorderVisibleNodes(order, cards.map((card) => card.id), active, over);
+                onChange({ ...group, members: next.map(key => byKey.get(key)!) });
+              }}
             />
             {!cards.length && (
               <SubscriptionContentState kind={search ? 'search' : 'candidates'} title={t(search ? 'channels.noMatchingNodes' : 'channels.emptyCandidates')} />

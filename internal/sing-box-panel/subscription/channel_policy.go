@@ -10,95 +10,6 @@ import (
 	"unicode"
 )
 
-// ChannelPolicy is owned by one channel. Node IDs are stable publication IDs,
-// not names, protocols or the content digests used by legacy user grants.
-type ChannelPolicy struct {
-	Selection         NodeSelection   `json:"selection"`
-	IncompatibleNodes string          `json:"incompatible_nodes,omitempty"`
-	Groups            []RuleGroup     `json:"groups"`
-	DefaultExit       RouteExit       `json:"default_exit"`
-	Template          *NativeTemplate `json:"template,omitempty"`
-}
-
-type NodeSelection struct {
-	IDs           []string `json:"ids"`
-	ExcludedIDs   []string `json:"excluded_ids"`
-	NewNodePolicy string   `json:"new_node_policy"`
-}
-
-type RouteExit struct {
-	Kind string `json:"kind"`
-	ID   string `json:"id,omitempty"`
-}
-
-type RuleGroup struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Enabled        bool              `json:"enabled"`
-	NodeIDs        []string          `json:"node_ids"`
-	GroupIDs       []string          `json:"group_ids,omitempty"`
-	Rules          []ChannelRule     `json:"rules"`
-	Type           string            `json:"type"`
-	BuiltinNodes   []string          `json:"builtin_nodes"`
-	CandidateOrder []string          `json:"candidate_order,omitempty"`
-	HealthCheck    *GroupHealthCheck `json:"health_check,omitempty"`
-}
-
-type GroupHealthCheck struct {
-	URL       string `json:"url"`
-	Interval  int    `json:"interval"`
-	Tolerance int    `json:"tolerance"`
-}
-
-func (g RuleGroup) healthCheck() GroupHealthCheck {
-	if g.HealthCheck != nil {
-		return *g.HealthCheck
-	}
-	return GroupHealthCheck{URL: "https://www.gstatic.com/generate_204", Interval: 300, Tolerance: 50}
-}
-
-func (g RuleGroup) candidateOrder() []string {
-	if g.CandidateOrder != nil {
-		return g.CandidateOrder
-	}
-	order := make([]string, 0, len(g.NodeIDs)+len(g.BuiltinNodes)+len(g.GroupIDs))
-	for _, id := range g.NodeIDs {
-		order = append(order, "node:"+id)
-	}
-	for _, kind := range g.BuiltinNodes {
-		order = append(order, "builtin:"+kind)
-	}
-	for _, id := range g.GroupIDs {
-		order = append(order, "group:"+id)
-	}
-	return order
-}
-
-// Rules and remote references share one ordered list. A disabled entry retains
-// its metadata, but is not emitted. Nothing here fetches remote rule contents.
-type ChannelRule struct {
-	SortIndex int64          `json:"sort_index"`
-	ID        string         `json:"id"`
-	Enabled   bool           `json:"enabled"`
-	Kind      string         `json:"kind"`
-	Value     string         `json:"value,omitempty"`
-	Remote    *RemoteRuleSet `json:"remote,omitempty"`
-	Exit      RouteExit      `json:"exit"`
-}
-
-type RemoteRuleSet struct {
-	Name        string `json:"name"`
-	URL         string `json:"url"`
-	Format      string `json:"format"`
-	Behavior    string `json:"behavior,omitempty"`
-	Accelerated bool   `json:"accelerated"`
-}
-
-type NativeTemplate struct {
-	Format  RenderFormat `json:"format"`
-	Content string       `json:"content"`
-}
-
 // PolicyError contains only a field path and a fixed reason, never submitted
 // values, URLs or template content. It is safe for authenticated validation UI.
 type PolicyError struct {
@@ -112,39 +23,21 @@ func (e *PolicyError) Error() string {
 func (e *PolicyError) Unwrap() error      { return ErrInvalidChannel }
 func policyError(path, code string) error { return &PolicyError{Path: path, Code: code} }
 
-func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
-	if p == nil {
-		return nil
-	}
+// ValidateChannelConfig checks a channel configuration for one output
+// format. References to pool nodes are checked against the pool separately.
+func ValidateChannelConfig(config ChannelConfig, format RenderFormat) error {
 	if format != RenderFormatSingBox && format != RenderFormatMihomo && format != RenderFormatLoon {
-		return policyError("policy", "unsupported_client")
+		return policyError("format", "unsupported_client")
 	}
-	if !oneOf(p.Selection.NewNodePolicy, "include", "exclude") {
-		return policyError("policy.selection.new_node_policy", "invalid_value")
+	if !oneOf(config.IncompatibleNodes, "skip", "error") {
+		return policyError("incompatible_nodes", "invalid_value")
 	}
-	if err := policyIDs(p.Selection.IDs, "policy.selection.ids"); err != nil {
-		return err
-	}
-	if err := policyIDs(p.Selection.ExcludedIDs, "policy.selection.excluded_ids"); err != nil {
-		return err
-	}
-	selected, excluded := stringSet(p.Selection.IDs), stringSet(p.Selection.ExcludedIDs)
-	for id := range selected {
-		if excluded[id] {
-			return policyError("policy.selection", "conflicting_selection")
-		}
-	}
-	if p.IncompatibleNodes != "" && !oneOf(p.IncompatibleNodes, "skip", "error") {
-		return policyError("policy.incompatible_nodes", "invalid_value")
-	}
-	if len(p.Groups) > 256 {
-		return policyError("policy.groups", "too_many_groups")
+	if len(config.Groups) > 256 {
+		return policyError("groups", "too_many_groups")
 	}
 	groups, names := map[string]bool{}, map[string]bool{}
-	remoteNames := map[string]bool{}
-	ruleCount := 0
-	for i, group := range p.Groups {
-		path := fmt.Sprintf("policy.groups[%d]", i)
+	for i, group := range config.Groups {
+		path := fmt.Sprintf("groups[%d]", i)
 		if !policyID(group.ID) || groups[group.ID] {
 			return policyError(path+".id", "invalid_or_duplicate_id")
 		}
@@ -156,24 +49,28 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 			return policyError(path+".name", "invalid_or_duplicate_name")
 		}
 		names[group.Name] = true
+	}
+	enabled := map[string]bool{}
+	for _, group := range config.Groups {
+		if group.Enabled {
+			enabled[group.ID] = true
+		}
+	}
+	remoteNames := map[string]bool{}
+	ruleCount := 0
+	for i, group := range config.Groups {
+		path := fmt.Sprintf("groups[%d]", i)
 		if err := validateGroupOptions(group, format, path); err != nil {
 			return err
 		}
-		if err := policyIDs(group.NodeIDs, path+".node_ids"); err != nil {
+		if err := validateGroupMembers(group, groups, format, path); err != nil {
 			return err
 		}
-		candidates := stringSet(group.NodeIDs)
-		for id := range candidates {
-			if excluded[id] || (p.Selection.NewNodePolicy == "exclude" && !selected[id]) {
-				return policyError(path+".node_ids", "node_not_selected")
-			}
-		}
-
 		rules := map[string]bool{}
 		for j, rule := range group.Rules {
 			ruleCount++
 			if ruleCount > 5000 {
-				return policyError("policy.groups", "too_many_rules")
+				return policyError("groups", "too_many_rules")
 			}
 			rp := fmt.Sprintf("%s.rules[%d]", path, j)
 			if !policyID(rule.ID) || rules[rule.ID] {
@@ -183,7 +80,7 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 			if rule.SortIndex < -9007199254740991 || rule.SortIndex > 9007199254740991 {
 				return policyError(rp+".sort_index", "invalid_value")
 			}
-			if err := validateExit(rule.Exit, candidates, nil, true, rp+".exit"); err != nil {
+			if err := validateExit(rule.Exit, enabled, true, rp+".exit"); err != nil {
 				return err
 			}
 			switch rule.Kind {
@@ -216,70 +113,64 @@ func ValidateChannelPolicy(p *ChannelPolicy, format RenderFormat) error {
 			}
 		}
 	}
-	if err := validateGroupReferences(p.Groups); err != nil {
+	if err := validateGroupReferences(config.Groups); err != nil {
 		return err
 	}
-	for _, g := range p.Groups {
-		if !g.Enabled {
-			delete(groups, g.ID)
-		}
-	}
-	if err := validateExit(p.DefaultExit, selected, groups, false, "policy.default_exit"); err != nil {
+	if err := validateExit(config.DefaultExit, enabled, false, "default_exit"); err != nil {
 		return err
 	}
-	_, err := parseChannelTemplate(p.Template, format)
+	_, err := parseChannelTemplate(config.Template, format)
 	return err
 }
 
-func validateGroupOptions(group RuleGroup, format RenderFormat, path string) error {
-	if len(group.GroupIDs) > 255 {
-		return policyError(path+".group_ids", "too_many_groups")
+// validateGroupMembers checks a group's candidates: each once, built-in
+// exits the client supports and groups of the channel other than itself.
+func validateGroupMembers(group RuleGroup, groups map[string]bool, format RenderFormat, path string) error {
+	if len(group.Members) > MaximumNodes+2 {
+		return policyError(path+".members", "too_many_members")
 	}
-	if err := policyIDs(group.GroupIDs, path+".group_ids"); err != nil {
-		return err
-	}
-	if group.CandidateOrder != nil {
-		members := make(map[string]bool, len(group.NodeIDs)+len(group.BuiltinNodes)+len(group.GroupIDs))
-		for _, id := range group.NodeIDs {
-			members["node:"+id] = true
+	seen := map[GroupMember]bool{}
+	for index, member := range group.Members {
+		memberPath := fmt.Sprintf("%s.members[%d]", path, index)
+		if seen[member] {
+			return policyError(memberPath, "duplicate_member")
 		}
-		for _, kind := range group.BuiltinNodes {
-			members["builtin:"+kind] = true
-		}
-		for _, id := range group.GroupIDs {
-			members["group:"+id] = true
-		}
-		for _, key := range group.CandidateOrder {
-			if !members[key] {
-				return policyError(path+".candidate_order", "invalid_or_duplicate_value")
+		seen[member] = true
+		switch member.Kind {
+		case memberNode:
+			if !policyID(member.ID) {
+				return policyError(memberPath+".id", "invalid_value")
 			}
-			delete(members, key)
-		}
-		if len(members) != 0 {
-			return policyError(path+".candidate_order", "missing_candidates")
+		case memberBuiltin:
+			if !oneOf(member.ID, "direct", "reject") {
+				return policyError(memberPath+".id", "invalid_value")
+			}
+			if format == RenderFormatSingBox && member.ID == "reject" {
+				return policyError(memberPath, "unsupported_client")
+			}
+			if format == RenderFormatLoon && group.Type != "select" {
+				return policyError(memberPath, "unsupported_client")
+			}
+		case memberGroup:
+			if !groups[member.ID] {
+				return policyError(memberPath+".id", "group_not_found")
+			}
+			if member.ID == group.ID {
+				return policyError(memberPath+".id", "cyclic_group_reference")
+			}
+		default:
+			return policyError(memberPath+".kind", "invalid_value")
 		}
 	}
-	if group.BuiltinNodes == nil {
-		return policyError(path+".builtin_nodes", "required")
-	}
+	return nil
+}
+
+func validateGroupOptions(group RuleGroup, format RenderFormat, path string) error {
 	if !oneOf(group.Type, "select", "url-test", "fallback") {
 		return policyError(path+".type", "invalid_value")
 	}
 	if format == RenderFormatSingBox && group.Type == "fallback" {
 		return policyError(path+".type", "unsupported_client")
-	}
-	seen := map[string]bool{}
-	for _, kind := range group.BuiltinNodes {
-		if !oneOf(kind, "direct", "reject") || seen[kind] {
-			return policyError(path+".builtin_nodes", "invalid_or_duplicate_value")
-		}
-		if format == RenderFormatSingBox && kind == "reject" {
-			return policyError(path+".builtin_nodes", "unsupported_client")
-		}
-		if format == RenderFormatLoon && group.Type != "select" {
-			return policyError(path+".builtin_nodes", "unsupported_client")
-		}
-		seen[kind] = true
 	}
 	if group.HealthCheck != nil {
 		h := group.HealthCheck
@@ -312,13 +203,16 @@ func validateGroupReferences(groups []RuleGroup) error {
 			return nil
 		}
 		visiting[group.ID] = true
-		for j, id := range group.GroupIDs {
-			path := fmt.Sprintf("policy.groups[%d].group_ids[%d]", i, j)
-			index, ok := indices[id]
+		for j, member := range group.Members {
+			if member.Kind != memberGroup {
+				continue
+			}
+			path := fmt.Sprintf("groups[%d].members[%d]", i, j)
+			index, ok := indices[member.ID]
 			if !ok || !groups[index].Enabled {
 				return policyError(path, "group_not_enabled")
 			}
-			if visiting[id] {
+			if visiting[member.ID] {
 				return policyError(path, "cyclic_group_reference")
 			}
 			if err := visit(index); err != nil {
@@ -345,27 +239,7 @@ func policyID(s string) bool {
 func policyName(s string) bool {
 	return s != "" && len(s) <= 128 && strings.TrimSpace(s) == s && strings.IndexFunc(s, unicode.IsControl) < 0 && !strings.Contains(s, ",")
 }
-func stringSet(s []string) map[string]bool {
-	m := make(map[string]bool, len(s))
-	for _, v := range s {
-		m[v] = true
-	}
-	return m
-}
-func policyIDs(ids []string, path string) error {
-	if len(ids) > MaximumNodes {
-		return policyError(path, "too_many_nodes")
-	}
-	seen := map[string]bool{}
-	for _, id := range ids {
-		if !policyID(id) || seen[id] {
-			return policyError(path, "invalid_or_duplicate_id")
-		}
-		seen[id] = true
-	}
-	return nil
-}
-func validateExit(exit RouteExit, nodes, groups map[string]bool, inherit bool, path string) error {
+func validateExit(exit RouteExit, groups map[string]bool, inherit bool, path string) error {
 	switch exit.Kind {
 	case "direct", "reject":
 		if exit.ID != "" {
@@ -376,8 +250,8 @@ func validateExit(exit RouteExit, nodes, groups map[string]bool, inherit bool, p
 			return policyError(path, "invalid_inherited_exit")
 		}
 	case "node":
-		if !nodes[exit.ID] {
-			return policyError(path, "node_not_selected")
+		if !policyID(exit.ID) {
+			return policyError(path, "invalid_value")
 		}
 	case "group":
 		if !groups[exit.ID] {

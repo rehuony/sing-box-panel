@@ -1,5 +1,19 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, CreatedSubscriptionToken, SubscriptionChannel, SubscriptionChannelPage, SubscriptionNodeCatalog, SubscriptionNodeDetail, SubscriptionNodeOrder, SubscriptionNodeSummary, SubscriptionPreview, SubscriptionSource, SubscriptionSourcePage, SubscriptionSourceRefreshResult, SubscriptionToken, SubscriptionTokenPage, SubscriptionTokenRotation } from '../api-client';
+import type {
+  ApiClient,
+  CreatedSubscriptionToken,
+  SubscriptionChannel,
+  SubscriptionChannelPage,
+  SubscriptionNodeDetail,
+  SubscriptionNodeList,
+  SubscriptionPreview,
+  SubscriptionSource,
+  SubscriptionSourcePage,
+  SubscriptionSourcePreview,
+  SubscriptionToken,
+  SubscriptionTokenPage,
+  SubscriptionTokenRotation,
+} from '../api-client';
 
 export function createSubscriptionHttpApi(context: HttpApiContext) {
   const {
@@ -75,44 +89,20 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
       const bytes = Uint8Array.from(atob(preview.result.content), value => value.charCodeAt(0));
       return { ...preview, result: { ...preview.result, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) } };
     },
+    listSubscriptionNodes(signal) {
+      return request<SubscriptionNodeList>(fetcher, `${baseUrl}/subscription/nodes`, { method: 'GET', signal });
+    },
+    setSubscriptionNodeOrder(ids, signal) {
+      return request<SubscriptionNodeList>(fetcher, `${baseUrl}/subscription/node-order`, {
+        method: 'PUT', body: JSON.stringify({ ids }), headers: writeJSONHeaders(), signal,
+      });
+    },
     getSubscriptionNode(id, signal) {
-      return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, { signal });
+      return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, { method: 'GET', signal });
     },
-    createSubscriptionNode(outboundJSON, signal) {
-      return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes`, {
-        method: 'POST', body: `{ "outbound": ${outboundJSON} }`, headers: writeJSONHeaders(), signal,
-      });
-    },
-    updateSubscriptionNode(id, outboundJSON, revision, signal) {
+    updateSubscriptionNode(id, input, updatedAt, signal) {
       return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, {
-        method: 'PUT', body: `{ "outbound": ${outboundJSON}, "revision": ${JSON.stringify(revision)} }`,
-        headers: writeJSONHeaders(), signal,
-      });
-    },
-    deleteSubscriptionNode(id, revision, signal) {
-      return request<void>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, {
-        method: 'DELETE', body: JSON.stringify({ revision }), headers: writeJSONHeaders(), signal,
-      });
-    },
-    setSubscriptionNodeVisibility(id, hidden, revision, signal) {
-      return request<SubscriptionNodeSummary>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}/visibility`, {
-        method: 'PUT', body: JSON.stringify({ hidden, revision }), headers: writeJSONHeaders(), signal,
-      });
-    },
-    setSubscriptionNodeOrder(collectionID, ids, revision, signal) {
-      return request<SubscriptionNodeOrder>(fetcher, `${baseUrl}/subscription/node-orders/${encodeURIComponent(collectionID)}`, {
-        method: 'PUT', body: JSON.stringify({ ids, revision }), headers: writeJSONHeaders(), signal,
-      });
-    },
-    parseSubscriptionNode(text, signal) {
-      return request<{ outbound_json: string }>(fetcher, `${baseUrl}/subscription/nodes/parse`, {
-        method: 'POST', body: JSON.stringify({ text }), headers: writeJSONHeaders(), signal,
-      });
-    },
-    getSubscriptionNodeCatalog(signal) {
-      return request<SubscriptionNodeCatalog>(fetcher, `${baseUrl}/subscription/nodes`, {
-        method: 'GET',
-        signal,
+        method: 'PUT', body: JSON.stringify(input), headers: writeJSONHeaders({ 'If-Match': quoteETag(updatedAt) }), signal,
       });
     },
     listSubscriptionSources(filter = {}, signal) {
@@ -154,11 +144,26 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         },
       );
     },
+    deleteSubscriptionSource(sourceID, updatedAt, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}`, {
+        method: 'DELETE', headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }), signal,
+      });
+    },
     refreshSubscriptionSource(sourceID, signal) {
-      return request<SubscriptionSourceRefreshResult>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/refresh`, {
+      return request<SubscriptionSource>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/refresh`, {
         method: 'POST',
         headers: writeHeaders(),
         signal,
+      });
+    },
+    replaceSubscriptionSourceContent(sourceID, input, signal) {
+      return request<SubscriptionSource>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/content`, {
+        method: 'PUT', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,
+      });
+    },
+    previewSubscriptionSource(input, signal) {
+      return request<SubscriptionSourcePreview>(fetcher, `${baseUrl}/subscription/sources/preview`, {
+        method: 'POST', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,
       });
     },
     listSubscriptionTokens(filter = {}, signal) {

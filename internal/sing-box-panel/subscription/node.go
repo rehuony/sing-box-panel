@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Normalized nodes are the stable contract shared by subscription operations.
 package subscription
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -18,8 +11,6 @@ import (
 
 // MaximumNodes bounds one node collection.
 const MaximumNodes = store.MaximumSubscriptionNodes
-
-var ErrInvalidNodes = errors.New("invalid normalized subscription nodes")
 
 type Collection string
 
@@ -56,97 +47,23 @@ type ConversionDiagnostic struct {
 	Code       DiagnosticCode `json:"code"`
 }
 
+// Node is one client node an inbound converts to.
 type Node struct {
-	OriginTag  string          `json:"origin_tag,omitempty"`
-	Key        string          `json:"key"`
-	SourceID   string          `json:"source_id"`
-	Type       string          `json:"type"`
-	Tag        string          `json:"tag"`
-	Credential string          `json:"credential,omitempty"`
-	Outbound   json.RawMessage `json:"outbound"`
-	// NodeID and NodeName name the node a local inbound comes from.
-	NodeID   string `json:"node_id,omitempty"`
-	NodeName string `json:"node_name,omitempty"`
+	// OriginTag is the inbound's tag; Tag names the node, with a suffix for
+	// each credential of a multi-user inbound.
+	OriginTag string
+	// OriginName is the name the pool shows the node by: the inbound's tag,
+	// with its user's name for a multi-user inbound.
+	OriginName string
+	// Key identifies the inbound and credential: "local:" and a digest of
+	// the inbound's type and tag and the credential's identity.
+	Key        string
+	SourceID   string
+	Type       string
+	Tag        string
+	Credential string
+	Outbound   json.RawMessage
 }
-
-func PublicationDocument(nodes []Node) ([]byte, error) {
-	if len(nodes) > MaximumNodes {
-		return nil, invalid("too_many_publishable_nodes")
-	}
-	ordered := orderedPublicationNodes(nodes)
-	seenKeys := make(map[string]struct{}, len(ordered))
-	outbounds := make([]any, 0, len(ordered))
-	for _, value := range ordered {
-		if !ValidKey(value.Key) {
-			return nil, invalid("invalid_node_key")
-		}
-		if _, exists := seenKeys[value.Key]; exists {
-			return nil, invalid("duplicate_node_key")
-		}
-		seenKeys[value.Key] = struct{}{}
-		decoded, err := DecodeDocument(value.Outbound)
-		if err != nil {
-			return nil, invalid(DocumentErrorCode(err))
-		}
-		object, ok := decoded.(map[string]any)
-		if !ok {
-			return nil, invalid("node_not_object")
-		}
-		if objectType, _ := object["type"].(string); objectType != value.Type || !ValidType(objectType) {
-			return nil, invalid("node_type_mismatch")
-		}
-		if objectTag, _ := object["tag"].(string); objectTag != value.Tag || !ValidTag(objectTag) {
-			return nil, invalid("node_tag_mismatch")
-		}
-		outbounds = append(outbounds, object)
-	}
-	encoded, err := json.Marshal(map[string]any{"outbounds": outbounds})
-	if err != nil {
-		return nil, invalid("encode_publication_document")
-	}
-	if len(encoded) > MaximumDocumentBytes {
-		return nil, invalid("document_too_large")
-	}
-	return append(bytes.Clone(encoded), '\n'), nil
-}
-
-func orderedPublicationNodes(nodes []Node) []Node {
-	ordered := append([]Node(nil), nodes...)
-	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].Key < ordered[right].Key })
-	return ordered
-}
-
-func DecodeNodes(raw []byte) ([]Node, error) {
-	if len(raw) == 0 || len(raw) > MaximumDocumentBytes {
-		return nil, invalid("invalid_normalized_nodes")
-	}
-	decoded, err := DecodeDocument(raw)
-	if err != nil {
-		return nil, invalid(DocumentErrorCode(err))
-	}
-	values, ok := decoded.([]any)
-	if !ok {
-		return nil, invalid("invalid_normalized_nodes")
-	}
-	canonical, err := json.Marshal(values)
-	if err != nil {
-		return nil, invalid("invalid_normalized_nodes")
-	}
-	var nodes []Node
-	decoder := json.NewDecoder(bytes.NewReader(canonical))
-	if err := decoder.Decode(&nodes); err != nil || nodes == nil {
-		return nil, invalid("invalid_normalized_nodes")
-	}
-	if _, err := PublicationDocument(nodes); err != nil {
-		return nil, err
-	}
-	for index := range nodes {
-		nodes[index].Outbound = bytes.Clone(nodes[index].Outbound)
-	}
-	return nodes, nil
-}
-
-func ValidKey(value string) bool { return store.ValidSubscriptionNodeKey(value) }
 
 func ValidTag(value string) bool {
 	return value != "" && len(value) <= 512 && !strings.ContainsRune(value, '\x00')
@@ -164,24 +81,4 @@ func ValidType(value string) bool {
 		return false
 	}
 	return true
-}
-
-type validationError struct{ code string }
-
-func (err *validationError) Error() string { return fmt.Sprintf("%v: %s", ErrInvalidNodes, err.code) }
-
-func (err *validationError) Unwrap() error { return ErrInvalidNodes }
-
-func invalid(code string) error { return &validationError{code: code} }
-
-// PublicationID keeps visibility and modern channel selection stable across a
-// source refresh. Legacy Key remains content-addressed for existing user grants.
-// Local keys retain credential identity; manual keys retain their persistent ID.
-func PublicationID(node Node) string {
-	identity := node.Key
-	if node.SourceID != "local" && node.SourceID != "manual" {
-		identity = node.SourceID + "\x00" + node.Tag
-	}
-	digest := sha256.Sum256([]byte(identity))
-	return "node_" + hex.EncodeToString(digest[:16])
 }

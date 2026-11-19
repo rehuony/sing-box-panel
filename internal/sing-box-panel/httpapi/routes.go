@@ -119,14 +119,10 @@ var routes = []route{
 	{http.MethodGet, "/logs/{logId}", "getLog", accessSession, withPathValue("logId", (*Handler).getDurableLog)},
 	{http.MethodDelete, "/logs/{logId}", "deleteLog", accessSession, withPathValue("logId", (*Handler).deleteDurableLog)},
 
-	{http.MethodGet, "/subscription/nodes", "listSubscriptionNodes", accessSession, (*Handler).subscriptionNodeCatalog},
-	{http.MethodPost, "/subscription/nodes", "createSubscriptionNode", accessSession, (*Handler).createSubscriptionNode},
-	{http.MethodPost, "/subscription/nodes/parse", "parseSubscriptionNode", accessSession, (*Handler).parseSubscriptionNode},
+	{http.MethodGet, "/subscription/nodes", "listSubscriptionNodes", accessSession, (*Handler).listSubscriptionNodes},
+	{http.MethodPut, "/subscription/node-order", "setSubscriptionNodeOrder", accessSession, (*Handler).setSubscriptionNodeOrder},
 	{http.MethodGet, "/subscription/nodes/{nodeId}", "getSubscriptionNode", accessSession, withPathValue("nodeId", (*Handler).getSubscriptionNode)},
 	{http.MethodPut, "/subscription/nodes/{nodeId}", "updateSubscriptionNode", accessSession, withPathValue("nodeId", (*Handler).updateSubscriptionNode)},
-	{http.MethodDelete, "/subscription/nodes/{nodeId}", "deleteSubscriptionNode", accessSession, withPathValue("nodeId", (*Handler).deleteSubscriptionNode)},
-	{http.MethodPut, "/subscription/nodes/{nodeId}/visibility", "setSubscriptionNodeVisibility", accessSession, withPathValue("nodeId", (*Handler).setSubscriptionNodeVisibility)},
-	{http.MethodPut, "/subscription/node-orders/{collectionId}", "setSubscriptionNodeOrder", accessSession, withPathValue("collectionId", (*Handler).setSubscriptionNodeOrder)},
 
 	{http.MethodGet, "/subscription/users", "listSubscriptionUsers", accessSession, (*Handler).listSubscriptionUsers},
 	{http.MethodPost, "/subscription/users", "createSubscriptionUser", accessSession, (*Handler).createSubscriptionUser},
@@ -145,14 +141,12 @@ var routes = []route{
 
 	{http.MethodGet, "/subscription/sources", "listSubscriptionSources", accessSession, (*Handler).listSubscriptionSources},
 	{http.MethodPost, "/subscription/sources", "createSubscriptionSource", accessSession, (*Handler).createSubscriptionSource},
+	{http.MethodPost, "/subscription/sources/preview", "previewSubscriptionSource", accessSession, (*Handler).previewSubscriptionSource},
 	{http.MethodGet, "/subscription/sources/{sourceId}", "getSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).getSubscriptionSource)},
 	{http.MethodPut, "/subscription/sources/{sourceId}", "updateSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).updateSubscriptionSource)},
 	{http.MethodDelete, "/subscription/sources/{sourceId}", "deleteSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).deleteSubscriptionSource)},
 	{http.MethodPost, "/subscription/sources/{sourceId}/refresh", "refreshSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).refreshSubscriptionSource)},
-	{http.MethodGet, "/subscription/sources/{sourceId}/versions", "listSubscriptionSourceVersions", accessSession, withPathValue("sourceId", (*Handler).listSubscriptionSourceVersions)},
-	{http.MethodPost, "/subscription/sources/{sourceId}/versions", "createSubscriptionSourceVersion", accessSession, withPathValue("sourceId", (*Handler).createSubscriptionSourceVersion)},
-	{http.MethodGet, "/subscription/sources/{sourceId}/versions/{versionId}", "getSubscriptionSourceVersion", accessSession, (*Handler).getSubscriptionSourceVersion},
-	{http.MethodPost, "/subscription/sources/{sourceId}/versions/{versionId}/restore", "restoreSubscriptionSourceVersion", accessSession, (*Handler).restoreSubscriptionSourceVersion},
+	{http.MethodPut, "/subscription/sources/{sourceId}/content", "replaceSubscriptionSourceContent", accessSession, withPathValue("sourceId", (*Handler).replaceSubscriptionSourceContent)},
 
 	{http.MethodGet, "/subscription/tokens", "listSubscriptionTokens", accessSession, (*Handler).listSubscriptionTokens},
 	{http.MethodPost, "/subscription/tokens", "createSubscriptionToken", accessSession, (*Handler).createSubscriptionToken},

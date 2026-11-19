@@ -5,71 +5,83 @@ import { useDeferredValue, useMemo, useState } from 'react';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
-import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNodeSummary } from '@/api/api-client';
+import type { ChannelGroupMember, ChannelRuleGroup, SubscriptionFormat, SubscriptionNode } from '@/api/api-client';
 
 import type { ChannelNodeCard } from './channel-node-cards';
 
-import { createsGroupCycle } from './channel-policy';
-import { candidateOrder } from './channel-node-order';
+import { nodeOrigin } from './subscription-node-pool';
 import { ChannelNodeCards } from './channel-node-cards';
 import { ChannelNodeActions } from './channel-node-actions';
+import { createsGroupCycle, memberKey } from './channel-policy';
 import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionContentState } from './subscription-content-state';
 
 interface Props {
   onClose: () => void;
   group: ChannelRuleGroup;
+  /** The pool in its saved order. */
+  nodes: SubscriptionNode[];
   format: SubscriptionFormat;
   groups: ChannelRuleGroup[];
-  nodes: SubscriptionNodeSummary[];
-  onAdd: (ids: string[], builtins: ChannelRuleGroup['builtin_nodes'], order: string[], groupIDs: string[]) => void;
+  /** The chosen candidates in the order the picker shows them. */
+  onAdd: (members: ChannelGroupMember[]) => void;
 }
 
+const BUILTINS = ['direct', 'reject'] as const;
+
+type Candidate = ChannelGroupMember & { node?: SubscriptionNode; group?: ChannelRuleGroup };
+
+/**
+ * Picks candidates to add to a group: the pool's nodes in pool order, the
+ * built-in exits, then the channel's other groups. Candidates already in the
+ * group, unsupported by the client, disabled or making a cycle stay listed
+ * but cannot be chosen; the chosen ones join in the order shown here.
+ */
 export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd }: Props) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [selected, setSelected] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [order, setOrder] = useState(() => [
-    'builtin:direct', 'builtin:reject', ...nodes.filter((node) => !node.hidden && node.available).map((node) => `node:${node.id}`),
-    ...groups.filter(value => value.id !== group.id).map(value => `group:${value.id}`),
-  ]);
-  const matches = (text: string) => text.toLowerCase().includes(deferredSearch.trim().toLowerCase());
-  const added = new Set(candidateOrder(group));
-  const catalog = useMemo(() => new Map(nodes.filter((node) => !node.hidden && node.available).map((node) => [`node:${node.id}`, node])), [nodes]);
-  const groupCatalog = useMemo(() => new Map(groups.map(value => [`group:${value.id}`, value])), [groups]);
-  const items: ChannelNodeCard[] = order.flatMap((id) => {
-    const builtin = id === 'builtin:direct' ? 'direct' : id === 'builtin:reject' ? 'reject' : undefined;
-    const node = catalog.get(id);
-    const candidate = groupCatalog.get(id);
-    if (!builtin && !node && !candidate) return [];
+  const catalog = useMemo(() => new Map<string, Candidate>([
+    ...nodes.map(node => [`node:${node.id}`, { kind: 'node' as const, id: node.id, node }] as const),
+    ...BUILTINS.map(id => [`builtin:${id}`, { kind: 'builtin' as const, id }] as const),
+    ...groups.filter(value => value.id !== group.id).map(value => [`group:${value.id}`, { kind: 'group' as const, id: value.id, group: value }] as const),
+  ]), [group.id, groups, nodes]);
+  const [order, setOrder] = useState(() => [...catalog.keys()]);
+  const query = deferredSearch.trim().toLowerCase();
+  const added = new Set(group.members.map(memberKey));
+  const items: ChannelNodeCard[] = order.flatMap((key) => {
+    const entry = catalog.get(key);
+    if (!entry) return [];
+    const builtin = entry.kind === 'builtin' ? entry.id as typeof BUILTINS[number] : undefined;
+    const candidate = entry.group;
     const unsupported = (builtin === 'reject' && format === 'sing-box')
-      || (Boolean(builtin) && format === 'loon' && group.type !== 'select');
-    const label = builtin ? builtin.toUpperCase() : candidate ? candidate.name : `${node!.name} ${node!.source_name}`;
-    const disabledReason = added.has(id)
-      ? t('channels.alreadyAdded')
-      : candidate && !candidate.enabled
-        ? t('channels.disabled')
-        : candidate && createsGroupCycle(groups, group.id, candidate.id)
-          ? t('channels.cyclicGroupReference')
-          : unsupported ? t('channels.unavailable') : undefined;
-    if (!matches(builtin ? `${builtin} ${t(`channels.${builtin}`)}` : `${label} ${candidate ? `${t('channels.strategyGroup')} ${t(`channels.groupTypes.${candidate.type}`)}` : node!.type}`)) return [];
+      || (builtin !== undefined && format === 'loon' && group.type !== 'select');
+    let label = builtin ? builtin.toUpperCase() : candidate?.name ?? '';
+    if (entry.node) label = entry.node.display_name;
+    let searched = `${label} ${builtin ? t(`channels.${builtin}`) : ''}`;
+    if (entry.node) searched = `${label} ${nodeOrigin(entry.node)} ${entry.node.protocol}`;
+    if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${t(`channels.groupTypes.${candidate.type}`)}`;
+    if (query && !searched.toLowerCase().includes(query)) return [];
+    let disabledReason: string | undefined;
+    if (added.has(key)) disabledReason = t('channels.alreadyAdded');
+    else if (candidate && !candidate.enabled) disabledReason = t('channels.disabled');
+    else if (candidate && createsGroupCycle(groups, group.id, candidate.id)) disabledReason = t('channels.cyclicGroupReference');
+    else if (unsupported) disabledReason = t('channels.unavailable');
     return [{
-      id, label, node, builtin, group: candidate, disabledReason, selected: added.has(id) || selected.includes(id),
+      id: key, label, node: entry.node, builtin, group: candidate, disabledReason,
+      selected: added.has(key) || selected.includes(key),
       disabled: Boolean(disabledReason), unavailable: unsupported || Boolean(candidate && !candidate.enabled),
     }];
   });
   const count = selected.length;
   const visible = items.map((item) => item.id);
   function add() {
-    const chosen = order.filter((id) => selected.includes(id));
-    onAdd(
-      chosen.filter((id) => id.startsWith('node:')).map((id) => id.slice(5)),
-      chosen.flatMap((id) => id === 'builtin:direct' ? ['direct' as const] : id === 'builtin:reject' ? ['reject' as const] : []),
-      chosen,
-      chosen.filter(id => id.startsWith('group:')).map(id => id.slice(6)),
-    );
+    onAdd(order.filter(key => selected.includes(key)).flatMap((key) => {
+      const entry = catalog.get(key);
+      return entry ? [{ kind: entry.kind, id: entry.id }] : [];
+    }));
   }
   return (
     <Dialog open onOpenChange={(open, details) => {
@@ -109,7 +121,7 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
             </InputGroup>
           </div>
         </div>
-        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain p-0.5 flex flex-col *:[table]:flex-none'>
+        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain p-0.5 flex flex-col'>
           <ChannelNodeCards
             items={items}
             onToggle={(id) => setSelected((current) =>

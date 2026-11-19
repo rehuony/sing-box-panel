@@ -2,7 +2,14 @@
 
 package subscription
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+	"unicode"
+)
 
 // Reject options without a proven native equivalent instead of returning a
 // usable-looking node with different connection or authentication behavior.
@@ -21,9 +28,12 @@ func convertMihomoSourceOptions(result, proxy map[string]any) error {
 	for _, key := range protocolFields[typeID] {
 		allowed[key] = true
 	}
-	for key := range proxy {
+	for _, key := range slices.Sorted(maps.Keys(proxy)) {
 		if !allowed[key] {
-			return errors.New("unsupported YAML proxy option")
+			if len(key) > 64 || strings.IndexFunc(key, unicode.IsControl) >= 0 {
+				return errors.New("unsupported proxy option")
+			}
+			return fmt.Errorf("unsupported proxy option %q", key)
 		}
 	}
 	for _, key := range []string{"udp", "tls", "skip-cert-verify"} {

@@ -82,7 +82,7 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 					}
 					if node.Type == "hysteria2" || node.Type == "anytls" {
 						for _, format := range []RenderFormat{RenderFormatMihomo, RenderFormatLoon} {
-							rendered, err := RenderNodes([]Node{node}, RenderChannel{Format: format})
+							rendered, err := renderInboundNodes([]Node{node}, format)
 							if err != nil || rendered.NodeCount != 1 || len(rendered.Diagnostics) != 0 {
 								t.Fatalf("producer/consumer %s: %+v %v", format, rendered, err)
 							}

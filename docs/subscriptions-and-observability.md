@@ -38,43 +38,12 @@ Disabling or deleting a key invalidates future requests, not credentials already
 downloaded by a client. Existing API revocation and rotation invalidation remain
 supported; revoked keys cannot be re-enabled.
 
-Source and channel forms omit enablement controls. New records are enabled;
-editing existing records preserves their stored enablement state.
-Source names, including the manual collection, and channel names are display-only;
-use the row's Edit button to open their workspace. Source deletion is not exposed
-in the list or source settings. The creation dialog sizes to its fields, and
-subscription actions use visible button surfaces.
+Channel names are display-only; use the row's Edit button to open a channel's
+workspace. Channel forms omit enablement controls: new channels are enabled and
+editing preserves the stored state.
 
-Node cards within each source (including the manual collection) support whole-card
-DND-KIT sorting with the same mouse, touch and keyboard sensors as channel cards.
-Node order is stored on the server per collection: `manual` includes system,
-manual and local-source nodes; each remote source has its own collection. The
-catalog, add-node picker and all three client exports follow the source sidebar:
-manual first, then remote sources by creation time descending (ID descending for
-ties), with each collection's saved node order. Unordered/new nodes append in
-that collection's original order; absent nodes are not rendered. Saved slots
-survive refreshes until the next reorder replaces them.
-
-`PUT /subscription/node-orders/{collectionId}` accepts `ids` and the current
-`revision` (zero before the first save); the node catalog returns saved
-`node_orders`. Stale revisions return 412 and must be reloaded. A drag saves
-immediately, blocks further sorting until completion, and restores confirmed
-order with an error toast if saving fails. Pending saves continue across panel
-navigation; returning to sources still blocks reordering until they finish.
-Successful changes affect subsequent
-previews and subscription requests without saving each channel. Browser-local
-orders from earlier releases are ignored and are not imported; reorder once to
-establish the shared server order.
-
-Sorting a filtered or paginated view changes only its visible positions. Source
-contents, publication identities, group candidate order and group defaults remain
-independent of this presentation order. Header actions do not initiate dragging;
-dragging a hidden card does not restore its visibility. The picker starts with
-DIRECT/REJECT, ordered available source nodes, then groups; its own temporary
-sorting affects only confirmed group additions.
-
-The API also supports user-scoped keys, which require an enabled user and exact
-node grants. An empty grant set renders an empty subscription. User/grant
+The API also supports user-scoped keys, which require an enabled user and grants
+naming pool node IDs. An empty grant set renders an empty subscription. User/grant
 management is available through the API; the Web key UI uses channel policies.
 The authenticated preview accepts an omitted user ID for the channel policy,
 or a user ID for that user's restricted output.
@@ -107,10 +76,9 @@ Subscription-Userinfo: upload=123; download=456; total=0
 Values are integer bytes, separated by a semicolon and a space. `upload` is the
 recorded outbound traffic of the nodes whose local inbounds the subscription
 delivers, each in its own current period, and `download` is the same for
-inbound traffic. Those are the nodes with a local inbound the key may receive,
-that is not hidden and that the channel keeps: its policy's selection, or
-without a policy its tag and type exclusions; a subscription with no local
-inbounds reports zero. `total` is always `0`: each node has its own quota, and their sum
+inbound traffic. Those are the fleet nodes with an inbound the channel
+publishes and the key may receive; a subscription that publishes no inbounds
+reports zero. `total` is always `0`: each node has its own quota, and their sum
 would tell a client nothing about how much it can still use on the node it
 actually uses. The counters belong to the nodes, so every key that reaches the
 same nodes sees the same values. They do not represent individual user usage,
@@ -135,93 +103,159 @@ or refresh-interval field: a period boundary is not a subscription expiration.
 Clients display the new usage on their next successful subscription refresh,
 so manually refresh an existing subscription to see it immediately.
 
-## Applied local nodes and versioned sources
+## Subscription node pool
 
-Each node publishes local nodes from the configuration of the bundle it reports
-running: the panel finds that revision among the node's revisions, checks its
-bytes against the digest the node reported, and converts its inbounds with the
-exact core version of the bundle. Draft, failed, and unapplied configuration is
-never published. Rollback changes the applied bundle the node reports and
-therefore restores the matching local-node input without re-projecting the
-current revision. A node whose revision the panel no longer holds or whose
-digest differs, whose core version has no converter, or whose configuration
-cannot be read publishes nothing and adds a diagnostic naming it; the other
-nodes publish as usual.
+The pool is the one list of nodes subscriptions publish: every inbound the
+fleet's nodes publish and every node a source's filter keeps. It has no manual
+nodes, enable switches or hidden flags. A node in the pool can be published, and
+each channel's groups choose what that channel delivers. The Web UI shows the
+pool as cards in its saved order, without pagination; dragging a card saves the
+new order.
 
-A local node's key and publication ID include its node, so nodes that run the
-same tags and credentials stay distinct. Its tag and its name in rendered
-channels are prefixed with its node's name, such as `tokyo · vless-in`, and the
-node catalog names its node in `node_id` and `source_name`. The catalog and
-previews list every publishing node under `node_publications`.
+Each node has an ID derived by one rule from its origin: `sn_` and a digest of
+the origin kind, the origin's ID and the node's key within the origin. An inbound's key is its type and tag with the identity of its credential, so a
+multi-user inbound yields one node per user, named `tag (user)`; a source node's key is its name in the
+source, with `#2`, `#3` and so on for later nodes of the same name. The ID holds
+while the origin keeps that key: renaming a node at its provider, or changing an inbound's type, tag or user,
+makes a new node. Order, display name, channel membership
+and user grants all refer to the ID.
+
+A node's display name is the name every channel publishes it under and the only
+field an administrator edits. It is unique in the pool, ignoring case, has at
+most 256 bytes and no surrounding spaces, control characters or commas; a taken
+name answers 409. A new
+node takes its origin name, prefixed with its fleet node's name for an inbound
+(`tokyo · vless-in`), and appends ` 2`, ` 3` and so on while the name is taken.
+Its content is the sing-box outbound its origin yields, stored with the node and
+replaced on each synchronization.
+
+### Synchronization
+
+The pool is synchronized in one transaction whenever its inputs change: a fleet node applies a configuration (rollback included), changes its public
+host or reported public IP, or is deleted; a source is created, refreshed, given
+new content, has its filter changed, or is deleted; and once when the panel starts. Synchronization
+
+1. computes every node the inputs yield, with its ID;
+2. deletes the nodes whose ID is gone together with everything that names them:
+   their group memberships and user grants are removed by cascade, a rule exit
+   that named one falls back to its group's default, and a channel's default
+   exit that named one falls back to `direct`;
+3. replaces the content of the nodes that remain, keeping their display names
+   and positions;
+4. appends the new nodes to the end of the order in origin order: fleet nodes by
+   name, each node's inbounds in configuration order, then sources by creation
+   time, each source's nodes in content order.
+
+Nothing about a removed node is kept, so a node that returns later is new: it
+joins the end of the order and no channel. A source whose stored content no
+longer reads keeps its nodes and records the failure in `last_error`.
+
+`PUT /subscription/node-order` takes every current ID exactly once. A different
+set means the pool was synchronized since it was read and answers 409; the UI
+then reloads the pool. Otherwise the last saved order wins.
+
+### Fleet inbounds
+
+Each fleet node contributes the inbounds of the configuration of the bundle it
+reports running: the panel finds that revision among the node's revisions,
+checks its bytes against the digest the node reported, and converts its inbounds
+with the exact core version of the bundle. Draft, failed and unapplied
+configuration is never published, and a rollback changes the applied bundle and
+therefore the inbounds. A node whose revision the panel no longer holds or whose
+digest differs, whose core version has no converter, whose configuration cannot
+be read, or that has neither a public host nor a reported public IP contributes
+no nodes and adds a diagnostic naming it; its earlier nodes leave the pool with
+the next synchronization, and the other nodes publish as usual.
 
 The inbound registry accepts only the exact reviewed releases with an inbound
 family in the [support table](core-versions.md#exact-configuration-support);
-other versions fail closed.
-Each converter publishes only the client-usable inbound types available in that
-release and reports stable diagnostics for server-only or unsupported types. Multi-user inbounds
-become separate grantable credentials for user-scoped access. A node's public
-host, set in its settings, or else the public IP it reports combines with each
-inbound `listen_port`; server certificate private keys, ACME configuration, and
-listen-side fields are never copied. A node with neither publishes nothing and
-adds a `public_host_unavailable` diagnostic; the catalog still lists its
-inbounds, unavailable and without a server.
-
-Each reviewed version uses the following contract for its assigned family:
+other versions fail closed. Each converter publishes only the client-usable
+inbound types available in that release and reports stable diagnostics for
+server-only or unsupported types. A node's public host, set in its settings, or
+else the public IP it reports combines with each inbound `listen_port`; server
+certificate private keys, ACME configuration and listen-side fields are never
+copied.
 
 | Inbound family | Convertible local inbound types |
 | --- | --- |
 | `1.13` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
 | `1.14` | All family 1.13 types plus `snell` |
 
-For these versions, `direct`, `tun`, `redirect`, `tproxy`, and
-`cloudflared` are explicitly unpublishable. Any other inbound type currently
-produces an unsupported-type diagnostic; it is not guessed from a nearby
-version.
+For these versions, `direct`, `tun`, `redirect`, `tproxy` and `cloudflared` are
+explicitly unpublishable. Any other inbound type produces an unsupported-type
+diagnostic; it is not guessed from a nearby version.
 
-Third-party sources accept sing-box JSON, Mihomo YAML, or plaintext/Base64
-share-link lists. URI lists strictly recognize `ss`, `socks`/`socks5`,
-`http`/`https`, `vmess`, `vless`, `trojan`, `hysteria`, `hy2`/`hysteria2`,
-`tuic`, and `anytls`. Successful versions are append-only and store a raw
-digest, normalized nodes, detected format, fetch time, and diagnostics. An
-older successful version can be restored as current. Parse or fetch failure
-never replaces the current version. Each source keeps its current version and
-its ten newest other versions; the daily retention pass removes older ones.
+## Subscription sources
 
-Remote refresh returns the fetched version and node count after completion. New
-remote sources receive an initial fetch, retried after 15 minutes on failure.
-Periodic refresh is otherwise disabled by default; a configured interval is at
-least 15 minutes. Its next deadline is persisted per source. Fetches allow at most
-4 MiB, 20 seconds, and five redirects. DNS and every redirect target are
-checked against the SSRF policy. Only public unicast addresses are allowed:
-loopback, private, link-local, shared (`100.64.0.0/10`), benchmarking,
-documentation, reserved and multicast ranges, and the IPv6 translation prefixes
-that embed them, are denied unless `subscription.private_source_cidrs`
-explicitly allows them. Core downloads apply the same address rules.
-Public subscription requests never fetch upstream data.
+A source is either a URL or a file. A URL source is fetched when it is created,
+when an administrator refreshes it and, when `refresh_minutes` is not zero, every
+that many minutes (at least 15). A file source holds content uploaded or pasted
+in the Web UI and changes only when new content replaces it. A source is created only when its first content parses. The panel holds at most
+256 sources with 32 MiB of stored content in all, and at most 10,000 pool nodes.
 
-Channel policy, user grants, token state, and source current-version pointers
-take effect immediately. The public handler reads these values, the applied
-startup artifact, and enabled source versions in one consistent SQLite read.
+A source keeps only the last content that parsed, overwritten by the next, so no
+history accumulates in the database. A failed fetch or parse keeps the current
+content and nodes and records its code in `last_error`, which the next success
+clears; a scheduled source tries again after its interval. Fetches allow at most
+4 MiB, 20 seconds and five redirects. DNS and every redirect target are checked
+against the SSRF policy. Only public unicast addresses are allowed: loopback,
+private, link-local, shared (`100.64.0.0/10`), benchmarking, documentation,
+reserved and multicast ranges, and the IPv6 translation prefixes that embed them,
+are denied unless `subscription.private_source_cidrs` explicitly allows them.
+Core downloads apply the same address rules. Public subscription requests never
+fetch upstream data.
 
-## Manual publication and channels
+Each source has a filter of name rules. Plain text matches a case-insensitive
+substring of a node's name in the source; text wrapped in slashes is an RE2
+regular expression, which matches in time linear in its input. A nonempty
+include list keeps only matching nodes, and the exclude list then removes
+matching ones. Only kept nodes enter the pool. A changed filter applies to the stored content at once, while a changed format
+applies to the next fetch or upload; `POST /subscription/sources/preview` shows which nodes a
+filter keeps before it is saved.
 
-Manual nodes store native client-node JSON with optimistic concurrency. Local
-automatically derived nodes and manual nodes share the “manual nodes” collection;
-source membership and node names are independent. The source list folds legacy
-local-source records into that collection without changing their IDs. Cards use
-actual source names, with no invented local/self-hosted node-name prefix.
-Node cards use a compact, wrapping grid with badges aligned directly below the
-header. Hidden cards retain their content beneath a frosted overlay, while the
-name, visibility and detail controls remain accessible. The masked body is not
-interactive; reduced transparency and increased contrast use an opaque overlay.
-Publication IDs remain stable
-across credential updates. Hiding a node keeps it recoverable at the source but
-omits it from channel selection views and downloads. It does not delete the
-inbound, channel membership, or user-scoped grants.
+Sources, channels and node display names use their `updated_at` timestamp as
+their version: RFC 3339 with nanoseconds, strictly increasing for each record.
+Changing or deleting one sends it quoted in `If-Match`, and a stale value answers
+412. A source's timestamp changes only with its settings, so a refresh never
+invalidates an edit in progress.
 
-Channel configuration accepts a typed policy: selected/excluded publication IDs,
-new-node include/exclude policy, rule groups and a
-final exit. Creating or opening a channel goes directly to the strategy-group
+### Parsing
+
+Parsing is strict. The content must parse as a whole, and every node the filter
+keeps must convert to a sing-box outbound; otherwise the change fails, names the
+node's location, such as `proxies[7]` or `line 12`, and nothing is saved:
+the request answers 422 `subscription_source_unreadable` with that code,
+location, name and reason. A node
+that cannot convert can be excluded by the filter, since filtering reads only
+names and protocols. Entries that are not nodes are not part of the content's
+node list: sing-box `direct`, `block`, `dns`, `selector`, `urltest`, `tor` and `bridge`
+outbounds and endpoints other than WireGuard, and Mihomo groups, rules and
+providers.
+
+| Format | Accepted content |
+| --- | --- |
+| `sing-box` | A configuration's `outbounds` and `endpoints`, an outbound array, or one outbound |
+| `mihomo` | A configuration's `proxies`, or a proxy list; `proxy-providers` are not fetched |
+| `share-links` | One link per line, plaintext or Base64: `ss`, `socks`/`socks5`, `http`/`https`, `vmess`, `vless`, `trojan`, `hysteria`, `hy2`/`hysteria2`, `tuic` and `anytls` |
+
+With the format `auto`, Base64-wrapped content is decoded first, then each
+format scores the content and the highest score reads it; a source can name its
+format instead. A share link without a name is named by its sing-box type, server and port,
+such as `hysteria2 example.com:443`. Each format is one parser registered with its name, its scoring and its
+reading into named nodes, and share links register one converter per scheme, so
+a new format or scheme is added without changing the rest of the pipeline.
+
+Channel groups, user grants, token state and the pool take effect immediately.
+The public handler reads them and the stored nodes in one consistent SQLite read.
+
+## Channels
+
+A channel publishes exactly the pool nodes its enabled groups name as members,
+as the exits of their enabled rules, or as its default exit, in pool order and under their display names; a
+node no group names is not part of its output. A new channel starts with no
+nodes. Each group lists its candidates in order, pool nodes, built-in `direct`
+and `reject` exits and other groups, and the first is the initial selection.
+Creating or opening a channel goes directly to the strategy-group
 workspace, without a separate channel-level node-selection screen. The editor
 lists strategy groups in a left sidebar and edits
 the selected group's nodes and exit rules on the right. Each sidebar card has a
@@ -233,7 +267,7 @@ it discards those edits. Groups created, configured or selected as the final exi
 group enablement control. Opening the page or cancelling the dialog preserves
 previously stored disabled groups. The top-level toolbar
 contains back, channel settings, preview and save. Channel settings contain name,
-client, template and new-node policy; node names, membership and order are managed
+client and template; node names, membership and order are managed
 directly through nodes and candidate cards. Candidate cards show
 the node name and a compact source/protocol summary; addresses remain available
 on hover. A flag beside the sidebar's delete action toggles the selected group's
@@ -245,9 +279,8 @@ preserved until explicitly changed. Group drafts survive
 switching groups and are persisted together by Save changes. Leaving an edited
 channel through Back, a subscription tab or another panel route prompts to keep
 editing or discard the changes. Confirmed departure clears the detail workspace;
-returning to Channels opens the channel list. Source settings and node edits use
-the same navigation protection. Adding a node to a
-group also selects it for the channel. Card order is the sole source of each manual group's initial selection: the first
+returning to Channels opens the channel list. Source settings use the same navigation protection. Adding a node to a
+group publishes it in the channel. Card order is the sole source of each manual group's initial selection: the first
 candidate is selected, and an empty group rejects traffic. Removing a node also redirects any
 rules explicitly referencing that node to their group. The final group must be
 cleared before deletion. Existing exits remain unchanged until explicitly edited.
@@ -274,16 +307,13 @@ further lines continue after the channel's largest index. Valid text becomes
 the group's rules as it is typed. While a line has a problem, the text stays,
 switching back to entries and saving are refused, and leaving asks about the
 unsaved text. The server's channel policy validation remains the final check.
-Existing groups retain their candidate snapshot when new nodes arrive.
-Unavailable, hidden or cyclic node dependencies cannot silently become direct
-traffic: unavailable designated exits become reject actions. Group and native
+New pool nodes join no group until added. Missing or cyclic dependencies cannot
+silently become direct traffic: unreachable designated exits become reject actions. Group and native
 node names must not collide with generated reserved names.
 
-Groups explicitly store `type` (`select`, `url-test`, or `fallback`) and
-`builtin_nodes` (an array containing `direct` and/or `reject`, or empty).
-These fields are required; this development-stage schema deliberately provides
-no migration or implicit defaults for older group records. New groups have no
-candidates. Candidate cards start unselected. The toolbar orders Select all and
+Groups store their `type` (`select`, `url-test` or `fallback`) and their ordered
+`members`: pool nodes, the built-ins `direct` and `reject`, and other groups.
+New groups have no candidates. Candidate cards start unselected. The toolbar orders Select all and
 Add nodes; selecting cards reveals one compact container with the selected count,
 a vertical dashed divider, Clear selection and the red Remove selected nodes
 button, in that order, before those actions.
@@ -294,24 +324,24 @@ clears all selections. Only Remove selected nodes removes the selected candidate
 from the group, including selections hidden by search, and clears the selection.
 Switching groups resets card selection without changing either group's members.
 Add opens
-a selection dialog containing available catalog nodes, both built-in cards and other strategy groups;
+a selection dialog containing the pool's nodes in pool order, both built-in cards and other strategy groups;
 unsupported client options are disabled. Only confirmed additions appear in the
 group; cancelling the dialog discards its selection and sorting. Its title, compact
 selection actions and search share a header; there is no corner close button.
 Clicking a card toggles its selection outline, and selecting any new cards reveals
 the same count, dashed divider and clear action before Select all. Already-added
 cards remain checked and disabled and are excluded from the new-selection count.
-Card presentation is shared with subscription sources.
+Card presentation is shared with the node pool.
 DND-KIT sorts whole cards in both the picker and the candidate list; a short mouse
 movement threshold distinguishes dragging from selection, and touch uses a long
 press. Space/Enter toggle selection; F2 starts/finishes keyboard sorting, arrow
 keys move, and Escape cancels the drag without closing the picker. Filtering only
 reorders visible slots. Confirmed additions retain their mixed node/builtin/group order,
 and Save changes persists it. Built-ins remain separate
-from publication IDs. Remove selected nodes removes all selected candidate kinds;
+from pool node IDs. Remove selected nodes removes all selected candidate kinds;
 Clear selection leaves group membership unchanged. Built-in candidates
-are never automatically injected into a nonempty group. An unavailable first manual candidate still rejects
-traffic through rules referencing that group; no hidden candidate is inserted.
+are never automatically injected into a nonempty group. An empty manual group still rejects
+traffic through rules referencing it; no candidate is inserted.
 Mihomo and Loon support all three types. Mihomo supports both built-ins;
 Loon supports them in manual groups only; auto groups reject built-in candidates. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
@@ -321,21 +351,18 @@ not an obsolete block outbound.
 Automatic groups may configure `health_check` with an HTTP(S) URL, an interval
 of 60–86400 seconds and URL-test tolerance of 0–65535 milliseconds. Defaults are
 `https://www.gstatic.com/generate_204`, 300 seconds and 50 ms. These checks run on
-the subscribing client, never on the panel. All groups retain candidate order
-using optional `candidate_order`, an exact permutation of `node:<publication ID>`,
-`builtin:<kind>` and `group:<strategy group ID>` references. Optional `group_ids`
-contains references to enabled groups in the same channel. The picker appends other
+the subscribing client, never on the panel. Members keep their order, and group
+members name enabled groups of the same channel. The picker appends other
 strategy groups after the ordinary nodes, in sidebar order, and supports the same
 selection, search and reordering interactions. Self references, duplicate references
 and cycles are rejected; disabled groups cannot be selected. Renaming a group
 retains its identity. Deleting or disabling it in the editor removes all incoming
-candidate references; the final exit must be changed first if it uses that group. Missing, duplicate or unknown entries are rejected.
-When omitted, publication IDs precede built-ins, followed by strategy group IDs.
+candidate references; the final exit must be changed first if it uses that group. Duplicate or unknown members are rejected.
 Generation emits dependencies before their parents without flattening them.
-Unavailable child groups are skipped as candidates; a missing first manual
+Empty child groups are skipped as candidates; an empty first manual
 dependency still makes routes through the parent reject traffic. Manual groups use the first card as their initial exit; no independently saved
 group default can reorder it. Fallback picks the
-first available candidate, whereas URL-test chooses by latency. An unavailable
+first available candidate, whereas URL-test chooses by latency. An empty
 manual initial candidate does not suppress remaining auto-group candidates.
 An empty group is omitted and its routes reject traffic instead of becoming
 implicit direct connections. Preview and delivery use the same rendering path.
@@ -355,14 +382,9 @@ edit/delete actions. Overflowing text is truncated with its full value available
 The list has no enable checkbox; stored disabled rules are labelled as disabled
 in the list, and editing preserves their state.
 
-Database schema 14 removes the retired organizer options and group `default_exit`
-without changing candidate order or the channel's final exit. It preserves the
-incompatible-node skip/error policy separately. For policy channels it
-also removes the retired `exclude_tags`/`exclude_types` overrides: explicit node
-selection and candidate cards take precedence. Nonempty legacy filters cannot
-be combined with a policy in new API requests. The migration is atomic and
-checks that each rewritten configuration is readable before committing. The
-configuration limit is 640 KiB; normalized saves enforce the same limit.
+A channel's groups, members and rules are stored in their own tables and
+replaced together on each save; the serialized configuration is limited to
+640 KiB.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
@@ -425,13 +447,13 @@ field removes it; invalid content fails validation instead of loading defaults.
 Preview diagnostics and request failures appear behind an issue button beside
 the preview title. Previews without diagnostics have no issue indicator; the code area
 contains only generated configuration. Authenticated preview diagnostics identify
-the node by stable publication ID, name and protocol when available, with an
+the node by its pool ID, display name and protocol when available, with an
 input field path, localized explanation and corrective suggestion. Positions
 refer to renderer input, not lines in the generated configuration. Unknown codes
 retain their technical code with a generic explanation. Public diagnostics remain
 positional and never include node identities or configuration values.
 
-Subscription sources, keys, channels and their dialogs show one centered empty
+The node pool, sources, keys, channels and their dialogs show one centered empty
 or initial-loading state with a contextual icon, title and brief guidance inside
 the relevant content area. Loading does not show
 an empty-state message simultaneously; refreshes retain available data. Rule-order
@@ -446,7 +468,7 @@ persisting it. Validate is available again after every request, including
 failures; editing is locked only while that request is pending. Apply closes the
 dialog and updates the channel draft, including unfinished content. Save changes
 is the sole persistence action: it previews the exact proposed policy, then
-saves with the channel revision. Validation errors and revision conflicts retain
+saves with the channel's `updated_at`. Validation errors and revision conflicts retain
 the draft. Cancelling the template dialog leaves the channel draft unchanged.
 Switching output client with an existing template explicitly replaces it with
 the target client's seed in the draft; cancelling settings preserves the old
@@ -455,12 +477,7 @@ format and template. Without a template, switching leaves it absent.
 The Web client validates every channel draft with the native renderer before
 saving; a failed preview never falls back to an unvalidated save.
 
-Existing channels without `policy` retain their original node-only public output
-until saved in the channel workspace. The workspace explicitly identifies this
-upgrade draft and enables Save changes even before any edits. Both previews show
-the complete policy that Save changes will publish. Legacy filters become explicit
-excluded IDs for matching catalog nodes; after the upgrade, future nodes follow
-the new-node policy instead of hidden tag/type filters. New Loon channels support
+New Loon channels support
 the same editing workflow as sing-box and Mihomo, even without a saved template.
 
 Sing-box templates and final output are schema-checked against reviewed 1.14.0,
@@ -469,26 +486,16 @@ structure and reserved fields; client runtime validation remains the subscriber'
 responsibility. Diagnostics report field paths and fixed error codes without
 reflecting submitted secrets.
 
-Authenticated preview can validate an unsaved draft with an empty node catalog
-before the first publication source exists. Public delivery retains its source
+Authenticated preview can validate an unsaved draft with an empty pool
+before any node exists. Public delivery retains its source
 availability and authorization checks. Both use the same renderer. JSON preview
 responses preserve the existing byte/Base64 contract; the Web adapter decodes
 before display/copy.
 
-The native single-node editor uses reviewed 1.14 fields, with basic address and
-credentials first and optional protocol, TLS, transport, multiplexing and dial
-sections. Explicit protocol/mode changes clear incompatible known options;
-unknown extension fields and large numeric lexemes survive unrelated edits.
-The advanced node JSON editor formats valid content on load, on entry and on
-blur and save, and provides a format button. Invalid or incomplete text is left intact;
-formatting preserves large numeric lexemes and unknown fields.
 Node detail JSON displays credentials directly and copies the complete displayed
-JSON. Configuration forms likewise show passwords, UUIDs, keys and tokens as text.
-HY2 supports a single port, port ranges or Realm, SSH supports password/key/key
-file, and Shadowsocks UDP-over-TCP and multiplexing are mutually exclusive.
-QUIC does not expose uTLS/Reality or TCP fragmentation. Detour references must
-resolve within the manual-node collection and cannot introduce cycles. Server
-validation rejects invalid known fields without echoing credential values.
+JSON. A source node's `detour` names another node of the same source by its
+name there; a channel publishes it under that node's display name when it
+publishes that node too.
 
 ## Target renderers
 
@@ -971,11 +978,10 @@ traffic API. Metrics and traffic periods have no CLI command group.
 
 ## Management surfaces
 
-The Web interface exposes sources, manual nodes, keys and channel policy.
+The Web interface exposes the node pool, sources, channels and keys.
 The former subscription, log, and metrics CLI groups have been removed; use the
 Web UI for these management tasks or the authenticated HTTP API for automation.
-OpenAPI also provides user profiles/grant matrices and source history
-for existing clients. Runtime operations and traffic evidence retain
+OpenAPI also provides user profiles and their node grants. Runtime operations and traffic evidence retain
 their authenticated management contracts. The
 browser core import uses bounded multipart upload and a private staging
 directory; it never asks a browser to submit a server-local path.

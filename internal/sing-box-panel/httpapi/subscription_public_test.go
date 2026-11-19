@@ -26,6 +26,16 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		t.Fatal(err)
 	}
 	publish()
+	inbound := syncInboundNode(t, app.Subscriptions, nodeID)
+	current, err := app.Subscriptions.SubscriptionChannel(ctx, channel.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Subscriptions.UpdateSubscriptionChannel(ctx, channel.ID, subscription.UpdateSubscriptionChannelRequest{
+		Name: current.Name, Format: current.Format, Enabled: true, ExpectedUpdatedAt: current.UpdatedAt, Config: channelConfigWith(inbound),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	key, err := app.Subscriptions.CreateSubscriptionToken(ctx, subscription.CreateSubscriptionTokenRequest{Label: "traffic"})
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +65,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		t.Fatalf("conditional response status=%d traffic=%q", conditional.Code, conditional.Header().Get("Subscription-Userinfo"))
 	}
 	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
-		Name: "Mihomo", Format: store.SubscriptionFormatMihomo, Enabled: true,
+		Name: "Mihomo", Format: store.SubscriptionFormatMihomo, Enabled: true, Config: channelConfigWith(inbound),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +76,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	}
 	// A channel that leaves the node out does not report the node's traffic.
 	without, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
-		Name: "Without VLESS", Format: store.SubscriptionFormatSingBox, Enabled: true, Config: json.RawMessage(`{"exclude_types":["vless"]}`),
+		Name: "Without VLESS", Format: store.SubscriptionFormatSingBox, Enabled: true, Config: json.RawMessage(emptyChannelConfig),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,12 +102,11 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 				ctx := t.Context()
 				db, app, handler := newSubscriptionHTTPServices(t, "")
 				// The header reads the traffic of the node the channel carries.
-				testutil.PublishNode(t, db, "edge", testutil.InboundDocument, "edge.example", "")
-				if _, err := app.Subscriptions.CreateSubscriptionNode(ctx, json.RawMessage(`{"type":"socks","tag":"manual","server":"manual.example","server_port":1080}`)); err != nil {
-					t.Fatal(err)
-				}
+				edge := testutil.PublishNode(t, db, "edge", testutil.InboundDocument, "edge.example", "")
+				manual := createSourceNodes(t, app, "manual", "socks5://manual.example:1080#manual\n")[0]
+				inbound := syncInboundNode(t, app.Subscriptions, edge)
 				channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
-					Name: "public", Format: store.SubscriptionFormatMihomo, Enabled: true,
+					Name: "public", Format: store.SubscriptionFormatMihomo, Enabled: true, Config: channelConfigWith(inbound, manual),
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -161,4 +170,37 @@ func TestPublicSubscriptionFailuresDoNotExposeTrafficOrConsumeDownloads(t *testi
 			})
 		}
 	}
+}
+
+// syncInboundNode synchronizes the pool after a fleet node was published
+// directly in the store and returns the pool ID of the node's inbound.
+func syncInboundNode(t *testing.T, subscriptions *subscription.Service, nodeID string) string {
+	t.Helper()
+	if err := subscriptions.SyncPool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := subscriptions.SubscriptionNodes(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range pool.Items {
+		if node.Origin.NodeID == nodeID {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s has no inbound in the pool: %+v %+v", nodeID, pool.Items, pool.Diagnostics)
+	return ""
+}
+
+// channelConfigWith is a channel whose one group holds nodes.
+func channelConfigWith(nodes ...string) json.RawMessage {
+	members := make([]map[string]string, len(nodes))
+	for index, id := range nodes {
+		members[index] = map[string]string{"kind": "node", "id": id}
+	}
+	encoded, _ := json.Marshal(map[string]any{
+		"groups":       []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select", "members": members, "rules": []any{}}},
+		"default_exit": map[string]any{"kind": "group", "id": "main"},
+	})
+	return encoded
 }

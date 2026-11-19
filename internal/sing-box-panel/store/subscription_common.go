@@ -3,34 +3,29 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 )
 
 const (
-	maximumSubscriptionNameBytes   = 128
-	maximumSubscriptionConfigBytes = 64 << 10
-	maximumChannelConfigBytes      = 640 << 10
-	maximumSourceSnapshotBytes     = 4 << 20
+	maximumSubscriptionNameBytes = 128
 
-	// MaximumSubscriptionNodes bounds one node collection.
+	// MaximumSubscriptionNodes bounds the node pool and one source's nodes.
 	MaximumSubscriptionNodes = 10_000
 
-	MaximumEnabledSubscriptionChannels       = 256
-	MaximumEnabledSubscriptionSources        = 256
-	MaximumSubscriptionInputBytes      int64 = 32 << 20
+	MaximumEnabledSubscriptionChannels = 256
+	// MaximumSubscriptionSources bounds the sources, whose stored contents
+	// together stay within MaximumSubscriptionInputBytes.
+	MaximumSubscriptionSources          = 256
+	MaximumSubscriptionInputBytes int64 = 32 << 20
 )
 
 var (
@@ -45,7 +40,21 @@ var (
 	ErrSubscriptionTokenInactive          = errors.New("subscription token is expired or revoked")
 	ErrSubscriptionConflict               = errors.New("subscription resource changed")
 	ErrSubscriptionLimitExceeded          = errors.New("subscription resource limit exceeded")
+	ErrSubscriptionReference              = errors.New("subscription reference is invalid")
 )
+
+// SubscriptionReferenceError names a reference to a pool node or channel
+// group that does not exist. Path locates it in the request, Code is fixed.
+type SubscriptionReferenceError struct {
+	Path string
+	Code string
+}
+
+func (err *SubscriptionReferenceError) Error() string {
+	return fmt.Sprintf("%v: %s: %s", ErrSubscriptionReference, err.Path, err.Code)
+}
+
+func (err *SubscriptionReferenceError) Unwrap() error { return ErrSubscriptionReference }
 
 // SubscriptionConflictError reports a failed updated_at compare-and-swap.
 type SubscriptionConflictError struct {
@@ -68,97 +77,25 @@ func (err *SubscriptionConflictError) Error() string {
 
 func (err *SubscriptionConflictError) Unwrap() error { return ErrSubscriptionConflict }
 
-// channelConfigObject checks the structure of a channel's canonical config.
-// Policy validation and canonical encoding belong to the subscription service.
-func channelConfigObject(raw json.RawMessage) (json.RawMessage, error) {
-	if _, err := jsonstrict.CanonicalObject(raw, `{}`, maximumChannelConfigBytes); err != nil {
-		return nil, fmt.Errorf("subscription channel config: %w", err)
-	}
-	if len(raw) == 0 {
-		return json.RawMessage(`{}`), nil
-	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, raw); err != nil {
-		return nil, fmt.Errorf("subscription channel config: %w", err)
-	}
-	return compact.Bytes(), nil
-}
-
 func ensureSubscriptionChannelLimits(
 	ctx context.Context,
 	q queryRower,
 	excludeID string,
-	candidate SubscriptionChannel,
+	enabled bool,
 ) error {
-	if !candidate.Enabled {
+	if !enabled {
 		return nil
 	}
-	var enabled int64
+	var count int64
 	if err := q.QueryRowContext(
 		ctx,
 		`SELECT count(*) FROM subscription_channels WHERE enabled = 1 AND id <> ?`,
 		excludeID,
-	).Scan(&enabled); err != nil {
+	).Scan(&count); err != nil {
 		return fmt.Errorf("count enabled subscription channels: %w", err)
 	}
-	if enabled >= MaximumEnabledSubscriptionChannels {
+	if count >= MaximumEnabledSubscriptionChannels {
 		return fmt.Errorf("%w: enabled channel count exceeds %d", ErrSubscriptionLimitExceeded, MaximumEnabledSubscriptionChannels)
-	}
-	return ensureSubscriptionInputBudget(ctx, q, excludeID, "", int64(len(candidate.Config)))
-}
-
-func ensureSubscriptionSourceLimits(
-	ctx context.Context,
-	q queryRower,
-	excludeID string,
-	candidate SubscriptionSource,
-) error {
-	if !candidate.Enabled {
-		return nil
-	}
-	var enabled int64
-	if err := q.QueryRowContext(
-		ctx,
-		`SELECT count(*) FROM subscription_sources WHERE enabled = 1 AND id <> ?`,
-		excludeID,
-	).Scan(&enabled); err != nil {
-		return fmt.Errorf("count enabled subscription sources: %w", err)
-	}
-	if enabled >= MaximumEnabledSubscriptionSources {
-		return fmt.Errorf("%w: enabled source count exceeds %d", ErrSubscriptionLimitExceeded, MaximumEnabledSubscriptionSources)
-	}
-	candidateBytes := int64(len(candidate.Config))
-	return ensureSubscriptionInputBudget(ctx, q, "", excludeID, candidateBytes)
-}
-
-func ensureSubscriptionInputBudget(
-	ctx context.Context,
-	q queryRower,
-	excludeChannelID string,
-	excludeSourceID string,
-	candidateBytes int64,
-) error {
-	var storedBytes int64
-	if err := q.QueryRowContext(
-		ctx,
-		`SELECT
-            coalesce((
-                SELECT sum(length(config_json))
-                  FROM subscription_channels
-                 WHERE enabled = 1 AND id <> ?
-            ), 0) +
-            coalesce((
-				SELECT sum(length(config_json))
-                  FROM subscription_sources
-                 WHERE enabled = 1 AND id <> ?
-            ), 0)`,
-		excludeChannelID,
-		excludeSourceID,
-	).Scan(&storedBytes); err != nil {
-		return fmt.Errorf("measure enabled subscription inputs: %w", err)
-	}
-	if candidateBytes < 0 || storedBytes > MaximumSubscriptionInputBytes-candidateBytes {
-		return fmt.Errorf("%w: enabled input bytes exceed %d", ErrSubscriptionLimitExceeded, MaximumSubscriptionInputBytes)
 	}
 	return nil
 }
@@ -286,7 +223,7 @@ func validSubscriptionFormat(value SubscriptionFormat) bool {
 }
 
 func validSubscriptionSourceKind(value SubscriptionSourceKind) bool {
-	return value == SubscriptionSourceRemote || value == SubscriptionSourceLocal
+	return value == SubscriptionSourceURL || value == SubscriptionSourceFile
 }
 
 func normalizeTokenDigest(value string) (string, error) {
@@ -336,18 +273,4 @@ func requireSingleSubscriptionWrite(result sql.Result, operation string) error {
 		return fmt.Errorf("%s affected %d rows, want 1", operation, rows)
 	}
 	return nil
-}
-
-// ValidSubscriptionNodeKey reports whether value is a well-formed node key:
-// printable ASCII without quotes or backslashes, at most 512 bytes.
-func ValidSubscriptionNodeKey(value string) bool {
-	if value == "" || len(value) > 512 || value != strings.TrimSpace(value) {
-		return false
-	}
-	for _, character := range value {
-		if character < 0x21 || character > 0x7e || character == '\\' || character == '"' {
-			return false
-		}
-	}
-	return true
 }

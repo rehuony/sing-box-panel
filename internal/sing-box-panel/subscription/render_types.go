@@ -9,10 +9,7 @@ import (
 	"fmt"
 )
 
-const (
-	maximumOutbounds = MaximumNodes
-	maximumFilters   = 10_000
-)
+const maximumOutbounds = MaximumNodes
 
 var (
 	ErrInvalidStartup = errors.New("invalid final startup JSON")
@@ -28,16 +25,9 @@ const (
 	RenderFormatLoon    RenderFormat = "loon"
 )
 
-// RenderChannel is the complete renderer input controlled by a subscription
-// channel. Exclusions are exact and case-sensitive, matching sing-box tags and
-// outbound types rather than accepting expressions.
+// RenderChannel is the renderer input a channel controls.
 type RenderChannel struct {
-	Format       RenderFormat
-	ExcludeTags  []string
-	ExcludeTypes []string
-	// NodeOrder controls presentation only. It must not affect name allocation,
-	// source normalization, group candidates, or diagnostic input positions.
-	NodeOrder []string
+	Format RenderFormat
 }
 
 // RenderDiagnostic identifies an omitted node by its zero-based position in the
@@ -59,9 +49,7 @@ type RenderResult struct {
 	// PreviewDiagnostics is explicitly projected only by authenticated preview.
 	// Public output and diagnostic serialization never include node identities.
 	PreviewDiagnostics []PreviewDiagnostic `json:"-"`
-	// carried holds the publication IDs of the nodes the channel delivers:
-	// with a policy, the nodes the output contains; without one, the nodes
-	// its filters keep.
+	// carried holds the pool node IDs the channel's output contains.
 	carried map[string]bool
 }
 

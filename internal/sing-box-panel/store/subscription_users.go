@@ -197,26 +197,36 @@ func (s *Store) SubscriptionUserGrants(ctx context.Context, userID string) (Subs
 	if err != nil {
 		return SubscriptionUserGrants{}, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT node_key FROM subscription_user_node_grants WHERE user_id = ? ORDER BY node_key`, userID)
+	grants, err := loadSubscriptionUserGrants(ctx, s.db, userID)
 	if err != nil {
-		return SubscriptionUserGrants{}, fmt.Errorf("list subscription user grants: %w", err)
+		return SubscriptionUserGrants{}, err
+	}
+	return SubscriptionUserGrants{User: user, Grants: grants}, nil
+}
+
+// loadSubscriptionUserGrants returns the pool node IDs granted to userID,
+// sorted.
+func loadSubscriptionUserGrants(ctx context.Context, q queryer, userID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT node_id FROM subscription_user_grants WHERE user_id = ? ORDER BY node_id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list subscription user grants: %w", err)
 	}
 	defer rows.Close()
 	grants := make([]string, 0)
 	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			return SubscriptionUserGrants{}, err
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
 		}
-		grants = append(grants, key)
+		grants = append(grants, id)
 	}
-	return SubscriptionUserGrants{User: user, Grants: grants}, rows.Err()
+	return grants, rows.Err()
 }
 
 func (s *Store) ReplaceSubscriptionUserGrants(
 	ctx context.Context,
 	userID string,
-	nodeKeys []string,
+	nodeIDs []string,
 	expectedUpdatedAt time.Time,
 	updatedAt time.Time,
 ) (SubscriptionUserGrants, error) {
@@ -231,7 +241,7 @@ func (s *Store) ReplaceSubscriptionUserGrants(
 	if err != nil {
 		return SubscriptionUserGrants{}, err
 	}
-	keys, err := normalizeNodeGrantKeys(nodeKeys)
+	keys, err := normalizeNodeGrantIDs(nodeIDs)
 	if err != nil {
 		return SubscriptionUserGrants{}, err
 	}
@@ -244,11 +254,18 @@ func (s *Store) ReplaceSubscriptionUserGrants(
 		if !user.UpdatedAt.Equal(expected) {
 			return subscriptionConflict("user", userID, expected, user.UpdatedAt)
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_user_node_grants WHERE user_id = ?`, userID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_user_grants WHERE user_id = ?`, userID); err != nil {
 			return fmt.Errorf("replace subscription user grants: %w", err)
 		}
-		for _, key := range keys {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_user_node_grants(user_id, node_key, created_at) VALUES (?, ?, ?)`, userID, key, formatTime(updated)); err != nil {
+		for index, id := range keys {
+			var exists bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM subscription_nodes WHERE id = ?)`, id).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return &SubscriptionReferenceError{Path: fmt.Sprintf("grants[%d]", index), Code: "node_not_in_pool"}
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_user_grants(user_id, node_id, created_at) VALUES (?, ?, ?)`, userID, id, formatTime(updated)); err != nil {
 				return fmt.Errorf("insert subscription user grant: %w", err)
 			}
 		}
@@ -359,18 +376,18 @@ func validateSubscriptionDescription(value string) error {
 	return nil
 }
 
-func normalizeNodeGrantKeys(values []string) ([]string, error) {
-	if len(values) > 10_000 {
+func normalizeNodeGrantIDs(values []string) ([]string, error) {
+	if len(values) > MaximumSubscriptionNodes {
 		return nil, fmt.Errorf("%w: too many node grants", ErrSubscriptionLimitExceeded)
 	}
 	seen := make(map[string]struct{}, len(values))
 	result := make([]string, 0, len(values))
 	for _, value := range values {
-		if value == "" || value != strings.TrimSpace(value) || len(value) > 512 || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') {
-			return nil, errors.New("subscription node grant key is invalid")
+		if value == "" || value != strings.TrimSpace(value) || len(value) > 128 || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') {
+			return nil, errors.New("subscription node grant is invalid")
 		}
 		if _, duplicate := seen[value]; duplicate {
-			return nil, errors.New("subscription node grant key is duplicated")
+			return nil, errors.New("subscription node grant is duplicated")
 		}
 		seen[value] = struct{}{}
 		result = append(result, value)

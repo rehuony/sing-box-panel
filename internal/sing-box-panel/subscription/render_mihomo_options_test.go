@@ -5,6 +5,7 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -25,12 +26,16 @@ func TestMihomoTransportTLSAndMuxRoundTrip(t *testing.T) {
 	if proxy["client-fingerprint"] != "chrome" || proxy["grpc-opts"].(map[string]any)["grpc-service-name"] != "proxy" || proxy["smux"].(map[string]any)["max-connections"] != 4 {
 		t.Fatalf("mapped options missing: %v", proxy)
 	}
-	nodes, _, err := ParseSource(SourceFormatMihomoYAML, result.Content, "roundtrip")
-	if err != nil || len(nodes) != 1 {
+	reading, err := ReadSource(result.Content, SourceFormatMihomo, SourceFilter{})
+	if err != nil || len(reading.Kept()) != 1 {
 		t.Fatalf("parse: %v", err)
 	}
+	encoded, err := json.Marshal(reading.Kept()[0].Outbound)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var native map[string]any
-	if err := json.Unmarshal(nodes[0].Outbound, &native); err != nil {
+	if err := json.Unmarshal(encoded, &native); err != nil {
 		t.Fatal(err)
 	}
 	if native["transport"].(map[string]any)["service_name"] != "proxy" || native["tls"].(map[string]any)["reality"].(map[string]any)["short_id"] != "abcd" || native["multiplex"].(map[string]any)["brutal"].(map[string]any)["down_mbps"] != float64(100) {
@@ -66,8 +71,10 @@ func TestMihomoUnsupportedOrMalformedOptionsDoNotDisappear(t *testing.T) {
 		"ws-opts: {path: /forgot-network}",
 	} {
 		raw := "proxies:\n  - {name: first, type: socks5, server: safe.test, port: 1080}\n  - name: broken\n    type: vless\n    server: example.test\n    port: 443\n    uuid: uuid\n    " + options + "\n"
-		if nodes, _, err := ParseSource(SourceFormatMihomoYAML, []byte(raw), "reject"); err == nil || len(nodes) != 0 {
-			t.Fatal("partially converted invalid source")
+		reading, err := ReadSource([]byte(raw), SourceFormatMihomo, SourceFilter{})
+		var parseErr *SourceParseError
+		if !errors.As(err, &parseErr) || parseErr.Code != SourceErrorNodeNotConvertible || parseErr.Location != "proxies[1]" || parseErr.Name != "broken" || len(reading.Items) != 2 {
+			t.Fatalf("partially converted invalid source: %v", err)
 		}
 	}
 }
@@ -78,8 +85,12 @@ func TestMihomoWebSocketHeadersAndEarlyData(t *testing.T) {
 	if err != nil || result.NodeCount != 1 {
 		t.Fatalf("render: %v", err)
 	}
-	nodes, _, err := ParseSource(SourceFormatMihomoYAML, result.Content, "ws")
-	if err != nil || len(nodes) != 1 || !strings.Contains(string(nodes[0].Outbound), `"max_early_data":2048`) || !strings.Contains(string(nodes[0].Outbound), `"Host":"cdn.example"`) {
-		t.Fatalf("options lost: %v", err)
+	reading, err := ReadSource(result.Content, SourceFormatMihomo, SourceFilter{})
+	if err != nil || len(reading.Kept()) != 1 {
+		t.Fatalf("parse: %v", err)
+	}
+	encoded, _ := json.Marshal(reading.Kept()[0].Outbound)
+	if !strings.Contains(string(encoded), `"max_early_data":2048`) || !strings.Contains(string(encoded), `"Host":"cdn.example"`) {
+		t.Fatalf("options lost: %s", encoded)
 	}
 }

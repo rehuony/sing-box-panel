@@ -83,7 +83,7 @@ func PublishNode(t testing.TB, database *store.Store, name, document, publicHost
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(parsed.CanonicalJSON())
-	if err := database.RecordNodeStateReport(ctx, id, session, []byte{}, store.NodeReport{
+	if _, err := database.RecordNodeStateReport(ctx, id, session, []byte{}, store.NodeReport{
 		PublicIP: reportedIP,
 		Applied: store.AppliedBundle{
 			ID: "bundle_" + name, RevisionID: file.CanonicalRevisionID, ConfigSHA256: hex.EncodeToString(sum[:]), ExactCoreVersion: "1.13.19",

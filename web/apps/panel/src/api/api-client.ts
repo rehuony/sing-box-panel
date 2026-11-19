@@ -22,25 +22,6 @@ import type {
   StartupArtifactPage,
 } from './contracts/core';
 import type {
-  CreatedSubscriptionToken,
-  SubscriptionChannel,
-  SubscriptionChannelPage,
-  SubscriptionChannelWrite,
-  SubscriptionDraftPreview,
-  SubscriptionListFilter,
-  SubscriptionNodeCatalog,
-  SubscriptionNodeDetail,
-  SubscriptionNodeOrder,
-  SubscriptionNodeSummary,
-  SubscriptionPreview,
-  SubscriptionSource,
-  SubscriptionSourcePage,
-  SubscriptionSourceWrite,
-  SubscriptionToken,
-  SubscriptionTokenPage,
-  SubscriptionTokenRotation,
-} from './contracts/subscription';
-import type {
   CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
@@ -61,9 +42,30 @@ import type {
   PanelSettingsView,
   PanelSettingsWriteWritable as PanelSettingsWrite,
   Session,
-  SubscriptionSourceRefreshResult,
   SystemUpdate,
 } from './generated';
+import type {
+  CreatedSubscriptionToken,
+  SubscriptionChannel,
+  SubscriptionChannelPage,
+  SubscriptionChannelWrite,
+  SubscriptionDraftPreview,
+  SubscriptionListFilter,
+  SubscriptionNodeDetail,
+  SubscriptionNodeList,
+  SubscriptionNodeUpdate,
+  SubscriptionPreview,
+  SubscriptionSource,
+  SubscriptionSourceContent,
+  SubscriptionSourceCreate,
+  SubscriptionSourcePage,
+  SubscriptionSourcePreview,
+  SubscriptionSourcePreviewRequest,
+  SubscriptionSourceUpdate,
+  SubscriptionToken,
+  SubscriptionTokenPage,
+  SubscriptionTokenRotation,
+} from './contracts/subscription';
 
 export type {
   AppearanceSettings,
@@ -90,7 +92,6 @@ export type {
   PanelSettingsView,
   PanelSettingsWriteWritable as PanelSettingsWrite,
   Session,
-  SubscriptionSourceRefreshResult,
   SystemStatus,
   SystemUpdate,
   UpdateAttempt,
@@ -152,13 +153,14 @@ export interface ApiClient {
   streamFleetStatus: (signal?: AbortSignal) => AsyncIterable<FleetStreamFrame>;
   installCore: (assetID: number, signal?: AbortSignal) => Promise<CoreArtifact>;
   listCoreLogFiles: (signal?: AbortSignal) => Promise<{ items: CoreLogFile[] }>;
+  /** The subscription node pool in its saved order, with the fleet nodes that publish nothing. */
+  listSubscriptionNodes: (signal?: AbortSignal) => Promise<SubscriptionNodeList>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
-  disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
 
+  disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
-  getSubscriptionNodeCatalog: (signal?: AbortSignal) => Promise<SubscriptionNodeCatalog>;
   renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;
   /** Issues a new one-time enrollment code; the node's current key stays valid until it is redeemed. */
@@ -170,20 +172,24 @@ export interface ApiClient {
   ) => AsyncIterable<DashboardStreamSnapshot>;
   getSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<SubscriptionToken>;
   importCoreArchive: (input: CoreImportUpload, signal?: AbortSignal) => Promise<CoreArtifact>;
-  deleteSubscriptionNode: (id: string, revision: number, signal?: AbortSignal) => Promise<void>;
   rollbackRuntime: (activationBundleID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   getSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSource>;
   getSubscriptionChannel: (channelID: string, signal?: AbortSignal) => Promise<SubscriptionChannel>;
   getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
   listFilesystemEntries: (query?: FilesystemQuery, signal?: AbortSignal) => Promise<FilesystemPage>;
-  parseSubscriptionNode: (text: string, signal?: AbortSignal) => Promise<{ outbound_json: string }>;
+  /** Fetches a URL source now; a failure keeps its content and is recorded in last_error. */
+  refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSource>;
   /** Runs one action on several nodes: each node's result as it finishes, then the summary. */
   runFleetCommand: (command: FleetCommand, signal?: AbortSignal) => AsyncIterable<FleetCommandEvent>;
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
   /** The node's ready startup artifacts, newest first, twenty a page after the cursor, with revision and exact core. */
   listStartupArtifacts: (before?: CreatedAtCursor, signal?: AbortSignal) => Promise<StartupArtifactPage>;
   resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
-  refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSourceRefreshResult>;
+  /** Saves the pool order; ids must be every current pool ID once, or the pool changed and it answers 409. */
+  setSubscriptionNodeOrder: (
+    ids: string[],
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionNodeList>;
 
   listCatalogAssets: (
     filter?: CatalogAssetFilter,
@@ -194,10 +200,6 @@ export interface ApiClient {
     signal?: AbortSignal,
   ) => Promise<CoreArtifactPage>;
   readCoreLog: (file: string, offset?: number, generation?: string, signal?: AbortSignal) => Promise<CoreLogChunk>;
-  createSubscriptionNode: (
-    outboundJSON: string,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionNodeDetail>;
 
   savePanelSettings: (
     input: PanelSettingsWrite,
@@ -206,28 +208,33 @@ export interface ApiClient {
   streamMetrics: (
     signal?: AbortSignal,
   ) => AsyncIterable<{ metrics: MetricsSnapshot; runtime: RuntimeStatus }>;
+  deleteSubscriptionSource: (
+    sourceID: string,
+    updatedAt: string,
+    signal?: AbortSignal,
+  ) => Promise<void>;
   getConfigurationSchema: (
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSchemaContract>;
+
   saveConfigurationFile: (
     input: ConfigurationFileWrite,
     signal?: AbortSignal,
   ) => Promise<ConfigurationFile>;
-
   deleteSubscriptionChannel: (
     channelID: string,
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<void>;
-  createSubscriptionSource: (
-    input: SubscriptionSourceWrite,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionSource>;
   compileConfiguration: (
     input: { coreArtifactID: string },
     signal?: AbortSignal,
   ) => Promise<ConfigurationCompile>;
+  createSubscriptionSource: (
+    input: SubscriptionSourceCreate,
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionSource>;
   createSubscriptionChannel: (
     input: SubscriptionChannelWrite,
     signal?: AbortSignal,
@@ -250,6 +257,11 @@ export interface ApiClient {
     expiresAt?: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenRotation>;
+  /** Parses content without saving: a stored source's, a URL's or the request's, filtered by the given rules. */
+  previewSubscriptionSource: (
+    input: SubscriptionSourcePreviewRequest,
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionSourcePreview>;
   streamCoreLog: (
     file: string,
     offset?: number,
@@ -260,33 +272,28 @@ export interface ApiClient {
     filter?: SubscriptionListFilter & { offset?: number },
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenPage>;
-  updateSubscriptionNode: (
-    id: string,
-    outboundJSON: string,
-    revision: number,
+  /** Replaces a file source's content; content that does not parse is refused and the current content stays. */
+  replaceSubscriptionSourceContent: (
+    sourceID: string,
+    input: SubscriptionSourceContent,
     signal?: AbortSignal,
-  ) => Promise<SubscriptionNodeDetail>;
-  setSubscriptionNodeVisibility: (
-    id: string,
-    hidden: boolean,
-    revision: number,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionNodeSummary>;
-  setSubscriptionNodeOrder: (
-    collectionID: string,
-    ids: string[],
-    revision: number,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionNodeOrder>;
+  ) => Promise<SubscriptionSource>;
   /** Runs a checked configuration on the node, verified the way applying a saved file is. */
   activateStartupArtifact: (
     startupArtifactID: string,
     monitoringTier: 'limited' | 'process_only',
     signal?: AbortSignal,
   ) => Promise<RuntimeResponse>;
+  /** Changes a pool node's display name; updatedAt is the version it was read at. */
+  updateSubscriptionNode: (
+    id: string,
+    input: SubscriptionNodeUpdate,
+    updatedAt: string,
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionNodeDetail>;
   updateSubscriptionSource: (
     sourceID: string,
-    input: SubscriptionSourceWrite,
+    input: SubscriptionSourceUpdate,
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionSource>;

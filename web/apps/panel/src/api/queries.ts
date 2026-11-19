@@ -4,7 +4,7 @@ import { queryOptions } from '@tanstack/react-query';
 
 import { listInstalledCoreArtifacts } from '@/utils/installed-core-artifacts';
 
-import type { ApiClient, FleetStatus, SubscriptionChannelSummary, SubscriptionSourceSummary, SystemStatus } from './api-client';
+import type { ApiClient, FleetStatus, SubscriptionChannelSummary, SubscriptionSource, SystemStatus } from './api-client';
 
 import { ApiRequestError } from './api-client';
 
@@ -80,11 +80,12 @@ export const queries = {
     select: data => [...new Set(data.assets.map(asset => asset.version))]
       .sort((left, right) => right.localeCompare(left, 'en', { numeric: true })),
   }),
-  nodes: (client: ApiClient) => queryOptions({ queryKey: ['nodes'], queryFn: ({ signal }) => client.getSubscriptionNodeCatalog(signal), staleTime: 5_000 }),
+  /** The subscription node pool in its saved order. */
+  nodes: (client: ApiClient) => queryOptions({ queryKey: ['nodes'], queryFn: ({ signal }) => client.listSubscriptionNodes(signal), staleTime: 5_000 }),
   sources: (client: ApiClient) => queryOptions({
     queryKey: ['sources'], staleTime: 5_000,
     queryFn: async ({ signal }) => {
-      const items: SubscriptionSourceSummary[] = [];
+      const items: SubscriptionSource[] = [];
       let cursor: { created_at: string; id: string } | undefined;
       do {
         const page = await client.listSubscriptionSources({

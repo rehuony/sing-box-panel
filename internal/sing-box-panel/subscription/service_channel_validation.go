@@ -5,6 +5,7 @@ package subscription
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
@@ -16,20 +17,43 @@ import (
 // of the server's selected core. The subscriber still owns runtime validation.
 const channelSingBoxSchemaVersion = "1.14.0"
 
-func validateSubscriptionChannelConfig(format store.SubscriptionFormat, raw json.RawMessage) (json.RawMessage, error) {
+// validateSubscriptionChannelConfig decodes and checks a channel
+// configuration for format.
+func validateSubscriptionChannelConfig(format store.SubscriptionFormat, raw json.RawMessage) (ChannelConfig, error) {
 	config, err := DecodeChannelConfig(raw)
 	if err != nil {
-		return nil, err
+		return ChannelConfig{}, err
 	}
-	if err = ValidateChannelPolicy(config.Policy, RenderFormat(format)); err != nil {
-		return nil, err
+	if err := ValidateChannelConfig(config, RenderFormat(format)); err != nil {
+		return ChannelConfig{}, err
 	}
-	if config.Policy != nil && config.Policy.Template != nil && format == store.SubscriptionFormatSingBox {
-		if err = validateSubscriptionNativeJSON([]byte(config.Policy.Template.Content), "policy.template.content"); err != nil {
-			return nil, err
+	if config.Template != nil && format == store.SubscriptionFormatSingBox {
+		if err := validateSubscriptionNativeJSON([]byte(config.Template.Content), "template.content"); err != nil {
+			return ChannelConfig{}, err
 		}
 	}
-	return CanonicalChannelConfig(raw, RenderFormat(format))
+	return config, nil
+}
+
+// validateChannelPoolReferences checks that every pool node config names is
+// among available.
+func validateChannelPoolReferences(config ChannelConfig, available map[string]bool) error {
+	for groupIndex, group := range config.Groups {
+		for index, member := range group.Members {
+			if member.Kind == memberNode && !available[member.ID] {
+				return policyError(fmt.Sprintf("groups[%d].members[%d]", groupIndex, index), "node_not_in_pool")
+			}
+		}
+		for index, rule := range group.Rules {
+			if rule.Exit.Kind == "node" && !available[rule.Exit.ID] {
+				return policyError(fmt.Sprintf("groups[%d].rules[%d].exit", groupIndex, index), "node_not_in_pool")
+			}
+		}
+	}
+	if config.DefaultExit.Kind == "node" && !available[config.DefaultExit.ID] {
+		return policyError("default_exit", "node_not_in_pool")
+	}
+	return nil
 }
 
 func validateSubscriptionNativeJSON(raw []byte, path string) error {

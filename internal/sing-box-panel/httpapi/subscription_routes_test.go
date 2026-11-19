@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -48,7 +47,7 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 
 	createdResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
-		`{"name":"public","format":"sing-box","config":{},"enabled":true}`, "")
+		`{"name":"public","format":"sing-box","config":`+emptyChannelConfig+`,"enabled":true}`, "")
 	if createdResponse.Code != http.StatusCreated || createdResponse.Header().Get("ETag") == "" {
 		t.Fatalf("create status=%d etag=%q body=%s", createdResponse.Code, createdResponse.Header().Get("ETag"), createdResponse.Body.String())
 	}
@@ -71,74 +70,19 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 
 	missingCAS := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"renamed","format":"loon","config":{},"enabled":false}`, "")
+		`{"name":"renamed","format":"loon","config":`+emptyChannelConfig+`,"enabled":false}`, "")
 	if missingCAS.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing CAS status=%d body=%s", missingCAS.Code, missingCAS.Body.String())
 	}
 	updated := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"renamed","format":"loon","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
+		`{"name":"renamed","format":"loon","config":`+emptyChannelConfig+`,"enabled":false}`, createdResponse.Header().Get("ETag"))
 	if updated.Code != http.StatusOK || updated.Header().Get("ETag") == createdResponse.Header().Get("ETag") {
 		t.Fatalf("update status=%d etag=%q body=%s", updated.Code, updated.Header().Get("ETag"), updated.Body.String())
 	}
 	stale := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"stale","format":"loon","config":{},"enabled":false}`, createdResponse.Header().Get("ETag"))
+		`{"name":"stale","format":"loon","config":`+emptyChannelConfig+`,"enabled":false}`, createdResponse.Header().Get("ETag"))
 	if stale.Code != http.StatusPreconditionFailed {
 		t.Fatalf("stale status=%d body=%s", stale.Code, stale.Body.String())
-	}
-
-	sourceResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/sources",
-		`{"name":"attached","source_kind":"local","config":{},"enabled":true}`, "")
-	if sourceResponse.Code != http.StatusCreated {
-		t.Fatalf("source create status=%d body=%s", sourceResponse.Code, sourceResponse.Body.String())
-	}
-	var source subscription.SubscriptionSource
-	if err := json.Unmarshal(sourceResponse.Body.Bytes(), &source); err != nil {
-		t.Fatal(err)
-	}
-	updateSource := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID,
-		`{"name":"attached remote","source_kind":"remote","config":{"url":"https://example.test/sub"},"enabled":false}`,
-		sourceResponse.Header().Get("ETag"))
-	if updateSource.Code != http.StatusOK || !strings.Contains(updateSource.Body.String(), `"attached remote"`) ||
-		strings.Contains(updateSource.Body.String(), `"latest_snapshot"`) {
-		t.Fatalf("source update status=%d body=%s", updateSource.Code, updateSource.Body.String())
-	}
-	showSource := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/sources/"+source.ID, "", "")
-	if showSource.Code != http.StatusOK || showSource.Header().Get("ETag") != updateSource.Header().Get("ETag") {
-		t.Fatalf("source show status=%d etag=%q body=%s", showSource.Code, showSource.Header().Get("ETag"), showSource.Body.String())
-	}
-	versionBody := []byte(`[{"type":"socks","tag":"source-node","server":"source.example","server_port":1080}]`)
-	versionResponse := authenticatedRequest(t, handler, http.MethodPost,
-		"/api/v1/subscription/sources/"+source.ID+"/versions",
-		`{"format":"sing-box-json","raw_body":"`+base64.StdEncoding.EncodeToString(versionBody)+`"}`,
-		showSource.Header().Get("ETag"))
-	if versionResponse.Code != http.StatusCreated || versionResponse.Header().Get("ETag") == showSource.Header().Get("ETag") {
-		t.Fatalf("source version create status=%d body=%s", versionResponse.Code, versionResponse.Body.String())
-	}
-	var savedVersion subscription.SubscriptionSourceVersionSave
-	if err := json.Unmarshal(versionResponse.Body.Bytes(), &savedVersion); err != nil {
-		t.Fatal(err)
-	}
-	versions := authenticatedRequest(t, handler, http.MethodGet,
-		"/api/v1/subscription/sources/"+source.ID+"/versions", "", "")
-	if versions.Code != http.StatusOK || !strings.Contains(versions.Body.String(), savedVersion.Version.ID) ||
-		strings.Contains(versions.Body.String(), `"raw_body"`) {
-		t.Fatalf("source versions status=%d body=%s", versions.Code, versions.Body.String())
-	}
-	versionDetail := authenticatedRequest(t, handler, http.MethodGet,
-		"/api/v1/subscription/sources/"+source.ID+"/versions/"+savedVersion.Version.ID, "", "")
-	if versionDetail.Code != http.StatusOK || !strings.Contains(versionDetail.Body.String(), `"raw_body"`) {
-		t.Fatalf("source version detail status=%d body=%s", versionDetail.Code, versionDetail.Body.String())
-	}
-	restoredVersion := authenticatedRequest(t, handler, http.MethodPost,
-		"/api/v1/subscription/sources/"+source.ID+"/versions/"+savedVersion.Version.ID+"/restore",
-		"", versionResponse.Header().Get("ETag"))
-	if restoredVersion.Code != http.StatusOK {
-		t.Fatalf("source version restore status=%d body=%s", restoredVersion.Code, restoredVersion.Body.String())
-	}
-	deleteSource := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/subscription/sources/"+source.ID,
-		"", restoredVersion.Header().Get("ETag"))
-	if deleteSource.Code != http.StatusNoContent {
-		t.Fatalf("source delete status=%d body=%s", deleteSource.Code, deleteSource.Body.String())
 	}
 
 	userResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/users",
@@ -205,7 +149,7 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, login)
 	cookies := loginResponse.Result().Cookies()
-	withoutCSRF := httptest.NewRequest(http.MethodPost, "/api/v1/subscription/sources", strings.NewReader(`{"name":"blocked","source_kind":"local","enabled":false}`))
+	withoutCSRF := httptest.NewRequest(http.MethodPost, "/api/v1/subscription/sources", strings.NewReader(`{"name":"blocked","kind":"file","filter":{"include":[],"exclude":[]},"content":"socks5://a.example:1080"}`))
 	for _, cookie := range cookies {
 		withoutCSRF.AddCookie(cookie)
 	}
@@ -227,15 +171,17 @@ func TestSubscriptionPreviewHTTPUsesSelectedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publish()
-	catalog, err := app.Subscriptions.SubscriptionNodeCatalog(ctx)
-	if err != nil || len(catalog.Nodes) != 1 {
-		t.Fatalf("catalog = %+v, %v", catalog, err)
+	node := publish()
+	preview := authenticatedRequest(t, handler, http.MethodPost,
+		"/api/v1/subscription/channels/"+channel.ID+"/preview",
+		`{"user_id":"`+user.ID+`"}`, "")
+	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"node_count":0`) {
+		t.Fatalf("preview of a user without grants status=%d body=%s", preview.Code, preview.Body.String())
 	}
-	if _, err := app.Subscriptions.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{catalog.Nodes[0].Key}, user.UpdatedAt); err != nil {
+	if _, err := app.Subscriptions.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{node}, user.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
-	preview := authenticatedRequest(t, handler, http.MethodPost,
+	preview = authenticatedRequest(t, handler, http.MethodPost,
 		"/api/v1/subscription/channels/"+channel.ID+"/preview",
 		`{"user_id":"`+user.ID+`"}`, "")
 	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"node_count":1`) ||
@@ -266,12 +212,12 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 		t.Fatalf("before apply status=%d body=%s", beforeApply.Code, beforeApply.Body.String())
 	}
 
-	publish()
-	catalog, err := app.Subscriptions.SubscriptionNodeCatalog(ctx)
-	if err != nil || len(catalog.Nodes) != 1 {
-		t.Fatalf("catalog = %+v, %v", catalog, err)
+	node := publish()
+	if _, err := app.Subscriptions.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{node}, user.UpdatedAt); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := app.Subscriptions.ReplaceSubscriptionUserGrants(ctx, user.ID, []string{catalog.Nodes[0].Key}, user.UpdatedAt); err != nil {
+	channel, err = app.Subscriptions.SubscriptionChannel(ctx, channel.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -315,10 +261,11 @@ func TestPublicSubscriptionHTTPFrozenPublicationAndTokenLifecycle(t *testing.T) 
 		}
 	}
 
-	// Channel policy is evaluated live against the published nodes.
+	// The channel is evaluated live: without the node in a group it is not
+	// published.
 	update := authenticatedRequest(t, handler, http.MethodPut,
 		"/panel/api/v1/subscription/channels/"+channel.ID,
-		`{"name":"sing-box","format":"sing-box","config":{"exclude_tags":["publish"]},"enabled":true}`,
+		`{"name":"sing-box","format":"sing-box","config":`+emptyChannelConfig+`,"enabled":true}`,
 		subscriptionETag(channel.UpdatedAt))
 	if update.Code != http.StatusOK {
 		t.Fatalf("channel update status=%d body=%s", update.Code, update.Body.String())
@@ -406,28 +353,40 @@ func newSubscriptionHTTPServices(t *testing.T, basePath string) (*store.Store, a
 	return database, app, handler
 }
 
+// emptyChannelConfig is a channel configuration without groups.
+const emptyChannelConfig = `{"groups":[],"default_exit":{"kind":"direct"}}`
+
 // newSubscriptionPublicationHTTPFixture returns a channel and publish, which
-// adds the manual node that the channel publishes; until then the panel has
-// nothing to publish.
+// adds the node the channel publishes and returns its pool ID; until then the
+// panel has nothing to publish.
 func newSubscriptionPublicationHTTPFixture(
 	t *testing.T,
 	basePath string,
-) (*store.Store, app.Services, *Handler, subscription.SubscriptionChannel, func()) {
+) (*store.Store, app.Services, *Handler, subscription.SubscriptionChannel, func() string) {
 	t.Helper()
 	ctx := context.Background()
 	database, app, handler := newSubscriptionHTTPServices(t, basePath)
 	channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
 		Name: "sing-box", Format: store.SubscriptionFormatSingBox,
-		Config: json.RawMessage(`{}`), Enabled: true,
+		Config: json.RawMessage(emptyChannelConfig), Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	publish := func() {
+	publish := func() string {
 		t.Helper()
-		if _, err := app.Subscriptions.CreateSubscriptionNode(ctx, json.RawMessage(`{"type":"shadowsocks","tag":"publish","server":"publish.example","server_port":443,"method":"aes-256-gcm","password":"secret"}`)); err != nil {
+		node := createSourceNodes(t, app, "publish", "ss://YWVzLTI1Ni1nY206c2VjcmV0@publish.example:443#publish\n")[0]
+		current, err := app.Subscriptions.SubscriptionChannel(ctx, channel.ID)
+		if err != nil {
 			t.Fatal(err)
 		}
+		if _, err := app.Subscriptions.UpdateSubscriptionChannel(ctx, channel.ID, subscription.UpdateSubscriptionChannelRequest{
+			Name: current.Name, Format: current.Format, Enabled: true, ExpectedUpdatedAt: current.UpdatedAt,
+			Config: json.RawMessage(`{"groups":[],"default_exit":{"kind":"node","id":"` + node + `"}}`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return node
 	}
 	return database, app, handler, channel, publish
 }

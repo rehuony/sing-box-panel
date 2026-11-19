@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from '@shared/components/ui/toast-manager';
 
-import type { ChannelPolicy, ChannelRule, ChannelRuleGroup, SubscriptionChannel, SubscriptionChannelConfig, SubscriptionFormat, SubscriptionNodeSummary, SubscriptionPreview } from '@/api/api-client';
+import type { ChannelRule, ChannelRuleGroup, SubscriptionChannel, SubscriptionChannelConfig, SubscriptionFormat, SubscriptionPreview } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
@@ -12,24 +12,18 @@ import { channelTemplateDefaults } from '@/constants/channel-templates';
 import type { RuleTextResult } from './channel-rule-text';
 
 import { parseRules, serializeRules } from './channel-rule-text';
-import { incompatiblePolicy, initialChannelPolicy, newRuleGroup, nextRuleIndex, removeGroupReferences } from './channel-policy';
+import { incompatibleConfig, newRuleGroup, nextRuleIndex, removeGroupReferences } from './channel-policy';
 
-export function useChannelDraft(
-  channel: SubscriptionChannel,
-  nodes: SubscriptionNodeSummary[],
-  onSaved: (channel: SubscriptionChannel) => void,
-) {
+export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel: SubscriptionChannel) => void) {
   const { t } = useTranslation();
   const client = useApiClient();
-  const [initialPolicy] = useState(() => initialChannelPolicy(channel, nodes));
-  const [policy, setPolicy] = useState(initialPolicy);
-  const [config, setConfig] = useState(channel.config);
+  const [config, setConfig] = useState(() => structuredClone(channel.config));
   const [format, setFormat] = useState<SubscriptionFormat>(channel.format);
   const [name, setName] = useState(channel.name);
   const [busy, setBusy] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
-  const [groupID, setGroupID] = useState<string | null>(channel.config.policy?.groups[0]?.id ?? null);
+  const [groupID, setGroupID] = useState<string | null>(channel.config.groups[0]?.id ?? null);
   const [removeGroup, setRemoveGroup] = useState<string | null>(null);
   const [groupSettings, setGroupSettings] = useState<ChannelRuleGroup | null>(null);
   const [previewError, setPreviewError] = useState<unknown>(null);
@@ -39,19 +33,11 @@ export function useChannelDraft(
   // the text view opened, whose identities the lines keep while typing.
   const [ruleTexts, setRuleTexts] = useState<Record<string, { text: string; base: ChannelRule[] }>>({});
   const lifeRef = useRef<AbortController | null>(null);
-  const signature = (
-    p: ChannelPolicy,
-    f: SubscriptionFormat,
-    c: SubscriptionChannelConfig,
-    n: string,
-  ) => JSON.stringify({ p, f, c: { ...c, policy: undefined }, n });
-  const [savedSignature, setSavedSignature] = useState(() =>
-    signature(policy, format, config, name),
-  );
-  const dirty = signature(policy, format, config, name) !== savedSignature;
-  const needsUpgrade = !config.policy;
+  const signature = (c: SubscriptionChannelConfig, f: SubscriptionFormat, n: string) => JSON.stringify({ c, f, n });
+  const [savedSignature, setSavedSignature] = useState(() => signature(config, format, name));
+  const dirty = signature(config, format, name) !== savedSignature;
   const settingsDirty = groupSettings !== null
-    && JSON.stringify(groupSettings) !== JSON.stringify(policy.groups.find(value => value.id === groupSettings.id));
+    && JSON.stringify(groupSettings) !== JSON.stringify(config.groups.find(value => value.id === groupSettings.id));
   /**
    * Parses a group's text against its rules when the text view opened, so
    * lines keep their identity and sort indexes however the text changed in
@@ -65,26 +51,25 @@ export function useChannelDraft(
         || current.exit.kind !== rule.exit.kind || current.exit.id !== rule.exit.id;
       return changed ? { ...rule, enabled: current.enabled, exit: current.exit } : rule;
     });
-    const groups = policy.groups.map(item => item.id === value.id ? { ...item, rules: base } : item);
+    const groups = config.groups.map(item => item.id === value.id ? { ...item, rules: base } : item);
     return parseRules(text, {
-      existing, format, nextIndex: nextRuleIndex({ ...policy, groups }),
+      existing, format, nextIndex: nextRuleIndex({ ...config, groups }),
       otherRemoteNames: groups.filter(item => item.id !== value.id)
         .flatMap(item => item.rules.flatMap(rule => rule.remote ? [rule.remote.name] : [])),
     });
   }
-  const ruleTextResults = new Map(policy.groups.flatMap((value) => {
+  const ruleTextResults = new Map(config.groups.flatMap((value) => {
     const draft = ruleTexts[value.id];
     if (!draft) return [];
     return [[value.id, { text: draft.text, result: parseRuleText(value, draft.text, draft.base) }] as const];
   }));
-  const invalidTextGroup = policy.groups.find(value => ruleTextResults.get(value.id)?.result.errors.length);
+  const invalidTextGroup = config.groups.find(value => ruleTextResults.get(value.id)?.result.errors.length);
   const confirmNavigation = useUnsavedChanges(dirty || settingsDirty || Boolean(invalidTextGroup), () => {
-    const restoredPolicy = initialChannelPolicy(channel, nodes);
-    setPolicy(restoredPolicy);
-    setConfig(channel.config);
+    const restored = structuredClone(channel.config);
+    setConfig(restored);
     setFormat(channel.format);
     setName(channel.name);
-    setSavedSignature(signature(restoredPolicy, channel.format, channel.config, channel.name));
+    setSavedSignature(signature(restored, channel.format, channel.name));
     setGroupSettings(null);
     setRuleTexts({});
     setOptionsOpen(false);
@@ -95,40 +80,28 @@ export function useChannelDraft(
     lifeRef.current = controller;
     return () => controller.abort();
   }, []);
-  const group = policy.groups.find((value) => value.id === groupID) ?? policy.groups[0];
-  const groupIndex = group ? policy.groups.indexOf(group) : -1;
-  const finalGroup = policy.default_exit.kind === 'group' && policy.default_exit.id === group?.id;
-  const conflict = incompatiblePolicy(policy, format);
-  function policyConfig(p: ChannelPolicy) {
-    return { policy: p };
+  const group = config.groups.find((value) => value.id === groupID) ?? config.groups[0];
+  const groupIndex = group ? config.groups.indexOf(group) : -1;
+  const finalGroup = config.default_exit.kind === 'group' && config.default_exit.id === group?.id;
+  const conflict = incompatibleConfig(config, format);
+  async function render(c: SubscriptionChannelConfig = config, signal = lifeRef.current?.signal) {
+    return client.previewSubscriptionChannel(channel.id, '', signal, { format, config: c });
   }
-  async function render(p: ChannelPolicy = policy, signal = lifeRef.current?.signal) {
-    return client.previewSubscriptionChannel(channel.id, '', signal, {
-      format,
-      config: policyConfig(p),
-    });
-  }
-  async function persist(p: ChannelPolicy = policy) {
-    if (!name.trim() || p.groups.some((value) => !value.name.trim())) throw new Error(t('channels.nameRequired'));
-    p = { ...p, groups: p.groups.map((value) => ({ ...value, name: value.name.trim() })) };
-    await render(p);
+  async function persist(c: SubscriptionChannelConfig = config) {
+    if (!name.trim() || c.groups.some((value) => !value.name.trim())) throw new Error(t('channels.nameRequired'));
+    c = { ...c, groups: c.groups.map((value) => ({ ...value, name: value.name.trim() })) };
+    await render(c);
     if (lifeRef.current?.signal.aborted) return;
     const result = await client.updateSubscriptionChannel(
       channel.id,
-      {
-        name: name.trim(),
-        enabled: channel.enabled,
-        format,
-        config: policyConfig(p),
-      },
+      { name: name.trim(), enabled: channel.enabled, format, config: c },
       channel.updated_at,
       lifeRef.current?.signal,
     );
     if (lifeRef.current?.signal.aborted) return;
-    setPolicy(p);
-    setConfig(result.config);
+    setConfig(c);
     onSaved(result);
-    setSavedSignature(signature(p, format, result.config, name.trim()));
+    setSavedSignature(signature(c, format, name.trim()));
     setName(name.trim());
     toast.add({ title: t('channels.saved'), type: 'success' });
   }
@@ -159,22 +132,17 @@ export function useChannelDraft(
     }
   }
   function reorder(index: number, delta: number) {
-    const groups = [...policy.groups];
+    const groups = [...config.groups];
     [groups[index], groups[index + delta]] = [groups[index + delta], groups[index]];
-    setPolicy({ ...policy, groups });
+    setConfig({ ...config, groups });
   }
   function updateGroup(value: ChannelRuleGroup) {
-    if (!value.enabled && policy.default_exit.kind === 'group' && policy.default_exit.id === value.id) {
+    if (!value.enabled && config.default_exit.kind === 'group' && config.default_exit.id === value.id) {
       toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
       return;
     }
-    setPolicy((current) => ({
+    setConfig((current) => ({
       ...current,
-      selection: {
-        ...current.selection,
-        ids: [...new Set([...current.selection.ids, ...value.node_ids])],
-        excluded_ids: current.selection.excluded_ids.filter((id) => !value.node_ids.includes(id)),
-      },
       groups: (value.enabled ? current.groups : removeGroupReferences(current.groups, value.id))
         .map((item) => item.id === value.id ? value : item),
     }));
@@ -198,37 +166,27 @@ export function useChannelDraft(
     if (!parsed.errors.length && changed) updateGroup({ ...value, rules: parsed.rules });
   }
   function addGroup() {
-    let number = policy.groups.length + 1;
-    let name = t('channels.newGroupName', { number });
-    while (policy.groups.some((value) => value.name === name)) name = t('channels.newGroupName', { number: ++number });
-    const value = { ...newRuleGroup([]), name };
-    setPolicy((current) => ({
-      ...current,
-      groups: [...current.groups, value],
-    }));
+    let number = config.groups.length + 1;
+    let groupName = t('channels.newGroupName', { number });
+    while (config.groups.some((value) => value.name === groupName)) groupName = t('channels.newGroupName', { number: ++number });
+    const value = { ...newRuleGroup(), name: groupName };
+    setConfig((current) => ({ ...current, groups: [...current.groups, value] }));
     setGroupID(value.id);
   }
-  function applyOptions(
-    p: ChannelPolicy,
-    identity: { name: string; format: SubscriptionFormat },
-  ) {
+  /** Applies the channel settings: its name and client, which brings that client's default template. */
+  function applyOptions(identity: { name: string; format: SubscriptionFormat }) {
     setName(identity.name);
     setFormat(identity.format);
-    setPolicy((current) => ({
+    setConfig((current) => ({
       ...current,
       template: identity.format !== format && current.template
         ? { format: identity.format, content: channelTemplateDefaults[identity.format] }
         : current.template,
-      selection: {
-        ...current.selection,
-        new_node_policy: p.selection.new_node_policy,
-      },
     }));
   }
   return {
-    policy,
-    setPolicy,
     config,
+    setConfig,
     format,
     name,
     busy,
@@ -249,7 +207,6 @@ export function useChannelDraft(
     setPreviewError,
     setPreview,
     dirty,
-    needsUpgrade,
     conflict,
     ruleTextResults,
     setRuleView,

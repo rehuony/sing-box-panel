@@ -28,28 +28,25 @@ func TestDiagnosticsNeverContainOutboundValues(t *testing.T) {
 }
 
 func TestPreviewDiagnosticsFollowSelectedNodeIdentity(t *testing.T) {
-	bad, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"anytls","tag":"Shared","server":"sensitive.example","server_port":443,"password":"secret-value","tls":{"enabled":true,"fragment":true}}]}`), "bad-source")
-	if err != nil {
-		t.Fatal(err)
-	}
-	good, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"socks","tag":"Shared","server":"good.example","server_port":1080}]}`), "good-source")
-	if err != nil {
-		t.Fatal(err)
-	}
-	excluded, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"anytls","tag":"Excluded","server":"excluded.example","server_port":443,"password":"secret","tls":{"enabled":true,"fragment":true}}]}`), "excluded-source")
-	if err != nil {
-		t.Fatal(err)
-	}
-	nodes := append(append(excluded, bad...), good...)
-	badID, goodID := PublicationID(bad[0]), PublicationID(good[0])
-	for _, ids := range [][]string{{goodID, badID}, {badID, goodID}} {
-		policy := &ChannelPolicy{Selection: NodeSelection{IDs: ids, NewNodePolicy: "exclude"}, IncompatibleNodes: "skip", DefaultExit: RouteExit{Kind: "direct"}, Groups: []RuleGroup{}}
-		result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+	bad := testChannelNodes(t, "bad-source", `{"outbounds":[{"type":"anytls","tag":"Shared","server":"sensitive.example","server_port":443,"password":"secret-value","tls":{"enabled":true,"fragment":true}}]}`)
+	good := testChannelNodes(t, "good-source", `{"outbounds":[{"type":"socks","tag":"Shared","server":"good.example","server_port":1080}]}`)
+	excluded := testChannelNodes(t, "excluded-source", `{"outbounds":[{"type":"anytls","tag":"Excluded","server":"excluded.example","server_port":443,"password":"secret","tls":{"enabled":true,"fragment":true}}]}`)
+	good[0].Name = "Shared 2"
+	badID, goodID := bad[0].ID, good[0].ID
+	for _, nodes := range [][]ChannelNode{{excluded[0], good[0], bad[0]}, {excluded[0], bad[0], good[0]}} {
+		config := ChannelConfig{IncompatibleNodes: "skip", DefaultExit: RouteExit{Kind: "direct"}, Groups: []RuleGroup{
+			{ID: "main", Name: "Main", Enabled: true, Type: "select", Members: nodeMembers(goodID, badID), Rules: []ChannelRule{}},
+		}}
+		result, err := RenderChannelNodes(nodes, RenderFormatLoon, config)
 		if err != nil || result.NodeCount != 1 || len(result.PreviewDiagnostics) != 1 {
 			t.Fatalf("render: %v, %+v", err, result.PreviewDiagnostics)
 		}
 		issue := result.PreviewDiagnostics[0]
-		if issue.NodeID != badID || !strings.HasPrefix(issue.NodeName, "Shared") || issue.NodeType != "anytls" || issue.Reason != "unsupported_tls_option" || !strings.HasSuffix(issue.FieldPath, ".tls.fragment") || ids[issue.ItemIndex] != badID {
+		position := 0
+		if nodes[1].ID == goodID {
+			position = 1
+		}
+		if issue.NodeID != badID || issue.NodeName != "Shared" || issue.NodeType != "anytls" || issue.Reason != "unsupported_tls_option" || !strings.HasSuffix(issue.FieldPath, ".tls.fragment") || issue.ItemIndex != position {
 			t.Fatalf("diagnostic points to wrong node: %+v", issue)
 		}
 		public, _ := json.Marshal(result.Diagnostics)
@@ -62,10 +59,5 @@ func TestPreviewDiagnosticsFollowSelectedNodeIdentity(t *testing.T) {
 		if strings.Contains(string(public), "Shared") || strings.Contains(string(public), badID) {
 			t.Fatal("public diagnostics included preview identity")
 		}
-	}
-	// Legacy publication uses key ordering before exclusions, not catalog order.
-	result, err := RenderPolicyNodes(append(bad, excluded...), RenderChannel{Format: RenderFormatLoon, ExcludeTags: []string{"Excluded"}}, nil)
-	if err != nil || len(result.PreviewDiagnostics) != 1 || result.PreviewDiagnostics[0].NodeID != badID || result.PreviewDiagnostics[0].NodeName != "Shared" {
-		t.Fatalf("legacy identity mismatch: %+v, %v", result.PreviewDiagnostics, err)
 	}
 }

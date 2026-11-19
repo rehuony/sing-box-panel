@@ -19,18 +19,22 @@ func (application *Service) CreateSubscriptionChannel(
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
+	stored, err := storeChannelConfig(config)
+	if err != nil {
+		return SubscriptionChannel{}, err
+	}
 	id, err := database.NewID(application.random, "channel")
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	stored, err := application.database.CreateSubscriptionChannel(ctx, store.SubscriptionChannel{
+	channel, err := application.database.CreateSubscriptionChannel(ctx, store.SubscriptionChannel{
 		ID: id, Name: request.Name, Format: request.Format,
-		Config: config, Enabled: request.Enabled, CreatedAt: application.now().UTC(),
+		Config: stored, Enabled: request.Enabled, CreatedAt: application.now().UTC(),
 	})
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	return applicationSubscriptionChannel(stored), nil
+	return applicationSubscriptionChannel(channel)
 }
 
 func (application *Service) SubscriptionChannel(
@@ -41,7 +45,7 @@ func (application *Service) SubscriptionChannel(
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	return applicationSubscriptionChannel(stored), nil
+	return applicationSubscriptionChannel(stored)
 }
 
 func (application *Service) ListSubscriptionChannels(
@@ -62,6 +66,8 @@ func (application *Service) ListSubscriptionChannels(
 	return page, nil
 }
 
+// UpdateSubscriptionChannel replaces a channel with its groups, members and
+// rules while its updated_at is still the expected one.
 func (application *Service) UpdateSubscriptionChannel(
 	ctx context.Context,
 	channelID string,
@@ -71,16 +77,21 @@ func (application *Service) UpdateSubscriptionChannel(
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	updatedAt := application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt)
-	stored, err := application.database.UpdateSubscriptionChannel(ctx, store.UpdateSubscriptionChannelInput{
-		ID: strings.TrimSpace(channelID), Name: request.Name, Format: request.Format,
-		Config: config, Enabled: request.Enabled,
-		ExpectedUpdatedAt: request.ExpectedUpdatedAt, UpdatedAt: updatedAt,
+	stored, err := storeChannelConfig(config)
+	if err != nil {
+		return SubscriptionChannel{}, err
+	}
+	channel, err := application.database.UpdateSubscriptionChannel(ctx, store.UpdateSubscriptionChannelInput{
+		Channel: store.SubscriptionChannel{
+			ID: strings.TrimSpace(channelID), Name: request.Name, Format: request.Format, Config: stored, Enabled: request.Enabled,
+			UpdatedAt: application.nextSubscriptionUpdateTime(request.ExpectedUpdatedAt),
+		},
+		ExpectedUpdatedAt: request.ExpectedUpdatedAt,
 	})
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
-	return applicationSubscriptionChannel(stored), nil
+	return applicationSubscriptionChannel(channel)
 }
 
 func (application *Service) DeleteSubscriptionChannel(

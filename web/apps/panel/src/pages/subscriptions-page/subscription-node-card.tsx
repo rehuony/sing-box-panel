@@ -1,76 +1,126 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent } from 'react';
 
 import { memo } from 'react';
 import { cn } from '@shared/lib/utils';
+import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@shared/components/ui/badge';
+import { useSortable } from '@dnd-kit/sortable';
+import { EM_DASH } from '@shared/lib/telemetry-format';
 
-import type { ChannelRuleGroup, SubscriptionNodeSummary } from '@/api/api-client';
+import type { SubscriptionNode } from '@/api/api-client';
 
-import { subscriptionNodeAddress } from './subscription-node-address';
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
-interface Props {
-  actions?: ReactNode;
-  unavailable?: boolean;
-  disabledReason?: string;
-  builtin?: 'direct' | 'reject';
-  node?: SubscriptionNodeSummary;
-  group?: Pick<ChannelRuleGroup, 'name' | 'type'>;
+import { nodeAddress, nodeOrigin, nodeSecurity } from './subscription-node-pool';
+
+/** Cards that always paint: more than a large window shows at once. */
+const EAGER_CARDS = 48;
+
+const card = 'relative flex h-29 min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] font-[family-name:var(--font-data)] text-compact';
+
+/** Parts of a line split by faint dots, or a muted dash when it has none. */
+function Parts({ parts }: { parts: string[] }) {
+  if (parts.length === 0) return <span className='text-muted-foreground'>{EM_DASH}</span>;
+  return parts.map((part, index) => (
+    <span key={part}>
+      {index > 0 ? <span aria-hidden='true' className='text-muted-foreground'>{' · '}</span> : null}
+      {part}
+    </span>
+  ));
 }
 
-export const SubscriptionNodeCardContent = memo(({
-  node, builtin, group, actions, unavailable, disabledReason,
-}: Props) => {
-  const { t } = useTranslation();
-  const name = node?.name ?? group?.name ?? builtin?.toUpperCase() ?? t('channels.missingNode');
+/**
+ * A pool node as a pane: its title bar with the display name and its origin,
+ * which gives way first, then in the data face the protocol with where it
+ * connects, its security layer and its transport, one line each.
+ */
+export function PoolNodeCardContent({ node }: { node: SubscriptionNode }) {
+  const origin = nodeOrigin(node);
+  const address = nodeAddress(node);
   return (
     <>
-      <header>
-        <span aria-hidden='true' className={cn('mx-[3px] size-1.5 flex-none rounded-full bg-[var(--color-success)] shadow-[0_0_0_3px_var(--color-success-soft)]', (unavailable || (node && !node.available)) && 'bg-[var(--color-text-faint)] shadow-[0_0_0_3px_var(--color-surface-raised)]')} data-node-dot />
-        <span className='flex min-h-(--control-height-xs) min-w-0 flex-1 items-center justify-start text-left text-sm font-normal' title={name}><span className='truncate'>{name}</span></span>
-        {actions}
+      <header className='flex h-8 flex-none items-center gap-2 border-b px-3'>
+        <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium' title={node.display_name}>{node.display_name}</h2>
+        <span className='min-w-0 flex-1 basis-0 truncate font-[family-name:var(--font-body)] text-xs text-muted-foreground' title={origin}>{origin}</span>
       </header>
-      <div className='flex min-h-0 w-full min-w-0 flex-1 flex-wrap content-start items-start justify-start gap-1 text-left' aria-hidden={node?.hidden || undefined}>
-        {node && (
-          <>
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='secondary' title={node.source_name}>
-              <span className='truncate'>{node.origin === 'source' ? node.source_name : t('subscriptions.nodes.manual')}</span>
-            </Badge>
-            {node.origin !== 'source' && (
-              <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='secondary'>
-                {t(node.origin === 'local' ? 'subscriptions.nodes.system' : 'subscriptions.nodes.imported')}
-              </Badge>
-            )}
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='success'>{node.type}</Badge>
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='info' title={subscriptionNodeAddress(node)}>
-              <span className='truncate'>{subscriptionNodeAddress(node) || t('subscriptions.nodes.hostMissing')}</span>
-            </Badge>
-            {node.tls && <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='success'>{node.reality ? 'Reality' : 'TLS'}</Badge>}
-            {node.sni && (
-              <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='success' title={node.sni}>
-                <span className='truncate'>
-                  SNI ·
-                  {node.sni}
-                </span>
-              </Badge>
-            )}
-          </>
-        )}
-        {builtin && (
-          <>
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='secondary'>{t('channels.builtinNode')}</Badge>
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant={builtin === 'direct' ? 'success' : 'warning'}>{t(`channels.${builtin}`)}</Badge>
-          </>
-        )}
-        {group && (
-          <>
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='secondary'>{t('channels.strategyGroup')}</Badge>
-            <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='info'>{t(`channels.groupTypes.${group.type}`)}</Badge>
-          </>
-        )}
-        {disabledReason && <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='secondary'>{disabledReason}</Badge>}
-        {unavailable && !disabledReason && <Badge className='h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal' variant='warning'>{t('channels.unavailable')}</Badge>}
+      <div className='flex min-h-0 flex-1 flex-col justify-center px-3 whitespace-nowrap *:h-5 *:truncate'>
+        <p title={address || undefined}>
+          <span className='text-[var(--color-text-secondary)]'>{node.protocol}</span>
+          {' '}
+          {address || <span className='text-muted-foreground'>{EM_DASH}</span>}
+        </p>
+        <p><Parts parts={nodeSecurity(node)} /></p>
+        <p><Parts parts={node.transport ? [node.transport] : []} /></p>
       </div>
     </>
   );
+}
+
+/** The card as the pointer carries it: lifted with the panel shadow above everything. */
+export function PoolNodeCardOverlay({ node }: { node: SubscriptionNode }) {
+  return (
+    <div aria-hidden='true' className={cn(card, 'cursor-grabbing bg-popover shadow-[var(--shadow-panel)]')}>
+      <PoolNodeCardContent node={node} />
+    </div>
+  );
+}
+
+interface PoolNodeCardProps {
+  /** Where the card sits in the grid; cards past the first screenful paint only near the view. */
+  index: number;
+  /** Whether it can be dragged; off while an order saves. */
+  sortable: boolean;
+  node: SubscriptionNode;
+  onOpen: (node: SubscriptionNode) => void;
+}
+
+/**
+ * One pool node in the grid. The whole card drags with the mouse, a held
+ * touch or F2, and its slot stays while it moves; a click, Enter or Space
+ * opens its detail.
+ */
+export const PoolNodeCard = memo(({ index, node, onOpen, sortable }: PoolNodeCardProps) => {
+  const { t } = useTranslation();
+  const reducedMotion = usePrefersReducedMotion();
+  const { attributes, isDragging, listeners, setNodeRef, transform, transition }
+    = useSortable({ id: node.id, disabled: !sortable });
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    if (!isDragging && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      onOpen(node);
+      return;
+    }
+    listeners?.onKeyDown?.(event);
+  }
+
+  return (
+    // The list item moves as a whole, so a card past the first screenful is not clipped by its own containment.
+    <li
+      className={cn('min-w-0', index >= EAGER_CARDS && '[contain-intrinsic-size:auto_7.25rem] [content-visibility:auto]')}
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition: reducedMotion ? undefined : transition }}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        aria-disabled={undefined}
+        aria-keyshortcuts='F2'
+        aria-label={node.display_name}
+        aria-roledescription={t('subscriptions.pool.sortableCard')}
+        className={cn(
+          card,
+          'cursor-grab touch-pan-y outline-none select-none transition-colors duration-[var(--dur-short)] ease-out hover:border-[var(--color-border-strong)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+          isDragging && 'opacity-40',
+        )}
+        data-dragging={isDragging || undefined}
+        onClick={() => onOpen(node)}
+        onKeyDown={onKeyDown}
+      >
+        <PoolNodeCardContent node={node} />
+      </div>
+    </li>
+  );
 });
+PoolNodeCard.displayName = 'PoolNodeCard';

@@ -17,7 +17,7 @@ func TestChannelLoonRenderingAndMissingExits(t *testing.T) {
 	for _, kind := range []string{"select", "url-test", "fallback"} {
 		t.Run(kind, func(t *testing.T) {
 			policy.Groups[0].Type = kind
-			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+			result, err := RenderChannelNodes(nodes, RenderFormatLoon, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -26,18 +26,18 @@ func TestChannelLoonRenderingAndMissingExits(t *testing.T) {
 					t.Fatalf("missing %q in %s", want, result.Content)
 				}
 			}
-			again, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+			again, err := RenderChannelNodes(nodes, RenderFormatLoon, *policy)
 			if err != nil || !bytes.Equal(result.Content, again.Content) || result.NodeCount != 2 || result.MediaType != "text/plain; charset=utf-8" {
 				t.Fatal("unstable native output", err)
 			}
-			result, err = RenderPolicyNodes(nodes[1:], RenderChannel{Format: RenderFormatLoon}, policy)
+			result, err = RenderChannelNodes(nodes[1:], RenderFormatLoon, *policy)
 			if err != nil || bytes.Contains(result.Content, []byte("tokyo.example.com")) {
 				t.Fatal("unavailable node leaked", err)
 			}
 			if kind == "select" && (!bytes.Contains(result.Content, []byte("Selected = select,Hong Kong")) || !bytes.Contains(result.Content, []byte("FINAL,REJECT"))) {
 				t.Fatal("missing first candidate did not reject", string(result.Content))
 			}
-			result, err = RenderPolicyNodes(nil, RenderChannel{Format: RenderFormatLoon}, policy)
+			result, err = RenderChannelNodes(nil, RenderFormatLoon, *policy)
 			if err != nil || bytes.Contains(result.Content, []byte("[Proxy Group]")) || !bytes.Contains(result.Content, []byte("FINAL,REJECT\n")) || !bytes.Contains(result.Content, []byte("policy=REJECT,tag=Remote rules,enabled=true")) {
 				t.Fatal("empty group did not reject", err, string(result.Content))
 			}
@@ -59,17 +59,20 @@ func TestChannelLoonRejectsConflictsAndInjection(t *testing.T) {
 			}
 		})
 	}
-	for _, edit := range []func(*ChannelPolicy){
-		func(p *ChannelPolicy) { p.Groups[0].Name = "PROXY" },
-		func(p *ChannelPolicy) { p.Groups[0].Name = "option=value" },
-		func(p *ChannelPolicy) { p.Groups[0].Name = "\"quoted\"" },
-		func(p *ChannelPolicy) { p.Groups[0].Type = "url-test"; p.Groups[0].BuiltinNodes = []string{"direct"} },
-		func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.Format = "text" },
-		func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.URL = "https://example.com/rules,policy=DIRECT" },
+	for _, edit := range []func(*ChannelConfig){
+		func(p *ChannelConfig) { p.Groups[0].Name = "PROXY" },
+		func(p *ChannelConfig) { p.Groups[0].Name = "option=value" },
+		func(p *ChannelConfig) { p.Groups[0].Name = "\"quoted\"" },
+		func(p *ChannelConfig) {
+			p.Groups[0].Type = "url-test"
+			p.Groups[0].Members = append(p.Groups[0].Members, GroupMember{Kind: memberBuiltin, ID: "direct"})
+		},
+		func(p *ChannelConfig) { p.Groups[0].Rules[3].Remote.Format = "text" },
+		func(p *ChannelConfig) { p.Groups[0].Rules[3].Remote.URL = "https://example.com/rules,policy=DIRECT" },
 	} {
 		_, p := policyFixture(t, RenderFormatLoon)
 		edit(p)
-		if err := ValidateChannelPolicy(p, RenderFormatLoon); err == nil {
+		if err := ValidateChannelConfig(*p, RenderFormatLoon); err == nil {
 			t.Fatal("incompatible Loon policy accepted")
 		}
 	}
@@ -81,7 +84,7 @@ func TestChannelLoonRemoteRuleNames(t *testing.T) {
 			nodes, policy := policyFixture(t, RenderFormatLoon)
 			rule := &policy.Groups[0].Rules[3]
 			rule.Remote.Name = name
-			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+			result, err := RenderChannelNodes(nodes, RenderFormatLoon, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,7 +99,7 @@ func TestChannelLoonRemoteRuleNames(t *testing.T) {
 				t.Fatalf("remote tag %q, want %q", tag, name)
 			}
 			rule.Enabled = false
-			result, err = RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatLoon}, policy)
+			result, err = RenderChannelNodes(nodes, RenderFormatLoon, *policy)
 			if err != nil || strings.Contains(string(result.Content), "[Remote Rule]") {
 				t.Fatalf("disabled remote rule emitted: %s, %v", result.Content, err)
 			}

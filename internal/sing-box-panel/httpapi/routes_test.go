@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -22,6 +21,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
@@ -131,29 +131,42 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	}
 	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/panel/settings", string(panelBody), http.StatusOK, true, nil)
 
-	now := time.Date(2026, time.August, 29, 10, 0, 0, 0, time.UTC)
-	source, err := database.CreateSubscriptionSource(ctx, store.SubscriptionSource{
-		ID: "source-contract", Name: "contract source", SourceKind: store.SubscriptionSourceLocal,
-		Config: json.RawMessage(`{}`), Enabled: true, CreatedAt: now,
-	})
-	if err != nil {
+	created := serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/sources",
+		`{"name":"contract source","kind":"file","filter":{"include":[],"exclude":["skip"]},"content":"socks5://a.example:1080#A\nsocks5://b.example:1080#B\nsocks5://c.example:1080#skip"}`,
+		http.StatusCreated, true, nil)
+	var source subscription.SubscriptionSource
+	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
 		t.Fatal(err)
 	}
-	version, err := database.SaveSubscriptionSourceVersion(ctx, store.SaveSubscriptionSourceVersionInput{
-		Version: store.SubscriptionSourceVersion{
-			ID: "version-contract", SourceID: source.ID, Format: "uri-list",
-			RawBody: []byte("socks://127.0.0.1:1080"), NormalizedNodes: json.RawMessage(`[]`),
-			Diagnostics: json.RawMessage(`[]`), FetchedAt: now.Add(time.Minute), CreatedAt: now.Add(time.Minute),
-		},
-		ExpectedSourceUpdatedAt: source.UpdatedAt,
-		UpdatedAt:               now.Add(time.Minute),
-	})
-	if err != nil {
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/sources", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/sources/preview",
+		`{"source_id":"`+source.ID+`","filter":{"include":[],"exclude":[]}}`, http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID+"/content",
+		`{"content":"trojan://broken.example:443#Broken"}`, http.StatusUnprocessableEntity, true, nil)
+	listed := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/nodes", "", http.StatusOK, true, nil)
+	var pool subscription.SubscriptionNodeList
+	if err := json.Unmarshal(listed.Body.Bytes(), &pool); err != nil || len(pool.Items) != 2 {
+		t.Fatalf("pool = %s, %v", listed.Body.String(), err)
+	}
+	node := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/nodes/"+pool.Items[0].ID, "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/nodes/"+pool.Items[0].ID,
+		`{"display_name":"Renamed"}`, http.StatusOK, true, map[string]string{"If-Match": node.Header().Get("ETag")})
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/node-order",
+		`{"ids":["`+pool.Items[1].ID+`","`+pool.Items[0].ID+`"]}`, http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/node-order",
+		`{"ids":["`+pool.Items[1].ID+`"]}`, http.StatusConflict, true, nil)
+	channel := serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/channels",
+		`{"name":"contract channel","format":"mihomo","enabled":true,"config":{"groups":[{"id":"main","name":"Main","enabled":true,"type":"url-test",
+		"health_check":{"url":"https://probe.example/","interval":600,"tolerance":10},
+		"members":[{"kind":"node","id":"`+pool.Items[0].ID+`"},{"kind":"builtin","id":"direct"}],
+		"rules":[{"id":"rule","enabled":true,"kind":"domain","value":"example.org","exit":{"kind":"node","id":"`+pool.Items[1].ID+`"}}]}],
+		"default_exit":{"kind":"group","id":"main"}}}`, http.StatusCreated, true, nil)
+	var stored subscription.SubscriptionChannel
+	if err := json.Unmarshal(channel.Body.Bytes(), &stored); err != nil {
 		t.Fatal(err)
 	}
-	serveConformingRequest(t, router, handler, http.MethodGet,
-		"/api/v1/subscription/sources/"+source.ID+"/versions/"+version.Version.ID,
-		"", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/channels/"+stored.ID, "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/channels/"+stored.ID+"/preview", `{}`, http.StatusOK, true, nil)
 
 	// A development build reports its version and updates nothing.
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/system/update", "", http.StatusOK, true, nil)

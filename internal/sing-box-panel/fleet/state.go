@@ -82,8 +82,12 @@ func (service *Service) receiveStateReport(ctx context.Context, current *session
 		!boundedText(summary.Applied.ConfigSHA256, 64) || !boundedText(summary.Applied.ExactCoreVersion, 64) {
 		return errStateReportInvalid
 	}
-	if err := service.database.RecordNodeStateReport(ctx, current.nodeID, current.sessionID, encoded, summary, service.now().UTC()); err != nil {
+	published, err := service.database.RecordNodeStateReport(ctx, current.nodeID, current.sessionID, encoded, summary, service.now().UTC())
+	if err != nil {
 		return err
+	}
+	if published {
+		service.publicationChanged(ctx)
 	}
 	if existing != nil {
 		service.seedConfiguration(ctx, current.nodeID, existing)

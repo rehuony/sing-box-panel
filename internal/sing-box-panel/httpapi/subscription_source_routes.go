@@ -3,12 +3,15 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 )
+
+// maximumSourceRequestBytes carries a source's largest content as a JSON
+// string, whose escapes can grow it, and the rest of the request.
+const maximumSourceRequestBytes = 2*store.MaximumSourceContentBytes + (64 << 10)
 
 func (handler *Handler) listSubscriptionSources(w http.ResponseWriter, request *http.Request) {
 	input, ok := handler.subscriptionListRequest(w, request)
@@ -27,28 +30,32 @@ func (handler *Handler) createSubscriptionSource(w http.ResponseWriter, request 
 	if !handler.subscriptionMutationRequest(w, request) {
 		return
 	}
-	var input struct {
-		Name       string                       `json:"name"`
-		SourceKind store.SubscriptionSourceKind `json:"source_kind"`
-		Config     json.RawMessage              `json:"config"`
-		Enabled    *bool                        `json:"enabled"`
-	}
-	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
+	var input subscription.CreateSubscriptionSourceRequest
+	if !decodeStrictRequest(w, request, maximumSourceRequestBytes, &input) {
 		return
 	}
-	if input.Enabled == nil {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
-	source, err := handler.services.Subscriptions.CreateSubscriptionSource(request.Context(), subscription.CreateSubscriptionSourceRequest{
-		Name: input.Name, SourceKind: input.SourceKind, Config: input.Config,
-		Enabled: *input.Enabled,
-	})
+	source, err := handler.services.Subscriptions.CreateSubscriptionSource(request.Context(), input)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_create_failed", err)
 		return
 	}
 	writeSubscriptionResource(w, http.StatusCreated, source.UpdatedAt, source)
+}
+
+func (handler *Handler) previewSubscriptionSource(w http.ResponseWriter, request *http.Request) {
+	if !handler.subscriptionMutationRequest(w, request) {
+		return
+	}
+	var input subscription.SubscriptionSourcePreviewRequest
+	if !decodeStrictRequest(w, request, maximumSourceRequestBytes, &input) {
+		return
+	}
+	preview, err := handler.services.Subscriptions.PreviewSubscriptionSource(request.Context(), input)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_source_preview_failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (handler *Handler) getSubscriptionSource(w http.ResponseWriter, request *http.Request, identifier string) {
@@ -71,23 +78,11 @@ func (handler *Handler) updateSubscriptionSource(w http.ResponseWriter, request 
 	if !ok {
 		return
 	}
-	var input struct {
-		Name       string                       `json:"name"`
-		SourceKind store.SubscriptionSourceKind `json:"source_kind"`
-		Config     json.RawMessage              `json:"config"`
-		Enabled    *bool                        `json:"enabled"`
-	}
+	var input subscription.UpdateSubscriptionSourceRequest
 	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
 		return
 	}
-	if input.Enabled == nil {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
-	source, err := handler.services.Subscriptions.UpdateSubscriptionSource(request.Context(), identifier, subscription.UpdateSubscriptionSourceRequest{
-		Name: input.Name, SourceKind: input.SourceKind, Config: input.Config,
-		Enabled: *input.Enabled, ExpectedUpdatedAt: expected,
-	})
+	source, err := handler.services.Subscriptions.UpdateSubscriptionSource(request.Context(), identifier, input, expected)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_update_failed", err)
 		return
@@ -95,85 +90,29 @@ func (handler *Handler) updateSubscriptionSource(w http.ResponseWriter, request 
 	writeSubscriptionResource(w, http.StatusOK, source.UpdatedAt, source)
 }
 
-func (handler *Handler) listSubscriptionSourceVersions(w http.ResponseWriter, request *http.Request, sourceID string) {
-	input, ok := handler.subscriptionListRequest(w, request)
-	if !ok {
+func (handler *Handler) replaceSubscriptionSourceContent(w http.ResponseWriter, request *http.Request, identifier string) {
+	if !handler.subscriptionMutationRequest(w, request) {
 		return
 	}
-	versions, err := handler.services.Subscriptions.ListSubscriptionSourceVersions(request.Context(), sourceID, input)
+	var input subscription.SubscriptionSourceContentRequest
+	if !decodeStrictRequest(w, request, maximumSourceRequestBytes, &input) {
+		return
+	}
+	source, err := handler.services.Subscriptions.ReplaceSubscriptionSourceContent(request.Context(), identifier, input)
 	if err != nil {
-		writeSubscriptionProblem(w, request, "subscription_source_versions_list_failed", err)
+		writeSubscriptionProblem(w, request, "subscription_source_content_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, versions)
+	writeSubscriptionResource(w, http.StatusOK, source.UpdatedAt, source)
 }
 
 func (handler *Handler) refreshSubscriptionSource(w http.ResponseWriter, request *http.Request, sourceID string) {
 	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
 		return
 	}
-	result, err := handler.services.Subscriptions.RefreshSubscriptionSource(request.Context(), sourceID)
+	source, err := handler.services.Subscriptions.RefreshSubscriptionSource(request.Context(), sourceID)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_refresh_failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
-func (handler *Handler) createSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request, sourceID string) {
-	if !handler.subscriptionMutationRequest(w, request) {
-		return
-	}
-	expected, ok := subscriptionIfMatch(w, request)
-	if !ok {
-		return
-	}
-	var input struct {
-		Format  subscription.SourceFormat `json:"format"`
-		RawBody []byte                    `json:"raw_body"`
-	}
-	if !decodeStrictRequest(w, request, maximumSourceVersionRequestBytes, &input) {
-		return
-	}
-	if len(input.RawBody) == 0 {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
-	saved, err := handler.services.Subscriptions.CreateSubscriptionSourceVersion(request.Context(), sourceID, subscription.CreateSubscriptionSourceVersionRequest{
-		Format: input.Format, RawBody: input.RawBody, ExpectedUpdatedAt: expected,
-	})
-	if err != nil {
-		writeSubscriptionProblem(w, request, "subscription_source_version_create_failed", err)
-		return
-	}
-	writeSubscriptionResource(w, http.StatusCreated, saved.Source.UpdatedAt, saved)
-}
-
-func (handler *Handler) getSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request) {
-	if !handler.subscriptionReadRequest(w, request) {
-		return
-	}
-	sourceID, versionID := request.PathValue("sourceId"), request.PathValue("versionId")
-	version, err := handler.services.Subscriptions.SubscriptionSourceVersion(request.Context(), sourceID, versionID)
-	if err != nil {
-		writeSubscriptionProblem(w, request, "subscription_source_version_read_failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, version)
-}
-
-func (handler *Handler) restoreSubscriptionSourceVersion(w http.ResponseWriter, request *http.Request) {
-	if !handler.subscriptionMutationRequest(w, request) || !requireEmptyCoreBody(w, request) {
-		return
-	}
-	expected, ok := subscriptionIfMatch(w, request)
-	if !ok {
-		return
-	}
-	sourceID, versionID := request.PathValue("sourceId"), request.PathValue("versionId")
-	source, err := handler.services.Subscriptions.RestoreSubscriptionSourceVersion(request.Context(), sourceID, versionID, expected)
-	if err != nil {
-		writeSubscriptionProblem(w, request, "subscription_source_version_restore_failed", err)
 		return
 	}
 	writeSubscriptionResource(w, http.StatusOK, source.UpdatedAt, source)

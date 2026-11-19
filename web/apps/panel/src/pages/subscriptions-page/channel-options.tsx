@@ -11,31 +11,29 @@ import {
   DialogTitle,
 } from '@shared/components/ui/dialog';
 
-import type { ChannelPolicy, SubscriptionFormat } from '@/api/api-client';
+import type { SubscriptionFormat } from '@/api/api-client';
 
 import { SelectField } from '@/components/select-field';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 
 interface Props {
   name: string;
+  /** Whether the channel has its own template rather than the client's default. */
+  template: boolean;
   onClose: () => void;
-  policy: ChannelPolicy;
   onTemplate: () => void;
   format: SubscriptionFormat;
-  onSave: (
-    policy: ChannelPolicy,
-    identity: { name: string; format: SubscriptionFormat },
-  ) => void;
+  onSave: (identity: { name: string; format: SubscriptionFormat }) => void;
 }
+
+/** The channel's settings: its name, its client and its template. */
 export function ChannelOptions({
-  policy, name, format, onClose, onSave, onTemplate,
+  template, name, format, onClose, onSave, onTemplate,
 }: Props) {
   const { t } = useTranslation();
   const [draftName, setDraftName] = useState(name);
   const [draftFormat, setDraftFormat] = useState(format);
-  const [draft, setDraft] = useState(() => structuredClone(policy));
-  const dirty = draftName !== name || draftFormat !== format
-    || draft.selection.new_node_policy !== policy.selection.new_node_policy;
+  const dirty = draftName !== name || draftFormat !== format;
   useUnsavedChanges(dirty, onClose);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -59,31 +57,13 @@ export function ChannelOptions({
                 { value: 'loon', label: t('subscriptions.channel.format.loon') },
               ]}
             />
-            <label htmlFor='channel-new-nodes'>{t('channels.newNodes')}</label>
-            <SelectField<'include' | 'exclude'>
-              id='channel-new-nodes'
-              value={draft.selection.new_node_policy}
-              onValueChange={(value) =>
-                setDraft({
-                  ...draft,
-                  selection: {
-                    ...draft.selection,
-                    new_node_policy: value,
-                  },
-                })
-              }
-              items={[
-                { value: 'include', label: t('channels.include') },
-                { value: 'exclude', label: t('channels.exclude') },
-              ]}
-            />
             <span>{t('channels.template')}</span>
             <Button variant='outline' disabled={draftFormat !== format} onClick={onTemplate}>
-              <span className='truncate'>{t(policy.template ? 'channels.customTemplate' : 'channels.defaultTemplate')}</span>
+              <span className='truncate'>{t(template ? 'channels.customTemplate' : 'channels.defaultTemplate')}</span>
             </Button>
           </div>
           {draftFormat !== format && (
-            <p role='status' className='text-sm text-muted-foreground'>{t(policy.template ? 'channels.replaceTemplateHint' : 'channels.applyClientFirst')}</p>
+            <p role='status' className='text-sm text-muted-foreground'>{t(template ? 'channels.replaceTemplateHint' : 'channels.applyClientFirst')}</p>
           )}
         </div>
         <DialogFooter>
@@ -94,14 +74,11 @@ export function ChannelOptions({
             variant='default'
             disabled={!draftName.trim()}
             onClick={() => {
-              onSave(
-                draft,
-                { name: draftName.trim(), format: draftFormat },
-              );
+              onSave({ name: draftName.trim(), format: draftFormat });
               onClose();
             }}
           >
-            {t(draftFormat !== format && policy.template ? 'channels.switchTemplate' : 'channels.apply')}
+            {t(draftFormat !== format && template ? 'channels.switchTemplate' : 'channels.apply')}
           </Button>
         </DialogFooter>
       </DialogContent>

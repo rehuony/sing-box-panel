@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -77,23 +78,45 @@ func writeSubscriptionInvalid(w http.ResponseWriter, request *http.Request) {
 }
 
 func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code string, err error) {
-	var node *subscription.NodeFieldError
-	if errors.As(err, &node) {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_node_invalid", "Node configuration invalid", node.Error())
-		return
-	}
 	var policy *subscription.PolicyError
 	if errors.As(err, &policy) {
 		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_policy_invalid", "Channel configuration invalid", policy.Error())
 		return
 	}
+	var parse *subscription.SourceParseError
+	if errors.As(err, &parse) {
+		writeSourceParseProblem(w, request, parse)
+		return
+	}
+	var field *subscription.SourceFieldError
+	if errors.As(err, &field) {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_invalid", "Source settings invalid", field.Path+": "+field.Code)
+		return
+	}
+	var reference *store.SubscriptionReferenceError
+	if errors.As(err, &reference) {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_reference_invalid", "Reference invalid", reference.Path+": "+reference.Code)
+		return
+	}
 	switch {
+	case errors.Is(err, subscription.ErrInvalidSourceURL), errors.Is(err, subscription.ErrSourceAddressDenied):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_url_rejected", "Source URL rejected", sourceFetchDetail(err))
+	case errors.Is(err, subscription.ErrSourceRequestFailed), errors.Is(err, subscription.ErrTooManySourceRedirects),
+		errors.Is(err, subscription.ErrSourceBodyTooLarge):
+		writeProblem(w, request, http.StatusBadGateway, "subscription_source_fetch_failed", "Source fetch failed", sourceFetchDetail(err))
+	case errors.Is(err, subscription.ErrSourceKindMismatch):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_kind_mismatch", "Operation not available", "Only URL sources refresh, and only file sources take uploaded content.")
+	case errors.Is(err, subscription.ErrInvalidNodeDisplayName):
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_node_name_invalid", "Display name invalid", "A display name is 1 to 256 bytes without surrounding spaces, control characters or commas.")
+	case errors.Is(err, store.ErrSubscriptionNodeNameTaken):
+		writeProblem(w, request, http.StatusConflict, "subscription_node_name_taken", "Display name taken", "Another node already uses this display name.")
+	case errors.Is(err, store.ErrSubscriptionPoolChanged), errors.Is(err, store.ErrSubscriptionPoolInputsChanged):
+		writeProblem(w, request, http.StatusConflict, "subscription_pool_changed", "Node pool changed", "The node pool changed since it was read; reload it and retry.")
 	case errors.Is(err, store.ErrSubscriptionTokenSecretUnavailable):
 		writeProblem(w, request, http.StatusConflict, "subscription_token_secret_unavailable", "Key cannot be revealed", "This key predates recoverable storage. Rotate it and update channel bindings to export links.")
-	case errors.Is(err, store.ErrInvalidSubscriptionToken), errors.Is(err, store.ErrSubscriptionNodeInvalid):
+	case errors.Is(err, store.ErrInvalidSubscriptionToken):
 		writeSubscriptionInvalid(w, request)
 	case errors.Is(err, store.ErrSubscriptionNodeNotFound), errors.Is(err, store.ErrSubscriptionChannelNotFound), errors.Is(err, store.ErrSubscriptionSourceNotFound),
-		errors.Is(err, store.ErrSubscriptionSourceVersionNotFound),
 		errors.Is(err, store.ErrSubscriptionUserNotFound),
 		errors.Is(err, store.ErrSubscriptionTokenNotFound):
 		writeProblem(w, request, http.StatusNotFound, "subscription_resource_not_found", "Subscription resource not found", "The requested subscription resource does not exist.")
@@ -104,16 +127,49 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 		errors.Is(err, store.ErrSubscriptionTokenExists):
 		writeProblem(w, request, http.StatusConflict, "subscription_resource_exists", "Subscription resource conflict", "A subscription resource with that identity already exists.")
 	case errors.Is(err, store.ErrSubscriptionLimitExceeded):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_limit_exceeded", "Subscription limit exceeded", "The enabled subscription inputs exceed the supported count or byte budget.")
+		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_limit_exceeded", "Subscription limit exceeded", "The subscription inputs exceed the supported count or byte budget.")
 	case errors.Is(err, store.ErrSubscriptionTokenInactive):
 		writeProblem(w, request, http.StatusConflict, "subscription_token_inactive", "Subscription token inactive", "The subscription token is expired or revoked.")
 	default:
 		// Validation errors at this boundary are intentionally not reflected: a
-		// source config may contain credentials or other operator-only values.
+		// source or channel may contain credentials or other operator-only values.
 		if strings.Contains(err.Error(), "subscription ") || strings.Contains(err.Error(), "invalid subscription") {
 			writeSubscriptionInvalid(w, request)
 			return
 		}
 		writeProblem(w, request, http.StatusInternalServerError, code, "Subscription operation failed", "The subscription operation could not be completed.")
 	}
+}
+
+// writeSourceParseProblem answers content that cannot be saved, naming the
+// node that does not convert in the problem's fields.
+func writeSourceParseProblem(w http.ResponseWriter, request *http.Request, parse *subscription.SourceParseError) {
+	fields := map[string]string{"code": parse.Code}
+	for name, value := range map[string]string{"location": parse.Location, "name": parse.Name, "reason": parse.Reason} {
+		if value != "" {
+			fields[name] = value
+		}
+	}
+	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	_ = json.NewEncoder(w).Encode(Problem{
+		Type: "about:blank", Title: "Source content cannot be read", Status: http.StatusUnprocessableEntity,
+		Code: "subscription_source_unreadable", Detail: parse.Error(), RequestID: request.Header.Get("X-Request-ID"), Fields: fields,
+	})
+}
+
+// sourceFetchDetail names why a fetch failed without the URL.
+func sourceFetchDetail(err error) string {
+	switch {
+	case errors.Is(err, subscription.ErrInvalidSourceURL):
+		return "The URL must be an http or https URL with a host."
+	case errors.Is(err, subscription.ErrSourceAddressDenied):
+		return "The URL resolves to an address the source network policy denies."
+	case errors.Is(err, subscription.ErrTooManySourceRedirects):
+		return "The source redirected too many times."
+	case errors.Is(err, subscription.ErrSourceBodyTooLarge):
+		return "The source answered with more than 4 MiB."
+	}
+	return "The source could not be fetched (" + subscription.FetchErrorCode(err) + ")."
 }

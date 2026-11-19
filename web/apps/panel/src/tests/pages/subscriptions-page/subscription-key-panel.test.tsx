@@ -49,10 +49,11 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/subscriptions');
 });
 
-it('shows the three accepted tabs without fetching users', () => {
+it('opens on the node pool with keys last, without reading keys', () => {
   const client = createMockApiClient();
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
-  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Sources', 'Key management', 'Channels']);
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Nodes', 'Sources', 'Channels', 'Key management']);
+  expect(screen.getByRole('tab', { name: 'Nodes' })).toHaveAttribute('aria-selected', 'true');
   expect(client.listSubscriptionTokens).not.toHaveBeenCalled();
 });
 

@@ -14,14 +14,60 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func policyFixture(t *testing.T, format RenderFormat) ([]Node, *ChannelPolicy) {
+// testChannelNodes reads content as a sing-box source and returns its nodes
+// as the pool holds them, named by their names in the source.
+func testChannelNodes(t *testing.T, sourceID, content string) []ChannelNode {
 	t.Helper()
-	nodes, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"socks","tag":"Tokyo","server":"tokyo.example.com","server_port":1080},{"type":"socks","tag":"Hong Kong","server":"hk.example.com","server_port":1080}]}`), "source-one")
+	reading, err := ReadSource([]byte(content), SourceFormatSingBox, SourceFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, b := PublicationID(nodes[0]), PublicationID(nodes[1])
-	p := &ChannelPolicy{Selection: NodeSelection{IDs: []string{a, b}, NewNodePolicy: "exclude"}, IncompatibleNodes: "error", DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{Type: "select", BuiltinNodes: []string{}, ID: "main", Name: "Selected", Enabled: true, NodeIDs: []string{a, b}, Rules: []ChannelRule{
+	nodes := []ChannelNode{}
+	for _, item := range reading.Kept() {
+		outbound, err := json.Marshal(item.Outbound)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes = append(nodes, ChannelNode{
+			ID: poolNodeID(originSource, sourceID, item.OriginKey), Name: item.Name, Protocol: item.Protocol,
+			SourceID: sourceID, OriginName: item.Name, Outbound: outbound,
+		})
+	}
+	return nodes
+}
+
+func nodeMembers(ids ...string) []GroupMember {
+	members := make([]GroupMember, len(ids))
+	for index, id := range ids {
+		members[index] = GroupMember{Kind: memberNode, ID: id}
+	}
+	return members
+}
+
+func groupMembers(ids ...string) []GroupMember {
+	members := make([]GroupMember, len(ids))
+	for index, id := range ids {
+		members[index] = GroupMember{Kind: memberGroup, ID: id}
+	}
+	return members
+}
+
+// publishAll is a channel whose one group holds every node.
+func publishAll(nodes []ChannelNode, incompatible string) ChannelConfig {
+	ids := make([]string, len(nodes))
+	for index, node := range nodes {
+		ids[index] = node.ID
+	}
+	return ChannelConfig{IncompatibleNodes: incompatible, DefaultExit: RouteExit{Kind: "direct"}, Groups: []RuleGroup{
+		{ID: "all", Name: "All", Enabled: true, Type: "select", Members: nodeMembers(ids...), Rules: []ChannelRule{}},
+	}}
+}
+
+func policyFixture(t *testing.T, format RenderFormat) ([]ChannelNode, *ChannelConfig) {
+	t.Helper()
+	nodes := testChannelNodes(t, "source-one", `{"outbounds":[{"type":"socks","tag":"Tokyo","server":"tokyo.example.com","server_port":1080},{"type":"socks","tag":"Hong Kong","server":"hk.example.com","server_port":1080}]}`)
+	a, b := nodes[0].ID, nodes[1].ID
+	p := &ChannelConfig{IncompatibleNodes: "error", DefaultExit: RouteExit{Kind: "group", ID: "main"}, Groups: []RuleGroup{{Type: "select", ID: "main", Name: "Selected", Enabled: true, Members: nodeMembers(a, b), Rules: []ChannelRule{
 		{SortIndex: 10, ID: "domain", Enabled: true, Kind: "domain_suffix", Value: "example.org", Exit: RouteExit{Kind: "group-default"}},
 		{SortIndex: 20, ID: "ipv6", Enabled: true, Kind: "ip_cidr", Value: "2001:db8::/32", Exit: RouteExit{Kind: "direct"}},
 		{ID: "disabled", Enabled: false, Kind: "domain", Value: "disabled.example", Exit: RouteExit{Kind: "reject"}},
@@ -60,7 +106,7 @@ supplementary: "𠮷 👩🏽‍💻 🇯🇵"
 	} {
 		nodes, policy := policyFixture(t, RenderFormatMihomo)
 		policy.Template = &NativeTemplate{Format: RenderFormatMihomo, Content: content}
-		result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatMihomo}, policy)
+		result, err := RenderChannelNodes(nodes, RenderFormatMihomo, *policy)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,19 +135,19 @@ supplementary: "𠮷 👩🏽‍💻 🇯🇵"
 
 func TestChannelYAMLEmitsUnicodeLiterally(t *testing.T) {
 	nodes, policy := policyFixture(t, RenderFormatMihomo)
-	nodes[0].OriginTag = "🇯🇵 Tokyo 👩🏽‍💻"
+	nodes[0].Name = "🇯🇵 Tokyo 👩🏽‍💻"
 	policy.Groups[0].Name = "🏠 国内服务"
 	policy.Groups[0].Rules[3].Remote.Name = "🚀 全球服务"
 	policy.Groups = append(policy.Groups,
-		RuleGroup{ID: "crypto", Name: "🔑 加密货币", Type: "select", Enabled: true, BuiltinNodes: []string{}, GroupIDs: []string{"main"}},
-		RuleGroup{ID: "final", Name: "🐟 漏网之鱼", Type: "select", Enabled: true, BuiltinNodes: []string{}, GroupIDs: []string{"main"}},
-		RuleGroup{ID: "selector", Name: "✨ 节点选择", Type: "select", Enabled: true, BuiltinNodes: []string{}, GroupIDs: []string{"main"}},
+		RuleGroup{ID: "crypto", Name: "🔑 加密货币", Type: "select", Enabled: true, Members: groupMembers("main"), Rules: []ChannelRule{}},
+		RuleGroup{ID: "final", Name: "🐟 漏网之鱼", Type: "select", Enabled: true, Members: groupMembers("main"), Rules: []ChannelRule{}},
+		RuleGroup{ID: "selector", Name: "✨ 节点选择", Type: "select", Enabled: true, Members: groupMembers("main"), Rules: []ChannelRule{}},
 	)
-	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatMihomo}, policy)
+	result, err := RenderChannelNodes(nodes, RenderFormatMihomo, *policy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{nodes[0].OriginTag, "🏠 国内服务", "🚀 全球服务", "🔑 加密货币", "🐟 漏网之鱼", "✨ 节点选择"} {
+	for _, name := range []string{nodes[0].Name, "🏠 国内服务", "🚀 全球服务", "🔑 加密货币", "🐟 漏网之鱼", "✨ 节点选择"} {
 		if !bytes.Contains(result.Content, []byte(name)) {
 			t.Errorf("export does not contain literal %q", name)
 		}
@@ -118,7 +164,7 @@ func TestChannelYAMLEmitsUnicodeLiterally(t *testing.T) {
 		}
 		wantCandidate := "🏠 国内服务"
 		if i == 0 {
-			wantCandidate = nodes[0].OriginTag
+			wantCandidate = nodes[0].Name
 		}
 		if got["proxies"].([]any)[0] != wantCandidate {
 			t.Fatalf("group reference changed: %v", got)
@@ -138,14 +184,14 @@ func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {
 			if format == RenderFormatMihomo {
 				p.Template.Content = "# retained comment\nlog-level: warning\ncustom-counter: 9007199254740993\ndns:\n  enable: true\n"
 			}
-			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
+			result, err := RenderChannelNodes(nodes, format, *p)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if result.NodeCount != 2 || !bytes.Contains(result.Content, []byte("https://gh-proxy.com/https://raw.githubusercontent.com/")) || !bytes.Contains(result.Content, []byte("9007199254740993")) || bytes.Contains(result.Content, []byte("disabled.example")) {
 				t.Fatal(string(result.Content))
 			}
-			again, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
+			again, err := RenderChannelNodes(nodes, format, *p)
 			if err != nil || !bytes.Equal(result.Content, again.Content) {
 				t.Fatal("unstable or mutated render", err)
 			}
@@ -160,7 +206,7 @@ func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {
 					t.Fatal(route)
 				}
 				rules := route["rules"].([]any)
-				if len(rules) != 3 || rules[0].(map[string]any)["outbound"] != "Selected" || rules[2].(map[string]any)["outbound"] != nodes[1].Tag {
+				if len(rules) != 3 || rules[0].(map[string]any)["outbound"] != "Selected" || rules[2].(map[string]any)["outbound"] != nodes[1].Name {
 					t.Fatal(rules)
 				}
 				set := route["rule_set"].([]any)[0].(map[string]any)
@@ -191,7 +237,7 @@ func TestChannelUnavailableNodesNeverLeakOrFallbackDirect(t *testing.T) {
 	nodes, p := policyFixture(t, RenderFormatSingBox)
 	// Caller has filtered the first node after it was hidden. Membership remains
 	// unchanged, and its group/default route fails closed until it is restored.
-	result, err := RenderPolicyNodes(nodes[1:], RenderChannel{Format: RenderFormatSingBox}, p)
+	result, err := RenderChannelNodes(nodes[1:], RenderFormatSingBox, *p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,71 +249,76 @@ func TestChannelUnavailableNodesNeverLeakOrFallbackDirect(t *testing.T) {
 	if rules[0].(map[string]any)["action"] != "reject" || rules[len(rules)-1].(map[string]any)["action"] != "reject" {
 		t.Fatal(rules)
 	}
-	if len(p.Selection.IDs) != 2 || len(p.Groups[0].NodeIDs) != 2 {
+	if len(p.Groups[0].Members) != 2 {
 		t.Fatal("render mutated membership")
 	}
-	restored, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
+	restored, err := RenderChannelNodes(nodes, RenderFormatSingBox, *p)
 	if err != nil || restored.NodeCount != 2 {
 		t.Fatal(restored, err)
 	}
 }
 
-func TestChannelSelectionOrderAndFixedGroupCandidates(t *testing.T) {
+func TestChannelPublishesOnlyNodesItsGroupsName(t *testing.T) {
 	nodes, p := policyFixture(t, RenderFormatSingBox)
-	more, _, _ := ParseSource(SourceFormatSingBoxJSON, []byte(`{"type":"socks","tag":"Amsterdam","server":"ams.example.com","server_port":1080}`), "new-source")
-	nodes = append(nodes, more...)
-	p.Selection.NewNodePolicy = "include"
-	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
+	more := testChannelNodes(t, "new-source", `{"outbounds":[{"type":"socks","tag":"Amsterdam","server":"ams.example.com","server_port":1080},{"type":"socks","tag":"Berlin","server":"ber.example.com","server_port":1080},{"type":"socks","tag":"Paris","server":"par.example.com","server_port":1080}]}`)
+	// Pool order puts the new nodes first; the channel keeps it.
+	pool := append(append([]ChannelNode{}, more...), nodes...)
+	result, err := RenderChannelNodes(pool, RenderFormatSingBox, *p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NodeCount != 2 || bytes.Contains(result.Content, []byte("ams.example.com")) || !result.Carries(nodes[0].ID) || result.Carries(more[0].ID) {
+		t.Fatalf("an ungrouped node was published: %s", result.Content)
+	}
+	// A rule exit and the default exit publish their nodes too, in pool order;
+	// a disabled rule's exit does not.
+	p.Groups[0].Rules[1].Exit = RouteExit{Kind: "node", ID: more[1].ID}
+	p.Groups[0].Rules[2].Exit = RouteExit{Kind: "node", ID: more[2].ID}
+	p.DefaultExit = RouteExit{Kind: "node", ID: more[0].ID}
+	result, err = RenderChannelNodes(pool, RenderFormatSingBox, *p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	root, _ := DecodeDocumentObject(result.Content)
-	out := root["outbounds"].([]any)
-	if out[0].(map[string]any)["tag"] != "Tokyo" {
-		t.Fatal(out)
+	var tags []any
+	for _, value := range root["outbounds"].([]any) {
+		tags = append(tags, value.(map[string]any)["tag"])
 	}
-	group := out[len(out)-1].(map[string]any)
-	encoded, _ := json.Marshal(group)
-	if bytes.Contains(encoded, []byte("Amsterdam")) {
-		t.Fatal("new node entered an existing group")
+	if !slices.Equal(tags[:4], []any{"Amsterdam", "Berlin", "Tokyo", "Hong Kong"}) || result.NodeCount != 4 || bytes.Contains(result.Content, []byte("par.example.com")) {
+		t.Fatalf("published nodes = %v", tags)
 	}
-	if result.NodeCount != 3 {
-		t.Fatal(result.NodeCount)
-	}
-	p.Selection.NewNodePolicy = "exclude"
-	result, err = RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
-	if err != nil || result.NodeCount != 2 {
-		t.Fatal(result, err)
+	if root["route"].(map[string]any)["final"] != "Amsterdam" {
+		t.Fatal(root["route"])
 	}
 }
 
 func TestInvalidChannelPoliciesExposePathsWithoutInput(t *testing.T) {
-	for name, change := range map[string]func(*ChannelPolicy){
-		"native format":      func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.Format = "mrs" },
-		"node outside group": func(p *ChannelPolicy) { p.Groups[0].Rules[0].Exit = RouteExit{Kind: "node", ID: "not-selected"} },
-		"template conflict": func(p *ChannelPolicy) {
+	for name, change := range map[string]func(*ChannelConfig){
+		"native format": func(p *ChannelConfig) { p.Groups[0].Rules[3].Remote.Format = "mrs" },
+		"invalid node":  func(p *ChannelConfig) { p.Groups[0].Rules[0].Exit = RouteExit{Kind: "node", ID: "not valid"} },
+		"template conflict": func(p *ChannelConfig) {
 			p.Template = &NativeTemplate{Format: RenderFormatSingBox, Content: `{"route":{"rules":[{"password":"sensitive-content"}]}}`}
 		},
-		"template duplicate key": func(p *ChannelPolicy) {
+		"template duplicate key": func(p *ChannelConfig) {
 			p.Template = &NativeTemplate{Format: RenderFormatSingBox, Content: `{"log":{},"log":{}}`}
 		},
-		"disabled fallback": func(p *ChannelPolicy) { p.Groups[0].Enabled = false },
-		"invalid CIDR":      func(p *ChannelPolicy) { p.Groups[0].Rules[1].Value = "not-an-ip" },
-		"URL credentials":   func(p *ChannelPolicy) { p.Groups[0].Rules[3].Remote.URL = "https://secret:credential@example.com/path" },
+		"disabled fallback": func(p *ChannelConfig) { p.Groups[0].Enabled = false },
+		"invalid CIDR":      func(p *ChannelConfig) { p.Groups[0].Rules[1].Value = "not-an-ip" },
+		"URL credentials":   func(p *ChannelConfig) { p.Groups[0].Rules[3].Remote.URL = "https://secret:credential@example.com/path" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, p := policyFixture(t, RenderFormatSingBox)
 			change(p)
-			err := ValidateChannelPolicy(p, RenderFormatSingBox)
+			err := ValidateChannelConfig(*p, RenderFormatSingBox)
 			var e *PolicyError
-			if !errors.As(err, &e) || !strings.HasPrefix(e.Path, "policy") || strings.Contains(err.Error(), "sensitive-content") || strings.Contains(err.Error(), "credential@example") {
+			if !errors.As(err, &e) || e.Path == "" || strings.Contains(err.Error(), "sensitive-content") || strings.Contains(err.Error(), "credential@example") {
 				t.Fatal(err)
 			}
 		})
 	}
 	_, p := policyFixture(t, RenderFormatMihomo)
 	p.Groups[0].Rules[3].Remote.Behavior = "classical"
-	if err := ValidateChannelPolicy(p, RenderFormatMihomo); err == nil {
+	if err := ValidateChannelConfig(*p, RenderFormatMihomo); err == nil {
 		t.Fatal("MRS classical accepted")
 	}
 }
@@ -286,17 +337,13 @@ func TestRuleURLAccelerationIsReversibleAndDeduplicated(t *testing.T) {
 }
 
 func TestChannelDependencyCyclesAndMissingDetoursFailClosed(t *testing.T) {
-	nodes, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[
+	nodes := testChannelNodes(t, "s", `{"outbounds":[
  {"type":"socks","tag":"a","server":"a.example","server_port":1080,"detour":"b"},
  {"type":"socks","tag":"b","server":"b.example","server_port":1080,"detour":"a"},
  {"type":"socks","tag":"c","server":"c.example","server_port":1080,"detour":"a"},
  {"type":"socks","tag":"d","server":"d.example","server_port":1080,"detour":"missing"},
- {"type":"socks","tag":"unresolved-detour","server":"safe.example","server_port":1080}]}`), "s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := &ChannelPolicy{Selection: NodeSelection{NewNodePolicy: "include"}, IncompatibleNodes: "skip", DefaultExit: RouteExit{Kind: "direct"}}
-	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
+ {"type":"socks","tag":"unresolved-detour","server":"safe.example","server_port":1080}]}`)
+	result, err := RenderChannelNodes(nodes, RenderFormatSingBox, publishAll(nodes, "skip"))
 	if err != nil || result.NodeCount != 1 || len(result.Diagnostics) != 4 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -306,25 +353,28 @@ func TestChannelDependencyCyclesAndMissingDetoursFailClosed(t *testing.T) {
 }
 
 func TestChannelNamesKeepDistinctSourceDependencies(t *testing.T) {
-	var nodes []Node
+	var nodes []ChannelNode
 	for _, source := range []string{"first", "second"} {
-		part, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"outbounds":[{"type":"socks","tag":"entry","server":"same.example","server_port":1080,"detour":"hop"},{"type":"socks","tag":"hop","server":"`+source+`.example","server_port":1080}]}`), source)
-		if err != nil {
-			t.Fatal(err)
-		}
-		nodes = append(nodes, part...)
+		nodes = append(nodes, testChannelNodes(t, source, `{"outbounds":[{"type":"socks","tag":"entry","server":"same.example","server_port":1080,"detour":"hop"},{"type":"socks","tag":"hop","server":"`+source+`.example","server_port":1080}]}`)...)
 	}
-	nodes[0].OriginTag = "Real name"
-	p := &ChannelPolicy{Selection: NodeSelection{NewNodePolicy: "include"}, IncompatibleNodes: "error", DefaultExit: RouteExit{Kind: "direct"}}
-	result, err := RenderPolicyNodes(nodes, RenderChannel{Format: RenderFormatSingBox}, p)
+	// Display names are unique in the pool; a detour still names its source's
+	// node by its name there.
+	nodes[0].Name, nodes[1].Name, nodes[2].Name, nodes[3].Name = "Real name", "hop", "entry 2", "hop 2"
+	result, err := RenderChannelNodes(nodes, RenderFormatSingBox, publishAll(nodes, "error"))
 	if err != nil || result.NodeCount != 4 {
 		t.Fatalf("%+v %v", result, err)
 	}
 	root, _ := DecodeDocumentObject(result.Content)
 	out := root["outbounds"].([]any)
 	first, second := out[0].(map[string]any), out[2].(map[string]any)
-	if first["tag"] != "Real name" || first["detour"] == second["detour"] {
+	if first["tag"] != "Real name" || first["detour"] != "hop" || second["detour"] != "hop 2" {
 		t.Fatal(string(result.Content))
+	}
+	// A detour to a node the channel does not publish is unresolved.
+	config := publishAll(nodes[:1], "skip")
+	result, err = RenderChannelNodes(nodes, RenderFormatSingBox, config)
+	if err != nil || result.NodeCount != 0 || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != DiagnosticUnresolvedDependency {
+		t.Fatalf("%+v %v", result, err)
 	}
 }
 
@@ -346,10 +396,12 @@ func TestStrategyGroupTypesAndExplicitBuiltinCandidates(t *testing.T) {
 			nodes, policy := policyFixture(t, test.format)
 			group := &policy.Groups[0]
 			group.Type = test.kind
-			group.BuiltinNodes = test.builtins
+			for _, kind := range test.builtins {
+				group.Members = append(group.Members, GroupMember{Kind: memberBuiltin, ID: kind})
+			}
 			group.HealthCheck = &GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}
 			before, _ := json.Marshal(policy)
-			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: test.format}, policy)
+			result, err := RenderChannelNodes(nodes, test.format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -403,13 +455,16 @@ func TestStrategyGroupTypesAndExplicitBuiltinCandidates(t *testing.T) {
 
 func TestStrategyGroupCompatibilityAndHealthValidation(t *testing.T) {
 	for name, change := range map[string]func(*RuleGroup){
-		"missing type":       func(g *RuleGroup) { g.Type = "" },
-		"missing builtins":   func(g *RuleGroup) { g.BuiltinNodes = nil },
-		"unknown type":       func(g *RuleGroup) { g.Type = "invalid" },
-		"sing-box fallback":  func(g *RuleGroup) { g.Type = "fallback" },
-		"sing-box reject":    func(g *RuleGroup) { g.BuiltinNodes = []string{"reject"} },
-		"unknown builtin":    func(g *RuleGroup) { g.BuiltinNodes = []string{"unknown"} },
-		"duplicate builtin":  func(g *RuleGroup) { g.BuiltinNodes = []string{"direct", "direct"} },
+		"missing type":      func(g *RuleGroup) { g.Type = "" },
+		"unknown type":      func(g *RuleGroup) { g.Type = "invalid" },
+		"sing-box fallback": func(g *RuleGroup) { g.Type = "fallback" },
+		"sing-box reject":   func(g *RuleGroup) { g.Members = append(g.Members, GroupMember{Kind: memberBuiltin, ID: "reject"}) },
+		"unknown builtin":   func(g *RuleGroup) { g.Members = append(g.Members, GroupMember{Kind: memberBuiltin, ID: "unknown"}) },
+		"duplicate builtin": func(g *RuleGroup) {
+			g.Members = append(g.Members, GroupMember{Kind: memberBuiltin, ID: "direct"}, GroupMember{Kind: memberBuiltin, ID: "direct"})
+		},
+		"unknown kind":       func(g *RuleGroup) { g.Members = append(g.Members, GroupMember{Kind: "other", ID: "x"}) },
+		"duplicate node":     func(g *RuleGroup) { g.Members = append(g.Members, g.Members[0]) },
 		"credential URL":     func(g *RuleGroup) { g.HealthCheck.URL = "https://secret:password@example.com/test" },
 		"invalid URL":        func(g *RuleGroup) { g.HealthCheck.URL = "file:///etc/passwd" },
 		"short interval":     func(g *RuleGroup) { g.HealthCheck.Interval = 0 },
@@ -422,7 +477,7 @@ func TestStrategyGroupCompatibilityAndHealthValidation(t *testing.T) {
 			policy.Groups[0].HealthCheck = new(policy.Groups[0].healthCheck())
 			change(&policy.Groups[0])
 			var problem *PolicyError
-			if err := ValidateChannelPolicy(policy, RenderFormatSingBox); !errors.As(err, &problem) || !strings.HasPrefix(problem.Path, "policy.groups[0].") || strings.Contains(err.Error(), "secret") {
+			if err := ValidateChannelConfig(*policy, RenderFormatSingBox); !errors.As(err, &problem) || !strings.HasPrefix(problem.Path, "groups[0].") || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("expected safe field error, got %v", err)
 			}
 		})
@@ -437,10 +492,9 @@ func TestBuiltinOnlyStrategyGroups(t *testing.T) {
 			}
 			_, policy := policyFixture(t, format)
 			group := &policy.Groups[0]
-			group.NodeIDs = []string{}
 			group.Rules = []ChannelRule{}
-			group.BuiltinNodes = []string{kind}
-			result, err := RenderPolicyNodes(nil, RenderChannel{Format: format}, policy)
+			group.Members = []GroupMember{{Kind: memberBuiltin, ID: kind}}
+			result, err := RenderChannelNodes(nil, format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -469,9 +523,8 @@ func TestAutomaticGroupsUseRemainingCandidatesAndEmptyGroupsReject(t *testing.T)
 			}
 			nodes, policy := policyFixture(t, format)
 			policy.Groups[0].Type = kind
-			policy.Groups[0].BuiltinNodes = []string{}
 			if kind != "select" {
-				result, err := RenderPolicyNodes(nodes[1:], RenderChannel{Format: format}, policy)
+				result, err := RenderChannelNodes(nodes[1:], format, *policy)
 				if err != nil || !bytes.Contains(result.Content, []byte("Selected")) {
 					t.Fatal("remaining automatic candidate lost", err)
 				}
@@ -479,7 +532,7 @@ func TestAutomaticGroupsUseRemainingCandidatesAndEmptyGroupsReject(t *testing.T)
 					t.Fatal("automatic group followed unavailable fixed default")
 				}
 			}
-			result, err := RenderPolicyNodes(nil, RenderChannel{Format: format}, policy)
+			result, err := RenderChannelNodes(nil, format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -502,12 +555,8 @@ func TestChannelCandidateOrder(t *testing.T) {
 			nodes, policy := policyFixture(t, format)
 			group := &policy.Groups[0]
 			group.Type = "url-test"
-			group.BuiltinNodes = []string{"direct"}
-			group.CandidateOrder = []string{"node:" + group.NodeIDs[1], "builtin:direct", "node:" + group.NodeIDs[0]}
-			if err := ValidateChannelPolicy(policy, format); err != nil {
-				t.Fatal(err)
-			}
-			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, policy)
+			group.Members = []GroupMember{{Kind: memberNode, ID: nodes[1].ID}, {Kind: memberBuiltin, ID: "direct"}, {Kind: memberNode, ID: nodes[0].ID}}
+			result, err := RenderChannelNodes(nodes, format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -525,18 +574,6 @@ func TestChannelCandidateOrder(t *testing.T) {
 			if !slices.Equal(actual, want) {
 				t.Fatalf("candidate order = %v, want %v", actual, want)
 			}
-			for _, order := range [][]string{
-				{}, {"node:" + group.NodeIDs[0]},
-				{"node:" + group.NodeIDs[0], "node:" + group.NodeIDs[0], "builtin:direct"},
-				{"node:" + group.NodeIDs[0], "node:" + group.NodeIDs[1], "builtin:reject"},
-				{"node:" + group.NodeIDs[0], "node:unknown", "builtin:direct"},
-			} {
-				group.CandidateOrder = order
-				var problem *PolicyError
-				if err := ValidateChannelPolicy(policy, format); !errors.As(err, &problem) || problem.Path != "policy.groups[0].candidate_order" {
-					t.Fatalf("invalid candidate order %v: %v", order, err)
-				}
-			}
 		})
 	}
 }
@@ -546,9 +583,8 @@ func TestManualGroupFirstCardIsInitialDefault(t *testing.T) {
 		t.Run(string(format), func(t *testing.T) {
 			nodes, policy := policyFixture(t, format)
 			group := &policy.Groups[0]
-			group.BuiltinNodes = []string{"direct"}
-			group.CandidateOrder = []string{"builtin:direct", "node:" + group.NodeIDs[1], "node:" + group.NodeIDs[0]}
-			rendered, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, policy)
+			group.Members = []GroupMember{{Kind: memberBuiltin, ID: "direct"}, {Kind: memberNode, ID: nodes[1].ID}, {Kind: memberNode, ID: nodes[0].ID}}
+			rendered, err := RenderChannelNodes(nodes, format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -592,7 +628,7 @@ func TestChannelGlobalRuleOrderAllowsDuplicates(t *testing.T) {
 			second.Name = "Second"
 			second.Rules = []ChannelRule{makeRule("z", "z.example", -10, "direct"), makeRule("same-b", "a.example", -10, "reject"), makeRule("middle", "middle.example", 20, "direct"), {ID: "omitted", Enabled: true, Kind: "domain", Value: "omitted.example", Exit: RouteExit{Kind: "direct"}}}
 			p.Groups = []RuleGroup{first, second}
-			rendered, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
+			rendered, err := RenderChannelNodes(nodes, format, *p)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -645,10 +681,13 @@ func TestChannelGroupReferencesRenderInDependencyOrder(t *testing.T) {
 			nodes, p := policyFixture(t, format)
 			leaf := p.Groups[0]
 			leaf.ID, leaf.Name, leaf.Rules = "leaf", "Leaf", nil
-			middle := RuleGroup{ID: "middle", Name: "Middle", Enabled: true, Type: "select", BuiltinNodes: []string{}, GroupIDs: []string{"leaf"}}
-			parent := RuleGroup{ID: "main", Name: "Parent", Enabled: true, Type: "select", BuiltinNodes: []string{"direct"}, NodeIDs: []string{leaf.NodeIDs[1]}, GroupIDs: []string{"middle", "leaf"}, CandidateOrder: []string{"group:middle", "builtin:direct", "group:leaf", "node:" + leaf.NodeIDs[1]}}
+			leaf.Rules = []ChannelRule{}
+			middle := RuleGroup{ID: "middle", Name: "Middle", Enabled: true, Type: "select", Members: groupMembers("leaf"), Rules: []ChannelRule{}}
+			parent := RuleGroup{ID: "main", Name: "Parent", Enabled: true, Type: "select", Rules: []ChannelRule{}, Members: []GroupMember{
+				{Kind: memberGroup, ID: "middle"}, {Kind: memberBuiltin, ID: "direct"}, {Kind: memberGroup, ID: "leaf"}, {Kind: memberNode, ID: nodes[1].ID},
+			}}
 			p.Groups = []RuleGroup{parent, middle, leaf}
-			result, err := RenderPolicyNodes(nodes, RenderChannel{Format: format}, p)
+			result, err := RenderChannelNodes(nodes, format, *p)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -687,9 +726,10 @@ func TestChannelUnavailableNestedGroupDoesNotChangeManualExit(t *testing.T) {
 				nodes, p := policyFixture(t, format)
 				leaf := p.Groups[0]
 				leaf.ID, leaf.Name, leaf.Rules = "leaf", "Leaf", nil
-				parent := RuleGroup{ID: "main", Name: "Parent", Enabled: true, Type: kind, BuiltinNodes: []string{}, NodeIDs: []string{leaf.NodeIDs[1]}, GroupIDs: []string{"leaf"}, CandidateOrder: []string{"group:leaf", "node:" + leaf.NodeIDs[1]}, Rules: []ChannelRule{{ID: "rule", Enabled: true, Kind: "domain", Value: "example.org", Exit: RouteExit{Kind: "group-default"}}}}
+				leaf.Rules = []ChannelRule{}
+				parent := RuleGroup{ID: "main", Name: "Parent", Enabled: true, Type: kind, Members: []GroupMember{{Kind: memberGroup, ID: "leaf"}, {Kind: memberNode, ID: nodes[1].ID}}, Rules: []ChannelRule{{ID: "rule", Enabled: true, Kind: "domain", Value: "example.org", Exit: RouteExit{Kind: "group-default"}}}}
 				p.Groups = []RuleGroup{parent, leaf}
-				result, err := RenderPolicyNodes(nodes[1:], RenderChannel{Format: format}, p)
+				result, err := RenderChannelNodes(nodes[1:], format, *p)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -729,33 +769,29 @@ func TestChannelUnavailableNestedGroupDoesNotChangeManualExit(t *testing.T) {
 func TestChannelGroupReferenceValidation(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		change func(*ChannelPolicy)
+		change func(*ChannelConfig)
 		code   string
 	}{
-		{"missing", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"missing"} }, "group_not_enabled"},
-		{"disabled", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"child"}; p.Groups[1].Enabled = false }, "group_not_enabled"},
-		{"self", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"main"} }, "cyclic_group_reference"},
-		{"duplicate", func(p *ChannelPolicy) { p.Groups[0].GroupIDs = []string{"child", "child"} }, "invalid_or_duplicate_id"},
-		{"cycle", func(p *ChannelPolicy) {
-			p.Groups[0].GroupIDs = []string{"child"}
-			p.Groups[1].GroupIDs = []string{"main"}
+		{"missing", func(p *ChannelConfig) { p.Groups[0].Members = groupMembers("missing") }, "group_not_found"},
+		{"disabled", func(p *ChannelConfig) { p.Groups[0].Members = groupMembers("child"); p.Groups[1].Enabled = false }, "group_not_enabled"},
+		{"self", func(p *ChannelConfig) { p.Groups[0].Members = groupMembers("main") }, "cyclic_group_reference"},
+		{"duplicate", func(p *ChannelConfig) { p.Groups[0].Members = groupMembers("child", "child") }, "duplicate_member"},
+		{"cycle", func(p *ChannelConfig) {
+			p.Groups[0].Members = groupMembers("child")
+			p.Groups[1].Members = groupMembers("main")
 		}, "cyclic_group_reference"},
-		{"indirect cycle", func(p *ChannelPolicy) {
-			p.Groups[0].GroupIDs = []string{"child"}
-			p.Groups[1].GroupIDs = []string{"last"}
-			p.Groups = append(p.Groups, RuleGroup{ID: "last", Name: "Last", Enabled: true, Type: "select", BuiltinNodes: []string{}, GroupIDs: []string{"main"}})
+		{"indirect cycle", func(p *ChannelConfig) {
+			p.Groups[0].Members = groupMembers("child")
+			p.Groups[1].Members = groupMembers("last")
+			p.Groups = append(p.Groups, RuleGroup{ID: "last", Name: "Last", Enabled: true, Type: "select", Members: groupMembers("main"), Rules: []ChannelRule{}})
 		}, "cyclic_group_reference"},
-		{"missing order", func(p *ChannelPolicy) {
-			p.Groups[0].CandidateOrder = p.Groups[0].candidateOrder()
-			p.Groups[0].GroupIDs = []string{"child"}
-		}, "missing_candidates"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, p := policyFixture(t, RenderFormatMihomo)
-			p.Groups = append(p.Groups, RuleGroup{ID: "child", Name: "Child", Type: "select", Enabled: true, BuiltinNodes: []string{}})
+			p.Groups = append(p.Groups, RuleGroup{ID: "child", Name: "Child", Type: "select", Enabled: true, Members: []GroupMember{}, Rules: []ChannelRule{}})
 			test.change(p)
 			var problem *PolicyError
-			if err := ValidateChannelPolicy(p, RenderFormatMihomo); !errors.As(err, &problem) || problem.Code != test.code {
+			if err := ValidateChannelConfig(*p, RenderFormatMihomo); !errors.As(err, &problem) || problem.Code != test.code {
 				t.Fatalf("got %v, want %s", err, test.code)
 			}
 		})
@@ -767,15 +803,15 @@ func TestChannelRuleSetNamesAreUniqueIncludingDisabledRules(t *testing.T) {
 	rule := p.Groups[0].Rules[3]
 	rule.Enabled = false
 	rule.Exit = RouteExit{Kind: "group-default"}
-	p.Groups = append(p.Groups, RuleGroup{ID: "other", Name: "Other", Type: "select", BuiltinNodes: []string{}, Rules: []ChannelRule{rule}})
+	p.Groups = append(p.Groups, RuleGroup{ID: "other", Name: "Other", Type: "select", Members: []GroupMember{}, Rules: []ChannelRule{rule}})
 	var problem *PolicyError
-	if err := ValidateChannelPolicy(p, RenderFormatMihomo); !errors.As(err, &problem) || problem.Path != "policy.groups[1].rules[0].remote.name" || problem.Code != "duplicate_name" {
+	if err := ValidateChannelConfig(*p, RenderFormatMihomo); !errors.As(err, &problem) || problem.Path != "groups[1].rules[0].remote.name" || problem.Code != "duplicate_name" {
 		t.Fatal(err)
 	}
 	remote := *rule.Remote
 	remote.Name = "remote rules"
 	p.Groups[1].Rules[0].Remote = &remote
-	if err := ValidateChannelPolicy(p, RenderFormatMihomo); err != nil {
+	if err := ValidateChannelConfig(*p, RenderFormatMihomo); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -784,54 +820,37 @@ func TestChannelSortIndexUsesSafeSignedIntegers(t *testing.T) {
 	for _, index := range []int64{-9007199254740991, -1, 0, 9007199254740991, -9007199254740992, 9007199254740992} {
 		_, p := policyFixture(t, RenderFormatMihomo)
 		p.Groups[0].Rules[0].SortIndex = index
-		err := ValidateChannelPolicy(p, RenderFormatMihomo)
+		err := ValidateChannelConfig(*p, RenderFormatMihomo)
 		if valid := index >= -9007199254740991 && index <= 9007199254740991; (err == nil) != valid {
 			t.Fatalf("index %d: %v", index, err)
 		}
 	}
 }
 
-func TestChannelPresentationOrderPreservesNamesGroupsAndReferences(t *testing.T) {
+func TestChannelFollowsPoolOrderWithoutChangingNamesOrReferences(t *testing.T) {
 	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
 		t.Run(string(format), func(t *testing.T) {
 			nodes, policy := policyFixture(t, format)
-			// Two sources can have the same visible name. Reordering must not transfer
-			// the unsuffixed name (and a client's saved selection) to another node.
-			other, _, err := ParseSource(SourceFormatSingBoxJSON, []byte(`{"type":"socks","tag":"Tokyo","server":"other.example.com","server_port":1080}`), "other")
-			if err != nil {
-				t.Fatal(err)
-			}
+			other := testChannelNodes(t, "other", `{"type":"socks","tag":"Tokyo","server":"other.example.com","server_port":1080}`)
+			other[0].Name = "Tokyo 2"
 			nodes = append(nodes, other...)
-			policy.Selection.NewNodePolicy = "include"
-			if format == RenderFormatSingBox {
-				value, _ := DecodeDocumentObject(nodes[1].Outbound)
-				value["detour"] = "Tokyo"
-				nodes[1].Outbound, _ = json.Marshal(value)
-			}
-			channel := RenderChannel{Format: format}
-			before, err := RenderPolicyNodes(nodes, channel, policy)
+			policy.Groups[0].Members = append(policy.Groups[0].Members, GroupMember{Kind: memberNode, ID: other[0].ID})
+			before, err := RenderChannelNodes(nodes, format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
-			channel.NodeOrder = []string{PublicationID(nodes[2]), PublicationID(nodes[1]), PublicationID(nodes[0])}
-			after, err := RenderPolicyNodes(nodes, channel, policy)
+			after, err := RenderChannelNodes([]ChannelNode{nodes[2], nodes[1], nodes[0]}, format, *policy)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if strings.Index(string(after.Content), "other.example.com") >= strings.Index(string(after.Content), "tokyo.example.com") {
-				t.Fatal("presentation order ignored")
+				t.Fatal("pool order ignored")
 			}
 			if format == RenderFormatLoon {
 				first := strings.SplitN(string(before.Content), "[Proxy Group]", 2)
 				second := strings.SplitN(string(after.Content), "[Proxy Group]", 2)
 				if first[1] != second[1] {
 					t.Fatal("group or rule references changed")
-				}
-				lines := strings.Split(first[0], "\n")
-				for _, line := range lines {
-					if strings.Contains(line, " = ") && !strings.Contains(second[0], line+"\n") {
-						t.Fatalf("node definition changed: %s", line)
-					}
 				}
 				return
 			}

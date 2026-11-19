@@ -58,8 +58,8 @@ func TestInbound113ContractRegistry(t *testing.T) {
 					bytes.Contains(result.Nodes[0].Outbound, []byte("acme")) {
 					t.Fatalf("server TLS material leaked: %s", result.Nodes[0].Outbound)
 				}
-				if _, err := RenderNodes(result.Nodes, RenderChannel{Format: RenderFormatSingBox}); err != nil {
-					t.Fatalf("RenderNodes: %v", err)
+				if _, err := renderInboundNodes(result.Nodes, RenderFormatSingBox); err != nil {
+					t.Fatalf("render: %v", err)
 				}
 			})
 		}
@@ -112,7 +112,7 @@ func TestInbound11319MultiUserCredentialsHaveSeparateStableGrantKeys(t *testing.
 	if err != nil || first.Nodes[0].Key != second.Nodes[0].Key || first.Nodes[1].Key != second.Nodes[1].Key || first.Nodes[0].Key == first.Nodes[1].Key {
 		t.Fatalf("unstable node identities: first=%+v second=%+v err=%v", first.Nodes, second.Nodes, err)
 	}
-	selected, err := RenderNodes(first.Nodes[:1], RenderChannel{Format: RenderFormatSingBox})
+	selected, err := renderInboundNodes(first.Nodes[:1], RenderFormatSingBox)
 	if err != nil || selected.NodeCount != 1 || bytes.Contains(selected.Content, []byte("uuid-b")) {
 		t.Fatalf("selected result=%+v content=%s err=%v", selected, selected.Content, err)
 	}
@@ -122,4 +122,17 @@ func TestInbound11319MultiUserCredentialsHaveSeparateStableGrantKeys(t *testing.
 	if !errors.Is(err, ErrAmbiguousInboundCredential) || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != DiagnosticAmbiguousCredential {
 		t.Fatalf("ambiguous diagnostics=%+v err=%v", result.Diagnostics, err)
 	}
+}
+
+// renderInboundNodes renders the outbounds nodes convert to.
+func renderInboundNodes(nodes []Node, format RenderFormat) (RenderResult, error) {
+	outbounds := make([]json.RawMessage, len(nodes))
+	for index, node := range nodes {
+		outbounds[index] = node.Outbound
+	}
+	document, err := json.Marshal(map[string]any{"outbounds": outbounds})
+	if err != nil {
+		return RenderResult{}, err
+	}
+	return Render(document, RenderChannel{Format: format})
 }

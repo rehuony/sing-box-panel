@@ -93,7 +93,7 @@ nothing imports.
 | | `corecache` | Upstream catalog discovery, staged core uploads and the verified archive cache that nodes install from |
 | | `schema` | The exact-version Schema manifest and assets for the editor and validators |
 | | `nodeconfig` | Each node's editable configuration file, canonical revisions, Schema support, preview and the exact-Schema check before a command |
-| | `subscription` | Sources, manual nodes, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
+| | `subscription` | The node pool and its synchronization, sources and their parsers, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
 | | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the protocol minor version each needs, batch commands over many nodes, node updates and the release stream they fetch, the shared fleet snapshot and the short-lived grants under which nodes fetch cached archives |
 | | `releases` | The panel's releases: the verified cache of the node release of the panel's version that nodes update from, and the panel's own update checks and updates |
 | | `app` | The one composition of the panel's services over a store and a settings file, used by the server and the transport tests |
@@ -258,7 +258,7 @@ is described in [Core versions](core-versions.md#checks-and-recorded-hashes).
 
 The screens are login, the nodes home (key figures and node panes) and, for
 each node, its overview, installed/available versions, visual and JSON
-configuration, core logs and settings; subscriptions with sources, manual nodes, source detail,
+configuration, core logs and settings; subscriptions with the node pool, sources,
 subscription keys, channels and channel detail; panel logs; and panel settings.
 Detail tabs and feedback are local states, not duplicate screens.
 
@@ -288,13 +288,11 @@ below exercise the corresponding source, API and runtime boundaries.
 | CFG-01 | One editable config.json, version-scoped root sections (13 in 1.14) with flat label/control rows, DNS/route sub-tabs and inline list editing; advanced JSON; floating icon tools and find/replace with case, word and regex matching; preserve unknown fields and numbers | Canonical saved text, version-scoped schema, validated startup artifacts | Lossless round trip; invalid JSON can save, cannot start | implemented |
 | CFG-02 | Save independent of running process; loaded/dirty/restart-required/start-pending states; start/restart checks saved file before replacement | Saved-file identity vs loaded immutable artifact; CAS and runtime transitions | Concurrent edits, failed validation preserves running process, restart loads saved bytes | implemented |
 | CFG-03 | The configuration window copies another node's saved configuration into its draft after a difference view, unsaved until saved; its applied configurations (ready startup artifacts, newest first, paged by cursor, the running one marked) roll back by running a chosen one again after a danger confirmation that names it and says the core restarts and the saved text, which the next start loads, stays as it is; a refusal stays in the confirmation | Configuration file API of the source node; `/config/artifacts` and `/core/activate`; `/core/rollback` stays unused by the interface | Applied-configurations test (paging, confirmation wording, inline refusal); browser review of the copy dialog with a difference | implemented |
-| SUB-01 | Sources/keys/channels only; source and channel names are display-only; toolbar refresh then add; URL-only source creation; source edit/refresh row actions without deletion; stable source-detail navigation across node/settings tabs | Source API, SSRF-safe acquisition and source versions | Source creation/edit/refresh failure retains last success; no single-node source path | implemented |
-| NODE-01 | Local publishable inbounds and manual nodes in one manual collection; real name, actual source badge, system/imported badge after the manual collection badge, protocol/endpoint/TLS/Reality/SNI; configuration opens only from the corner details action; hidden cards omit the corner visibility icon and restore visibility through their clickable overlay | Node catalog/provenance and inbound-to-client conversion | No automatic core outbound/TUN/redirect/tproxy publishing; no invented prefixes; card clicks do not open configuration; hidden overlays restore visibility | implemented |
-| NODE-02 | Eye controls visibility; hidden cards remain recoverable at source; channel filters before pagination without deleting membership/order | Independent visibility and channel membership | Hide/restore selected node, empty/page bounds, no ghost cards | implemented |
-| NODE-03 | Native conditional protocol editor and node-scoped advanced JSON; parse share link then confirm; no unknown-field loss | Protocol capability/schema and references | TLS/QUIC exclusions, HY2 port modes, SS UoT/mux, SSH auth, detour cycles, version support | implemented |
-| NODE-04 | Listener vs published addresses; credentials visible/copyable; local edit links to configuration; hiding/deleting publication cannot delete inbound | Local-node provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
+| SUB-01 | Pool nodes, sources, channels and keys; URL and file sources with include/exclude name filters and a preview of what they keep; edit, refresh or replace content, and delete | Source API, SSRF-safe acquisition, strict parsers and one stored content per source | A failed fetch or parse keeps the current content and nodes; invalid filters and unconvertible kept nodes are refused with their location | implemented |
+| NODE-01 | One pool of every published fleet inbound and every kept source node, as cards in a saved order without pagination; display name, origin, protocol, endpoint, TLS/Reality/SNI and transport; whole-card dragging saves the order; the detail edits only the display name | Pool synchronization with origin-derived IDs | Removed nodes leave every channel and grant; new nodes append; a stale order is refused | implemented |
+| NODE-04 | Published addresses, credentials visible and copyable in the node detail, an inbound's detail links to its configuration; the pool cannot delete an inbound | Inbound provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
 | KEY-01 | Subscription keys replace user UI; expiry and successful-download quota shared across all channels; failed requests do not consume | Token storage and atomic delivery accounting; user-scoped access checks | Concurrent quota requests, expiry, failures, existing grants preserved | implemented |
-| CHAN-01 | Continuous node grid, actual source badges; nodes/rules tabs; output/distribution/preview toolbar | Channel selected nodes and native output formats | Selection/order/hidden filtering and format change | implemented |
+| CHAN-01 | Strategy groups with ordered members picked from the pool; nodes/rules tabs; output/distribution/preview toolbar | A channel publishes only the nodes its groups name, in native output formats | Membership, order and format change; removed pool nodes leave every group | implemented |
 | CHAN-02 | Channel creation and editing open the strategy-group workspace directly; nodes are selected within each group; back/settings/preview/save actions grouped at the right; channel name and output client appear only in a cancelable settings draft, with no separate identity row; lightweight split workspace with independently scrolling group list and editor; group node/rule counts, card-level pencil actions with cancelable name dialogs; sidebar final-exit toggle beside delete; implicitly enabled groups; optional, exclusive final-exit badges; searchable candidate cards; automatic candidate exits, manual domain/IP/CIDR and remote references; rule dialogs omit exit and enablement fields; unmatched fallback | Typed channel configuration, native renderers | New group selects current eligible candidates; filtered selection preserves other members; edit/additional nodes preserve choice; valid exits | implemented |
 | RULE-01 | Remote metadata only, client fetches; Mihomo YAML/YML/TEXT/MRS + behavior; MRS excludes classical; sing-box source JSON/binary SRS | Remote-reference validation and native output | No server content fetch/upload/conversion; incompatible format cleared and blocked without URL loss | implemented |
 | RULE-02 | Group context inherited; smaller child modal returns to correct parent; missing format red border only; anchored menus | Modal state, accessible invalid controls | Nested save/cancel/focus; short viewport sticky actions and complete menus | implemented |
@@ -318,9 +316,9 @@ below exercise the corresponding source, API and runtime boundaries.
 | DASH-01/02 | `pages/node-overview-page`, `internal/sing-box-node/host`, node `service/traffic.go` and `agent/reports.go`, `fleet/state.go`, `telemetry/nodes.go`, `httpapi/metrics_stream.go`, replicated runtime transitions; [observability guide](subscriptions-and-observability.md) | Node traffic accounting test, `fleet` state report, history and telemetry control test, per-node traffic store tests, chart and timeline tests, browser missing-data and layout review |
 | CORE-01/02 | `pages/cores-page`, `fleet` core commands, `corecache` archive cache, `internal/sing-box-node/service` core commands and runtime preflight; [core guide](core-versions.md) | `fleet` install and grant tests, node artifact verification and runtime tests; inline action and platform UI tests |
 | CFG-01/02 | `nodeconfig/file.go`, `store/configuration_file.go`, `internal/sing-box-node/service/configuration_runtime.go`, visual/JSON editors; [configuration guide](configuration-and-runtime.md) | File CAS and lossless tests; node `configuration_runtime_test.go`; real HTTP browser invalid-text save/reload; schema form union/unknown-field round trips |
-| SUB-01, NODE-01–04 | Source/node services, `subscription/inbound_convert.go`, `subscription/manual_node.go`, node editor/grid | Source refresh tests; `httpapi/subscription_nodes_test.go`, `manual_node_validation_test.go`, 1.14 inbound/TLS tests; browser hide/restore and conditional node form |
+| SUB-01, NODE-01–04 | `subscription/source_parse.go`, `source_filter.go`, `pool.go`, `inbound_convert.go`, `store/subscription_pool.go`, pool and source panels | `source_parse_test.go`, `pool_test.go`, `service_sources_test.go`, `httpapi/subscription_nodes_test.go`, 1.14 inbound/TLS tests; `subscription-node-panel.test.tsx`, `subscription-source-panel.test.tsx`; browser pool order, display-name edit and source preview |
 | KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
-| CHAN-01–03, RULE-01–04, TPL-01 | `subscription/channel_*`, channel policy API, channel workspace and nested editors, `pages/subscriptions-page/channel-rule-text.ts` | Native renderer and URL tests; `httpapi/subscription_channel_policy_test.go`; rule text and workspace text-view tests; browser persisted group/reference reload, nested return, preview/copy and source visibility |
+| CHAN-01–03, RULE-01–04, TPL-01 | `subscription/channel_*`, channel API, channel workspace and nested editors, `pages/subscriptions-page/channel-rule-text.ts` | Native renderer and URL tests; `httpapi/subscription_channel_policy_test.go`; rule text, picker and workspace tests; browser persisted group/reference reload, nested return and preview/copy |
 | SET-01–05 | `settings/service_panel.go`, `service_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, category retention, save/reload, leaving restores saved appearance |
 | LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/panel_logs.go`, product log API, `pages/node-logs-page` and `pages/panel-logs-page` | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
@@ -331,7 +329,7 @@ persistence, security boundaries and runtime semantics.
 ### Persistence and preserved guarantees
 
 `internal/sing-box-panel/store/schema.sql` is the panel's storage baseline,
-schema version 24. It creates each node's editable configuration and canonical
+schema version 25. It creates each node's editable configuration and canonical
 revisions, the cached core archives, subscription state, shared subscription
 node order, each node's runtime history, traffic samples, counter checkpoint
 and durable daily traffic accounting, login sessions, the node registry with
@@ -388,8 +386,8 @@ underlying core inbound.
   An invalid **channel template** cannot be saved as an active template.
 - Runtime loaded state is independent from saved configuration state. Saving
   during a run does not silently restart or reconfigure the process.
-- Source visibility is independent from channel membership and core execution.
-  Hidden nodes are filtered before channel pagination and publication.
+- The pool is independent from core execution: a node leaves it only when its
+  origin stops yielding it, and a channel publishes only the nodes its groups name.
 - Remote rule files are fetched by the subscribing client, never by the panel.
 - A node's source name is independent from its user-entered name and protocol.
 - Native sing-box channels use the reviewed 1.14 schema. Mihomo templates receive
@@ -563,13 +561,13 @@ for the artifact trust boundary.
 
 Third-party subscription refresh validates DNS and every redirect destination
 against the configured source-network policy. Public subscription requests use
-only persisted successful source versions and never fetch an upstream URL.
+only the stored pool and never fetch an upstream URL.
 
 Keep the following data private:
 
 - settings files and administrator passwords;
 - exported sing-box configuration;
-- subscription token plaintext and raw source versions; and
+- subscription token plaintext and stored source content; and
 - diagnostic files that may contain paths or operator-provided values.
 
 Use file or stdin inputs for secrets instead of command arguments.
@@ -579,9 +577,9 @@ Use file or stdin inputs for secrets instead of command arguments.
 Configuration writes use revision preconditions. The editable file API accepts
 `{ revision, content }` in the `PUT /api/v1/nodes/{nodeId}/config/file` JSON body. A stale
 revision receives `412 Precondition Failed`
-and must be reviewed rather than overwritten automatically. Channel, source,
-user-grant, and token mutations use their documented compare-and-swap or
-lifecycle preconditions.
+and must be reviewed rather than overwritten automatically. Channel, source, pool node and user-grant
+mutations send the record's `updated_at` in `If-Match`; token mutations use
+their lifecycle preconditions.
 
 Compilation stores the raw JSON bytes together with the configuration revision,
 core installation, exact version, configuration digest and recorded core hashes.
@@ -591,15 +589,14 @@ the executable. Uploads have no expected `sha256` parameter. A candidate that
 fails the selected binary's `sing-box check` never becomes ready.
 
 Public subscription responses are rendered from one consistency read of the
-current enabled source versions, manual nodes, channel and key. Inbounds from
-the nodes' applied configurations join them once nodes report those
-configurations to the panel.
+pool, channel and key. Inbounds from the nodes' applied configurations join
+the pool once nodes report those configurations to the panel.
 User-bound keys additionally require an enabled user and exact grants;
 independent keys use channel publication policies. Response bodies are not frozen
 into activation bundles.
 
 Management mutations return HTTP 200 after completion, with the resulting core
-artifact, catalog summary, refreshed source version, checked startup artifact or
+artifact, catalog summary, refreshed source, checked startup artifact or
 runtime status. The browser keeps controls pending until that response and verifies
 process identity for runtime changes. Errors use problem details and leave the
 previous usable state intact where the operation has not committed.

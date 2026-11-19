@@ -5,37 +5,49 @@ package subscription
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"sort"
 	"strings"
 )
 
-// RenderPolicyNodes consumes an already-authorized, visible catalog. It is the
-// sole generation path for modern preview and public delivery, and performs no
-// I/O. Missing/hidden dependencies never silently route through another proxy.
-func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolicy) (RenderResult, error) {
-	if policy == nil {
-		return RenderNodes(nodes, channel)
-	}
-	if len(channel.ExcludeTags) > 0 || len(channel.ExcludeTypes) > 0 {
-		return RenderResult{}, policyError("policy.selection", "legacy_filters_not_supported")
-	}
-	if err := ValidateChannelPolicy(policy, channel.Format); err != nil {
+// ChannelNode is a pool node as a channel renders it.
+type ChannelNode struct {
+	ID string
+	// Name is the node's display name.
+	Name     string
+	Protocol string
+	// SourceID and OriginName let a source node's detour name another node
+	// of its source.
+	SourceID   string
+	OriginName string
+	// Outbound is the node's sing-box outbound without its tag.
+	Outbound json.RawMessage
+}
+
+// RenderChannelNodes renders a channel from the pool nodes the caller may
+// publish, in pool order. Only the nodes the channel's enabled groups name
+// as members, rule exits or the default exit are published. It performs no
+// I/O, and a missing dependency never silently routes through another proxy.
+func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig) (RenderResult, error) {
+	if err := ValidateChannelConfig(config, format); err != nil {
 		return RenderResult{}, err
 	}
-	template, err := parseChannelTemplate(policy.Template, channel.Format)
+	template, err := parseChannelTemplate(config.Template, format)
 	if err != nil {
 		return RenderResult{}, err
 	}
-	values, ids, err := prepareChannelNodes(nodes, channel, policy)
+	values, ids, err := prepareChannelNodes(nodes, format, config)
 	if err != nil {
 		return RenderResult{}, err
 	}
+	channel := RenderChannel{Format: format}
 	diagnostics := []RenderDiagnostic{}
 	native := []map[string]any{}
 	loonNodes := []loonNode{}
 	available := map[string]string{}
+	endpoints := []map[string]any{}
 	if channel.Format == RenderFormatSingBox {
 		result, issues := renderSingBox(startupNodes{values: values}, nil)
 		diagnostics = append(diagnostics, issues...)
@@ -46,11 +58,16 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		for _, value := range root["outbounds"].([]any) {
 			native = append(native, value.(map[string]any))
 		}
+		if values, ok := root["endpoints"].([]any); ok {
+			for _, value := range values {
+				endpoints = append(endpoints, value.(map[string]any))
+			}
+		}
 	} else if channel.Format == RenderFormatLoon {
 		for _, value := range values {
 			converted, code := convertLoon(value)
 			if code != "" {
-				diagnostics = append(diagnostics, diagnostic(channel.Format, CollectionOutbounds, value.index, code))
+				diagnostics = append(diagnostics, diagnostic(channel.Format, value.collection, value.index, code))
 				continue
 			}
 			loonNodes = append(loonNodes, converted)
@@ -59,7 +76,7 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		for _, value := range values {
 			converted, code := convertMihomo(value)
 			if code != "" {
-				diagnostics = append(diagnostics, diagnostic(channel.Format, CollectionOutbounds, value.index, code))
+				diagnostics = append(diagnostics, diagnostic(channel.Format, value.collection, value.index, code))
 				continue
 			}
 			item := map[string]any{}
@@ -69,15 +86,15 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 			native = append(native, item)
 		}
 	}
-	if len(diagnostics) > 0 && policy.IncompatibleNodes == "error" {
-		return RenderResult{}, policyError("policy.incompatible_nodes", "incompatible_nodes")
+	if len(diagnostics) > 0 && config.IncompatibleNodes == "error" {
+		return RenderResult{}, policyError("incompatible_nodes", "incompatible_nodes")
 	}
 	nameKey := "tag"
 	if channel.Format == RenderFormatMihomo {
 		nameKey = "name"
 	}
 	survivors := map[string]bool{}
-	for _, node := range native {
+	for _, node := range append(append([]map[string]any{}, native...), endpoints...) {
 		survivors[node[nameKey].(string)] = true
 	}
 	for _, node := range loonNodes {
@@ -89,9 +106,9 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		}
 	}
 	builder := channelRuleBuilder{format: channel.Format, names: available, groups: map[string]RuleGroup{}, candidates: map[string][]string{}, rules: []any{}, providers: map[string]any{}, sets: []any{}}
-	groupNodes := builder.renderGroups(policy.Groups)
+	groupNodes := builder.renderGroups(config.Groups)
 	orderedRules := []orderedChannelRule{}
-	for _, group := range policy.Groups {
+	for _, group := range config.Groups {
 		if !group.Enabled {
 			continue
 		}
@@ -111,7 +128,7 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	for _, item := range orderedRules {
 		builder.addRule(item.rule, &item.group)
 	}
-	final := builder.exitName(policy.DefaultExit, nil)
+	final := builder.exitName(config.DefaultExit, nil)
 	generated := map[string]any{}
 	if channel.Format == RenderFormatSingBox {
 		outbounds := append([]map[string]any{}, native...)
@@ -122,6 +139,9 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 			final = "direct"
 		}
 		generated["outbounds"] = outbounds
+		if len(endpoints) > 0 {
+			generated["endpoints"] = endpoints
+		}
 		generated["route"] = map[string]any{"rules": builder.rules, "rule_set": builder.sets, "final": final}
 	} else if channel.Format == RenderFormatMihomo {
 		builder.rules = append(builder.rules, "MATCH,"+final)
@@ -137,7 +157,7 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 		return RenderResult{}, err
 	}
 	if len(content) > MaximumDocumentBytes {
-		return RenderResult{}, policyError("policy", "output_too_large")
+		return RenderResult{}, policyError("config", "output_too_large")
 	}
 	media := "application/json"
 	if channel.Format == RenderFormatMihomo {
@@ -149,96 +169,102 @@ func RenderPolicyNodes(nodes []Node, channel RenderChannel, policy *ChannelPolic
 	for id := range available {
 		carried[id] = true
 	}
-	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, values), carried: carried}, nil
+	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(endpoints) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, values), carried: carried}, nil
 }
 
-func prepareChannelNodes(nodes []Node, channel RenderChannel, p *ChannelPolicy) ([]outbound, map[string]string, error) {
+// publishedNodeIDs returns the pool nodes a channel publishes: those its
+// enabled groups name as members or as exits of their enabled rules, and its
+// default exit.
+func publishedNodeIDs(config ChannelConfig) map[string]bool {
+	published := map[string]bool{}
+	for _, group := range config.Groups {
+		if !group.Enabled {
+			continue
+		}
+		for _, member := range group.Members {
+			if member.Kind == memberNode {
+				published[member.ID] = true
+			}
+		}
+		for _, rule := range group.Rules {
+			if rule.Enabled && rule.Exit.Kind == "node" {
+				published[rule.Exit.ID] = true
+			}
+		}
+	}
+	if config.DefaultExit.Kind == "node" {
+		published[config.DefaultExit.ID] = true
+	}
+	return published
+}
+
+func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig) ([]outbound, map[string]string, error) {
 	if len(nodes) > MaximumNodes {
-		return nil, nil, policyError("policy.selection", "too_many_nodes")
+		return nil, nil, policyError("groups", "too_many_nodes")
 	}
-	filter, err := validateChannel(channel)
-	if err != nil {
-		return nil, nil, err
-	}
-	selected, excluded := stringSet(p.Selection.IDs), stringSet(p.Selection.ExcludedIDs)
-	chosen := []Node{}
-	for _, node := range nodes {
-		id := PublicationID(node)
-		if excluded[id] || (p.Selection.NewNodePolicy == "exclude" && !selected[id]) {
-			continue
-		}
-		if _, skip := filter.tags[node.Tag]; skip {
-			continue
-		}
-		if _, skip := filter.types[node.Type]; skip {
-			continue
-		}
-		chosen = append(chosen, node)
-	}
-	positions := map[string]int{}
-	for i, id := range p.Selection.IDs {
-		positions[id] = i
-	}
-	sort.SliceStable(chosen, func(i, j int) bool {
-		a, okA := positions[PublicationID(chosen[i])]
-		b, okB := positions[PublicationID(chosen[j])]
-		if okA != okB {
-			return okA
-		}
-		return okA && a < b
-	})
+	published := publishedNodeIDs(config)
 	used := map[string]bool{"direct": true, "DIRECT": true, "REJECT": true, "GLOBAL": true}
-	if channel.Format == RenderFormatLoon {
+	if format == RenderFormatLoon {
 		used["PROXY"] = true
 	}
-	for _, g := range p.Groups {
+	for _, g := range config.Groups {
 		used[g.Name] = true
 	}
 	names := map[string]string{}
-	sourceNames := map[string]string{}
+	originNames := map[string]string{}
 	values := []outbound{}
-	sourceIDs := []string{}
-	for index, node := range chosen {
+	chosen := []ChannelNode{}
+	for _, node := range nodes {
+		if !published[node.ID] {
+			continue
+		}
 		value, err := DecodeDocumentObject(node.Outbound)
 		if err != nil {
 			return nil, nil, err
 		}
-		if !publishableOutbound(node.Type) {
+		if !publishableOutbound(node.Protocol) {
 			continue
 		}
-		id := PublicationID(node)
 		delete(value, "tag")
-		name := channelNodeName(node)
+		name := node.Name
 		if strings.ContainsAny(name, "\r\n,\x00") || len(name) > 512 {
-			return nil, nil, policyError("policy.selection", "invalid_node_name")
+			return nil, nil, policyError("nodes", "invalid_node_name")
 		}
-		if channel.Format == RenderFormatLoon && !validLoonPolicyName(name) {
-			return nil, nil, policyError("policy.selection", "invalid_node_name")
+		if format == RenderFormatLoon && !validLoonPolicyName(name) {
+			return nil, nil, policyError("nodes", "invalid_node_name")
 		}
 		if used[name] {
-			sum := sha256.Sum256([]byte(id))
+			sum := sha256.Sum256([]byte(node.ID))
 			name += " · " + hex.EncodeToString(sum[:4])
 			for used[name] {
 				name += "_"
 			}
 		}
 		used[name] = true
-		names[id] = name
-		sourceNames[node.SourceID+"\x00"+node.Tag] = name
+		names[node.ID] = name
+		if node.SourceID != "" {
+			key := node.SourceID + "\x00" + node.OriginName
+			if _, taken := originNames[key]; !taken {
+				originNames[key] = name
+			}
+		}
 		value["tag"] = name
-		values = append(values, outbound{collection: CollectionOutbounds, index: index, nodeID: id, tag: name, typeID: node.Type, value: value})
-		sourceIDs = append(sourceIDs, node.SourceID)
+		collection := CollectionOutbounds
+		if node.Protocol == "wireguard" && publishableEndpoint(node.Protocol) && value["peers"] != nil {
+			collection = CollectionEndpoints
+		}
+		values = append(values, outbound{collection: collection, index: len(values), nodeID: node.ID, tag: name, typeID: node.Protocol, value: value})
+		chosen = append(chosen, node)
 	}
 	for i, value := range values {
 		if detour, ok := value.value["detour"].(string); ok {
-			if name := sourceNames[sourceIDs[i]+"\x00"+detour]; name != "" {
+			if name := originNames[chosen[i].SourceID+"\x00"+detour]; name != "" && chosen[i].SourceID != "" {
 				value.value["detour"] = name
 			} else {
 				value.value["detour"] = "\x00unresolved-detour"
 			}
 		}
 	}
-	orderChannelOutbounds(values, channel.NodeOrder)
 	return values, names, nil
 }
 
@@ -290,8 +316,10 @@ func (b *channelRuleBuilder) renderGroups(groups []RuleGroup) []map[string]any {
 		if _, done := b.candidates[group.ID]; done {
 			return
 		}
-		for _, id := range group.GroupIDs {
-			visit(b.groups[id])
+		for _, member := range group.Members {
+			if member.Kind == memberGroup {
+				visit(b.groups[member.ID])
+			}
 		}
 		b.candidates[group.ID] = b.groupCandidates(group)
 		if value := b.renderGroup(group); value != nil {
@@ -306,15 +334,14 @@ func (b *channelRuleBuilder) renderGroups(groups []RuleGroup) []map[string]any {
 	return result
 }
 
-func (b *channelRuleBuilder) candidateName(key string) string {
-	if id, ok := strings.CutPrefix(key, "node:"); ok {
-		return b.names[id]
-	}
-	if kind, ok := strings.CutPrefix(key, "builtin:"); ok {
-		return b.exitName(RouteExit{Kind: kind}, nil)
-	}
-	if id, ok := strings.CutPrefix(key, "group:"); ok {
-		if group, exists := b.groups[id]; exists && b.groupExit(group) != "REJECT" {
+func (b *channelRuleBuilder) candidateName(member GroupMember) string {
+	switch member.Kind {
+	case memberNode:
+		return b.names[member.ID]
+	case memberBuiltin:
+		return b.exitName(RouteExit{Kind: member.ID}, nil)
+	case memberGroup:
+		if group, exists := b.groups[member.ID]; exists && b.groupExit(group) != "REJECT" {
 			return group.Name
 		}
 	}
@@ -324,8 +351,8 @@ func (b *channelRuleBuilder) candidateName(key string) string {
 func (b *channelRuleBuilder) groupCandidates(group RuleGroup) []string {
 	candidates := []string{}
 	seen := map[string]bool{}
-	for _, key := range group.candidateOrder() {
-		name := b.candidateName(key)
+	for _, member := range group.Members {
+		name := b.candidateName(member)
 		if name != "" && !seen[name] {
 			candidates = append(candidates, name)
 			seen[name] = true
@@ -379,13 +406,8 @@ func (b *channelRuleBuilder) groupExit(group RuleGroup) string {
 	}
 	// A missing first manual candidate must not silently select another path.
 	// Keep routing fail-closed without inserting or reordering candidates.
-	if group.Type == "select" {
-		order := group.candidateOrder()
-		if len(order) > 0 {
-			if b.candidateName(order[0]) == "" {
-				return "REJECT"
-			}
-		}
+	if group.Type == "select" && len(group.Members) > 0 && b.candidateName(group.Members[0]) == "" {
+		return "REJECT"
 	}
 	return group.Name
 }
@@ -431,19 +453,6 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 		}
 		b.rules = append(b.rules, prefix+","+value+","+target)
 	}
-}
-
-// channelNodeName names a node in a rendered channel. A local inbound is
-// prefixed with the name of its node, since several nodes may share tags.
-func channelNodeName(node Node) string {
-	name := node.Tag
-	if node.OriginTag != "" {
-		name = node.OriginTag
-	}
-	if node.NodeName != "" {
-		return node.NodeName + " · " + name
-	}
-	return name
 }
 
 type orderedChannelRule struct {

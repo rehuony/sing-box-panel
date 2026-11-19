@@ -5,7 +5,7 @@ import { toast } from '@shared/components/ui/toast-manager';
 import { render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
-import type { SubscriptionChannel, SubscriptionNodeSummary } from '@/api/api-client';
+import type { SubscriptionChannel, SubscriptionNode } from '@/api/api-client';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
@@ -13,38 +13,24 @@ import { newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 import { ChannelWorkspace } from '@/pages/subscriptions-page/channel-workspace';
 import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
 
-const node: SubscriptionNodeSummary = {
+const node: SubscriptionNode = {
   id: 'node-one',
-  key: 'manual:one',
-  tag: 'Tokyo',
-  name: 'Tokyo',
-  origin: 'manual',
-  type: 'socks',
-  source_id: 'manual',
-  source_name: 'Manual nodes',
-  available: true,
-  hidden: false,
-  tls: false,
-  reality: false,
-  revision: 1,
-  visibility_revision: 0,
+  display_name: 'Tokyo',
+  origin_name: 'Tokyo',
+  protocol: 'socks',
+  origin: { kind: 'source', source_id: 'source_file', source_name: 'Operator additions' },
   server: 'node.example.com',
   port: 1080,
+  updated_at: '2026-09-19T09:00:00Z',
 };
 const channel: SubscriptionChannel = {
   ...testSubscriptionChannels[0],
   format: 'sing-box',
-  config: {
-    policy: {
-      selection: { ids: ['node-one'], excluded_ids: [], new_node_policy: 'exclude' },
-      groups: [],
-      default_exit: { kind: 'direct' },
-    },
-  },
+  config: { groups: [], default_exit: { kind: 'direct' } },
 };
 function mount(
   value = channel,
-  nodes = [node, { ...node, id: 'hidden', name: 'Hidden node', hidden: true }],
+  nodes = [node],
 ) {
   const client = createMockApiClient({
     updateSubscriptionChannel: vi
@@ -75,23 +61,6 @@ async function openGroupSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(within(selected.parentElement!).getByRole('button', { name: /^Configure / }));
 }
 describe('channel workspace', () => {
-  it('explains a legacy upgrade and allows saving the previewed policy without unrelated edits', async () => {
-    const user = userEvent.setup();
-    const client = mount({ ...channel, config: { exclude_tags: [node.tag] } }, [node]);
-    expect(screen.getByRole('status')).toHaveTextContent('This channel still delivers nodes only');
-    expect(screen.getByRole('button', { name: /Save changes/ })).toBeEnabled();
-    await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
-    const draft = vi.mocked(client.previewSubscriptionChannel).mock.calls[0][3]?.config;
-    expect(draft).not.toHaveProperty('exclude_tags');
-    expect(draft?.policy?.selection).toEqual({ ids: [], excluded_ids: [node.id], new_node_policy: 'include' });
-    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
-    await user.keyboard('{Escape}');
-    await user.click(screen.getByRole('button', { name: /Save changes/ }));
-    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
-    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config).toEqual(draft);
-    expect(screen.queryByText(/This channel still delivers nodes only/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
-  });
   it('shows preview failures only through the title issues popover', async () => {
     const user = userEvent.setup();
     const client = mount();
@@ -195,8 +164,8 @@ describe('channel workspace', () => {
   });
   it('preserves stored disabled groups on cancel and enables a group when made final', async () => {
     const user = userEvent.setup();
-    const group = { ...newRuleGroup([node.id]), name: 'Imported group', enabled: false };
-    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [group] } } });
+    const group = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Imported group', enabled: false };
+    const client = mount({ ...channel, config: { ...channel.config, groups: [group] } });
     await openGroupSettings(user);
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
@@ -206,7 +175,7 @@ describe('channel workspace', () => {
     expect(screen.getByRole('button', { name: /^Imported group/ })).toHaveTextContent('Final exit');
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalled());
-    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
+    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
     expect(saved?.groups[0]).toMatchObject({ id: group.id, enabled: true });
     expect(saved?.default_exit).toEqual({ kind: 'group', id: group.id });
   });
@@ -226,7 +195,7 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy?.groups[0]).toMatchObject({ type: 'url-test', builtin_nodes: [], health_check: { url: 'https://probe.example/check', interval: 600, tolerance: 0 } });
+    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.groups[0]).toMatchObject({ type: 'url-test', members: [], health_check: { url: 'https://probe.example/check', interval: 600, tolerance: 0 } });
     await openGroupSettings(user);
     await user.click(screen.getByRole('combobox', { name: 'Group type' }));
     await user.click(await screen.findByRole('option', { name: 'Fallback' }));
@@ -244,13 +213,13 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(2));
-    const manualGroup = vi.mocked(client.updateSubscriptionChannel).mock.calls[1][1].config?.policy?.groups[0];
+    const manualGroup = vi.mocked(client.updateSubscriptionChannel).mock.calls[1][1].config?.groups[0];
     expect(manualGroup?.health_check).toBeUndefined();
   });
   it('keeps the parent strategy group open while adding a remote reference and blocks an empty format', async () => {
     const user = userEvent.setup();
-    const group = { ...newRuleGroup([node.id]), name: 'Proxy' };
-    mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [group] } } });
+    const group = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Proxy' };
+    mount({ ...channel, config: { ...channel.config, groups: [group] } });
     const parent = screen.getByRole('region', { name: 'Edit strategy group' });
     await user.click(within(parent).getByRole('tab', { name: 'Exit rules' }));
     await user.click(within(parent).getByRole('button', { name: 'Add rule set' }));
@@ -279,14 +248,14 @@ describe('channel workspace', () => {
   });
   it('requires native Loon rule format after a switch and drops inapplicable source options', async () => {
     const user = userEvent.setup();
-    const group = { ...newRuleGroup([node.id]), name: 'Selected', rules: [{
+    const group = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Selected', rules: [{
       id: 'remote', enabled: true, kind: 'remote' as const, exit: { kind: 'group-default' as const },
       remote: {
         name: 'Domains', url: 'https://example.com/rules.txt', format: 'text' as const,
         behavior: 'domain' as const, accelerated: false,
       },
     }] };
-    const client = mount({ ...channel, format: 'loon', config: { policy: { ...channel.config.policy!, groups: [group] } } });
+    const client = mount({ ...channel, format: 'loon', config: { ...channel.config, groups: [group] } });
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
     await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
     await user.click(screen.getByRole('button', { name: 'Edit rule' }));
@@ -299,7 +268,7 @@ describe('channel workspace', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
-    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
+    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
     expect(saved?.groups[0].rules[0].remote).toEqual({
       name: 'Domains', url: 'https://example.com/rules.txt', format: 'loon', accelerated: false,
       behavior: undefined,
@@ -316,8 +285,8 @@ describe('channel workspace', () => {
           }
         : { kind: 'domain' as const, value: 'example.com' }),
     };
-    const group = { ...newRuleGroup([node.id]), name: 'Proxy', rules: [rule] };
-    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [group] } } });
+    const group = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Proxy', rules: [rule] };
+    const client = mount({ ...channel, config: { ...channel.config, groups: [group] } });
     await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
     const rules = screen.getByRole('list', { name: 'Exit rules' });
     expect(within(rules).queryByRole('checkbox')).not.toBeInTheDocument();
@@ -335,22 +304,22 @@ describe('channel workspace', () => {
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
-    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy;
+    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
     expect(saved?.groups[0].rules[0]).toMatchObject({
       ...rule, sort_index: remote ? -20 : 0,
     });
   });
   it('shares the active tab across groups while showing each group’s own content', async () => {
     const user = userEvent.setup();
-    const otherNode = { ...node, id: 'node-two', key: 'manual:two', name: 'Osaka', tag: 'Osaka' };
+    const otherNode = { ...node, id: 'node-two', display_name: 'Osaka', origin_name: 'Osaka' };
     const groups = [node, otherNode].map((value) => ({
-      ...newRuleGroup([value.id]), name: value.name,
+      ...newRuleGroup([{ kind: 'node', id: value.id }]), name: value.display_name,
       rules: [{
-        id: `rule-${value.id}`, kind: 'domain' as const, value: `${value.name.toLowerCase()}.example`,
+        id: `rule-${value.id}`, kind: 'domain' as const, value: `${value.display_name.toLowerCase()}.example`,
         enabled: true, exit: { kind: 'group-default' as const },
       }],
     }));
-    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } }, [node, otherNode]);
+    const client = mount({ ...channel, config: { ...channel.config, groups } }, [node, otherNode]);
     const sidebar = screen.getByRole('complementary', { name: 'Strategy groups' });
     await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
     await user.click(within(sidebar).getByRole('button', { name: /^Osaka/ }));
@@ -372,10 +341,10 @@ describe('channel workspace', () => {
   it('resets card selection and search when switching groups without changing either membership', async () => {
     const user = userEvent.setup();
     const groups = [
-      { ...newRuleGroup(['node-one']), name: 'Proxy' },
-      { ...newRuleGroup(['node-one']), name: 'Other' },
+      { ...newRuleGroup([{ kind: 'node', id: 'node-one' }]), name: 'Proxy' },
+      { ...newRuleGroup([{ kind: 'node', id: 'node-one' }]), name: 'Other' },
     ];
-    const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } });
+    const client = mount({ ...channel, config: { ...channel.config, groups } });
     await user.click(screen.getByRole('checkbox', { name: /Tokyo/ }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).toBeChecked();
     await user.type(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' }), 'Tokyo');
@@ -397,7 +366,7 @@ describe('channel workspace', () => {
     expect(screen.getByRole('button', { name: 'Set as final exit' })).toHaveAttribute('aria-pressed', 'false');
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy?.default_exit).toEqual({ kind: 'direct' });
+    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.default_exit).toEqual({ kind: 'direct' });
     await user.click(screen.getByRole('button', { name: 'Set as final exit' }));
     expect(screen.getByRole('button', { name: 'Clear final exit' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /^Strategy group 1/ })).toHaveTextContent('Final exit');
@@ -410,7 +379,7 @@ describe('channel workspace', () => {
     expect(screen.getByRole('button', { name: /^Strategy group 2/ })).toHaveTextContent('Final exit');
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(2));
-    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[1][1].config?.policy;
+    const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[1][1].config;
     expect(saved?.default_exit).toEqual({ kind: 'group', id: saved?.groups[1].id });
     await user.click(screen.getByRole('button', { name: /^Strategy group 1/ }));
     await openGroupSettings(user);
@@ -421,7 +390,7 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Clear final exit' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[2][1].config?.policy?.default_exit).toEqual({ kind: 'direct' });
+    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[2][1].config?.default_exit).toEqual({ kind: 'direct' });
     await user.click(screen.getByRole('button', { name: 'Delete strategy group' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete strategy group' }));
     expect(screen.queryByRole('button', { name: /^Strategy group 2/ })).not.toBeInTheDocument();
@@ -440,7 +409,7 @@ describe('channel workspace', () => {
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalled());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1];
     expect(saved.name).toBe('Office');
-    expect(saved.config?.policy).not.toHaveProperty('organizer');
+    expect(saved.config).not.toHaveProperty('organizer');
   });
 });
 
@@ -450,7 +419,7 @@ it('infers source formats on link edits and preserves manual choices through acc
     id: 'remote', kind: 'remote' as const, enabled: true, exit: { kind: 'group-default' as const },
     remote: { name: 'Rules', url: 'https://raw.githubusercontent.com/a/r/main/rules.srs', format: 'source' as const, accelerated: false },
   }] };
-  mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [group] } } });
+  mount({ ...channel, config: { ...channel.config, groups: [group] } });
   await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
   await user.click(screen.getByRole('button', { name: 'Edit rule' }));
   const dialog = screen.getByRole('dialog');
@@ -477,7 +446,7 @@ it('rejects a rule-set name already used in a disabled group', async () => {
     { ...newRuleGroup([]), name: 'Editing', rules: [{ ...rule, remote: { ...rule.remote, name: 'Free' } }] },
     { ...newRuleGroup([]), name: 'Disabled', enabled: false, rules: [rule] },
   ];
-  mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } });
+  mount({ ...channel, config: { ...channel.config, groups } });
   await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
   await user.click(screen.getByRole('button', { name: 'Edit rule' }));
   const dialog = screen.getByRole('dialog');
@@ -495,15 +464,15 @@ it('rejects a rule-set name already used in a disabled group', async () => {
 
 it('removes references to a deleted strategy group in the saved policy', async () => {
   const user = userEvent.setup();
-  const child = { ...newRuleGroup([node.id]), id: 'child', name: 'Child' };
-  const parent = { ...newRuleGroup([]), id: 'parent', name: 'Parent', group_ids: ['child'], candidate_order: ['group:child'] };
-  const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [child, parent] } } });
+  const child = { ...newRuleGroup([{ kind: 'node', id: node.id }]), id: 'child', name: 'Child' };
+  const parent = { ...newRuleGroup([{ kind: 'group', id: 'child' }]), id: 'parent', name: 'Parent' };
+  const client = mount({ ...channel, config: { ...channel.config, groups: [child, parent] } });
   await user.click(screen.getByRole('button', { name: 'Delete strategy group' }));
   await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete strategy group' }));
   await user.click(screen.getByRole('button', { name: /Save changes/ }));
   await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
-  expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy?.groups).toEqual([
-    { ...parent, group_ids: [], candidate_order: [] },
+  expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.groups).toEqual([
+    { ...parent, members: [] },
   ]);
 });
 
@@ -511,13 +480,13 @@ it('edits rules as text, keeping each rule’s identity and holding invalid text
   const user = userEvent.setup();
   const add = vi.spyOn(toast, 'add');
   const groups = [{
-    ...newRuleGroup([node.id]), id: 'group-one', name: 'Tokyo',
+    ...newRuleGroup([{ kind: 'node', id: node.id }]), id: 'group-one', name: 'Tokyo',
     rules: [{
       id: 'rule-a', kind: 'domain_suffix' as const, value: 'example.com', enabled: true, sort_index: 10,
       exit: { kind: 'node' as const, id: node.id },
     }],
   }];
-  const client = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups } } });
+  const client = mount({ ...channel, config: { ...channel.config, groups } });
   await user.click(screen.getByRole('tab', { name: 'Exit rules' }));
   await user.click(screen.getByRole('tab', { name: 'Text' }));
   const text = screen.getByRole('textbox', { name: 'Rules as text, one per line' });
@@ -537,7 +506,7 @@ it('edits rules as text, keeping each rule’s identity and holding invalid text
   expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('api.example.com');
   await user.click(screen.getByRole('button', { name: /Save changes/ }));
   await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
-  const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.policy?.groups[0].rules;
+  const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.groups[0].rules;
   expect(saved?.map(rule => [rule.id === 'rule-a', rule.kind, rule.value, rule.sort_index, rule.exit])).toEqual([
     [true, 'domain_suffix', 'example.com', 10, { kind: 'node', id: node.id }],
     [false, 'domain', 'api.example.com', 20, { kind: 'group-default' }],

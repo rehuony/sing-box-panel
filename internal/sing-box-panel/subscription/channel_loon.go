@@ -16,7 +16,7 @@ func parseLoonChannelTemplate(content string) (channelTemplate, error) {
 	keys := map[string]bool{}
 	for i, raw := range strings.Split(content, "\n") {
 		line := strings.TrimSpace(raw)
-		path := fmt.Sprintf("policy.template.content@%d", i+1)
+		path := fmt.Sprintf("template.content@%d", i+1)
 		if strings.IndexFunc(raw, func(r rune) bool { return unicode.IsControl(r) && r != '\t' && r != '\r' }) >= 0 || strings.Contains(strings.TrimSuffix(raw, "\r"), "\r") {
 			return channelTemplate{}, policyError(path, "invalid_loon_structure")
 		}

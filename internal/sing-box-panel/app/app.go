@@ -60,15 +60,18 @@ func New(database *store.Store, configuration settings.Settings, options Options
 		releaseOptions.Restart = restartPanel
 	}
 	panelReleases := releases.New(options.Build, configuration.DataDir, panelSettings, records, releaseOptions)
+	subscriptions := subscription.New(database, panelSettings, records, subscription.Options{})
 	return Services{
 		Sessions:      auth.NewSessions(database, panelSettings),
 		Settings:      panelSettings,
 		Configs:       configs,
 		Cores:         cores,
-		Subscriptions: subscription.New(database, panelSettings, records, subscription.Options{}),
+		Subscriptions: subscriptions,
 		Telemetry:     records,
-		Fleet:         fleet.New(database, panelSettings, records, configs, cores, fleet.Options{Build: options.Build, Releases: panelReleases}),
-		Releases:      panelReleases,
+		Fleet: fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
+			Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.PoolInputsChanged,
+		}),
+		Releases: panelReleases,
 	}
 }
 

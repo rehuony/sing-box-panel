@@ -69,10 +69,6 @@ func TestRenderRejectsInvalidChannelWithoutParsingInput(t *testing.T) {
 		code    string
 	}{
 		{name: "format", channel: RenderChannel{Format: "clash"}, code: "unsupported_format"},
-		{name: "empty tag", channel: RenderChannel{Format: RenderFormatLoon, ExcludeTags: []string{""}}, code: "invalid_tag_exclusion"},
-		{name: "duplicate tag", channel: RenderChannel{Format: RenderFormatLoon, ExcludeTags: []string{"a", "a"}}, code: "duplicate_tag_exclusion"},
-		{name: "invalid type", channel: RenderChannel{Format: RenderFormatLoon, ExcludeTypes: []string{"VMess"}}, code: "invalid_type_exclusion"},
-		{name: "duplicate type", channel: RenderChannel{Format: RenderFormatLoon, ExcludeTypes: []string{"vmess", "vmess"}}, code: "duplicate_type_exclusion"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

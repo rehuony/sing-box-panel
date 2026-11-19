@@ -12,17 +12,14 @@ import (
 )
 
 // enforceRetention runs one retention pass: expired traffic samples, log
-// entries and runtime history, then old configuration revisions and source
-// versions. It records what it deleted, and records and returns a failure.
+// entries and runtime history, then old configuration revisions. It records
+// what it deleted, and records and returns a failure.
 func enforceRetention(ctx context.Context, services app.Services) error {
 	records := services.Telemetry
 	deleted, err := records.EnforceRetention(ctx)
-	var revisions, sourceVersions int64
+	var revisions int64
 	if err == nil {
 		revisions, err = services.Configs.PruneRevisions(ctx)
-	}
-	if err == nil {
-		sourceVersions, err = services.Subscriptions.PruneSourceVersions(ctx)
 	}
 	if err != nil {
 		if ctx.Err() == nil {
@@ -34,14 +31,13 @@ func enforceRetention(ctx context.Context, services app.Services) error {
 		}
 		return err
 	}
-	if deleted.TrafficSamples+deleted.LogEntries+deleted.RuntimeTransitions+revisions+sourceVersions > 0 {
+	if deleted.TrafficSamples+deleted.LogEntries+deleted.RuntimeTransitions+revisions > 0 {
 		records.RecordEvent(telemetry.LogRecordRequest{
 			Source: store.LogSourcePanel, Level: store.LogLevelInfo,
 			Code: "records.retention_enforced", Message: "Expired records were deleted",
 			Metadata: telemetry.LogMetadata(map[string]any{
 				"traffic_samples": deleted.TrafficSamples, "log_entries": deleted.LogEntries,
 				"runtime_transitions": deleted.RuntimeTransitions, "configuration_revisions": revisions,
-				"source_versions": sourceVersions,
 			}),
 		})
 	}

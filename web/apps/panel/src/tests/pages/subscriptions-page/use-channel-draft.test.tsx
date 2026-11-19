@@ -13,11 +13,11 @@ import { ApiClientProvider } from '@/api/api-client-context';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
 import { useChannelDraft } from '@/pages/subscriptions-page/use-channel-draft';
 import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
-import { initialChannelPolicy, newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
+import { emptyChannelConfig, newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 
 const channel: SubscriptionChannel = {
   ...testSubscriptionChannels[0], format: 'sing-box',
-  config: { policy: initialChannelPolicy({ config: {} }, []) },
+  config: emptyChannelConfig(),
 };
 
 function mount(value = channel, overrides: Partial<ApiClient> = {}) {
@@ -28,7 +28,7 @@ function mount(value = channel, overrides: Partial<ApiClient> = {}) {
   const onSaved = vi.fn();
   const hook = renderHook(() => {
     const [saved, setSaved] = useState(value);
-    return useChannelDraft(saved, [], result => {
+    return useChannelDraft(saved, result => {
       onSaved(result);
       setSaved(result);
     });
@@ -42,9 +42,9 @@ function mount(value = channel, overrides: Partial<ApiClient> = {}) {
 
 describe('channel draft', () => {
   it('retains edits across group selection and uses the accepted revision for the next save', async () => {
-    const first = { ...newRuleGroup(['first']), name: 'First' };
-    const second = { ...newRuleGroup(['second']), name: 'Second' };
-    const value = { ...channel, config: { policy: { ...channel.config.policy!, groups: [first, second] } } };
+    const first = { ...newRuleGroup([{ kind: 'node', id: 'first' }]), name: 'First' };
+    const second = { ...newRuleGroup([{ kind: 'node', id: 'second' }]), name: 'Second' };
+    const value = { ...channel, config: { ...channel.config, groups: [first, second] } };
     const { result, client } = mount(value);
     const edited = { ...first, name: 'Renamed', rules: [
       { id: 'rule', enabled: true, kind: 'domain' as const, value: 'example.com', exit: { kind: 'group-default' as const } },
@@ -55,7 +55,7 @@ describe('channel draft', () => {
     act(() => result.current.setGroupID(first.id));
     expect(result.current.group).toEqual(edited);
     await act(() => result.current.save());
-    expect(client.updateSubscriptionChannel.mock.calls[0][1].config.policy?.groups).toEqual([edited, second]);
+    expect(client.updateSubscriptionChannel.mock.calls[0][1].config.groups).toEqual([edited, second]);
     act(() => result.current.updateGroup({ ...edited, name: 'Another edit' }));
     await act(() => result.current.save());
     expect(client.updateSubscriptionChannel.mock.calls[1][2]).toBe('updated');
@@ -67,27 +67,17 @@ describe('channel draft', () => {
     expect(client.previewSubscriptionChannel).toHaveBeenCalledOnce();
     expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(channel.id, expect.objectContaining({
       enabled: channel.enabled,
-      config: expect.objectContaining({ policy: result.current.policy }),
+      config: result.current.config,
     }), channel.updated_at, expect.any(AbortSignal));
     expect(onSaved).toHaveBeenCalledOnce();
     expect(result.current.dirty).toBe(false);
   });
-  it('saves the same complete policy used by preview when editing a legacy channel', async () => {
-    const legacy = { ...channel, format: 'loon' as const, enabled: false, config: {} };
-    const { result, client } = mount(legacy);
-    act(() => result.current.applyOptions(result.current.policy, { name: '  Renamed  ', format: 'loon' }));
-    await act(() => result.current.save());
-    expect(client.updateSubscriptionChannel.mock.calls[0][1]).toMatchObject({ name: 'Renamed', enabled: false, config: { policy: result.current.policy } });
-    act(() => result.current.addGroup());
-    await act(() => result.current.save());
-    expect(client.updateSubscriptionChannel.mock.calls[1][1].config.policy?.groups).toHaveLength(1);
-  });
-  it('keeps policy changes local and retains them after a rejected save', async () => {
+  it('keeps configuration changes local and retains them after a rejected save', async () => {
     const { result, client, onSaved } = mount(channel, { updateSubscriptionChannel: vi.fn().mockRejectedValue(new Error('conflict')) });
     act(() => result.current.addGroup());
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     await act(() => result.current.save());
-    expect(result.current.policy.groups).toHaveLength(1);
+    expect(result.current.config.groups).toHaveLength(1);
     expect(result.current.dirty).toBe(true);
     expect(result.current.busy).toBe(false);
     expect(onSaved).not.toHaveBeenCalled();
@@ -97,7 +87,7 @@ describe('channel draft', () => {
     act(() => result.current.addGroup());
     await act(() => result.current.save());
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
-    expect(result.current.policy.groups).toHaveLength(1);
+    expect(result.current.config.groups).toHaveLength(1);
     expect(result.current.dirty).toBe(true);
   });
   it('aborts pending validation on unmount and ignores its late success', async () => {
@@ -120,10 +110,10 @@ describe('channel draft', () => {
   });
   it('previews unsaved templates without persisting them', async () => {
     const { result, client } = mount();
-    act(() => result.current.setPolicy(p => ({ ...p, template: { format: 'sing-box', content: '{}' } })));
+    act(() => result.current.setConfig(c => ({ ...c, template: { format: 'sing-box', content: '{}' } })));
     await act(() => result.current.showPreview());
     expect(client.previewSubscriptionChannel).toHaveBeenCalledWith(channel.id, '', expect.any(AbortSignal), expect.objectContaining({
-      config: expect.objectContaining({ policy: expect.objectContaining({ template: { format: 'sing-box', content: '{}' } }) }),
+      config: expect.objectContaining({ template: { format: 'sing-box', content: '{}' } }),
     }));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
@@ -132,41 +122,31 @@ describe('channel draft', () => {
     act(() => {
       result.current.addGroup();
     });
-    act(() => result.current.setPolicy(p => ({ ...p, template: { format: 'sing-box', content: '{}' } })));
+    act(() => result.current.setConfig(c => ({ ...c, template: { format: 'sing-box', content: '{}' } })));
     const group = result.current.group;
-    act(() => result.current.applyOptions(result.current.policy, { name: 'Loon', format: 'loon' }));
-    expect(result.current.policy.groups).toEqual([group]);
-    expect(result.current.policy.template).toEqual({ format: 'loon', content: channelTemplateDefaults.loon });
-  });
-  it('merges group members into selection without losing unrelated exclusions or changing the fallback', () => {
-    const group = { ...newRuleGroup([]), name: 'Group' };
-    const policy = { ...channel.config.policy!, groups: [group], default_exit: { kind: 'reject' as const }, selection: { ids: ['existing'], excluded_ids: ['new', 'hidden'], new_node_policy: 'exclude' as const } };
-    const { result } = mount({ ...channel, config: { policy } });
-    act(() => result.current.updateGroup({ ...group, node_ids: ['new'] }));
-    expect(result.current.policy.selection).toEqual({ ids: ['existing', 'new'], excluded_ids: ['hidden'], new_node_policy: 'exclude' });
-    act(() => result.current.addGroup());
-    expect(result.current.policy.default_exit).toEqual({ kind: 'reject' });
+    act(() => result.current.applyOptions({ name: 'Loon', format: 'loon' }));
+    expect(result.current.config.groups).toEqual([group]);
+    expect(result.current.config.template).toEqual({ format: 'loon', content: channelTemplateDefaults.loon });
   });
   it('protects an enabled final group and reorders whole group records', () => {
     const first = { ...newRuleGroup([]), name: 'First' };
     const second = { ...newRuleGroup([]), name: 'Second' };
-    const policy = { ...channel.config.policy!, groups: [first, second], default_exit: { kind: 'group' as const, id: first.id } };
-    const { result } = mount({ ...channel, config: { policy } });
+    const config = { ...channel.config, groups: [first, second], default_exit: { kind: 'group' as const, id: first.id } };
+    const { result } = mount({ ...channel, config });
     act(() => result.current.updateGroup({ ...first, enabled: false }));
-    expect(result.current.policy.groups[0]).toEqual(first);
+    expect(result.current.config.groups[0]).toEqual(first);
     act(() => result.current.reorder(0, 1));
-    expect(result.current.policy.groups).toEqual([second, first]);
+    expect(result.current.config.groups).toEqual([second, first]);
   });
 });
 
 it('removes references in the same draft update when disabling a group, while protecting the final exit', () => {
   const child = { ...newRuleGroup([]), id: 'child', name: 'Child' };
-  const parent = { ...newRuleGroup([]), id: 'parent', name: 'Parent', group_ids: ['child'], candidate_order: ['group:child'] };
-  const { result } = mount({ ...channel, config: { policy: { ...channel.config.policy!, groups: [parent, child], default_exit: { kind: 'group', id: 'parent' } } } });
+  const parent = { ...newRuleGroup([{ kind: 'group', id: 'child' }]), id: 'parent', name: 'Parent' };
+  const { result } = mount({ ...channel, config: { ...channel.config, groups: [parent, child], default_exit: { kind: 'group', id: 'parent' } } });
   act(() => result.current.updateGroup({ ...parent, enabled: false }));
-  expect(result.current.policy.groups[0].enabled).toBe(true);
+  expect(result.current.config.groups[0].enabled).toBe(true);
   act(() => result.current.updateGroup({ ...child, enabled: false }));
-  expect(result.current.policy.groups[1].enabled).toBe(false);
-  expect(result.current.policy.groups[0].group_ids).toEqual([]);
-  expect(result.current.policy.groups[0].candidate_order).toEqual([]);
+  expect(result.current.config.groups[1].enabled).toBe(false);
+  expect(result.current.config.groups[0].members).toEqual([]);
 });

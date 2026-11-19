@@ -43,16 +43,173 @@ CREATE TABLE catalog_state (
     refreshed_at TEXT NOT NULL CHECK (refreshed_at <> '')
 ) STRICT;
 
+-- Subscription sources: a URL fetched on a schedule or uploaded content. Each
+-- keeps only the last content that parsed, overwritten by the next, so no
+-- history accumulates; changing the filter re-reads the stored content.
 CREATE TABLE subscription_sources (
-    id TEXT PRIMARY KEY CHECK (id <> ''),
-    name TEXT NOT NULL UNIQUE CHECK (name <> ''),
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('remote', 'local')),
-    config_json TEXT NOT NULL CHECK (json_valid(config_json)),
-    current_version_id TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(name) BETWEEN 1 AND 128),
+    kind TEXT NOT NULL CHECK (kind IN ('url', 'file')),
+    url TEXT CHECK (url IS NULL OR length(url) BETWEEN 1 AND 4096),
+    -- 0 fetches only on request.
+    refresh_minutes INTEGER CHECK (refresh_minutes IS NULL OR refresh_minutes = 0 OR refresh_minutes BETWEEN 15 AND 10080),
+    format TEXT NOT NULL DEFAULT 'auto' CHECK (format IN ('auto', 'sing-box', 'mihomo', 'share-links')),
+    -- Name rules, JSON arrays of strings: plain text matches a substring, /text/ is an RE2 expression.
+    include_rules TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(include_rules) AND json_type(include_rules) = 'array'),
+    exclude_rules TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(exclude_rules) AND json_type(exclude_rules) = 'array'),
+    content BLOB NOT NULL CHECK (length(content) BETWEEN 1 AND 4194304),
+    content_sha256 TEXT NOT NULL
+        CHECK (length(content_sha256) = 64 AND content_sha256 NOT GLOB '*[^0-9a-f]*'),
+    content_format TEXT NOT NULL CHECK (content_format IN ('sing-box', 'mihomo', 'share-links')),
+    content_at TEXT NOT NULL CHECK (content_at <> ''),
+    last_attempt_at TEXT,
+    -- The code of the last failed fetch or parse; cleared by the next success.
+    last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 128),
+    next_refresh_at TEXT,
     created_at TEXT NOT NULL CHECK (created_at <> ''),
-    updated_at TEXT NOT NULL CHECK (updated_at <> '')
+    -- Changes only with the settings, so a refresh never invalidates an edit in progress.
+    updated_at TEXT NOT NULL CHECK (updated_at <> ''),
+    CHECK ((kind = 'url') = (url IS NOT NULL)),
+    CHECK ((kind = 'url') = (refresh_minutes IS NOT NULL)),
+    CHECK (kind = 'url' OR next_refresh_at IS NULL)
 ) STRICT;
+
+-- The subscription node pool. A node's ID derives from its origin, a fleet
+-- node's inbound credential or a name in a source, so it holds while the
+-- origin keeps the node. Synchronization deletes nodes that disappear; the
+-- cascades below and the exit trigger remove every reference to them.
+CREATE TABLE subscription_nodes (
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
+    node_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
+    source_id TEXT REFERENCES subscription_sources(id) ON DELETE CASCADE,
+    -- Identity within the origin: an inbound's tag with its credential, or the name in a source.
+    origin_key TEXT NOT NULL CHECK (length(origin_key) BETWEEN 1 AND 1024),
+    origin_name TEXT NOT NULL CHECK (length(origin_name) BETWEEN 1 AND 512),
+    display_name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(display_name) BETWEEN 1 AND 256),
+    protocol TEXT NOT NULL CHECK (protocol <> ''),
+    -- The sing-box outbound published for the node, without its tag.
+    outbound_json TEXT NOT NULL CHECK (json_valid(outbound_json) AND json_type(outbound_json) = 'object'),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    updated_at TEXT NOT NULL CHECK (updated_at <> ''),
+    CHECK ((node_id IS NULL) <> (source_id IS NULL)),
+    UNIQUE (node_id, origin_key),
+    UNIQUE (source_id, origin_key)
+) STRICT;
+
+CREATE INDEX subscription_nodes_order ON subscription_nodes(position, id);
+
+CREATE TABLE subscription_user_grants (
+    user_id TEXT NOT NULL REFERENCES subscription_users(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL REFERENCES subscription_nodes(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    PRIMARY KEY (user_id, node_id)
+) STRICT;
+
+CREATE INDEX subscription_user_grants_node ON subscription_user_grants(node_id);
+
+-- A channel and its strategy groups. Saving a channel replaces its groups,
+-- members and rules together. Group IDs are unique within their channel, and
+-- every reference to a group carries the channel, so it cannot name another
+-- channel's group.
+CREATE TABLE subscription_channels (
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(name) BETWEEN 1 AND 128),
+    format TEXT NOT NULL CHECK (format IN ('sing-box', 'mihomo', 'loon')),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    incompatible_nodes TEXT NOT NULL DEFAULT 'skip' CHECK (incompatible_nodes IN ('skip', 'error')),
+    -- A complete client base configuration in the channel's format; null uses the shared default.
+    template TEXT CHECK (template IS NULL OR length(CAST(template AS BLOB)) <= 262144),
+    default_exit_kind TEXT NOT NULL DEFAULT 'direct' CHECK (default_exit_kind IN ('direct', 'reject', 'node', 'group')),
+    default_exit_node_id TEXT REFERENCES subscription_nodes(id),
+    default_exit_group_id TEXT,
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    updated_at TEXT NOT NULL CHECK (updated_at <> ''),
+    FOREIGN KEY (id, default_exit_group_id) REFERENCES subscription_channel_groups(channel_id, id),
+    CHECK ((default_exit_kind = 'node') = (default_exit_node_id IS NOT NULL)),
+    CHECK ((default_exit_kind = 'group') = (default_exit_group_id IS NOT NULL))
+) STRICT;
+
+CREATE INDEX subscription_channels_exit_node ON subscription_channels(default_exit_node_id);
+
+CREATE TABLE subscription_channel_groups (
+    channel_id TEXT NOT NULL REFERENCES subscription_channels(id) ON DELETE CASCADE,
+    id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 128),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),
+    type TEXT NOT NULL CHECK (type IN ('select', 'url-test', 'fallback')),
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    -- Client-side checks for url-test and fallback; null uses the defaults.
+    health_check_url TEXT CHECK (health_check_url IS NULL OR length(health_check_url) BETWEEN 1 AND 4096),
+    health_check_interval INTEGER CHECK (health_check_interval IS NULL OR health_check_interval BETWEEN 60 AND 86400),
+    health_check_tolerance INTEGER CHECK (health_check_tolerance IS NULL OR health_check_tolerance BETWEEN 0 AND 65535),
+    PRIMARY KEY (channel_id, id),
+    UNIQUE (channel_id, name),
+    UNIQUE (channel_id, position),
+    CHECK ((health_check_url IS NULL) = (health_check_interval IS NULL)),
+    CHECK ((health_check_url IS NULL) = (health_check_tolerance IS NULL))
+) STRICT;
+
+-- A group's candidates in order: a pool node, a built-in exit or another group.
+CREATE TABLE subscription_channel_members (
+    channel_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    node_id TEXT REFERENCES subscription_nodes(id) ON DELETE CASCADE,
+    member_group_id TEXT,
+    builtin TEXT CHECK (builtin IS NULL OR builtin IN ('direct', 'reject')),
+    PRIMARY KEY (channel_id, group_id, position),
+    FOREIGN KEY (channel_id, group_id) REFERENCES subscription_channel_groups(channel_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (channel_id, member_group_id) REFERENCES subscription_channel_groups(channel_id, id) ON DELETE CASCADE,
+    UNIQUE (channel_id, group_id, node_id),
+    UNIQUE (channel_id, group_id, member_group_id),
+    UNIQUE (channel_id, group_id, builtin),
+    CHECK ((node_id IS NOT NULL) + (member_group_id IS NOT NULL) + (builtin IS NOT NULL) = 1),
+    CHECK (member_group_id IS NULL OR member_group_id <> group_id)
+) STRICT;
+
+CREATE INDEX subscription_channel_members_node ON subscription_channel_members(node_id);
+CREATE INDEX subscription_channel_members_group_member ON subscription_channel_members(channel_id, member_group_id);
+
+CREATE TABLE subscription_channel_rules (
+    channel_id TEXT NOT NULL,
+    id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 128),
+    group_id TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    -- Channel-wide ascending priority; ties keep the documented order.
+    sort_index INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    kind TEXT NOT NULL CHECK (kind IN ('domain', 'domain_suffix', 'domain_keyword', 'ip_cidr', 'remote')),
+    value TEXT CHECK (value IS NULL OR length(value) BETWEEN 1 AND 4096),
+    -- Remote rule-set metadata, remote rules only.
+    remote_json TEXT CHECK (remote_json IS NULL OR (json_valid(remote_json) AND json_type(remote_json) = 'object')),
+    exit_kind TEXT NOT NULL CHECK (exit_kind IN ('direct', 'reject', 'node', 'group', 'group-default')),
+    exit_node_id TEXT REFERENCES subscription_nodes(id),
+    exit_group_id TEXT,
+    PRIMARY KEY (channel_id, id),
+    FOREIGN KEY (channel_id, group_id) REFERENCES subscription_channel_groups(channel_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (channel_id, exit_group_id) REFERENCES subscription_channel_groups(channel_id, id),
+    UNIQUE (channel_id, group_id, position),
+    CHECK ((kind = 'remote') = (remote_json IS NOT NULL)),
+    CHECK ((kind = 'remote') <> (value IS NOT NULL)),
+    CHECK ((exit_kind = 'node') = (exit_node_id IS NOT NULL)),
+    CHECK ((exit_kind = 'group') = (exit_group_id IS NOT NULL))
+) STRICT;
+
+CREATE INDEX subscription_channel_rules_exit_node ON subscription_channel_rules(exit_node_id);
+CREATE INDEX subscription_channel_rules_exit_group ON subscription_channel_rules(channel_id, exit_group_id);
+
+-- A node that leaves the pool drops out of every group by cascade; exits that
+-- named it fall back, a rule's to its group's default and a channel's to direct.
+CREATE TRIGGER subscription_nodes_release_exits BEFORE DELETE ON subscription_nodes
+BEGIN
+    UPDATE subscription_channel_rules
+       SET exit_kind = 'group-default', exit_node_id = NULL
+     WHERE exit_node_id = OLD.id;
+    UPDATE subscription_channels
+       SET default_exit_kind = 'direct', default_exit_node_id = NULL
+     WHERE default_exit_node_id = OLD.id;
+END;
 
 CREATE TABLE subscription_users (
     id TEXT PRIMARY KEY CHECK (id <> ''),
@@ -61,27 +218,6 @@ CREATE TABLE subscription_users (
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     created_at TEXT NOT NULL CHECK (created_at <> ''),
     updated_at TEXT NOT NULL CHECK (updated_at <> '')
-) STRICT;
-
-CREATE TABLE subscription_user_node_grants (
-    user_id TEXT NOT NULL REFERENCES subscription_users(id) ON DELETE CASCADE,
-    node_key TEXT NOT NULL CHECK (node_key <> ''),
-    created_at TEXT NOT NULL CHECK (created_at <> ''),
-    PRIMARY KEY (user_id, node_key)
-) STRICT;
-
-CREATE TABLE subscription_source_versions (
-    id TEXT PRIMARY KEY CHECK (id <> ''),
-    source_id TEXT NOT NULL REFERENCES subscription_sources(id) ON DELETE CASCADE,
-    format TEXT NOT NULL CHECK (format IN ('sing-box-json', 'mihomo-yaml', 'uri-list')),
-    raw_body BLOB NOT NULL,
-    normalized_nodes_json TEXT NOT NULL CHECK (json_valid(normalized_nodes_json)),
-    diagnostics_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(diagnostics_json)),
-    sha256 TEXT NOT NULL
-        CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
-    fetched_at TEXT NOT NULL CHECK (fetched_at <> ''),
-    created_at TEXT NOT NULL CHECK (created_at <> ''),
-    UNIQUE(source_id, sha256)
 ) STRICT;
 
 CREATE TABLE "subscription_tokens" (
@@ -101,30 +237,6 @@ CREATE TABLE "subscription_tokens" (
     created_at TEXT NOT NULL CHECK (created_at <> '')
 ) STRICT;
 
-CREATE TABLE subscription_manual_nodes (
-    id TEXT PRIMARY KEY CHECK (id <> ''),
-    revision INTEGER NOT NULL CHECK (revision > 0),
-    outbound_json TEXT NOT NULL CHECK (json_valid(outbound_json) AND json_type(outbound_json) = 'object'),
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-) STRICT;
-
-CREATE TABLE subscription_node_visibility (
-    publication_id TEXT PRIMARY KEY CHECK (publication_id <> ''),
-    hidden INTEGER NOT NULL CHECK (hidden IN (0, 1)),
-    revision INTEGER NOT NULL CHECK (revision > 0)
-) STRICT;
-
-CREATE TABLE "subscription_channels" (
-    id TEXT PRIMARY KEY CHECK (id <> ''),
-    name TEXT NOT NULL UNIQUE CHECK (name <> ''),
-    format TEXT NOT NULL CHECK (format IN ('sing-box', 'mihomo', 'loon')),
-    config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(config_json)),
-    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-    created_at TEXT NOT NULL CHECK (created_at <> ''),
-    updated_at TEXT NOT NULL CHECK (updated_at <> '')
-) STRICT;
-
 CREATE TABLE panel_settings_file_commits (
     settings_path TEXT PRIMARY KEY,
     transaction_id TEXT NOT NULL UNIQUE
@@ -141,12 +253,6 @@ CREATE TABLE subscription_token_secrets (
     secret TEXT NOT NULL CHECK (length(secret) BETWEEN 1 AND 512)
 );
 
-CREATE TABLE subscription_refresh_schedule (
- source_id TEXT PRIMARY KEY REFERENCES subscription_sources(id) ON DELETE CASCADE,
- expected_updated_at TEXT NOT NULL,
- next_at TEXT NOT NULL
-) STRICT;
-
 CREATE TABLE "log_entries" (
  id TEXT PRIMARY KEY CHECK(id<>'' AND length(id)<=80),
  occurred_at TEXT NOT NULL CHECK(occurred_at<>''),
@@ -157,9 +263,6 @@ CREATE TABLE "log_entries" (
  metadata_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(metadata_json) AND json_type(metadata_json)='object' AND length(metadata_json)<=16384)
 ) STRICT;
 
-CREATE INDEX subscription_source_versions_source_created
-    ON subscription_source_versions(source_id, created_at DESC, id DESC);
-
 CREATE INDEX subscription_tokens_user_created
     ON subscription_tokens(user_id, created_at DESC, id DESC);
 
@@ -168,41 +271,6 @@ CREATE INDEX log_entries_timeline ON log_entries(occurred_at DESC,id DESC);
 CREATE INDEX log_entries_source_timeline ON log_entries(source,occurred_at DESC,id DESC);
 
 CREATE INDEX log_entries_level_timeline ON log_entries(level,occurred_at DESC,id DESC);
-
-CREATE TRIGGER subscription_sources_current_version_same_source
-BEFORE UPDATE OF current_version_id ON subscription_sources
-WHEN NEW.current_version_id IS NOT NULL
-BEGIN
-    SELECT CASE WHEN NOT EXISTS (
-        SELECT 1
-          FROM subscription_source_versions AS version
-         WHERE version.id = NEW.current_version_id
-           AND version.source_id = NEW.id
-    ) THEN RAISE(ABORT, 'subscription current version belongs to another source') END;
-END;
-
-CREATE TRIGGER subscription_sources_initial_version_same_source
-BEFORE INSERT ON subscription_sources
-WHEN NEW.current_version_id IS NOT NULL
-BEGIN
-    SELECT CASE WHEN NOT EXISTS (
-        SELECT 1
-          FROM subscription_source_versions AS version
-         WHERE version.id = NEW.current_version_id
-           AND version.source_id = NEW.id
-    ) THEN RAISE(ABORT, 'subscription current version belongs to another source') END;
-END;
-
-CREATE TABLE subscription_node_orders (
-    collection_id TEXT PRIMARY KEY CHECK (collection_id <> ''),
-    node_ids_json TEXT NOT NULL CHECK (json_valid(node_ids_json) AND json_type(node_ids_json) = 'array'),
-    revision INTEGER NOT NULL CHECK (revision > 0)
-) STRICT;
-
-CREATE TRIGGER subscription_source_delete_node_order AFTER DELETE ON subscription_sources
-BEGIN
-    DELETE FROM subscription_node_orders WHERE collection_id = OLD.id;
-END;
 
 CREATE TABLE auth_sessions (
     token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),

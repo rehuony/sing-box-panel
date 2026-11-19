@@ -71,13 +71,6 @@ type SubscriptionTokenPage struct {
 	Total int
 }
 
-const subscriptionChannelColumns = `
-    id, name, format, config_json, enabled, created_at, updated_at`
-
-const subscriptionSourceColumns = `
-	id, name, source_kind, config_json, current_version_id, enabled,
-    created_at, updated_at`
-
 const subscriptionTokenColumns = `
     id, user_id, label, token_sha256, enabled, expires_at, revoked_at,
     successful_request_count, body_response_count, bytes_served,

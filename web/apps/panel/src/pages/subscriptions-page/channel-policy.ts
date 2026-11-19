@@ -1,69 +1,46 @@
 import type {
-  ChannelPolicy,
+  ChannelGroupMember,
   ChannelRemoteRuleSet,
   ChannelRule,
   ChannelRuleGroup,
-  SubscriptionChannel,
+  SubscriptionChannelConfig,
   SubscriptionFormat,
-  SubscriptionNodeSummary,
 } from '@/api/api-client';
 
 import { compareText } from '@/utils/compare-text';
 
-import { candidateOrder } from './channel-node-order';
+/** A group member's identity among the group's candidates, such as `node:<id>` or `builtin:direct`. */
+export function memberKey(member: ChannelGroupMember): string {
+  return `${member.kind}:${member.id}`;
+}
 
-export function updateGroupCandidates(
-  group: ChannelRuleGroup,
-  node_ids: string[],
-  builtin_nodes = group.builtin_nodes,
-  candidate_order = candidateOrder(group),
-  group_ids = group.group_ids ?? [],
-): ChannelRuleGroup {
+/**
+ * Gives a group its members in order. A rule that named a node the group no
+ * longer holds routes through the group instead.
+ */
+export function updateGroupMembers(group: ChannelRuleGroup, members: ChannelGroupMember[]): ChannelRuleGroup {
+  const nodes = new Set(members.filter(member => member.kind === 'node').map(member => member.id));
   return {
-    ...group, node_ids, builtin_nodes, group_ids,
-    candidate_order: candidateOrder({ node_ids, builtin_nodes, group_ids, candidate_order }),
-    rules: group.rules.map(item => item.exit.kind === 'node' && !node_ids.includes(item.exit.id!)
+    ...group,
+    members,
+    rules: group.rules.map(item => item.exit.kind === 'node' && !nodes.has(item.exit.id!)
       ? { ...item, exit: { kind: 'group-default' } }
       : item),
   };
 }
 
-export function initialChannelPolicy(
-  channel: Pick<SubscriptionChannel, 'config'>,
-  nodes: SubscriptionNodeSummary[],
-): ChannelPolicy {
-  if (channel.config.policy) {
-    return structuredClone(channel.config.policy);
-  }
-  const excluded = nodes.filter(node => channel.config.exclude_tags?.includes(node.tag)
-    || channel.config.exclude_types?.includes(node.type)).map(node => node.id);
-  return {
-    selection: {
-      ids: nodes
-        .filter(
-          (node) =>
-            node.available
-            && !node.hidden
-            && !excluded.includes(node.id),
-        )
-        .map((node) => node.id),
-      excluded_ids: excluded,
-      new_node_policy: 'include',
-    },
-    groups: [],
-    default_exit: { kind: 'direct' },
-  };
+/** A new channel's configuration: no groups and so no nodes, unmatched traffic direct. */
+export function emptyChannelConfig(): SubscriptionChannelConfig {
+  return { groups: [], default_exit: { kind: 'direct' } };
 }
-export function newRuleGroup(nodeIDs: string[]): ChannelRuleGroup {
+
+export function newRuleGroup(members: ChannelGroupMember[] = []): ChannelRuleGroup {
   return {
     id: crypto.randomUUID(),
     name: '',
     enabled: true,
     type: 'select',
-    builtin_nodes: [],
-    node_ids: [...nodeIDs],
-    group_ids: [],
-    candidate_order: nodeIDs.map(id => `node:${id}`),
+    members: [...members],
     rules: [],
   };
 }
@@ -72,12 +49,12 @@ export function ruleFormats(format: SubscriptionFormat): readonly ChannelRemoteR
   if (format === 'loon') return ['loon'];
   return format === 'sing-box' ? (['source', 'binary'] as const) : (['yaml', 'text', 'mrs'] as const);
 }
-export function incompatiblePolicy(policy: ChannelPolicy, format: SubscriptionFormat): boolean {
+export function incompatibleConfig(config: SubscriptionChannelConfig, format: SubscriptionFormat): boolean {
   return (
-    (Boolean(policy.template) && policy.template!.format !== format)
-    || policy.groups.some((group) =>
-      (format === 'sing-box' && (group.type === 'fallback' || group.builtin_nodes.includes('reject')))
-      || (format === 'loon' && group.type !== 'select' && group.builtin_nodes.length > 0)
+    (Boolean(config.template) && config.template!.format !== format)
+    || config.groups.some((group) =>
+      (format === 'sing-box' && (group.type === 'fallback' || group.members.some(member => member.kind === 'builtin' && member.id === 'reject')))
+      || (format === 'loon' && group.type !== 'select' && group.members.some(member => member.kind === 'builtin'))
       || group.rules.some(
         (rule) =>
           rule.remote
@@ -145,8 +122,8 @@ export function compareChannelRules(left: ChannelRule, right: ChannelRule): numb
     || compareText(left.remote?.name ?? left.value ?? '', right.remote?.name ?? right.value ?? '');
 }
 
-export function nextRuleIndex(policy: ChannelPolicy): number {
-  const indices = policy.groups.flatMap(group => group.rules.map(rule => rule.sort_index ?? 0));
+export function nextRuleIndex(config: SubscriptionChannelConfig): number {
+  const indices = config.groups.flatMap(group => group.rules.map(rule => rule.sort_index ?? 0));
   return indices.length ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(...indices) + 10) : 10;
 }
 
@@ -172,16 +149,14 @@ export function createsGroupCycle(groups: ChannelRuleGroup[], ownerID: string, c
     if (id === ownerID) return true;
     if (visited.has(id)) return false;
     visited.add(id);
-    return (catalog.get(id)?.group_ids ?? []).some(reachesOwner);
+    return (catalog.get(id)?.members ?? []).some(member => member.kind === 'group' && reachesOwner(member.id));
   }
   return reachesOwner(candidateID);
 }
 
+/** Removes a group from every other group's members. */
 export function removeGroupReferences(groups: ChannelRuleGroup[], id: string): ChannelRuleGroup[] {
-  return groups.map(group => (group.group_ids ?? []).includes(id)
-    ? updateGroupCandidates(
-        group, group.node_ids, group.builtin_nodes, candidateOrder(group),
-        group.group_ids!.filter(value => value !== id),
-      )
+  return groups.map(group => group.members.some(member => member.kind === 'group' && member.id === id)
+    ? updateGroupMembers(group, group.members.filter(member => !(member.kind === 'group' && member.id === id)))
     : group);
 }

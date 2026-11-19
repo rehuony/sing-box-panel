@@ -138,3 +138,36 @@ func TestEnrollingANewNodeSavesItsFirstConfigurationOrNothing(t *testing.T) {
 		t.Fatalf("a node whose configuration failed was kept: %v", err)
 	}
 }
+
+func TestStateReportsSayWhenPublicationInputsChange(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	now := time.Now().UTC()
+	if err := database.RecordNodeSession(ctx, testNodeID, make([]byte, 32), NodeSession{ID: "session", InstanceID: "instance", SeenAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	report := func(summary NodeReport) bool {
+		t.Helper()
+		published, err := database.RecordNodeStateReport(ctx, testNodeID, "session", []byte{}, summary, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return published
+	}
+	applied := NodeReport{PublicIP: "203.0.113.1", Applied: AppliedBundle{ID: "bundle", RevisionID: "revision", ConfigSHA256: "digest", ExactCoreVersion: "1.13.19"}}
+	moved := applied
+	moved.PublicIP = "203.0.113.2"
+	rolledBack := moved
+	rolledBack.Applied.ID, rolledBack.Applied.RevisionID = "bundle-old", "revision-old"
+	for index, step := range []struct {
+		summary NodeReport
+		want    bool
+	}{{applied, true}, {applied, false}, {moved, true}, {moved, false}, {rolledBack, true}, {NodeReport{}, true}} {
+		if got := report(step.summary); got != step.want {
+			t.Fatalf("report %d published = %t, want %t", index, got, step.want)
+		}
+	}
+	if _, err := database.RecordNodeStateReport(ctx, testNodeID, "ended", []byte{}, applied, now); !errors.Is(err, ErrNodeNotFound) {
+		t.Fatalf("a report of an ended session = %v", err)
+	}
+}

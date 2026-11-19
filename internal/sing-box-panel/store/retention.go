@@ -94,22 +94,3 @@ func (s *Store) PruneCanonicalRevisions(ctx context.Context, keep int) (int64, e
 			 LIMIT ?)`,
 		keep)
 }
-
-// PruneSubscriptionSourceVersions keeps each source's current version and
-// its newest keepPrevious other versions.
-func (s *Store) PruneSubscriptionSourceVersions(ctx context.Context, keepPrevious int) (int64, error) {
-	if keepPrevious < 0 {
-		return 0, errors.New("source version retention cannot be negative")
-	}
-	return s.deleteInBatches(ctx, "old subscription source versions",
-		`DELETE FROM subscription_source_versions WHERE id IN (
-			SELECT ranked.id FROM (
-				SELECT version.id,
-				       ROW_NUMBER() OVER (PARTITION BY version.source_id ORDER BY version.created_at DESC, version.id DESC) AS position
-				  FROM subscription_source_versions AS version
-				  JOIN subscription_sources AS source ON source.id = version.source_id
-				 WHERE version.id IS NOT source.current_version_id) AS ranked
-			 WHERE ranked.position > ?
-			 LIMIT ?)`,
-		keepPrevious)
-}

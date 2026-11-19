@@ -4,10 +4,15 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,12 +26,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
@@ -38,8 +45,10 @@ import (
 // with the real server; a seeded fleet's sessions are recorded directly, and
 // the node service would clear them when it starts.
 // Run with SBP_BROWSER_REVIEW=1 go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 30m.
-// SBP_BROWSER_NODES sets the number of subscription nodes; SBP_BROWSER_FLEET
-// seeds that many fleet nodes, none with 0, in place of the two default ones.
+// SBP_BROWSER_NODES sets the number of share links in the uploaded source;
+// SBP_BROWSER_FLEET seeds that many fleet nodes, none with 0, in place of the
+// two default ones. Some fleet nodes run a configuration whose inbounds join
+// the subscription node pool.
 func TestBrowserReview(t *testing.T) {
 	if os.Getenv("SBP_BROWSER_REVIEW") != "1" {
 		t.Skip("opt-in browser review")
@@ -85,7 +94,7 @@ func TestBrowserReview(t *testing.T) {
 		build.Version = reviewRelease
 	}
 	commands := app.New(db, configuration, app.Options{Build: build})
-	nodeCount := 2
+	nodeCount := 10
 	if raw := os.Getenv("SBP_BROWSER_NODES"); raw != "" {
 		count, err := strconv.Atoi(raw)
 		if err != nil || count < 1 || count > 500 {
@@ -93,21 +102,16 @@ func TestBrowserReview(t *testing.T) {
 		}
 		nodeCount = count
 	}
-	for index := range nodeCount {
-		value := fmt.Sprintf(`{"type":"socks","tag":"Review node %03d","server":"node-%03d.example.com","server_port":1080}`, index+1, index+1)
-		if _, err := commands.Subscriptions.CreateSubscriptionNode(ctx, []byte(value)); err != nil {
-			t.Fatal(err)
-		}
-	}
 	if fleetCount >= 0 {
 		go feedReviewFleet(ctx, commands.Telemetry, seedReviewFleet(t, db, fleetCount))
 	} else {
-		// Fleet nodes that never connected, so node-scoped pages show their
-		// offline states.
-		for _, name := range []string{"edge-tokyo", "edge-frankfurt"} {
-			testutil.CreateNode(t, db, name)
-		}
+		// edge-tokyo publishes its inbounds from a configuration it ran
+		// before the review server started; edge-frankfurt never connected,
+		// so node-scoped pages show its offline state.
+		testutil.PublishNode(t, db, "edge-tokyo", reviewInbounds, "tokyo.review.example.net", "")
+		testutil.CreateNode(t, db, "edge-frankfurt")
 	}
+	seedReviewSubscriptions(t, commands, nodeCount)
 	handler := httpapi.NewHandler(httpapi.HandlerOptions{
 		Settings: configuration, Build: build, Services: commands,
 		Assets: os.DirFS("../../../web/apps/panel/dist"),
@@ -207,11 +211,14 @@ func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNo
 			t.Fatal(err)
 		}
 		report, summary := reviewReport(index, now)
+		if index%3 == 0 {
+			publishReviewConfiguration(t, database, id, report, &summary)
+		}
 		encoded, err := proto.Marshal(report)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := database.RecordNodeStateReport(ctx, id, session, encoded, summary, now); err != nil {
+		if _, err := database.RecordNodeStateReport(ctx, id, session, encoded, summary, now); err != nil {
 			t.Fatal(err)
 		}
 		online = append(online, &reviewNode{id: id, instance: "instance_" + session, index: index})
@@ -291,5 +298,127 @@ func feedReviewFleet(ctx context.Context, records *telemetry.Service, nodes []*r
 				sample(node, at)
 			}
 		}
+	}
+}
+
+// reviewInbounds is the configuration of review fleet nodes whose inbounds
+// join the subscription node pool: a multi-user VLESS inbound, Trojan and
+// Hysteria2, and a TUN inbound subscriptions cannot publish.
+const reviewInbounds = `{"inbounds":[
+ {"type":"vless","tag":"vless-reality","listen":"::","listen_port":443,"users":[{"name":"alice","uuid":"1f0e9c1c-5c0b-4d39-9a52-2f4a7d6c8e01"},{"name":"bob","uuid":"2a1b0d2d-6d1c-4e4a-8b63-3a5b8e7d9f12"}],
+  "tls":{"enabled":true,"server_name":"www.example.com","reality":{"enabled":true,"handshake":{"server":"www.example.com","server_port":443},"private_key":"aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8taGk","short_id":["0123abcd"]}}},
+ {"type":"trojan","tag":"trojan-ws","listen":"::","listen_port":8443,"users":[{"name":"review","password":"review-password"}],
+  "tls":{"enabled":true,"server_name":"edge.review.example.net"},"transport":{"type":"ws","path":"/trojan"}},
+ {"type":"hysteria2","tag":"hy2","listen":"::","listen_port":8443,"users":[{"name":"review","password":"review-password"}],
+  "tls":{"enabled":true,"server_name":"edge.review.example.net"}},
+ {"type":"tun","tag":"tun-in","address":["172.19.0.1/30"]}
+]}`
+
+// publishReviewConfiguration saves reviewInbounds as the node's configuration
+// and makes the report name it as the applied one.
+func publishReviewConfiguration(t *testing.T, database *store.Store, id string, report *nodeapi.StateReport, summary *store.NodeReport) {
+	t.Helper()
+	update, err := store.NewConfigurationFileUpdate(rand.Read, time.Now().UTC(), 0, reviewInbounds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := database.SaveConfigurationFile(t.Context(), id, update.ExpectedRevision, update.Content, update.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := configuration.Parse([]byte(reviewInbounds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(parsed.CanonicalJSON())
+	summary.Applied.RevisionID, summary.Applied.ConfigSHA256 = file.CanonicalRevisionID, hex.EncodeToString(digest[:])
+	report.Applied.RevisionId, report.Applied.ConfigurationSha256 = summary.Applied.RevisionID, summary.Applied.ConfigSHA256
+}
+
+// seedReviewSubscriptions uploads a source of linkCount share links across
+// the supported protocols, with an unnamed link and a filter that drops
+// expired ones, and a channel with two strategy groups over the pool.
+func seedReviewSubscriptions(t *testing.T, services app.Services, linkCount int) {
+	t.Helper()
+	ctx := t.Context()
+	regions := []string{"🇭🇰 Hong Kong", "🇯🇵 Tokyo", "🇸🇬 Singapore", "🇺🇸 Los Angeles", "🇩🇪 Frankfurt"}
+	reality := strings.Repeat("A", 43)
+	userInfo := base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:review-password"))
+	links := []string{}
+	for index := range linkCount {
+		name := url.PathEscape(fmt.Sprintf("%s %02d", regions[index%len(regions)], index/len(regions)+1))
+		host := fmt.Sprintf("node-%03d.review.example.net", index+1)
+		switch index % 10 {
+		case 0:
+			links = append(links, fmt.Sprintf("ss://%s@%s:8388#%s", userInfo, host, name))
+		case 1:
+			payload, _ := json.Marshal(map[string]string{"v": "2", "ps": fmt.Sprintf("%s %02d", regions[index%len(regions)], index/len(regions)+1),
+				"add": host, "port": "443", "id": "3b2c1e3e-7e2d-4f5b-9c74-4b6c9f8e0a23", "aid": "0", "scy": "auto", "net": "ws", "path": "/vmess", "host": host, "tls": "tls"})
+			links = append(links, "vmess://"+base64.StdEncoding.EncodeToString(payload))
+		case 2:
+			links = append(links, fmt.Sprintf("vless://4c3d2f4f-8f3e-4a6c-8d85-5c7d0a9f1b34@%s:443?security=reality&sni=www.example.com&pbk=%s&sid=0123abcd&fp=chrome&flow=xtls-rprx-vision#%s", host, reality, name))
+		case 3:
+			links = append(links, fmt.Sprintf("trojan://review-password@%s:443?sni=%s&type=grpc&serviceName=trojan#%s", host, host, name))
+		case 4:
+			links = append(links, fmt.Sprintf("hy2://review-password@%s:8443?sni=%s#%s", host, host, name))
+		case 5:
+			links = append(links, fmt.Sprintf("tuic://5d4e3a5a-9a4f-4b7d-9e96-6d8e1b0a2c45:review-password@%s:443?congestion_control=bbr&sni=%s#%s", host, host, name))
+		case 6:
+			links = append(links, fmt.Sprintf("socks5://review:review-password@%s:1080#%s", host, name))
+		case 7:
+			links = append(links, fmt.Sprintf("https://review:review-password@%s:443#%s", host, name))
+		case 8:
+			links = append(links, fmt.Sprintf("anytls://review-password@%s:443?sni=%s#%s", host, host, name))
+		default:
+			// Unnamed: the pool names it by protocol, server and port.
+			links = append(links, fmt.Sprintf("hysteria://%s:443?auth=review-token&sni=%s", host, host))
+		}
+	}
+	links = append(links, "trojan://review-password@expired.review.example.net:443#Traffic%20reset%20%C2%B7%20expired")
+	content := strings.Join(links, "\n")
+	source, err := services.Subscriptions.CreateSubscriptionSource(ctx, subscription.CreateSubscriptionSourceRequest{
+		Name: "Review provider", Kind: store.SubscriptionSourceFile,
+		Filter: &subscription.SourceFilter{Include: []string{}, Exclude: []string{"expired"}}, Content: &content,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fleet nodes were published directly in the store.
+	if err := services.Subscriptions.SyncPool(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := services.Subscriptions.SubscriptionNodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := []map[string]string{}
+	auto := []map[string]string{}
+	for _, node := range pool.Items {
+		if node.Origin.SourceID == source.ID && len(auto) < 4 {
+			auto = append(auto, map[string]string{"kind": "node", "id": node.ID})
+		}
+		if node.Origin.Kind == "inbound" || len(proxy) < 6 {
+			proxy = append(proxy, map[string]string{"kind": "node", "id": node.ID})
+		}
+	}
+	proxy = append([]map[string]string{{"kind": "group", "id": "auto"}}, append(proxy, map[string]string{"kind": "builtin", "id": "direct"})...)
+	config, err := json.Marshal(map[string]any{
+		"incompatible_nodes": "skip",
+		"groups": []any{
+			map[string]any{"id": "proxy", "name": "Proxy", "enabled": true, "type": "select", "members": proxy, "rules": []any{
+				map[string]any{"id": "google", "enabled": true, "kind": "domain_suffix", "value": "google.com", "exit": map[string]any{"kind": "group-default"}},
+				map[string]any{"id": "lan", "enabled": true, "kind": "ip_cidr", "value": "192.168.0.0/16", "exit": map[string]any{"kind": "direct"}},
+			}},
+			map[string]any{"id": "auto", "name": "Auto", "enabled": true, "type": "url-test", "members": auto, "rules": []any{}},
+		},
+		"default_exit": map[string]any{"kind": "group", "id": "proxy"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := services.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
+		Name: "Review channel", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

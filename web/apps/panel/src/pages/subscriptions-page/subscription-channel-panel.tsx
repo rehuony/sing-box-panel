@@ -29,8 +29,8 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { StripDivider, StripSearch } from '@/components/title-strip';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 
+import { emptyChannelConfig } from './channel-policy';
 import { ChannelWorkspace } from './channel-workspace';
-import { initialChannelPolicy } from './channel-policy';
 import { ChannelLinkDialog } from './channel-token-links';
 import { SubscriptionContentState } from './subscription-content-state';
 
@@ -45,7 +45,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const list = useQuery({ ...queries.channels(client), enabled: active && visible });
   const catalog = useQuery({ ...queries.nodes(client), enabled: active && visible });
   const channels = list.data ?? [];
-  const nodes = catalog.data?.nodes ?? [];
+  const nodes = catalog.data?.items ?? [];
   const [channel, setChannel] = useState<SubscriptionChannel | null>(null);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
@@ -128,10 +128,8 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     setBusy(true);
     setFormError('');
     try {
-      const policy = initialChannelPolicy({ config: {} }, nodes);
-      policy.selection.new_node_policy = 'exclude';
       const value = await client.createSubscriptionChannel(
-        { name: name.trim(), format, enabled: true, config: { policy } },
+        { name: name.trim(), format, enabled: true, config: emptyChannelConfig() },
         lifetimeRef.current?.signal,
       );
       if (lifetimeRef.current?.signal.aborted) return;

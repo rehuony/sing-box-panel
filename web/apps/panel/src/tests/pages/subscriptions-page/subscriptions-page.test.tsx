@@ -6,9 +6,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { TestRouter } from '@/tests/test-router';
 import '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page';
 import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
+import { emptyChannelConfig, newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
 import { buildPublicSubscriptionURL } from '@/pages/subscriptions-page/public-subscription-url';
 
 function LocationProbe() {
@@ -19,10 +19,7 @@ function LocationProbe() {
 describe('subscriptionsPage', () => {
   it('starts with candidate nodes when reopening a channel editor', async () => {
     const user = userEvent.setup();
-    const channel = { ...testSubscriptionChannels[0], config: { policy: {
-      selection: { ids: [], excluded_ids: [], new_node_policy: 'exclude' as const },
-      groups: [newRuleGroup([])], default_exit: { kind: 'direct' as const },
-    } } };
+    const channel = { ...testSubscriptionChannels[0], config: { ...emptyChannelConfig(), groups: [newRuleGroup()] } };
     const client = createMockApiClient({ getSubscriptionChannel: vi.fn().mockResolvedValue(channel) });
     render(<TestRouter initialEntries={['/subscriptions#subscription-channels']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
     const row = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
@@ -83,16 +80,16 @@ describe('subscriptionsPage', () => {
           <ApiClientProvider client={createMockApiClient()}><SubscriptionsPage /></ApiClientProvider>
         </TestRouter>,
       );
-      await user.type(screen.getByRole('searchbox', { name: 'Search sources or nodes' }), 'source filter');
+      await user.type(screen.getByRole('searchbox', { name: 'Search nodes' }), 'node filter');
       await user.click(screen.getByRole('tab', { name: 'Channels' }));
-      expect(screen.queryByRole('searchbox', { name: 'Search sources or nodes' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('searchbox', { name: 'Search nodes' })).not.toBeInTheDocument();
       await user.type(screen.getByRole('searchbox', { name: 'Search channels' }), 'channel filter');
       await user.click(screen.getByRole('tab', { name: 'Key management' }));
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Create key' })).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Add channel' })).not.toBeInTheDocument();
-      await user.click(screen.getByRole('tab', { name: 'Sources' }));
-      expect(screen.getByRole('searchbox', { name: 'Search sources or nodes' })).toHaveValue('');
+      await user.click(screen.getByRole('tab', { name: 'Nodes' }));
+      expect(screen.getByRole('searchbox', { name: 'Search nodes' })).toHaveValue('');
       expect(screen.queryByRole('button', { name: 'Create key' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('tab', { name: 'Channels' }));
       expect(screen.getByRole('searchbox', { name: 'Search channels' })).toHaveValue('');
@@ -107,19 +104,6 @@ describe('subscriptionsPage', () => {
       'channel main',
       'https://panel.example/panel/',
     )).toBe('https://panel.example/panel/sub/secret%2Ftoken/channel%20main');
-  });
-
-  it('leaves an unedited legacy channel without treating its available upgrade as unsaved edits', async () => {
-    const user = userEvent.setup();
-    render(<TestRouter initialEntries={['/subscriptions#subscription-channels']}><ApiClientProvider client={createMockApiClient()}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
-    const row = (await screen.findByRole('cell', { name: testSubscriptionChannels[0].name })).closest('tr')!;
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
-    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeEnabled();
-    await user.click(screen.getByRole('tab', { name: 'Sources' }));
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Channels' }));
-    expect(await screen.findByRole('searchbox', { name: 'Search channels' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 
   it('keeps the current route, query and user state for section navigation under a base path', async () => {
@@ -152,8 +136,7 @@ describe('subscriptionsPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Add channel' }));
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
       name: 'Mobile clients', format: 'mihomo', enabled: true,
-      config: { policy: { selection: { ids: [], excluded_ids: [], new_node_policy: 'exclude' },
-        groups: [], default_exit: { kind: 'direct' } } },
+      config: { groups: [], default_exit: { kind: 'direct' } },
     }, expect.any(AbortSignal));
     expect(await screen.findByRole('button', { name: 'Add strategy group' })).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Node selection' })).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 
-import type { ApiClient, SubscriptionNodeCatalog, SubscriptionNodeSummary } from './api-client';
+import type { ApiClient } from './api-client';
 
 import { ApiRequestError } from './api-client';
 
@@ -53,12 +53,11 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   refreshCatalog: ['catalog'],
   createSubscriptionSource: sourceChange,
   updateSubscriptionSource: sourceChange,
+  deleteSubscriptionSource: sourceChange,
   refreshSubscriptionSource: sourceChange,
-  createSubscriptionNode: nodeChange,
+  replaceSubscriptionSourceContent: sourceChange,
   updateSubscriptionNode: nodeChange,
-  deleteSubscriptionNode: nodeChange,
   setSubscriptionNodeOrder: nodeChange,
-  setSubscriptionNodeVisibility: nodeChange,
   createSubscriptionChannel: ['channels'],
   updateSubscriptionChannel: ['channels'],
   deleteSubscriptionChannel: ['channels'],
@@ -121,12 +120,6 @@ export function withQueryInvalidation(client: ApiClient, cache: QueryClient): Ap
         try {
           const result = await Reflect.apply(method, target, args);
           if ((sessions.get(cache) ?? 0) !== epoch) throw new DOMException('Session changed', 'AbortError');
-          if (property === 'setSubscriptionNodeVisibility') {
-            cache.setQueryData<SubscriptionNodeCatalog>(['nodes'], current => current && ({
-              ...current, nodes: current.nodes.map(node =>
-                node.id === (result as SubscriptionNodeSummary).id ? result as SubscriptionNodeSummary : node),
-            }));
-          }
           return result;
         } catch (error) {
           if (retryableRead(error) && (sessions.get(cache) ?? 0) === epoch) {

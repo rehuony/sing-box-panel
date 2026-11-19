@@ -12,14 +12,10 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
 )
 
-// The largest inner source version is 4 MiB; leave bounded room for its JSON
-// envelope without weakening the store's stricter per-field limits.
+// maximumSubscriptionRequestBytes bounds management requests other than
+// source content: a channel is at most 640 KiB, so this leaves room for its
+// JSON envelope without weakening the stricter per-field limits.
 const maximumSubscriptionRequestBytes = (4 << 20) + (64 << 10)
-
-// maximumSourceVersionRequestBytes carries a source version of the largest
-// size a fetch accepts as base64 text, which is a third larger, and its
-// envelope.
-const maximumSourceVersionRequestBytes = (subscription.MaximumSourceBodyBytes+2)/3*4 + (64 << 10)
 
 func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.Request, path string) {
 	if request.Method != http.MethodGet {

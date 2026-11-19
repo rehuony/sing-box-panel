@@ -89,6 +89,10 @@ type Options struct {
 	// Releases distributes the node release; without it nodes cannot be
 	// updated from the panel.
 	Releases *releases.Service
+	// PublicationChanged runs after what a node's subscription inbounds
+	// derive from changed: its applied configuration, reported public IP or
+	// public host.
+	PublicationChanged func(context.Context)
 }
 
 // Service manages the panel's nodes.
@@ -104,6 +108,8 @@ type Service struct {
 	random   func([]byte) (int, error)
 	sessions sessions
 	grants   grants
+	// published is Options.PublicationChanged.
+	published func(context.Context)
 
 	viewersMu    sync.Mutex
 	viewers      map[string]int
@@ -129,6 +135,7 @@ func New(database *store.Store, panelSettings *settings.Service, records *teleme
 		database: database, settings: panelSettings, records: records, configs: configs, cores: cores, releases: options.Releases, build: options.Build,
 		now: time.Now, random: rand.Read, sessions: sessions{byNode: map[string]*session{}},
 		viewers: map[string]int{}, metricsFeeds: map[string]*telemetry.Feed[MetricsStreamSnapshot]{},
+		published: options.PublicationChanged,
 	}
 	if options.Now != nil {
 		service.now = options.Now
@@ -403,6 +410,7 @@ func (service *Service) SaveNodeSettings(ctx context.Context, id string, value N
 		service.expireStatus()
 		service.records.RecordOperation(ctx, "node.settings.save", "Node settings save", err, telemetry.OperationLogContext{NodeID: id})
 	}()
+	previous, previousErr := service.database.Node(ctx, id)
 	record, err := service.database.SaveNodeSettings(ctx, id, value.Revision, store.NodeSettings{
 		PublicHost: value.PublicHost,
 		Traffic:    store.NodeTrafficSettings{QuotaGiB: value.Traffic.QuotaGiB, PeriodMonths: value.Traffic.PeriodMonths, ResetDay: value.Traffic.ResetDay},
@@ -411,7 +419,18 @@ func (service *Service) SaveNodeSettings(ctx context.Context, id string, value N
 	if err != nil {
 		return NodeSettings{}, err
 	}
+	if previousErr != nil || previous.Settings.PublicHost != record.Settings.PublicHost {
+		service.publicationChanged(ctx)
+	}
 	return nodeSettingsView(record.Settings), nil
+}
+
+// publicationChanged reports a change to what a node's subscription inbounds
+// derive from.
+func (service *Service) publicationChanged(ctx context.Context) {
+	if service.published != nil {
+		service.published(ctx)
+	}
 }
 
 func nodeSettingsView(value store.NodeSettings) NodeSettings {

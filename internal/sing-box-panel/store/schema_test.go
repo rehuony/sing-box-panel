@@ -2,11 +2,9 @@ package store
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
@@ -61,50 +59,6 @@ func TestOpenRejectsUnsupportedFormatsWithoutConvertingData(t *testing.T) {
 			assertPragmaInt(t, ctx, db, 0, "user_version", tc.version)
 			assertPragmaInt(t, ctx, db, 0, "application_id", tc.id)
 		})
-	}
-}
-
-func TestNodeOrderPersistence(t *testing.T) {
-	ctx := t.Context()
-	db := openTestStore(t, ctx)
-	source, err := db.CreateSubscriptionSource(ctx, SubscriptionSource{ID: "source-order", Name: "Order", SourceKind: SubscriptionSourceRemote, Config: json.RawMessage(`{}`), Enabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := db.LoadSubscriptionNodeCatalogState(ctx)
-	if err != nil || len(state.NodeOrders) != 0 {
-		t.Fatalf("initial orders: %+v, %v", state.NodeOrders, err)
-	}
-	order, err := db.SetSubscriptionNodeOrder(ctx, source.ID, []string{"node_b", "node_a"}, 0)
-	if err != nil || order.Revision != 1 {
-		t.Fatalf("save order: %+v, %v", order, err)
-	}
-	if _, err := db.SetSubscriptionNodeOrder(ctx, source.ID, []string{"node_a"}, 0); !errors.Is(err, ErrSubscriptionConflict) {
-		t.Fatalf("stale save: %v", err)
-	}
-	path := db.Path()
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	state, err = reopened.LoadSubscriptionNodeCatalogState(ctx)
-	if err != nil || !reflect.DeepEqual(state.NodeOrders[source.ID], order) {
-		t.Fatalf("reopened order: %+v, %v", state.NodeOrders, err)
-	}
-	unchanged, err := reopened.GetSubscriptionSource(ctx, source.ID)
-	if err != nil || !reflect.DeepEqual(unchanged, source) {
-		t.Fatalf("source changed: %+v, %v", unchanged, err)
-	}
-	if err := reopened.DeleteSubscriptionSource(ctx, source.ID, source.UpdatedAt); err != nil {
-		t.Fatal(err)
-	}
-	state, err = reopened.LoadSubscriptionNodeCatalogState(ctx)
-	if err != nil || len(state.NodeOrders) != 0 {
-		t.Fatalf("deleted source retained order: %+v, %v", state.NodeOrders, err)
 	}
 }
 

@@ -113,6 +113,9 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if err := enforceRetention(ctx, services); err != nil {
 		return startupError(ctx, "enforce record retention", err)
 	}
+	// Nodes and sources may have changed while the panel was stopped, and a
+	// new release may read sources differently.
+	services.Subscriptions.PoolInputsChanged(ctx)
 	uploadGC, uploadGCErr := services.Cores.GarbageCollectCoreUploads(ctx)
 	if uploadGCErr != nil {
 		records.RecordEvent(telemetry.LogRecordRequest{

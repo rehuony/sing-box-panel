@@ -32,7 +32,7 @@ describe('session query cache', () => {
     const raw = createMockApiClient();
     const client = withQueryInvalidation(raw, cache);
     let captured: AbortSignal | undefined;
-    raw.getSubscriptionNodeCatalog.mockImplementationOnce(signal => {
+    raw.listSubscriptionNodes.mockImplementationOnce(signal => {
       captured = signal;
       return new Promise(() => {});
     });
@@ -43,7 +43,7 @@ describe('session query cache', () => {
     await read;
     expect(captured?.aborted).toBe(true);
     await cache.fetchQuery(queries.nodes(client));
-    expect(raw.getSubscriptionNodeCatalog).toHaveBeenCalledTimes(2);
+    expect(raw.listSubscriptionNodes).toHaveBeenCalledTimes(2);
     cache.clear();
   });
 

@@ -3,45 +3,107 @@
 package subscription
 
 import (
-	"errors"
+	"bytes"
+	"fmt"
+	"maps"
 )
 
-func parseSingBoxSource(raw []byte) ([]map[string]any, error) {
-	value, err := DecodeDocument(raw)
-	if err != nil {
-		return nil, err
+// singBoxSourceParser reads a sing-box configuration's outbounds and
+// endpoints, an outbound array, or one outbound. Outbounds that route rather
+// than connect, such as direct, block, dns, selector and urltest, are not
+// nodes.
+type singBoxSourceParser struct{}
+
+func (singBoxSourceParser) Format() SourceFormat { return SourceFormatSingBox }
+
+func (singBoxSourceParser) Sniff(body []byte) int {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return 0
 	}
-	var items []any
-	switch root := value.(type) {
-	case []any:
-		items = root
-	case map[string]any:
-		if outbounds, exists := root["outbounds"]; exists {
-			var ok bool
-			items, ok = outbounds.([]any)
-			if !ok {
-				return nil, errors.New("outbounds is not an array")
-			}
-		} else {
-			items = []any{root}
+	switch trimmed[0] {
+	case '{':
+		if bytes.Contains(trimmed, []byte(`"outbounds"`)) || bytes.Contains(trimmed, []byte(`"endpoints"`)) {
+			return 100
 		}
-	default:
-		return nil, errors.New("source root is not an object or array")
+		if bytes.Contains(trimmed, []byte(`"server"`)) && bytes.Contains(trimmed, []byte(`"type"`)) {
+			return 60
+		}
+	case '[':
+		if bytes.Contains(trimmed, []byte(`"type"`)) {
+			return 70
+		}
 	}
-	return sourceObjectList(items)
+	return 0
 }
 
-func sourceObjectList(items []any) ([]map[string]any, error) {
-	if len(items) > MaximumNodes {
-		return nil, errors.New("too many source nodes")
+func (singBoxSourceParser) Items(body []byte) ([]SourceItem, error) {
+	value, err := DecodeDocument(body)
+	if err != nil {
+		return nil, contentError("", "the JSON document is invalid: "+DocumentErrorCode(err))
 	}
-	values := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		object, ok := item.(map[string]any)
-		if !ok {
-			return nil, errors.New("source node is not an object")
+	switch root := value.(type) {
+	case []any:
+		return singBoxItems(root, "", CollectionOutbounds)
+	case map[string]any:
+		_, hasOutbounds := root["outbounds"]
+		_, hasEndpoints := root["endpoints"]
+		if !hasOutbounds && !hasEndpoints {
+			if _, single := root["type"]; !single {
+				return nil, contentError("", "the configuration has no outbounds or endpoints")
+			}
+			return singBoxItems([]any{root}, "outbound", CollectionOutbounds)
 		}
-		values = append(values, object)
+		items := []SourceItem{}
+		for _, collection := range []Collection{CollectionOutbounds, CollectionEndpoints} {
+			raw, exists := root[string(collection)]
+			if !exists {
+				continue
+			}
+			values, ok := raw.([]any)
+			if !ok {
+				return nil, contentError(string(collection), "not an array")
+			}
+			collected, err := singBoxItems(values, string(collection), collection)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, collected...)
+		}
+		return items, nil
 	}
-	return values, nil
+	return nil, contentError("", "the document is not an object or array")
+}
+
+// singBoxItems reads values; prefix names their array in locations, or is
+// the whole location of a single outbound.
+func singBoxItems(values []any, prefix string, collection Collection) ([]SourceItem, error) {
+	items := make([]SourceItem, 0, len(values))
+	for index, raw := range values {
+		location := fmt.Sprintf("%s[%d]", prefix, index)
+		if prefix == "outbound" {
+			location = prefix
+		}
+		object, ok := raw.(map[string]any)
+		if !ok {
+			return nil, contentError(location, "not an object")
+		}
+		typeID, ok := object["type"].(string)
+		if !ok || !ValidType(typeID) {
+			return nil, contentError(location, "the type is missing or invalid")
+		}
+		if collection == CollectionEndpoints && !publishableEndpoint(typeID) || collection == CollectionOutbounds && !publishableOutbound(typeID) {
+			continue
+		}
+		name, _ := object["tag"].(string)
+		if name == "" {
+			server, _ := object["server"].(string)
+			port, _ := DocumentInteger(object["server_port"], 1, 65535)
+			name = unnamedNode(typeID, server, port)
+		}
+		items = append(items, SourceItem{Location: location, Name: name, Protocol: typeID, convert: func() (map[string]any, error) {
+			return maps.Clone(object), nil
+		}})
+	}
+	return items, nil
 }

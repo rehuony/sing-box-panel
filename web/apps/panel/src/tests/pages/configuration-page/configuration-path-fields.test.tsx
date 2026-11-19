@@ -1,18 +1,16 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { customizeValidator } from '@rjsf/validator-ajv8';
 import { render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
-import { loadReviewedSchema } from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { createFakeFilesystemApi } from '@/tests/api/fake-filesystem';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
-import { SubscriptionNodeForm } from '@/pages/subscriptions-page/subscription-node-form';
 import { schemaProperties, selfContainedSchema } from '@/pages/configuration-page/schema-ui';
 import { readConfigurationPathMode } from '@/pages/configuration-page/configuration-path-fields';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -102,29 +100,5 @@ describe('configuration path presentation', () => {
     expect(screen.getByTestId('draft').textContent).toContain('900719925474099312345');
     expect(screen.getByTestId('draft').textContent).toContain('"tag":"keep"');
     expect(screen.getByTestId('draft').textContent).not.toContain('x-panel');
-  });
-
-  it('uses the same picker in subscription node forms and retains unrelated node options', async () => {
-    const root = (await loadReviewedSchema('1.14.1'))!.schema;
-    const changed = vi.fn();
-    const data = {
-      type: 'ssh', tag: 'ssh-server', server: 'example.com', server_port: 22, user: 'alice',
-      private_key_path: '/etc/sing-box/certificate.pem', future: { keep: true },
-    };
-    render(
-      <ApiClientProvider client={createMockApiClient(createFakeFilesystemApi())}>
-        <SubscriptionNodeForm disabled={false} schema={root.$defs!.Outbound as RJSFSchema}
-          candidates={[]} data={data} onChange={changed}
-          resolution={{ schema: root, createValidator: () => customizeValidator() }} />
-      </ApiClientProvider>,
-    );
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('tab', { name: 'Authentication' }));
-    await user.click(screen.getByRole('button', { name: /Browse server path: private_key_path/i }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.click(await dialog.findByRole('button', { name: 'private.key' }));
-    await user.click(dialog.getByRole('button', { name: 'Confirm' }));
-    await waitFor(() => expect(changed).toHaveBeenCalled());
-    expect(JSON.parse(changed.mock.lastCall![0])).toEqual({ ...data, private_key_path: '/etc/sing-box/private.key' });
   });
 });

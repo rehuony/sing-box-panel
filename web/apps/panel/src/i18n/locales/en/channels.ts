@@ -51,7 +51,6 @@ export const channels = {
   alreadyAdded: 'Already added',
   cyclicGroupReference: 'Would create a circular reference',
   deleteGroupPrompt: 'Delete “{{name}}”? References to it will also be removed from other groups.',
-  legacyUpgradeHint: 'This channel still delivers nodes only. Both previews show the full configuration that Save changes will publish. Existing filters become exclusions for current nodes; future nodes follow the new-node policy.',
   sortIndex: 'Sort index',
   sortIndexHint: 'Lower numbers come first. Repeated indices are ordered by name.',
   previewIssues: 'Issues ({{count}})',
@@ -85,7 +84,7 @@ export const channels = {
   disabled: 'Disabled',
   title: 'Channels', search: 'Search channels', add: 'Add channel', name: 'Channel name', client: 'Client', edit: 'Edit', remove: 'Delete channel', deletePrompt: 'Delete “{{name}}”? Its subscription URL will become unavailable.', save: 'Save changes', saved: 'Channel saved', empty: 'No channels', back: 'Back', distribution: 'Channel settings', preview: 'Subscription preview', enabled: 'Enabled', nameRequired: 'Enter a name', cancel: 'Cancel', apply: 'Apply', refresh: 'Refresh nodes',
 
-  newNodes: 'New-node policy', include: 'Include automatically', exclude: 'Select manually', template: 'Config template', defaultTemplate: 'Default configuration', customTemplate: 'Custom configuration', editTemplate: 'Edit template', templateCode: 'Native configuration', validate: 'Validate', valid: 'Template structure is valid', formatConflict: 'Output client changed. Review strategy types, built-in nodes, rule-set formats and template.', copy: 'Copy', copied: 'Copied',
+  template: 'Config template', defaultTemplate: 'Default configuration', customTemplate: 'Custom configuration', editTemplate: 'Edit template', templateCode: 'Native configuration', validate: 'Validate', valid: 'Template structure is valid', formatConflict: 'Output client changed. Review strategy types, built-in nodes, rule-set formats and template.', copy: 'Copy', copied: 'Copied',
   groups: 'Strategy groups', addGroup: 'Add strategy group', editGroup: 'Edit strategy group', groupName: 'Group name', matches: 'Exit rules', manualCount: '{{count}} rules', remoteCount: '{{count}} rule sets', state: 'State', actions: 'Actions', candidates: 'Candidate nodes', direct: 'Direct', reject: 'Reject', follow: 'Group nodes', missingNode: 'Unavailable node', deleteGroup: 'Delete strategy group', deleteRule: 'Delete rule',
   addRule: 'Add rule', addRemote: 'Add rule set', editRule: 'Edit rule', editRemote: 'Edit rule set', ruleKind: 'Match type', domain: 'Domain', domain_suffix: 'Domain suffix', domain_keyword: 'Domain keyword', ip_cidr: 'IP / CIDR', matchValue: 'Match value', exit: 'Traffic exit', ruleName: 'Name', url: 'Link', acceleration: 'Accelerate GitHub file', sourceFormat: 'Source format', chooseFormat: 'Choose format', behavior: 'Rule behavior', selectAll: 'Select all', unavailable: 'Currently unavailable', invalidRule: 'Check the match value, rule-set name or source URL.', formatPending: 'Choose a compatible format',
   publicHost: 'Existing channel public host', enabledLabel: 'Channel enabled',

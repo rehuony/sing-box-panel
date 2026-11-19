@@ -14,9 +14,9 @@ actions; they do not repeat every domain case through a complete editing journey
 | Version selection, unavailable versions, stale responses and retained session choice | `configuration-session.store.test.ts`, `use-configuration-schema.test.tsx` |
 | Navigation cancellation and discard | `use-unsaved-changes.test.tsx`; configuration Hook reset checks |
 | Log rotation, cursor recovery, clear races and cancellation | `use-core-logs.test.tsx`; Go core-log and HTTP tests |
-| Policy transitions, format restrictions, selection and save payload | `channel-policy.test.ts`, `use-channel-draft.test.tsx`; channel submit smoke |
-| Candidate membership, filtered ordering and source visibility | `node-order.test.ts`, `channel-policy.test.ts`; custom F2/Escape/drag integration remains in component tests |
-| Source load ordering, polling, fresh revisions and refresh failures | `use-subscription-sources.test.tsx`; API cache tests and source submit smoke |
+| Group members, format restrictions and save payload | `channel-policy.test.ts`, `use-channel-draft.test.tsx`, `channel-node-picker.test.tsx`; channel submit smoke |
+| Pool order, filtered drag saves and stale orders | `node-order.test.ts`, `subscription-node-panel.test.tsx`; Go `pool_test.go` owns synchronization and its cleanup |
+| Source creation with a preview, server refusals and deletion | `subscription-source-panel.test.tsx`; Go `source_parse_test.go` and `service_sources_test.go` own parsing, filters and refresh failures |
 | Settings payload, token validation and backup parsing | `use-panel-settings-draft.test.tsx`, `settings-validation.test.ts`; provider checks and submit/restore smoke |
 | Real release, process ownership and systemd behavior | Existing Go, Linux packaging and release jobs |
 
@@ -24,9 +24,8 @@ actions; they do not repeat every domain case through a complete editing journey
 
 | Removed interaction or assertion | Remaining owner / reason |
 | --- | --- |
-| Channel member selection followed by another complete save | `use-channel-draft.test.tsx` owns membership/exclusions and CAS payload; picker tests own confirmation |
+| Channel member selection followed by another complete save | `use-channel-draft.test.tsx` owns membership and the If-Match payload; picker tests own confirmation |
 | Unsupported channel strategies and repeated URL acceleration toggles | `channel-policy.test.ts` owns format restrictions and URL normalization |
-| Source refresh through three equivalent toolbar paths; missing/invalid recorded starts repeated in the page | `use-subscription-sources.test.tsx` owns refresh/revision/start behavior; HTTP cache tests own invalidation |
 | Settings invalid-category matrices, hash navigation and repeated save journeys | Draft Hook owns validation/category/payload; `use-hash-tab.test.tsx` owns navigation; page retains focus and submission wiring |
 | Log toolbar visibility, repeated streaming cursor/filter journeys | `use-core-logs.test.tsx` owns stream state/cursors; page retains selection, live toggle and confirmed deletion |
 | Animated icon states, language-menu glyphs and exact chart tooltip coordinates | Decorative implementation details; removed without replacement |

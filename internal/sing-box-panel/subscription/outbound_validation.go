@@ -5,81 +5,82 @@ package subscription
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
-// NodeFieldError contains only an allowlisted field path and a fixed code;
-// neither credentials nor values from the input appear in API errors.
-type NodeFieldError struct{ Path, Code string }
+// outboundFieldError contains only an allowlisted field path and a fixed
+// code; neither credentials nor values from the input appear in it.
+type outboundFieldError struct{ Path, Code string }
 
-func (e *NodeFieldError) Error() string { return fmt.Sprintf("outbound/%s: %s", e.Path, e.Code) }
+func (e *outboundFieldError) Error() string {
+	if e.Path == "" {
+		return e.Code
+	}
+	return e.Path + ": " + e.Code
+}
 
-func ValidateManualNode(raw []byte) error {
-	decoded, err := DecodeDocument(raw)
-	if err != nil {
-		return &NodeFieldError{Code: "invalid_json"}
-	}
-	value, ok := decoded.(map[string]any)
-	if !ok {
-		return &NodeFieldError{Code: "object_required"}
-	}
+// validateSourceOutbound checks one converted outbound, named by its tag,
+// before it enters the pool.
+func validateSourceOutbound(value map[string]any) error {
 	typeID, _ := value["type"].(string)
 	switch typeID {
 	case "socks", "http", "shadowsocks", "vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "naive", "shadowtls", "snell", "ssh":
 	default:
-		return &NodeFieldError{Path: "type", Code: "unsupported_node_protocol"}
+		return &outboundFieldError{Path: "type", Code: "unsupported_node_protocol"}
 	}
 	str := func(key string) string { s, _ := value[key].(string); return s }
 	if !ValidTag(str("tag")) {
-		return &NodeFieldError{Path: "tag", Code: "required"}
+		return &outboundFieldError{Path: "tag", Code: "required"}
 	}
 	if !validNodeCoordinate(value) {
-		return &NodeFieldError{Path: "server", Code: "invalid_endpoint"}
+		return &outboundFieldError{Path: "server", Code: "invalid_endpoint"}
 	}
-	if err := validateSourceRequiredFields(typeID, value); err != nil {
-		return &NodeFieldError{Code: "missing_protocol_credential"}
+	if !hasRequiredCredential(typeID, value) {
+		return &outboundFieldError{Code: "missing_protocol_credential"}
+	}
+	if method, _ := value["method"].(string); typeID == "shadowsocks" && method == "" {
+		return &outboundFieldError{Path: "method", Code: "required"}
 	}
 	if str("detour") == str("tag") {
-		return &NodeFieldError{Path: "detour", Code: "dependency_cycle"}
+		return &outboundFieldError{Path: "detour", Code: "dependency_cycle"}
 	}
 	tls, _ := value["tls"].(map[string]any)
 	reality, _ := tls["reality"].(map[string]any)
 	quic := typeID == "hysteria" || typeID == "hysteria2" || typeID == "tuic"
 	if (quic || typeID == "anytls" || typeID == "naive") && tls["enabled"] != true {
-		return &NodeFieldError{Path: "tls/enabled", Code: "required"}
+		return &outboundFieldError{Path: "tls.enabled", Code: "required"}
 	}
 	if quic {
 		utls, _ := tls["utls"].(map[string]any)
 		if reality["enabled"] == true || utls["enabled"] == true || tls["fragment"] == true || tls["record_fragment"] == true {
-			return &NodeFieldError{Path: "tls", Code: "tcp_tls_option_on_quic"}
+			return &outboundFieldError{Path: "tls", Code: "tcp_tls_option_on_quic"}
 		}
 	}
 	if reality["enabled"] == true {
 		key, _ := reality["public_key"].(string)
 		decoded, err := base64.RawURLEncoding.DecodeString(key)
 		if err != nil || len(decoded) != 32 {
-			return &NodeFieldError{Path: "tls/reality/public_key", Code: "invalid_key"}
+			return &outboundFieldError{Path: "tls.reality.public_key", Code: "invalid_key"}
 		}
 		short, _ := reality["short_id"].(string)
 		if _, err := hex.DecodeString(short); err != nil || len(short) > 16 {
-			return &NodeFieldError{Path: "tls/reality/short_id", Code: "invalid_hex"}
+			return &outboundFieldError{Path: "tls.reality.short_id", Code: "invalid_hex"}
 		}
 		if tls["enabled"] != true {
-			return &NodeFieldError{Path: "tls/enabled", Code: "required"}
+			return &outboundFieldError{Path: "tls.enabled", Code: "required"}
 		}
 	}
 	if typeID == "shadowsocks" && optionEnabled(value["udp_over_tcp"]) && optionEnabled(value["multiplex"]) {
-		return &NodeFieldError{Path: "udp_over_tcp", Code: "conflicts_with_multiplex"}
+		return &outboundFieldError{Path: "udp_over_tcp", Code: "conflicts_with_multiplex"}
 	}
 	if typeID == "hysteria2" && value["server_ports"] != nil && value["server_port"] != nil {
-		return &NodeFieldError{Path: "server_ports", Code: "conflicts_with_server_port"}
+		return &outboundFieldError{Path: "server_ports", Code: "conflicts_with_server_port"}
 	}
 	if mux, ok := value["multiplex"].(map[string]any); ok && !validMuxOptions(mux) {
-		return &NodeFieldError{Path: "multiplex", Code: "invalid_or_conflicting_limits"}
+		return &outboundFieldError{Path: "multiplex", Code: "invalid_or_conflicting_limits"}
 	}
 	return nil
 }

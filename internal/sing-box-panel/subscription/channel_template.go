@@ -42,12 +42,12 @@ func parseChannelTemplate(template *NativeTemplate, format RenderFormat) (channe
 	}
 	if template != nil {
 		if template.Format != format {
-			return channelTemplate{}, policyError("policy.template.format", "incompatible_format")
+			return channelTemplate{}, policyError("template.format", "incompatible_format")
 		}
 		content = template.Content
 	}
 	if len(content) > 256<<10 {
-		return channelTemplate{}, policyError("policy.template.content", "too_large")
+		return channelTemplate{}, policyError("template.content", "too_large")
 	}
 	if format == RenderFormatLoon {
 		return parseLoonChannelTemplate(content)
@@ -61,23 +61,23 @@ func parseChannelTemplate(template *NativeTemplate, format RenderFormat) (channe
 				prefix := content[:min(int(syntax.Offset)-1, len(content))]
 				line := strings.Count(prefix, "\n") + 1
 				column := len(prefix) - strings.LastIndex(prefix, "\n")
-				return channelTemplate{}, policyError(fmt.Sprintf("policy.template.content@%d:%d", line, column), "invalid_json_object")
+				return channelTemplate{}, policyError(fmt.Sprintf("template.content@%d:%d", line, column), "invalid_json_object")
 			}
-			return channelTemplate{}, policyError("policy.template.content", "invalid_json_object")
+			return channelTemplate{}, policyError("template.content", "invalid_json_object")
 		}
 		for _, name := range []string{"outbounds", "endpoints"} {
 			if _, present := root[name]; present {
-				return channelTemplate{}, policyError("policy.template.content/"+name, "generated_field")
+				return channelTemplate{}, policyError("template.content/"+name, "generated_field")
 			}
 		}
 		if raw, exists := root["route"]; exists {
 			route, ok := raw.(map[string]any)
 			if !ok {
-				return channelTemplate{}, policyError("policy.template.content/route", "expected_object")
+				return channelTemplate{}, policyError("template.content/route", "expected_object")
 			}
 			for _, name := range []string{"rules", "rule_set", "final"} {
 				if _, present := route[name]; present {
-					return channelTemplate{}, policyError("policy.template.content/route/"+name, "generated_field")
+					return channelTemplate{}, policyError("template.content/route/"+name, "generated_field")
 				}
 			}
 		}
@@ -86,21 +86,21 @@ func parseChannelTemplate(template *NativeTemplate, format RenderFormat) (channe
 	decoder := yaml.NewDecoder(bytes.NewBufferString(content))
 	var document yaml.Node
 	if err := decoder.Decode(&document); err != nil || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return channelTemplate{}, policyError("policy.template.content", "invalid_yaml_object")
+		return channelTemplate{}, policyError("template.content", "invalid_yaml_object")
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return channelTemplate{}, policyError("policy.template.content", "multiple_or_invalid_yaml_documents")
+		return channelTemplate{}, policyError("template.content", "multiple_or_invalid_yaml_documents")
 	}
 	count := 0
 	if err := inspectSourceYAML(&document, 0, &count); err != nil {
-		return channelTemplate{}, policyError("policy.template.content", "invalid_yaml_structure")
+		return channelTemplate{}, policyError("template.content", "invalid_yaml_structure")
 	}
 	root := document.Content[0]
 	for i := 0; i < len(root.Content); i += 2 {
 		key := root.Content[i]
 		if oneOf(key.Value, "proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers", "sub-rules") {
-			return channelTemplate{}, policyError(fmt.Sprintf("policy.template.content/%s@%d:%d", key.Value, key.Line, key.Column), "generated_field")
+			return channelTemplate{}, policyError(fmt.Sprintf("template.content/%s@%d:%d", key.Value, key.Line, key.Column), "generated_field")
 		}
 	}
 	return channelTemplate{yaml: &document}, nil

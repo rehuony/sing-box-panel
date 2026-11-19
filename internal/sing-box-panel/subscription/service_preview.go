@@ -23,23 +23,42 @@ func (application *Service) RenderSubscriptionDraft(ctx context.Context, userID,
 	if err != nil {
 		return SubscriptionPreview{}, err
 	}
-	if draft != nil {
-		if _, err := validateSubscriptionChannelConfig(draft.Format, draft.Config); err != nil {
-			return SubscriptionPreview{}, err
-		}
-		state.Channel.Config = draft.Config
-		state.Channel.Format = draft.Format
-	}
-	rendered, _, err := application.renderSubscriptionState(ctx, state)
+	channel, err := applicationSubscriptionChannel(state.Channel)
 	if err != nil {
 		return SubscriptionPreview{}, err
 	}
+	if draft != nil {
+		config, err := validateSubscriptionChannelConfig(draft.Format, draft.Config)
+		if err != nil {
+			return SubscriptionPreview{}, err
+		}
+		pool, err := application.database.SubscriptionPool(ctx)
+		if err != nil {
+			return SubscriptionPreview{}, err
+		}
+		available := make(map[string]bool, len(pool))
+		for _, node := range pool {
+			available[node.ID] = true
+		}
+		if err := validateChannelPoolReferences(config, available); err != nil {
+			return SubscriptionPreview{}, err
+		}
+		channel.Config, channel.Format = config, draft.Format
+	}
+	rendered, _, err := application.renderSubscriptionState(state, channel.Format, channel.Config)
+	if err != nil {
+		return SubscriptionPreview{}, err
+	}
+	publications, err := application.database.LoadNodePublications(ctx)
+	if err != nil {
+		return SubscriptionPreview{}, err
+	}
+	locals := application.localNodes(publications)
 	return SubscriptionPreview{
-		UserID: userID, Channel: applicationSubscriptionChannel(state.Channel),
-		NodePublications: application.localNodes(state.Nodes, false).Summaries,
+		UserID: userID, Channel: channel, NodePublications: locals.Summaries,
 		Result: SubscriptionPreviewResult{
-			Format: rendered.Format, MediaType: rendered.MediaType,
-			Content: rendered.Content, NodeCount: rendered.NodeCount, Diagnostics: rendered.PreviewDiagnostics,
+			Format: rendered.Format, MediaType: rendered.MediaType, Content: rendered.Content, NodeCount: rendered.NodeCount,
+			Diagnostics: append(inboundPreviewDiagnostics(locals, rendered.Format), rendered.PreviewDiagnostics...),
 		},
 	}, nil
 }

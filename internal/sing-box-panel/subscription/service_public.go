@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -22,8 +21,7 @@ var (
 )
 
 // PublicSubscriptionResult owns caller-safe response bytes rendered from one
-// consistent read of applied local state and live authorization/source
-// pointers. Diagnostics contain stable positions and codes only; neither the
+// consistent read of the pool and live authorization. Diagnostics contain stable positions and codes only; neither the
 // plaintext token nor source/configuration secrets are retained in this value.
 type PublicSubscriptionResult struct {
 	TokenID     string                    `json:"-"`
@@ -45,8 +43,9 @@ type PublicSubscriptionTraffic struct {
 }
 
 // PublicSubscription authenticates the current token/user state and renders
-// the current channel from only explicitly granted nodes. The store supplies
-// all mutable pointers and the applied local artifact in one consistent read.
+// the current channel from the pool, only a user's granted nodes for a
+// user-scoped key. The store supplies the key, channel and pool in one
+// consistent read.
 func (application *Service) PublicSubscription(
 	ctx context.Context,
 	plaintextToken string,
@@ -75,7 +74,11 @@ func (application *Service) PublicSubscription(
 		}
 	}
 
-	result, nodeIDs, err := application.renderSubscriptionState(ctx, state)
+	config, err := applicationChannelConfig(state.Channel.Config, state.Channel.Format)
+	if err != nil {
+		return PublicSubscriptionResult{}, err
+	}
+	result, nodeIDs, err := application.renderSubscriptionState(state, state.Channel.Format, config)
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
@@ -103,67 +106,35 @@ func (application *Service) publicSubscriptionTraffic(ctx context.Context, at ti
 	return PublicSubscriptionTraffic{UploadBytes: status.UploadBytes, DownloadBytes: status.DownloadBytes}, nil
 }
 
-// renderSubscriptionState renders the channel and returns the panel nodes
-// whose local inbounds it delivers.
-func (application *Service) renderSubscriptionState(ctx context.Context, state store.PublicSubscriptionState) (RenderResult, []string, error) {
-	locals := application.localNodes(state.Nodes, false)
-	manual, err := manualPublicationNodes(state.ManualNodes)
-	if err != nil {
-		return RenderResult{}, nil, err
-	}
-	allNodes := append(append([]Node(nil), locals.Nodes...), manual...)
-	for _, source := range state.Sources {
-		nodes, decodeErr := DecodeNodes(source.NormalizedNodes)
-		if decodeErr != nil {
-			return RenderResult{}, nil, fmt.Errorf("decode current source version %q: %w", source.VersionID, decodeErr)
-		}
-		allNodes = append(allNodes, nodes...)
-	}
-	granted := make(map[string]struct{}, len(state.Grants))
-	for _, key := range state.Grants {
-		granted[key] = struct{}{}
-	}
-	selectedNodes := make([]Node, 0, len(allNodes))
-	for _, node := range allNodes {
-		if _, allowed := granted[node.Key]; (allowed || state.UserID == "") && !state.Visibility[PublicationID(node)].Hidden {
-			selectedNodes = append(selectedNodes, node)
+// renderSubscriptionState renders the channel of state, or config in its
+// place, from the pool nodes state allows, and returns the fleet nodes whose
+// inbounds the output delivers.
+func (application *Service) renderSubscriptionState(state store.PublicSubscriptionState, format store.SubscriptionFormat, config ChannelConfig) (RenderResult, []string, error) {
+	nodes := make([]ChannelNode, len(state.Pool))
+	for index, node := range state.Pool {
+		nodes[index] = ChannelNode{
+			ID: node.ID, Name: node.DisplayName, Protocol: node.Protocol,
+			SourceID: node.SourceID, OriginName: node.OriginName, Outbound: node.Outbound,
 		}
 	}
-	config, err := DecodeChannelConfig(state.Channel.Config)
+	rendered, err := RenderChannelNodes(nodes, RenderFormat(format), config)
 	if err != nil {
 		return RenderResult{}, nil, err
 	}
-	rendered, err := RenderPolicyNodes(selectedNodes, RenderChannel{
-		Format:       RenderFormat(state.Channel.Format),
-		ExcludeTags:  append([]string(nil), config.ExcludeTags...),
-		ExcludeTypes: append([]string(nil), config.ExcludeTypes...),
-		NodeOrder:    publicationNodeIDs(orderSubscriptionNodes(selectedNodes, state.Sources, subscriptionNodeOrders(state.NodeOrders))),
-	}, config.Policy)
-	if err != nil {
-		return RenderResult{}, nil, err
-	}
-	if config.Policy != nil && rendered.Format == RenderFormatSingBox {
+	if rendered.Format == RenderFormatSingBox {
 		if err := validateSubscriptionNativeJSON(rendered.Content, "generated_configuration"); err != nil {
 			return RenderResult{}, nil, err
 		}
 	}
-	diagnostics := make([]RenderDiagnostic, 0, len(locals.Diagnostics)+len(rendered.Diagnostics))
-	for _, diagnostic := range locals.Diagnostics {
-		diagnostics = append(diagnostics, RenderDiagnostic{
-			Collection: diagnostic.Collection, ItemIndex: diagnostic.ItemIndex,
-			Format: RenderFormat(state.Channel.Format), Code: diagnostic.Code,
-		})
-	}
-	diagnostics = append(diagnostics, rendered.Diagnostics...)
-	rendered.Diagnostics = diagnostics
-	rendered.PreviewDiagnostics = append(inboundPreviewDiagnostics(locals, rendered.Format), rendered.PreviewDiagnostics...)
-	carried := make([]Node, 0, len(selectedNodes))
-	for _, node := range selectedNodes {
-		if rendered.CarriesNode(node) {
-			carried = append(carried, node)
+	fleetNodes := []string{}
+	seen := map[string]bool{}
+	for _, node := range state.Pool {
+		if node.NodeID != "" && !seen[node.NodeID] && rendered.Carries(node.ID) {
+			seen[node.NodeID] = true
+			fleetNodes = append(fleetNodes, node.NodeID)
 		}
 	}
-	return rendered, nodeIDsOf(carried), nil
+	return rendered, fleetNodes, nil
 }
 
 func (application *Service) RecordPublicSubscriptionUse(

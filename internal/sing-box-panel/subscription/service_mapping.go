@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,12 +36,15 @@ func (application *Service) nextSubscriptionUpdateTime(expected time.Time) time.
 	return now
 }
 
-func applicationSubscriptionChannel(value store.SubscriptionChannel) SubscriptionChannel {
-	return SubscriptionChannel{
-		ID: value.ID, Name: value.Name, Format: value.Format,
-		Config: append(json.RawMessage(nil), value.Config...), Enabled: value.Enabled,
-		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+func applicationSubscriptionChannel(value store.SubscriptionChannel) (SubscriptionChannel, error) {
+	config, err := applicationChannelConfig(value.Config, value.Format)
+	if err != nil {
+		return SubscriptionChannel{}, err
 	}
+	return SubscriptionChannel{
+		ID: value.ID, Name: value.Name, Format: value.Format, Config: config, Enabled: value.Enabled,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+	}, nil
 }
 
 func applicationSubscriptionChannelSummary(value store.SubscriptionChannelSummary) SubscriptionChannelSummary {
@@ -50,37 +52,6 @@ func applicationSubscriptionChannelSummary(value store.SubscriptionChannelSummar
 		ID: value.ID, Name: value.Name, Format: value.Format, Enabled: value.Enabled,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
-}
-
-func applicationSubscriptionSource(value store.SubscriptionSource) SubscriptionSource {
-	return SubscriptionSource{
-		ID: value.ID, Name: value.Name, SourceKind: value.SourceKind,
-		Config:           append(json.RawMessage(nil), value.Config...),
-		CurrentVersionID: value.CurrentVersionID,
-		Enabled:          value.Enabled, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
-	}
-}
-
-func applicationSubscriptionSourceSummary(value store.SubscriptionSourceSummary) SubscriptionSourceSummary {
-	return SubscriptionSourceSummary{
-		ID: value.ID, Name: value.Name, SourceKind: value.SourceKind,
-		HasVersion: value.HasVersion, Enabled: value.Enabled,
-		CurrentVersionID: value.CurrentVersionID,
-		CreatedAt:        value.CreatedAt, UpdatedAt: value.UpdatedAt,
-	}
-}
-
-func applicationSubscriptionSourceVersion(value store.SubscriptionSourceVersion, includeRaw bool) SubscriptionSourceVersion {
-	result := SubscriptionSourceVersion{
-		ID: value.ID, SourceID: value.SourceID, Format: value.Format,
-		NormalizedNodes: append(json.RawMessage(nil), value.NormalizedNodes...),
-		Diagnostics:     append(json.RawMessage(nil), value.Diagnostics...), SHA256: value.SHA256,
-		FetchedAt: value.FetchedAt, CreatedAt: value.CreatedAt,
-	}
-	if includeRaw {
-		result.RawBody = append([]byte(nil), value.RawBody...)
-	}
-	return result
 }
 
 func applicationSubscriptionToken(value store.SubscriptionToken, at time.Time) SubscriptionToken {

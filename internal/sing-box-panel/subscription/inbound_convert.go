@@ -228,9 +228,18 @@ func convertInboundCredential(
 	if err != nil {
 		return Node{}, err
 	}
+	// A multi-user inbound names each user's node by the user's name where
+	// it has one, never by a credential.
+	originName := tag
+	if credentialCount > 1 {
+		originName = nodeTag
+		if name, _ := credential.value["name"].(string); name != "" && ValidTag(tag+" ("+name+")") {
+			originName = tag + " (" + name + ")"
+		}
+	}
 	return Node{
 		Key: "local:" + identityHex[:24], SourceID: "local", Type: outboundType,
-		OriginTag: tag, Tag: nodeTag, Credential: credential.label, Outbound: encoded,
+		OriginTag: tag, OriginName: originName, Tag: nodeTag, Credential: credential.label, Outbound: encoded,
 	}, nil
 }
 

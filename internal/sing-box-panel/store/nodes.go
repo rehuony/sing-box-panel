@@ -386,14 +386,30 @@ func (s *Store) RecordNodeSession(ctx context.Context, id string, publicKey []by
 }
 
 // RecordNodeStateReport stores the encoded state the node reported in
-// session sessionID, while that is still its session.
-func (s *Store) RecordNodeStateReport(ctx context.Context, id, sessionID string, report []byte, summary NodeReport, reportedAt time.Time) error {
+// session sessionID, while that is still its session. published reports
+// whether what its subscription inbounds derive from changed: the applied
+// bundle or the reported public IP.
+func (s *Store) RecordNodeStateReport(ctx context.Context, id, sessionID string, report []byte, summary NodeReport, reportedAt time.Time) (published bool, err error) {
 	applied := summary.Applied
-	return expectOneNode(s.db.ExecContext(ctx, `UPDATE nodes SET state_report = ?, reported_at = ?, last_seen_at = ?,
-		applied_bundle_id = ?, applied_revision_id = ?, applied_config_sha256 = ?, applied_core_version = ?, reported_public_ip = ?
-		WHERE id = ? AND session_id = ?`, report, formatTime(reportedAt), formatTime(reportedAt),
-		nullIfEmpty(applied.ID), nullIfEmpty(applied.RevisionID), nullIfEmpty(applied.ConfigSHA256), nullIfEmpty(applied.ExactCoreVersion),
-		summary.PublicIP, id, sessionID))
+	err = s.WithTx(ctx, func(tx *sql.Tx) error {
+		var bundle, revision, digest, core sql.NullString
+		var publicIP string
+		err := tx.QueryRowContext(ctx, `SELECT applied_bundle_id, applied_revision_id, applied_config_sha256, applied_core_version, reported_public_ip
+			FROM nodes WHERE id = ? AND session_id = ?`, id, sessionID).Scan(&bundle, &revision, &digest, &core, &publicIP)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNodeNotFound
+		} else if err != nil {
+			return err
+		}
+		published = bundle.String != applied.ID || revision.String != applied.RevisionID || digest.String != applied.ConfigSHA256 ||
+			core.String != applied.ExactCoreVersion || publicIP != summary.PublicIP
+		return expectOneNode(tx.ExecContext(ctx, `UPDATE nodes SET state_report = ?, reported_at = ?, last_seen_at = ?,
+			applied_bundle_id = ?, applied_revision_id = ?, applied_config_sha256 = ?, applied_core_version = ?, reported_public_ip = ?
+			WHERE id = ? AND session_id = ?`, report, formatTime(reportedAt), formatTime(reportedAt),
+			nullIfEmpty(applied.ID), nullIfEmpty(applied.RevisionID), nullIfEmpty(applied.ConfigSHA256), nullIfEmpty(applied.ExactCoreVersion),
+			summary.PublicIP, id, sessionID))
+	})
+	return published && err == nil, err
 }
 
 // TouchNode records that the node enrolled with publicKey was seen at seenAt,

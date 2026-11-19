@@ -47,14 +47,6 @@ func TestRenderHandlesWireGuardEndpointAcrossFormats(t *testing.T) {
 			t.Fatalf("%s diagnostics = %#v", format, result.Diagnostics)
 		}
 	}
-
-	filtered, err := Render(startup, RenderChannel{Format: RenderFormatSingBox, ExcludeTypes: []string{"wireguard"}})
-	if err != nil {
-		t.Fatalf("Render filtered: %v", err)
-	}
-	if filtered.NodeCount != 0 || string(filtered.Content) != `{"endpoints":[],"outbounds":[]}`+"\n" {
-		t.Fatalf("filtered result = %#v, content %s", filtered, filtered.Content)
-	}
 }
 
 func TestDuplicateTagAcrossEndpointAndOutboundOmitsBoth(t *testing.T) {
@@ -233,30 +225,6 @@ func TestConversionFailuresUseStableCodes(t *testing.T) {
 				t.Fatalf("result = %#v, want diagnostic %q", result, test.code)
 			}
 		})
-	}
-}
-
-func TestRenderAppliesExactTagAndTypeExclusions(t *testing.T) {
-	t.Parallel()
-
-	startup := []byte(`{"outbounds":[
-      {"type":"shadowsocks","tag":"keep","server":"a","server_port":1,"method":"none","password":"a"},
-      {"type":"shadowsocks","tag":"drop-tag","server":"b","server_port":2,"method":"none","password":"b"},
-      {"type":"vmess","tag":"drop-type","server":"c","server_port":3,"uuid":"c"}
-    ]}`)
-	result, err := Render(startup, RenderChannel{
-		Format:       RenderFormatMihomo,
-		ExcludeTags:  []string{"drop-tag"},
-		ExcludeTypes: []string{"vmess"},
-	})
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	if result.NodeCount != 1 || !bytes.Contains(result.Content, []byte(`name: "keep"`)) {
-		t.Fatalf("result = count %d, content %s", result.NodeCount, result.Content)
-	}
-	if len(result.Diagnostics) != 0 {
-		t.Fatalf("configured exclusions produced diagnostics: %#v", result.Diagnostics)
 	}
 }
 

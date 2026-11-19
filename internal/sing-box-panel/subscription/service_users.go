@@ -4,7 +4,6 @@ package subscription
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -97,19 +96,6 @@ func (application *Service) ReplaceSubscriptionUserGrants(
 	grants []string,
 	expectedUpdatedAt time.Time,
 ) (SubscriptionUserGrants, error) {
-	catalog, err := application.SubscriptionNodeCatalog(ctx)
-	if err != nil {
-		return SubscriptionUserGrants{}, err
-	}
-	available := make(map[string]struct{}, len(catalog.Nodes))
-	for _, node := range catalog.Nodes {
-		available[node.Key] = struct{}{}
-	}
-	for _, key := range grants {
-		if _, exists := available[key]; !exists {
-			return SubscriptionUserGrants{}, errors.New("subscription node grant is not in the current catalog")
-		}
-	}
 	stored, err := application.database.ReplaceSubscriptionUserGrants(
 		ctx, strings.TrimSpace(userID), grants, expectedUpdatedAt,
 		application.nextSubscriptionUpdateTime(expectedUpdatedAt),

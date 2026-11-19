@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,9 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
+
+// emptyChannel is a channel configuration without groups.
+var emptyChannel = json.RawMessage(`{"groups":[],"default_exit":{"kind":"direct"}}`)
 
 func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	ctx := context.Background()
@@ -29,61 +33,98 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 
-	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "public", Format: store.SubscriptionFormatMihomo,
-		Config: json.RawMessage(`{"exclude_tags":["private"]}`), Enabled: true,
+	source, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
+		Name: "upload", Kind: store.SubscriptionSourceFile, Filter: &SourceFilter{},
+		Content: new("socks5://user:pass@socks.example:1080#Socks\nhttp://http.example:8080#Web\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(channel.ID, "channel_") || string(channel.Config) != `{"exclude_tags":["private"]}` {
-		t.Fatalf("created channel = %+v", channel)
+	if !strings.HasPrefix(source.ID, "source_") || source.NodeCount != 2 || source.ContentFormat != SourceFormatShareLinks ||
+		source.Format != SourceFormatAuto || source.RefreshMinutes != nil || source.NextRefreshAt != nil {
+		t.Fatalf("created source = %+v", source)
+	}
+	pool, err := app.SubscriptionNodes(ctx)
+	if err != nil || len(pool.Items) != 2 || pool.Items[0].DisplayName != "Socks" || pool.Items[1].Origin.SourceName != "upload" {
+		t.Fatalf("pool = %+v, %v", pool, err)
+	}
+
+	config := json.RawMessage(`{"incompatible_nodes":"skip","groups":[{"id":"main","name":"Main","enabled":true,"type":"select",
+		"members":[{"kind":"node","id":"` + pool.Items[1].ID + `"},{"kind":"builtin","id":"direct"}],
+		"rules":[{"sort_index":0,"id":"r","enabled":true,"kind":"domain","value":"example.org","exit":{"kind":"node","id":"` + pool.Items[0].ID + `"}}]}],
+		"default_exit":{"kind":"group","id":"main"},"template":{"format":"mihomo","content":"mode: rule\n"}}`)
+	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
+		Name: "public", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(channel.Config)
+	var want, got any
+	_ = json.Unmarshal(config, &want)
+	_ = json.Unmarshal(encoded, &got)
+	if !strings.HasPrefix(channel.ID, "channel_") || !reflect.DeepEqual(got, want) {
+		t.Fatalf("created channel = %s", encoded)
 	}
 	loaded, err := app.SubscriptionChannel(ctx, channel.ID)
-	if err != nil || loaded.ID != channel.ID {
+	if err != nil || !reflect.DeepEqual(loaded, channel) {
 		t.Fatalf("loaded channel = %+v, err=%v", loaded, err)
 	}
 	listed, err := app.ListSubscriptionChannels(ctx, SubscriptionListRequest{})
 	if err != nil || len(listed.Items) != 1 || listed.Items[0].ID != channel.ID {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
 	}
+	if _, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
+		Name: "dangling", Format: store.SubscriptionFormatMihomo, Enabled: true,
+		Config: json.RawMessage(`{"groups":[],"default_exit":{"kind":"node","id":"sn_missing"}}`),
+	}); !errors.As(err, new(*store.SubscriptionReferenceError)) {
+		t.Fatalf("a channel named a node outside the pool: %v", err)
+	}
 	updated, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
-		Name: "renamed", Format: store.SubscriptionFormatLoon, Config: json.RawMessage(`{}`),
+		Name: "renamed", Format: store.SubscriptionFormatLoon, Config: emptyChannel,
 		Enabled: false, ExpectedUpdatedAt: channel.UpdatedAt,
 	})
-	if err != nil || updated.Enabled || !updated.UpdatedAt.After(channel.UpdatedAt) {
+	if err != nil || updated.Enabled || len(updated.Config.Groups) != 0 || !updated.UpdatedAt.After(channel.UpdatedAt) {
 		t.Fatalf("updated channel = %+v, err=%v", updated, err)
 	}
 	if _, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
-		Name: "stale", Format: store.SubscriptionFormatLoon, ExpectedUpdatedAt: channel.UpdatedAt,
+		Name: "stale", Format: store.SubscriptionFormatLoon, Config: emptyChannel, ExpectedUpdatedAt: channel.UpdatedAt,
 	}); !errors.Is(err, store.ErrSubscriptionConflict) {
 		t.Fatalf("stale application channel update error = %v", err)
 	}
 
-	source, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
-		Name: "upstream", SourceKind: store.SubscriptionSourceRemote,
-		Config: json.RawMessage(`{"url":"https://example.test/sub"}`), Enabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(source.ID, "source_") || source.CurrentVersionID != "" {
-		t.Fatalf("created source = %+v", source)
-	}
+	// A filter applies to the stored content at once.
 	updatedSource, err := app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
-		Name: "local copy", SourceKind: store.SubscriptionSourceLocal,
-		Config: json.RawMessage(`{}`), Enabled: false,
-		ExpectedUpdatedAt: source.UpdatedAt,
-	})
-	if err != nil || updatedSource.Enabled || updatedSource.SourceKind != store.SubscriptionSourceLocal {
+		Name: "uploaded", Filter: &SourceFilter{Exclude: []string{"web"}},
+	}, source.UpdatedAt)
+	if err != nil || updatedSource.NodeCount != 1 || updatedSource.Name != "uploaded" || !updatedSource.UpdatedAt.After(source.UpdatedAt) {
 		t.Fatalf("updated source = %+v, err=%v", updatedSource, err)
+	}
+	if _, err := app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
+		Name: "uploaded", Filter: &SourceFilter{Include: []string{"/(/"}},
+	}, updatedSource.UpdatedAt); !errors.As(err, new(*SourceFieldError)) {
+		t.Fatalf("invalid filter error = %v", err)
+	}
+	if _, err := app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
+		Name: "url", URL: new("https://example.test/sub"), RefreshMinutes: new(0), Filter: &SourceFilter{},
+	}, updatedSource.UpdatedAt); !errors.As(err, new(*SourceFieldError)) {
+		t.Fatalf("a file source took a URL: %v", err)
+	}
+	if _, err := app.RefreshSubscriptionSource(ctx, source.ID); !errors.Is(err, ErrSourceKindMismatch) {
+		t.Fatalf("a file source refreshed: %v", err)
 	}
 	sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})
 	if err != nil || len(sources.Items) != 1 || sources.Items[0].ID != source.ID {
 		t.Fatalf("listed sources = %+v, err=%v", sources, err)
 	}
+	if err := app.DeleteSubscriptionSource(ctx, source.ID, source.UpdatedAt); !errors.Is(err, store.ErrSubscriptionConflict) {
+		t.Fatalf("stale source delete error = %v", err)
+	}
 	if err := app.DeleteSubscriptionSource(ctx, source.ID, updatedSource.UpdatedAt); err != nil {
 		t.Fatal(err)
+	}
+	if pool, err := app.SubscriptionNodes(ctx); err != nil || len(pool.Items) != 0 {
+		t.Fatalf("a deleted source left nodes: %+v, %v", pool, err)
 	}
 	if err := app.DeleteSubscriptionChannel(ctx, channel.ID, updated.UpdatedAt); err != nil {
 		t.Fatal(err)
@@ -99,7 +140,7 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	t.Cleanup(func() { _ = database.Close() })
 	app := newSubscriptionTestApplication(database)
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "token channel", Format: store.SubscriptionFormatSingBox, Enabled: true,
+		Name: "token channel", Format: store.SubscriptionFormatSingBox, Config: emptyChannel, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ package subscription
 
 import (
 	"crypto/rand"
+	"sync"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -18,8 +19,8 @@ type Options struct {
 	Random func([]byte) (int, error)
 }
 
-// Service owns subscription sources, manual nodes, channels, keys and users,
-// and renders subscriptions for preview and public delivery.
+// Service owns the subscription node pool, sources, channels, keys and
+// users, and renders subscriptions for preview and public delivery.
 type Service struct {
 	database     *store.Store
 	settings     *settings.Service
@@ -27,6 +28,8 @@ type Service struct {
 	refreshSlots chan struct{}
 	now          func() time.Time
 	random       func([]byte) (int, error)
+	// poolMu runs pool synchronizations one at a time.
+	poolMu sync.Mutex
 }
 
 func New(database *store.Store, panelSettings *settings.Service, records *telemetry.Service, options Options) *Service {

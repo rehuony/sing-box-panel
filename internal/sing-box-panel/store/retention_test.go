@@ -49,42 +49,6 @@ func TestRetentionKeepsWhatIsInUse(t *testing.T) {
 		t.Fatalf("saving after pruning = %v", err)
 	}
 
-	// Source versions: the current one and the newest other one stay.
-	source, err := database.CreateSubscriptionSource(ctx, SubscriptionSource{
-		ID: "source-retained", Name: "retained", SourceKind: SubscriptionSourceRemote,
-		Config: json.RawMessage(`{"url":"https://example.test/sub"}`), Enabled: true, CreatedAt: now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updatedAt := source.UpdatedAt
-	for i := 1; i <= 4; i++ {
-		at := now.Add(time.Duration(i) * time.Minute)
-		saved, err := database.SaveSubscriptionSourceVersion(ctx, SaveSubscriptionSourceVersionInput{
-			Version: SubscriptionSourceVersion{
-				ID: fmt.Sprintf("version-%d", i), SourceID: source.ID, Format: "uri-list",
-				RawBody: []byte(fmt.Sprintf("socks://%d.example:1080", i)), NormalizedNodes: json.RawMessage(`[]`),
-				FetchedAt: at, CreatedAt: at,
-			},
-			ExpectedSourceUpdatedAt: updatedAt, UpdatedAt: at,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		updatedAt = saved.Source.UpdatedAt
-	}
-	if _, err := database.ActivateSubscriptionSourceVersion(ctx, source.ID, "version-1", updatedAt, now.Add(time.Hour), nil); err != nil {
-		t.Fatal(err)
-	}
-	if deleted, err := database.PruneSubscriptionSourceVersions(ctx, 1); err != nil || deleted != 2 {
-		t.Fatalf("pruned source versions = %d, %v", deleted, err)
-	}
-	for version, kept := range map[string]bool{"version-1": true, "version-2": false, "version-3": false, "version-4": true} {
-		if _, err := database.GetSubscriptionSourceVersion(ctx, source.ID, version); kept != (err == nil) {
-			t.Fatalf("%s kept = %t (%v)", version, err == nil, err)
-		}
-	}
-
 	// Runtime history: old entries go, except each instance's newest.
 	old := now.Add(-100 * 24 * time.Hour)
 	for _, transition := range []RuntimeTransitionInput{

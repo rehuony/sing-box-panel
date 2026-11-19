@@ -5,116 +5,231 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
-const (
-	maximumChannelConfigBytes = 640 << 10
-	maximumChannelExclusions  = 10_000
-)
+const maximumChannelConfigBytes = 640 << 10
 
-// ChannelConfig is the strict, renderer-owned channel policy.
+// ChannelConfig is a channel's strategy groups, default exit and template.
+// The channel publishes only the pool nodes its enabled groups name as
+// members, rule exits or the default exit.
 type ChannelConfig struct {
-	Policy       *ChannelPolicy `json:"policy,omitempty"`
-	ExcludeTags  []string       `json:"exclude_tags,omitempty"`
-	ExcludeTypes []string       `json:"exclude_types,omitempty"`
+	IncompatibleNodes string          `json:"incompatible_nodes"`
+	Groups            []RuleGroup     `json:"groups"`
+	DefaultExit       RouteExit       `json:"default_exit"`
+	Template          *NativeTemplate `json:"template,omitempty"`
 }
 
-// DecodeChannelConfig validates and returns the normalized channel config.
-func DecodeChannelConfig(raw json.RawMessage) (ChannelConfig, error) {
-	if len(raw) == 0 {
-		raw = json.RawMessage(`{}`)
+type RouteExit struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id,omitempty"`
+}
+
+// RuleGroup is a strategy group. Members are its candidates in order; the
+// first is the initial manual selection.
+type RuleGroup struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Enabled     bool              `json:"enabled"`
+	Type        string            `json:"type"`
+	HealthCheck *GroupHealthCheck `json:"health_check,omitempty"`
+	Members     []GroupMember     `json:"members"`
+	Rules       []ChannelRule     `json:"rules"`
+}
+
+// GroupMember is a candidate: a pool node, a built-in direct or reject exit,
+// or another group of the channel.
+type GroupMember struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+const (
+	memberNode    = "node"
+	memberBuiltin = "builtin"
+	memberGroup   = "group"
+)
+
+type GroupHealthCheck struct {
+	URL       string `json:"url"`
+	Interval  int    `json:"interval"`
+	Tolerance int    `json:"tolerance"`
+}
+
+func (g RuleGroup) healthCheck() GroupHealthCheck {
+	if g.HealthCheck != nil {
+		return *g.HealthCheck
 	}
+	return GroupHealthCheck{URL: "https://www.gstatic.com/generate_204", Interval: 300, Tolerance: 50}
+}
+
+// Rules and remote references share one ordered list. A disabled entry retains
+// its metadata, but is not emitted. Nothing here fetches remote rule contents.
+type ChannelRule struct {
+	SortIndex int64          `json:"sort_index"`
+	ID        string         `json:"id"`
+	Enabled   bool           `json:"enabled"`
+	Kind      string         `json:"kind"`
+	Value     string         `json:"value,omitempty"`
+	Remote    *RemoteRuleSet `json:"remote,omitempty"`
+	Exit      RouteExit      `json:"exit"`
+}
+
+type RemoteRuleSet struct {
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Format      string `json:"format"`
+	Behavior    string `json:"behavior,omitempty"`
+	Accelerated bool   `json:"accelerated"`
+}
+
+type NativeTemplate struct {
+	Format  RenderFormat `json:"format"`
+	Content string       `json:"content"`
+}
+
+// DecodeChannelConfig strictly decodes a channel configuration: unknown and
+// null fields are rejected, and every list is present.
+func DecodeChannelConfig(raw json.RawMessage) (ChannelConfig, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return ChannelConfig{}, errors.New("subscription channel config must be a non-null JSON object")
+		return ChannelConfig{}, policyError("config", "object_required")
+	}
+	if len(raw) > maximumChannelConfigBytes {
+		return ChannelConfig{}, policyError("config", "too_large")
+	}
+	if bytes.Contains(raw, []byte("null")) {
+		var fields any
+		if err := json.Unmarshal(raw, &fields); err == nil && containsNull(fields) {
+			return ChannelConfig{}, policyError("config", "null_value")
+		}
 	}
 	var config ChannelConfig
 	if err := jsonstrict.Decode(raw, maximumChannelConfigBytes, &config); err != nil {
 		return ChannelConfig{}, fmt.Errorf("subscription channel config: %w", err)
 	}
-	var fields map[string]json.RawMessage
-	if err := jsonstrict.Decode(raw, maximumChannelConfigBytes, &fields); err != nil || fields == nil {
-		return ChannelConfig{}, errors.New("subscription channel config must be a non-null JSON object")
+	if config.Groups == nil {
+		return ChannelConfig{}, policyError("groups", "required")
 	}
-	for name, value := range fields {
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return ChannelConfig{}, fmt.Errorf("subscription channel config field %q cannot be null", name)
+	if config.DefaultExit.Kind == "" {
+		return ChannelConfig{}, policyError("default_exit", "required")
+	}
+	if config.IncompatibleNodes == "" {
+		config.IncompatibleNodes = "skip"
+	}
+	for index := range config.Groups {
+		group := &config.Groups[index]
+		if group.Members == nil {
+			return ChannelConfig{}, policyError(fmt.Sprintf("groups[%d].members", index), "required")
 		}
-	}
-	if config.ExcludeTags == nil {
-		config.ExcludeTags = []string{}
-	}
-	if config.ExcludeTypes == nil {
-		config.ExcludeTypes = []string{}
-	}
-	if len(config.ExcludeTags) > maximumChannelExclusions || len(config.ExcludeTypes) > maximumChannelExclusions {
-		return ChannelConfig{}, errors.New("subscription channel config has too many exclusions")
-	}
-	if err := validateUniqueExclusions(config.ExcludeTags, validExclusionTag, "tag"); err != nil {
-		return ChannelConfig{}, err
-	}
-	if err := validateUniqueExclusions(config.ExcludeTypes, ValidType, "type"); err != nil {
-		return ChannelConfig{}, err
-	}
-	if p := config.Policy; p != nil {
-		if len(config.ExcludeTags) > 0 || len(config.ExcludeTypes) > 0 {
-			return ChannelConfig{}, &PolicyError{Path: "policy.selection", Code: "legacy_filters_not_supported"}
-		}
-		p.Selection.IDs = append([]string{}, p.Selection.IDs...)
-		p.Selection.ExcludedIDs = append([]string{}, p.Selection.ExcludedIDs...)
-		p.Groups = append([]RuleGroup{}, p.Groups...)
-		for i := range p.Groups {
-			p.Groups[i].NodeIDs = append([]string{}, p.Groups[i].NodeIDs...)
-			p.Groups[i].Rules = append([]ChannelRule{}, p.Groups[i].Rules...)
+		if group.Rules == nil {
+			return ChannelConfig{}, policyError(fmt.Sprintf("groups[%d].rules", index), "required")
 		}
 	}
 	return config, nil
 }
 
-// CanonicalChannelConfig validates a channel config for one output format
-// and returns the canonical bytes stored with the channel.
-func CanonicalChannelConfig(raw json.RawMessage, format RenderFormat) (json.RawMessage, error) {
-	config, err := DecodeChannelConfig(raw)
-	if err != nil {
-		return nil, err
+func containsNull(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case map[string]any:
+		for _, child := range value {
+			if containsNull(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range value {
+			if containsNull(child) {
+				return true
+			}
+		}
 	}
-	if err := ValidateChannelPolicy(config.Policy, format); err != nil {
-		return nil, err
-	}
-	encoded, err := json.Marshal(config)
-	if err != nil {
-		return nil, fmt.Errorf("encode subscription channel config: %w", err)
-	}
-	if len(encoded) > maximumChannelConfigBytes {
-		return nil, errors.New("subscription channel config exceeds size limit")
-	}
-	return encoded, nil
+	return false
 }
 
-func validateUniqueExclusions(
-	values []string,
-	valid func(string) bool,
-	kind string,
-) error {
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if !valid(value) {
-			return fmt.Errorf("subscription channel config contains an invalid %s exclusion", kind)
-		}
-		if _, duplicate := seen[value]; duplicate {
-			return fmt.Errorf("subscription channel config contains a duplicate %s exclusion", kind)
-		}
-		seen[value] = struct{}{}
+// storeChannelConfig converts config for storage.
+func storeChannelConfig(config ChannelConfig) (store.SubscriptionChannelConfig, error) {
+	stored := store.SubscriptionChannelConfig{
+		IncompatibleNodes: config.IncompatibleNodes,
+		DefaultExit:       store.SubscriptionChannelExit{Kind: config.DefaultExit.Kind, ID: config.DefaultExit.ID},
+		Groups:            make([]store.SubscriptionChannelGroup, 0, len(config.Groups)),
 	}
-	return nil
+	if config.Template != nil {
+		content := config.Template.Content
+		stored.Template = &content
+	}
+	for _, group := range config.Groups {
+		value := store.SubscriptionChannelGroup{
+			ID: group.ID, Name: group.Name, Type: group.Type, Enabled: group.Enabled,
+			Members: make([]store.SubscriptionChannelMember, 0, len(group.Members)),
+			Rules:   make([]store.SubscriptionChannelRule, 0, len(group.Rules)),
+		}
+		if check := group.HealthCheck; check != nil {
+			value.HealthCheck = &store.SubscriptionChannelHealthCheck{URL: check.URL, Interval: check.Interval, Tolerance: check.Tolerance}
+		}
+		for _, member := range group.Members {
+			value.Members = append(value.Members, store.SubscriptionChannelMember{Kind: member.Kind, ID: member.ID})
+		}
+		for _, rule := range group.Rules {
+			stored := store.SubscriptionChannelRule{
+				ID: rule.ID, SortIndex: rule.SortIndex, Enabled: rule.Enabled, Kind: rule.Kind, Value: rule.Value,
+				Exit: store.SubscriptionChannelExit{Kind: rule.Exit.Kind, ID: rule.Exit.ID},
+			}
+			if rule.Remote != nil {
+				encoded, err := json.Marshal(rule.Remote)
+				if err != nil {
+					return store.SubscriptionChannelConfig{}, err
+				}
+				stored.Remote = encoded
+			}
+			value.Rules = append(value.Rules, stored)
+		}
+		stored.Groups = append(stored.Groups, value)
+	}
+	return stored, nil
 }
 
-func validExclusionTag(value string) bool {
-	return value != "" && len(value) <= 512 && utf8.ValidString(value) && !strings.ContainsRune(value, '\x00')
+// applicationChannelConfig converts a stored configuration for a channel of
+// format.
+func applicationChannelConfig(stored store.SubscriptionChannelConfig, format store.SubscriptionFormat) (ChannelConfig, error) {
+	config := ChannelConfig{
+		IncompatibleNodes: stored.IncompatibleNodes,
+		DefaultExit:       RouteExit{Kind: stored.DefaultExit.Kind, ID: stored.DefaultExit.ID},
+		Groups:            make([]RuleGroup, 0, len(stored.Groups)),
+	}
+	if stored.Template != nil {
+		config.Template = &NativeTemplate{Format: RenderFormat(format), Content: *stored.Template}
+	}
+	for _, group := range stored.Groups {
+		value := RuleGroup{
+			ID: group.ID, Name: group.Name, Type: group.Type, Enabled: group.Enabled,
+			Members: make([]GroupMember, 0, len(group.Members)), Rules: make([]ChannelRule, 0, len(group.Rules)),
+		}
+		if check := group.HealthCheck; check != nil {
+			value.HealthCheck = &GroupHealthCheck{URL: check.URL, Interval: check.Interval, Tolerance: check.Tolerance}
+		}
+		for _, member := range group.Members {
+			value.Members = append(value.Members, GroupMember{Kind: member.Kind, ID: member.ID})
+		}
+		for _, rule := range group.Rules {
+			converted := ChannelRule{
+				SortIndex: rule.SortIndex, ID: rule.ID, Enabled: rule.Enabled, Kind: rule.Kind, Value: rule.Value,
+				Exit: RouteExit{Kind: rule.Exit.Kind, ID: rule.Exit.ID},
+			}
+			if len(rule.Remote) > 0 {
+				converted.Remote = &RemoteRuleSet{}
+				if err := json.Unmarshal(rule.Remote, converted.Remote); err != nil {
+					return ChannelConfig{}, fmt.Errorf("decode stored remote rule set: %w", err)
+				}
+			}
+			value.Rules = append(value.Rules, converted)
+		}
+		config.Groups = append(config.Groups, value)
+	}
+	return config, nil
 }

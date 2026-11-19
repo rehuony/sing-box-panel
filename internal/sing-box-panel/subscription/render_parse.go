@@ -20,11 +20,6 @@ type startupNodes struct {
 	endpointsPresent bool
 }
 
-type filter struct {
-	tags  map[string]struct{}
-	types map[string]struct{}
-}
-
 var nonPublishableTypes = map[string]struct{}{
 	"block":    {},
 	"bridge":   {},
@@ -141,50 +136,11 @@ func publishableEndpoint(typeID string) bool {
 	return typeID == "wireguard"
 }
 
-func validateChannel(channel RenderChannel) (filter, error) {
+func validateChannel(channel RenderChannel) error {
 	if channel.Format != RenderFormatSingBox && channel.Format != RenderFormatMihomo && channel.Format != RenderFormatLoon {
-		return filter{}, invalidChannel("unsupported_format")
+		return invalidChannel("unsupported_format")
 	}
-	if len(channel.ExcludeTags) > maximumFilters || len(channel.ExcludeTypes) > maximumFilters {
-		return filter{}, invalidChannel("too_many_exclusions")
-	}
-	result := filter{
-		tags:  make(map[string]struct{}, len(channel.ExcludeTags)),
-		types: make(map[string]struct{}, len(channel.ExcludeTypes)),
-	}
-	for _, tag := range channel.ExcludeTags {
-		if !validTag(tag) {
-			return filter{}, invalidChannel("invalid_tag_exclusion")
-		}
-		if _, duplicate := result.tags[tag]; duplicate {
-			return filter{}, invalidChannel("duplicate_tag_exclusion")
-		}
-		result.tags[tag] = struct{}{}
-	}
-	for _, typeID := range channel.ExcludeTypes {
-		if !validType(typeID) {
-			return filter{}, invalidChannel("invalid_type_exclusion")
-		}
-		if _, duplicate := result.types[typeID]; duplicate {
-			return filter{}, invalidChannel("duplicate_type_exclusion")
-		}
-		result.types[typeID] = struct{}{}
-	}
-	return result, nil
-}
-
-func applyFilter(values []outbound, exclusions filter) []outbound {
-	result := make([]outbound, 0, len(values))
-	for _, value := range values {
-		if _, excluded := exclusions.tags[value.tag]; excluded {
-			continue
-		}
-		if _, excluded := exclusions.types[value.typeID]; excluded {
-			continue
-		}
-		result = append(result, value)
-	}
-	return result
+	return nil
 }
 
 func validTag(value string) bool {

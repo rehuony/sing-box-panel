@@ -54,7 +54,7 @@ configuration, or subscription data.
 ### Database compatibility
 
 The panel database uses SQLite `application_id = 0x53425034` and storage schema
-version 24, defined in `internal/sing-box-panel/store/schema.sql`; each node
+version 25, defined in `internal/sing-box-panel/store/schema.sql`; each node
 keeps its own `node.db` with `application_id = 0x5342504E` and storage schema
 version 2, defined in
 `internal/sing-box-node/store/schema.sql`. Empty databases are initialized

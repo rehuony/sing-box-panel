@@ -17,7 +17,7 @@ lists each package's responsibility and the dependency direction.
 
 | Service | Runs on | Responsibilities | Never does |
 | --- | --- | --- | --- |
-| Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; the node release of its own version that nodes update from; subscription sources, manual nodes, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts and its node release |
+| Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; the node release of its own version that nodes update from; the subscription node pool, sources, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts and its node release |
 | Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands; an optional loopback console for its enrollment | Accept connections from its panel or from other hosts, serve the panel's Web UI, hold subscription data or the panel's administrator credentials |
 
 The panel host runs no sing-box. A panel host that should also carry proxy
@@ -167,7 +167,7 @@ too, while the node runs.
 | Traffic counters | Node, cumulative across core restarts in a durable checkpoint | The panel computes each node's deltas, its periods from its own reset day, and its usage against its own quota |
 | Core log files | Node, bounded and sanitized | The panel relays reads on demand and keeps no copy |
 | Panel log and operation outcomes | Panel | Node events are recorded with their node ID |
-| Subscriptions: sources, manual nodes, channels, keys, templates, order and visibility | Panel | — |
+| Subscriptions: node pool and its order, sources, channels, keys, templates | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
 | Node settings: panel endpoint, trust, data directory and identity key; console settings and password hash | Node | — |
 
@@ -247,10 +247,9 @@ names only when its bytes match the digest the node reported. A published
 endpoint uses the node's public host override or, without one, the public IP the
 node reports; a node with neither, or whose revision cannot be published,
 publishes nothing and is named in a diagnostic while the other nodes publish.
-Each local inbound's key, tag and provenance name its node, and channel
-membership refers to these node-scoped stable IDs. The subscription traffic
-header sums the usage of the nodes a subscription carries. Third-party sources
-and manual nodes belong to the panel and depend on no node.
+Each inbound's pool ID and default display name include its node, and channel
+membership refers to these stable IDs. The subscription traffic
+header sums the usage of the nodes a subscription carries. Third-party sources belong to the panel and depend on no node.
 
 ## Management API and Web UI
 
@@ -329,7 +328,7 @@ internal/
     nodeconfig/          per-node editable file, revisions, check and apply through fleet
     corecache/           upstream catalog discovery, artifact cache and distribution
     schema/              exact-version Schema manifest and assets for the editor
-    subscription/        sources, manual nodes, inbound conversion, channels, keys, templates, renderers
+    subscription/        node pool, sources and parsers, inbound conversion, channels, keys, templates, renderers
     telemetry/           metrics, traffic, runtime history and log relay
     auth/ settings/
     systemd/             the panel's unit templates and settings-file state for the shared lifecycle

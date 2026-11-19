@@ -33,8 +33,8 @@ func TestChannelScopedKeysShareDownloadLimitAcrossChannels(t *testing.T) {
 	if err != nil || unchanged.BodyResponseCount != 0 {
 		t.Fatalf("failed response consumed quota: %+v %v", unchanged, err)
 	}
-	publish()
-	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{Name: "Second", Format: store.SubscriptionFormatSingBox, Enabled: true})
+	node := publish()
+	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{Name: "Second", Format: store.SubscriptionFormatSingBox, Enabled: true, Config: channelConfigWith(node)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,7 @@ describe('createHttpApiClient subscription domain', () => {
         }),
       );
     const client = createHttpApiClient({ fetcher });
-    const draft = { format: 'sing-box' as const, config: {} };
+    const draft = { format: 'sing-box' as const, config: { groups: [], default_exit: { kind: 'direct' as const } } };
     const result = await client.previewSubscriptionChannel('channel/one', '', undefined, draft);
     expect(result.result.content).toBe(text);
     expect(fetcher).toHaveBeenCalledWith(
@@ -78,7 +78,7 @@ describe('createHttpApiClient subscription domain', () => {
       {
         name: 'Primary',
         format: 'sing-box',
-        config: {},
+        config: { groups: [], default_exit: { kind: 'direct' } },
         enabled: true,
       },
       '2026-08-26T07:05:00.000000001Z',
@@ -98,5 +98,20 @@ describe('createHttpApiClient subscription domain', () => {
     );
     expect(fetcher.mock.calls[2]?.[0]).toBe('/api/v1/subscription/tokens');
     expect(String(fetcher.mock.calls[2]?.[0])).not.toContain('once-only');
+  });
+
+  it('saves the whole pool order and renames a node at the version it was read', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response('{}', { status: 200 }));
+    const client = createHttpApiClient({ fetcher });
+    await client.setSubscriptionNodeOrder(['sn_b', 'sn_a']);
+    await client.updateSubscriptionNode('sn_a', { display_name: 'tokyo' }, '2026-11-19T08:00:00.000000001Z');
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/subscription/node-order', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ ids: ['sn_b', 'sn_a'] }),
+    }));
+    expect(fetcher).toHaveBeenNthCalledWith(2, '/api/v1/subscription/nodes/sn_a', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ display_name: 'tokyo' }),
+      headers: expect.objectContaining({ 'If-Match': '"2026-11-19T08:00:00.000000001Z"' }),
+    }));
   });
 });

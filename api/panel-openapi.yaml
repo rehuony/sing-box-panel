@@ -998,37 +998,25 @@ paths:
   /subscription/nodes:
     get:
       operationId: listSubscriptionNodes
+      description: >-
+        The subscription node pool in its saved order: every inbound the fleet's
+        nodes publish and every node their sources keep after filtering. The pool
+        is synchronized when a node applies a configuration, changes its public
+        host or is deleted, and when a source's content, filter or existence
+        changes; a node that disappears is deleted together with its channel
+        memberships and grants, and new nodes are appended in origin order.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionNodeCatalog"
+          $ref: "#/components/responses/SubscriptionNodeList"
         default:
           $ref: "#/components/responses/Problem"
-    post:
-      operationId: createSubscriptionNode
-      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [outbound]
-              properties:
-                outbound: {type: object, additionalProperties: true}
-      responses:
-        "201":
-          description: Created manual node
-          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
-        default:
-          $ref: '#/components/responses/Problem'
-  /subscription/node-orders/{collectionId}:
+  /subscription/node-order:
     put:
       operationId: setSubscriptionNodeOrder
-      description: "Save presentation order for manual (system, manual and local-source nodes) or a remote source ID. IDs must be unique current members of the collection. Unlisted nodes append in their default order. No source contents or group candidates are modified."
-      parameters:
-        - {name: collectionId, in: path, required: true, schema: {type: string}}
-        - {$ref: "#/components/parameters/CSRFToken"}
+      description: >-
+        Saves the pool order. The IDs must be exactly the pool's current IDs, each
+        once; otherwise the pool changed since it was read and the request answers 409.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
       requestBody:
         required: true
         content:
@@ -1036,100 +1024,40 @@ paths:
             schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
       responses:
         "200":
-          description: Saved order with incremented revision
-          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}}}
-        "412":
-          description: The order revision changed; reload the node catalog before retrying
+          $ref: "#/components/responses/SubscriptionNodeList"
+        "409":
+          description: The pool changed since it was read; reload it before saving the order
           content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
         default:
           $ref: '#/components/responses/Problem'
-  /subscription/nodes/parse:
-    post:
-      operationId: parseSubscriptionNode
-      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [text]
-              properties:
-                text: {type: string, maxLength: 262144}
-      responses:
-        "200":
-          description: One normalized outbound; no data is saved
-          content: {application/json: {schema: {type: object, required: [outbound_json], properties: {outbound_json: {type: string}}}}}
-        default:
-          $ref: '#/components/responses/Problem'
   /subscription/nodes/{nodeId}:
-    parameters: [{$ref: "#/components/parameters/NodeID"}]
+    parameters: [{$ref: "#/components/parameters/SubscriptionNodeID"}]
     get:
       operationId: getSubscriptionNode
       responses:
         "200":
-          description: Authenticated node detail, including credentials; never cache
+          description: Node detail including its outbound and credentials; never cache
           content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
         default:
           $ref: '#/components/responses/Problem'
     put:
       operationId: updateSubscriptionNode
-      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      description: Changes the node's display name, the name channels publish it under.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [outbound, revision]
-              properties:
-                outbound: {type: object, additionalProperties: true}
-                revision: {type: integer, format: int64, minimum: 1}
+            schema: {$ref: "#/components/schemas/SubscriptionNodeUpdate"}
       responses:
         "200":
-          description: Updated manual node
+          description: Updated node
           content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
-        default:
-          $ref: '#/components/responses/Problem'
-    delete:
-      operationId: deleteSubscriptionNode
-      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [revision]
-              properties:
-                revision: {type: integer, format: int64, minimum: 1}
-      responses:
-        "204": {description: Manual node deleted; core inbounds cannot be deleted here}
-        default:
-          $ref: '#/components/responses/Problem'
-  /subscription/nodes/{nodeId}/visibility:
-    parameters: [{$ref: "#/components/parameters/NodeID"}]
-    put:
-      operationId: setSubscriptionNodeVisibility
-      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [hidden, revision]
-              properties:
-                hidden: {type: boolean}
-                revision: {type: integer, format: int64, minimum: 0}
-      responses:
-        "200":
-          description: Publication visibility updated; core execution is unchanged
-          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}}
+        "409":
+          description: Another node already uses the display name
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
         default:
           $ref: '#/components/responses/Problem'
   /subscription/users:
@@ -1213,6 +1141,7 @@ paths:
               properties:
                 grants:
                   type: array
+                  description: Subscription node IDs the user may receive.
                   items:
                     type: string
       responses:
@@ -1313,13 +1242,36 @@ paths:
           $ref: "#/components/responses/Problem"
     post:
       operationId: createSubscriptionSource
+      description: >-
+        Creates a source from a URL, which is fetched now, or from content in the
+        request. The source is created only when the content parses and every node
+        its filter keeps converts; its nodes then join the pool.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
-        $ref: "#/components/requestBodies/SubscriptionSource"
+        $ref: "#/components/requestBodies/SubscriptionSourceCreate"
       responses:
         "201":
           $ref: "#/components/responses/SubscriptionSource"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/sources/preview:
+    post:
+      operationId: previewSubscriptionSource
+      description: >-
+        Parses content without saving anything: a stored source's content, a URL's
+        content or the content in the request, filtered by the given rules.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionSourcePreviewRequest"}
+      responses:
+        "200":
+          description: The nodes the content holds and whether the filter keeps each
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourcePreview"}}}
         default:
           $ref: "#/components/responses/Problem"
   /subscription/sources/{sourceId}:
@@ -1334,11 +1286,14 @@ paths:
           $ref: "#/components/responses/Problem"
     put:
       operationId: updateSubscriptionSource
+      description: >-
+        Changes the source's settings. A changed filter applies to the stored
+        content at once; a changed URL or format is read on the next refresh.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
-        $ref: "#/components/requestBodies/SubscriptionSource"
+        $ref: "#/components/requestBodies/SubscriptionSourceUpdate"
       responses:
         "200":
           $ref: "#/components/responses/SubscriptionSource"
@@ -1346,6 +1301,7 @@ paths:
           $ref: "#/components/responses/Problem"
     delete:
       operationId: deleteSubscriptionSource
+      description: Deletes the source and removes its nodes from the pool and every channel.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
@@ -1359,72 +1315,31 @@ paths:
       - $ref: "#/components/parameters/SourceID"
     post:
       operationId: refreshSubscriptionSource
+      description: >-
+        Fetches a URL source now. A failed fetch or parse keeps the current content
+        and nodes, records the failure in last_error and answers a problem.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionSourceRefreshResult"
+          $ref: "#/components/responses/SubscriptionSource"
         default:
           $ref: "#/components/responses/Problem"
-  /subscription/sources/{sourceId}/versions:
+  /subscription/sources/{sourceId}/content:
     parameters:
       - $ref: "#/components/parameters/SourceID"
-    get:
-      operationId: listSubscriptionSourceVersions
+    put:
+      operationId: replaceSubscriptionSourceContent
+      description: >-
+        Replaces a file source's content. Content that does not parse, or holds a
+        kept node that does not convert, is rejected and the current content stays.
       parameters:
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
-      responses:
-        "200":
-          $ref: "#/components/responses/SubscriptionSourceVersionPage"
-        default:
-          $ref: "#/components/responses/Problem"
-    post:
-      operationId: createSubscriptionSourceVersion
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [format, raw_body]
-              properties:
-                format:
-                  type: string
-                  enum: [auto, sing-box-json, mihomo-yaml, uri-list]
-                raw_body:
-                  type: string
-                  format: byte
-      responses:
-        "201":
-          $ref: "#/components/responses/SubscriptionSourceVersionSave"
-        default:
-          $ref: "#/components/responses/Problem"
-  /subscription/sources/{sourceId}/versions/{versionId}:
-    parameters:
-      - $ref: "#/components/parameters/SourceID"
-      - $ref: "#/components/parameters/SourceVersionID"
-    get:
-      operationId: getSubscriptionSourceVersion
-      responses:
-        "200":
-          $ref: "#/components/responses/SubscriptionSourceVersion"
-        default:
-          $ref: "#/components/responses/Problem"
-  /subscription/sources/{sourceId}/versions/{versionId}/restore:
-    parameters:
-      - $ref: "#/components/parameters/SourceID"
-      - $ref: "#/components/parameters/SourceVersionID"
-    post:
-      operationId: restoreSubscriptionSourceVersion
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-        - $ref: "#/components/parameters/CSRFToken"
+            schema: {$ref: "#/components/schemas/SubscriptionSourceContent"}
       responses:
         "200":
           $ref: "#/components/responses/SubscriptionSource"
@@ -1567,16 +1482,11 @@ paths:
       operationId: downloadSubscription
       security: []
       description: >-
-        Successful responses include instance-wide recorded traffic for the current
-        UTC natural-month period, using traffic.period_months and traffic.quota_gib.
-        Usage is shared across keys and channels, not attributed to individual users
-        or subscription downloads. Each request recomputes the period and reads the
-        current settings. Recorded usage is retained when collection is stale or
-        stopped; a period without records reports zero. Usage comes from sing-box
-        connection counters, not VPS interface totals. Cross-month increments are
-        booked in the later sample's UTC month. Settings or traffic-storage failures return 503
-        without consuming download quota. The final authorization recheck must pass
-        before traffic metadata is exposed. Traffic changes do not change the body ETag.
+        Successful responses include the recorded traffic of the fleet nodes whose
+        inbounds the channel publishes, each in that node's current period; total is
+        always 0. Settings or traffic-storage failures return 503 without consuming
+        download quota. The final authorization recheck must pass before traffic
+        metadata is exposed. Traffic changes do not change the body ETag.
       responses:
         "200":
           description: Rendered subscription for the key's channel scope and policy, retaining live grants for legacy user-scoped keys.
@@ -2258,10 +2168,11 @@ components:
       required: true
       schema:
         type: string
-    SourceVersionID:
-      name: versionId
+    SubscriptionNodeID:
+      name: nodeId
       in: path
       required: true
+      description: A node of the subscription node pool.
       schema:
         type: string
     TokenID:
@@ -2320,16 +2231,19 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/SubscriptionChannelInput"
-    SubscriptionSource:
+    SubscriptionSourceCreate:
       required: true
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/SubscriptionSourceInput"
+            $ref: "#/components/schemas/SubscriptionSourceCreate"
+    SubscriptionSourceUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionSourceUpdate"
   responses:
-    SubscriptionSourceRefreshResult:
-      description: Refreshed subscription source.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceRefreshResult"}}}
     StartupArtifactSummary:
       description: Validated startup artifact.
       content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactSummary"}}}
@@ -2371,9 +2285,9 @@ components:
     RuntimeHistoryPage:
       description: Stable newest-first page of durable runtime transitions.
       content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeHistoryPage"}}}
-    SubscriptionNodeCatalog:
-      description: Current publishable subscription node catalog.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeCatalog"}}}
+    SubscriptionNodeList:
+      description: The subscription node pool in its saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeList"}}}
     SubscriptionUserPage:
       description: Page of subscription users.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserPage"}}}
@@ -2398,15 +2312,6 @@ components:
     SubscriptionSource:
       description: Subscription source.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSource"}}}
-    SubscriptionSourceVersionPage:
-      description: Page of immutable subscription source versions.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceVersionPage"}}}
-    SubscriptionSourceVersionSave:
-      description: Saved source version and advanced source pointer.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceVersionSave"}}}
-    SubscriptionSourceVersion:
-      description: Immutable subscription source version.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceVersion"}}}
     SubscriptionTokenPage:
       description: Page of subscription token metadata.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
@@ -2510,17 +2415,6 @@ components:
         not_modified: {type: boolean}
         releases: {type: integer, minimum: 0}
         assets: {type: integer, minimum: 0}
-    SubscriptionSourceRefreshResult:
-      type: object
-      additionalProperties: false
-      required: [source_id, version_id, format, sha256, node_count, fetched_at]
-      properties:
-        source_id: {type: string}
-        version_id: {type: string}
-        format: {type: string}
-        sha256: {type: string}
-        node_count: {type: integer, minimum: 0}
-        fetched_at: {type: string, format: date-time}
     AppearanceSettings:
       type: object
       additionalProperties: false
@@ -3364,11 +3258,16 @@ components:
     SubscriptionChannelConfig:
       type: object
       additionalProperties: false
-      description: "Serialized configuration is limited to 640 KiB. Nonempty exclude_tags/exclude_types are supported only without policy; policy channels use explicit node selection."
+      description: >-
+        A channel publishes only the pool nodes its enabled groups name as members,
+        rule exits or the default exit, in pool order and under their display names.
+        Serialized configuration is limited to 640 KiB.
+      required: [groups, default_exit]
       properties:
-        exclude_tags: {type: array, items: {type: string}, uniqueItems: true}
-        exclude_types: {type: array, items: {type: string}, uniqueItems: true}
-        policy: {$ref: "#/components/schemas/ChannelPolicy"}
+        incompatible_nodes: {type: string, enum: [skip, error], default: skip, description: "Conversion failure handling; omitted nodes are reported in diagnostics."}
+        groups: {type: array, maxItems: 256, items: {$ref: "#/components/schemas/ChannelRuleGroup"}}
+        default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+        template: {$ref: "#/components/schemas/ChannelNativeTemplate"}
     SubscriptionDraftPreview:
       type: object
       additionalProperties: false
@@ -3376,24 +3275,6 @@ components:
       properties:
         format: {type: string, enum: [sing-box, mihomo, loon]}
         config: {$ref: "#/components/schemas/SubscriptionChannelConfig"}
-    ChannelPolicy:
-      type: object
-      additionalProperties: false
-      required: [selection, groups, default_exit]
-      properties:
-        selection: {$ref: "#/components/schemas/ChannelNodeSelection"}
-        incompatible_nodes: {type: string, enum: [skip, error], default: skip, description: "Conversion failure handling; omitted nodes are reported in diagnostics."}
-        groups: {type: array, maxItems: 256, items: {$ref: "#/components/schemas/ChannelRuleGroup"}}
-        default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
-        template: {$ref: "#/components/schemas/ChannelNativeTemplate"}
-    ChannelNodeSelection:
-      type: object
-      additionalProperties: false
-      required: [ids, excluded_ids, new_node_policy]
-      properties:
-        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
-        excluded_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
-        new_node_policy: {type: string, enum: [include, exclude]}
     ChannelRouteExit:
       type: object
       additionalProperties: false
@@ -3404,28 +3285,30 @@ components:
     ChannelRuleGroup:
       type: object
       additionalProperties: false
-      required: [id, name, enabled, type, builtin_nodes, node_ids, rules]
+      required: [id, name, enabled, type, members, rules]
       properties:
         id: {type: string, maxLength: 128}
         name: {type: string, maxLength: 128}
         enabled: {type: boolean}
         type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported by Mihomo and Loon."}
-        builtin_nodes:
-          type: array
-          maxItems: 2
-          uniqueItems: true
-          description: "Explicit built-in candidates; an empty array selects none. Reject candidates require Mihomo or Loon. Loon auto groups do not accept built-in candidates."
-          items: {type: string, enum: [direct, reject]}
         health_check: {$ref: "#/components/schemas/ChannelGroupHealthCheck"}
-        node_ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
-        group_ids: {type: array, maxItems: 255, uniqueItems: true, description: "References to enabled strategy groups in this channel. Self references and cycles are rejected.", items: {type: string}}
-        candidate_order:
+        members:
           type: array
-          maxItems: 10257
-          uniqueItems: true
-          description: "Display and output order. When provided, must contain each node:<id>, builtin:<kind> and group:<id> candidate exactly once. When omitted, node_ids precede builtin_nodes, followed by group_ids. The first candidate is the initial manual selection."
-          items: {type: string, maxLength: 136}
+          maxItems: 10002
+          description: >-
+            Candidates in display and output order; the first is the initial manual
+            selection. Each appears once. Reject requires Mihomo or Loon, and Loon
+            auto groups take no built-in candidates. Group members must be other
+            enabled groups of this channel; self references and cycles are rejected.
+          items: {$ref: "#/components/schemas/ChannelGroupMember"}
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/ChannelRule"}}
+    ChannelGroupMember:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind: {type: string, enum: [node, builtin, group]}
+        id: {type: string, maxLength: 128, description: "A pool node ID, direct or reject, or a group ID of this channel."}
     ChannelGroupHealthCheck:
       type: object
       additionalProperties: false
@@ -3473,113 +3356,141 @@ components:
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionChannelSummary"}}
         next: {$ref: "#/components/schemas/SubscriptionCursor"}
-    SubscriptionSourceSummary:
+    SubscriptionSourceKind:
+      type: string
+      enum: [url, file]
+    SubscriptionSourceFormat:
+      type: string
+      enum: [sing-box, mihomo, share-links]
+      description: >-
+        A content format: a sing-box configuration or outbound list, a Mihomo
+        configuration or proxy list, or share links one per line. Base64-wrapped
+        content is decoded before it is recognized.
+    SubscriptionSourceFormatChoice:
+      type: string
+      enum: [auto, sing-box, mihomo, share-links]
+      description: The format to read the content as; auto recognizes it from the content.
+    SubscriptionSourceFilter:
       type: object
       additionalProperties: false
-      required: [id, name, source_kind, has_version, enabled, created_at, updated_at]
+      required: [include, exclude]
+      description: >-
+        Rules match a node's name in its source. Plain text matches a
+        case-insensitive substring; text wrapped in slashes is an RE2 regular
+        expression. A nonempty include list keeps only matching nodes, and the
+        exclude list then removes matching ones.
       properties:
-        id: {type: string}
-        name: {type: string}
-        source_kind: {type: string, enum: [local, remote]}
-        has_version: {type: boolean}
-        current_version_id: {type: string}
-        enabled: {type: boolean}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
+        include: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+        exclude: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
     SubscriptionSource:
       type: object
       additionalProperties: false
-      required: [id, name, source_kind, config, enabled, created_at, updated_at]
+      required: [id, name, kind, format, filter, node_count, created_at, updated_at]
       properties:
         id: {type: string}
         name: {type: string}
-        source_kind: {type: string, enum: [local, remote]}
-        config: {$ref: "#/components/schemas/DynamicObject"}
-        current_version_id: {type: string}
-        enabled: {type: boolean}
+        kind: {$ref: "#/components/schemas/SubscriptionSourceKind"}
+        url: {type: string, description: URL sources only.}
+        refresh_minutes: {type: integer, minimum: 0, maximum: 10080, description: "URL sources only: 0 fetches only on request, otherwise at least 15."}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+        node_count: {type: integer, minimum: 0, description: The nodes the source contributes to the pool.}
+        content_format: {$ref: "#/components/schemas/SubscriptionSourceFormat"}
+        content_at: {type: string, format: date-time, description: When the current content was fetched or uploaded.}
+        last_attempt_at: {type: string, format: date-time}
+        last_error: {type: string, description: Code of the last failed fetch or parse; cleared by the next success.}
+        next_refresh_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time, description: Changes only with the settings; send it quoted in If-Match.}
     SubscriptionSourcePage:
       type: object
       additionalProperties: false
       required: [items]
       properties:
-        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSourceSummary"}}
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSource"}}
         next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourcePreviewItem:
+      type: object
+      additionalProperties: false
+      required: [location, name, protocol, kept]
+      properties:
+        location: {type: string, description: "Where the node sits in the content, such as outbounds[3], proxies[7] or line 12."}
+        name: {type: string}
+        protocol: {type: string}
+        kept: {type: boolean, description: Whether the filter keeps the node.}
+    SubscriptionSourceParseError:
+      type: object
+      additionalProperties: false
+      required: [code]
+      description: Why the content cannot be saved; a kept node that does not convert names its location.
+      properties:
+        code: {type: string}
+        location: {type: string}
+        name: {type: string}
+        reason: {type: string}
+    SubscriptionSourcePreview:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormat"}
+        items: {type: array, maxItems: 10000, items: {$ref: "#/components/schemas/SubscriptionSourcePreviewItem"}}
+        error: {$ref: "#/components/schemas/SubscriptionSourceParseError"}
     SubscriptionDiagnostic:
       type: object
       additionalProperties: false
       required: [collection, item_index, code]
       properties:
-        node_id: {type: string, description: The node whose applied configuration the diagnostic is about.}
+        node_id: {type: string, description: The fleet node whose applied configuration the diagnostic is about.}
         collection: {type: string, enum: [outbounds, endpoints, inbounds]}
         item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
         code: {type: string}
-    SubscriptionSourceVersion:
+    SubscriptionNodeOrigin:
       type: object
       additionalProperties: false
-      required: [id, source_id, format, normalized_nodes, diagnostics, sha256, fetched_at, created_at]
+      required: [kind]
       properties:
-        id: {type: string}
-        source_id: {type: string}
-        format: {type: string, enum: [sing-box-json, mihomo-yaml, uri-list]}
-        raw_body: {type: string, format: byte}
-        normalized_nodes: {type: array, items: {$ref: "#/components/schemas/DynamicObject"}}
-        diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
-        sha256: {$ref: "#/components/schemas/SHA256"}
-        fetched_at: {type: string, format: date-time}
-        created_at: {type: string, format: date-time}
-    SubscriptionSourceVersionPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSourceVersion"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
-    SubscriptionSourceVersionSave:
-      type: object
-      additionalProperties: false
-      required: [source, version]
-      properties:
-        source: {$ref: "#/components/schemas/SubscriptionSource"}
-        version: {$ref: "#/components/schemas/SubscriptionSourceVersion"}
-    SubscriptionNodeDetail:
-      allOf:
-        - $ref: "#/components/schemas/SubscriptionNodeSummary"
-        - type: object
-          required: [outbound_json]
-          properties:
-            outbound_json: {type: string}
-    SubscriptionNodeSummary:
-      type: object
-      required: [id, key, source_id, source_name, name, origin, type, tag, hidden, visibility_revision, available, server, port, tls, reality]
-      properties:
-        id: {type: string, description: Stable publication identity; separate from legacy grant key}
-        key: {type: string}
+        kind: {type: string, enum: [inbound, source]}
+        node_id: {type: string, description: The fleet node of an inbound.}
+        node_name: {type: string}
+        inbound_tag: {type: string}
         source_id: {type: string}
         source_name: {type: string}
-        name: {type: string}
-        origin: {type: string, enum: [local, manual, source]}
-        type: {type: string}
-        tag: {type: string}
-        credential: {type: string}
-        hidden: {type: boolean}
-        available: {type: boolean}
-        visibility_revision: {type: integer, format: int64}
-        revision: {type: integer, format: int64}
+    SubscriptionNode:
+      type: object
+      required: [id, display_name, origin_name, protocol, origin, updated_at]
+      properties:
+        id: {type: string, description: "Stable ID derived from the origin: a fleet node with its inbound and credential, or a source with the node's name there."}
+        display_name: {type: string, description: Unique in the pool; channels publish the node under it.}
+        origin_name: {type: string, description: "The node's name at its origin; a new node takes it as its display name, prefixed with the fleet node's name for an inbound."}
+        protocol: {type: string}
+        origin: {$ref: "#/components/schemas/SubscriptionNodeOrigin"}
         server: {type: string}
         port: {type: integer}
         server_ports: {type: array, items: {type: string}}
         realm_url: {type: string}
-        listener: {type: string}
         tls: {type: boolean}
         reality: {type: boolean}
         sni: {type: string}
-        node_id: {type: string, description: The node a local inbound comes from.}
+        transport: {type: string}
+        updated_at: {type: string, format: date-time, description: Send it quoted in If-Match to change the display name.}
+    SubscriptionNodeDetail:
+      allOf:
+        - $ref: "#/components/schemas/SubscriptionNode"
+        - type: object
+          required: [outbound]
+          properties:
+            outbound: {type: object, additionalProperties: true, description: "The sing-box outbound published for the node, without its tag."}
+    SubscriptionNodeUpdate:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name: {type: string, minLength: 1, maxLength: 256}
     NodePublication:
       type: object
       additionalProperties: false
-      description: A node that publishes local inbounds, from the bundle it reports running.
+      description: A fleet node that publishes inbounds, from the bundle it reports running.
       required: [node_id, node_name, applied_bundle_id, canonical_revision_id, exact_core_version, public_host]
       properties:
         node_id: {type: string}
@@ -3591,21 +3502,16 @@ components:
     SubscriptionNodeOrder:
       type: object
       additionalProperties: false
-      required: [ids, revision]
+      required: [ids]
       properties:
         ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
-        revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991, description: "Zero when no order is saved; updates require the current revision."}
-    SubscriptionNodeCatalog:
+    SubscriptionNodeList:
       type: object
       additionalProperties: false
-      required: [node_publications, nodes, diagnostics, node_orders]
+      required: [items, node_publications, diagnostics]
       properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionNode"}}
         node_publications: {type: array, items: {$ref: "#/components/schemas/NodePublication"}}
-        nodes: {type: array, items: {$ref: "#/components/schemas/SubscriptionNodeSummary"}}
-        node_orders:
-          type: object
-          description: "Saved orders keyed by manual or remote source ID. Missing collections have revision zero. Nodes are returned in source display order, then saved node order, with new nodes appended."
-          additionalProperties: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
         diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
     SubscriptionToken:
       type: object
@@ -4065,20 +3971,48 @@ components:
           $ref: "#/components/schemas/SubscriptionChannelConfig"
         enabled:
           type: boolean
-    SubscriptionSourceInput:
+    SubscriptionSourceCreate:
       type: object
       additionalProperties: false
-      required: [name, source_kind, config, enabled]
+      required: [name, kind, filter]
+      description: A URL source gives url and refresh_minutes; a file source gives content.
       properties:
-        name:
-          type: string
-        source_kind:
-          type: string
-          enum: [local, remote]
-        config:
-          $ref: "#/components/schemas/DynamicObject"
-        enabled:
-          type: boolean
+        name: {type: string, minLength: 1, maxLength: 128}
+        kind: {$ref: "#/components/schemas/SubscriptionSourceKind"}
+        url: {type: string, maxLength: 4096}
+        refresh_minutes: {type: integer, minimum: 0, maximum: 10080}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+        content: {type: string, maxLength: 4194304}
+    SubscriptionSourceUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, filter]
+      description: URL sources also give url and refresh_minutes.
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        url: {type: string, maxLength: 4096}
+        refresh_minutes: {type: integer, minimum: 0, maximum: 10080}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+    SubscriptionSourceContent:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content: {type: string, minLength: 1, maxLength: 4194304}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+    SubscriptionSourcePreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [filter]
+      description: Exactly one of source_id, url or content.
+      properties:
+        source_id: {type: string}
+        url: {type: string, maxLength: 4096}
+        content: {type: string, maxLength: 4194304}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
     SubscriptionTokenCreate:
       type: object
       additionalProperties: false
