@@ -119,7 +119,7 @@ describe('subscription node pool', () => {
     await user.clear(name);
     await user.type(name, 'Tokyo 1');
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
-    expect(await within(dialog).findByText('Another node already uses this name.')).toBeVisible();
+    expect(await within(dialog).findByText('Another node already uses this name')).toBeVisible();
     expect(client.updateSubscriptionNode).toHaveBeenCalledWith('tokyo', { display_name: 'Tokyo 1' }, tokyo.updated_at);
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

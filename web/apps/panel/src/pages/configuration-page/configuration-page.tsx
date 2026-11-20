@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { ApiRequestError } from '@/api/api-client';
+import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
@@ -251,7 +252,7 @@ export function ConfigurationPage() {
               )}
         </Tabs>
         <footer className='flex flex-none flex-nowrap items-center gap-x-3 gap-y-2 border-t pt-2 *:data-[slot=button]:shrink-0 @max-[40rem]:flex-wrap @max-[40rem]:gap-1.5 @max-[40rem]:*:data-[slot=button]:flex-auto'>
-          <span className='mr-auto min-w-0 flex-1 truncate text-sm text-muted-foreground @max-[40rem]:basis-full @max-[40rem]:text-xs' role='status' title={fileStatus}>{fileStatus}</span>
+          <span className='mr-auto min-w-0 flex-1 truncate text-sm text-muted-foreground @max-[40rem]:basis-full @max-[40rem]:text-xs' role='status' title={messageLine(fileStatus)}>{messageLine(fileStatus)}</span>
           <Button variant='outline' disabled={locked || canonical.dirty || invalid || file?.revision === 0 || schemaVersion === ''} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
           <Button disabled={locked || (!canonical.dirty && (file?.revision ?? 0) > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>
         </footer>

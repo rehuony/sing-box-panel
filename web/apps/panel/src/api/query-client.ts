@@ -55,7 +55,6 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   updateSubscriptionSource: sourceChange,
   deleteSubscriptionSource: sourceChange,
   refreshSubscriptionSource: sourceChange,
-  replaceSubscriptionSourceContent: sourceChange,
   updateSubscriptionNode: nodeChange,
   setSubscriptionNodeOrder: nodeChange,
   createSubscriptionChannel: ['channels'],

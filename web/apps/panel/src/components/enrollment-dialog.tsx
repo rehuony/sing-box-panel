@@ -17,6 +17,7 @@ import type { PendingEnrollment } from '@/stores/enrollment-dialog.store';
 
 import { queries } from '@/api/queries';
 import { nodePath } from '@/utils/node-path';
+import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError } from '@/components/error-notice';
 import { useEnrollmentDialog } from '@/stores/enrollment-dialog.store';
@@ -260,7 +261,7 @@ export function EnrollmentDialog() {
           <DialogFooter className='flex-nowrap justify-between'>
             <p className='flex min-h-5 min-w-0 flex-1 items-center gap-2 text-sm' id={messageId} role='status'>
               {message
-                ? <span className={cn('truncate', expired && !issue.error ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}>{message}</span>
+                ? <span className={cn('truncate', expired && !issue.error ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}>{messageLine(message)}</span>
                 : null}
               {!message && waiting
                 ? (

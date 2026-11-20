@@ -42,9 +42,22 @@ func createFileSource(t *testing.T, app *Service, name, content string) Subscrip
 
 func replaceContent(t *testing.T, app *Service, sourceID, content string) {
 	t.Helper()
-	if _, err := app.ReplaceSubscriptionSourceContent(t.Context(), sourceID, SubscriptionSourceContentRequest{Content: content}); err != nil {
+	if err := giveContent(t, app, sourceID, content); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// giveContent saves a file source with new content and its settings unchanged.
+func giveContent(t *testing.T, app *Service, sourceID, content string) error {
+	t.Helper()
+	current, err := app.SubscriptionSource(t.Context(), sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = app.UpdateSubscriptionSource(t.Context(), sourceID, UpdateSubscriptionSourceRequest{
+		Name: current.Name, Format: current.Format, Filter: &current.Filter, Content: &content,
+	}, current.UpdatedAt)
+	return err
 }
 
 // poolSummary is the pool's display names in order, and each node's ID by
@@ -249,12 +262,29 @@ func TestPoolKeepsNodesOfContentThatNoLongerReads(t *testing.T) {
 	}
 }
 
+func TestFileSourceSettingsAndContentSaveTogether(t *testing.T) {
+	ctx := t.Context()
+	_, app := newPoolTestApplication(t)
+	source := createFileSource(t, app, "source", "socks5://a.example:1080#A\n")
+	// The new filter reads the new content, not the stored one.
+	updated, err := app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
+		Name: "renamed", Filter: &SourceFilter{Include: []string{"B"}},
+		Content: new("socks5://a.example:1080#A\nsocks5://b.example:1080#B\n"),
+	}, source.UpdatedAt)
+	if err != nil || updated.Name != "renamed" || updated.NodeCount != 1 {
+		t.Fatalf("updated = %+v, %v", updated, err)
+	}
+	if names, _ := poolSummary(t, app); !slices.Equal(names, []string{"B"}) {
+		t.Fatalf("pool = %v", names)
+	}
+}
+
 func TestStrictContentFailuresChangeNothing(t *testing.T) {
 	ctx := t.Context()
 	_, app := newPoolTestApplication(t)
 	source := createFileSource(t, app, "source", "socks5://a.example:1080#A\n")
 	for _, content := range []string{"socks5://a.example:1080#A\ntrojan://no-password.example:443#Broken\n", "not links at all"} {
-		_, err := app.ReplaceSubscriptionSourceContent(ctx, source.ID, SubscriptionSourceContentRequest{Content: content})
+		err := giveContent(t, app, source.ID, content)
 		var parseErr *SourceParseError
 		if !errors.As(err, &parseErr) {
 			t.Fatalf("content %q error = %v", content, err)

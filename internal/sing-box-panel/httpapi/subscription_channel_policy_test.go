@@ -132,7 +132,10 @@ func TestChannelPreviewDeliveryAndNodeRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := services.Subscriptions.ReplaceSubscriptionSourceContent(ctx, sources.Items[0].ID, subscription.SubscriptionSourceContentRequest{Content: "socks5://other.example.com:1080#Other\n"}); err != nil {
+	source := sources.Items[0]
+	if _, err := services.Subscriptions.UpdateSubscriptionSource(ctx, source.ID, subscription.UpdateSubscriptionSourceRequest{
+		Name: source.Name, Format: source.Format, Filter: &source.Filter, Content: new("socks5://other.example.com:1080#Other\n"),
+	}, source.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
 	public = publicSubscriptionRequest(handler, publicURL)

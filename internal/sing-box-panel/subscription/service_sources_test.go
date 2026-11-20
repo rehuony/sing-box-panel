@@ -112,7 +112,33 @@ func TestURLSourceRefreshKeepsLastContentThatParsed(t *testing.T) {
 	if err != nil || updated.NextRefreshAt != nil || *updated.RefreshMinutes != 0 {
 		t.Fatalf("manual-only source = %+v, %v", updated, err)
 	}
-	if _, err := app.ReplaceSubscriptionSourceContent(ctx, source.ID, SubscriptionSourceContentRequest{Content: "socks5://d.example:1080#D"}); !errors.Is(err, ErrSourceKindMismatch) {
+	if _, err := app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
+		Name: "remote", URL: &server.URL, RefreshMinutes: new(0), Filter: &SourceFilter{}, Content: new("socks5://d.example:1080#D"),
+	}, updated.UpdatedAt); !errors.Is(err, ErrSourceKindMismatch) {
 		t.Fatalf("a URL source took uploaded content: %v", err)
+	}
+}
+
+func TestSourceFormatNamesALinkProtocol(t *testing.T) {
+	ctx := t.Context()
+	_, app := newPoolTestApplication(t)
+	if ValidSourceFormat(SourceFormatShareLinks, true) || !ValidSourceFormat("vless", true) {
+		t.Fatal("a source names one link protocol, and links of several are read with auto")
+	}
+	content := "socks5://a.example:1080#A\nsocks5://b.example:1080#B"
+	source, err := app.CreateSubscriptionSource(ctx, CreateSubscriptionSourceRequest{
+		Name: "socks", Kind: store.SubscriptionSourceFile, Format: "socks", Filter: &SourceFilter{}, Content: &content,
+	})
+	if err != nil || source.NodeCount != 2 || source.Format != "socks" || source.ContentFormat != SourceFormatShareLinks {
+		t.Fatalf("socks source = %+v, %v", source, err)
+	}
+	// Every protocol links convert to can be stored as a source's format.
+	for _, protocol := range shareLinkProtocols {
+		source, err = app.UpdateSubscriptionSource(ctx, source.ID, UpdateSubscriptionSourceRequest{
+			Name: "socks", Format: SourceFormat(protocol), Filter: &SourceFilter{},
+		}, source.UpdatedAt)
+		if err != nil || source.Format != SourceFormat(protocol) {
+			t.Fatalf("format %s = %+v, %v", protocol, source, err)
+		}
 	}
 }

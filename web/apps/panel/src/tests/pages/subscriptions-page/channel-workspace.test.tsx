@@ -111,7 +111,7 @@ describe('channel workspace', () => {
     expect(within(dialog).queryByText('Tokyo AnyTLS')).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Issues (2)' }));
     expect(await screen.findByText('Tokyo AnyTLS')).toBeVisible();
-    expect(screen.getByText('The Loon exporter does not yet support this TLS option.')).toBeVisible();
+    expect(screen.getByText('The loon exporter does not yet support this TLS option.')).toBeVisible();
     expect(screen.getByText(/Review the field below/)).toBeVisible();
     expect(screen.getByText('outbounds[1].tls.fragment')).toBeVisible();
     expect(screen.getByText('Node 4')).toBeVisible();
@@ -126,7 +126,7 @@ describe('channel workspace', () => {
     const client = mount();
     await user.click(screen.getByRole('button', { name: 'Channel settings' }));
     await user.click(screen.getByRole('combobox', { name: 'Client' }));
-    await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
+    await user.click(await screen.findByRole('option', { name: 'mihomo' }));
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
@@ -246,7 +246,7 @@ describe('channel workspace', () => {
     expect(screen.getByRole('region', { name: 'Edit strategy group' })).toBeInTheDocument();
     expect(within(parent).getByText('Domains')).toBeInTheDocument();
   });
-  it('requires native Loon rule format after a switch and drops inapplicable source options', async () => {
+  it('requires native loon rule format after a switch and drops inapplicable source options', async () => {
     const user = userEvent.setup();
     const group = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Selected', rules: [{
       id: 'remote', enabled: true, kind: 'remote' as const, exit: { kind: 'group-default' as const },
@@ -264,7 +264,7 @@ describe('channel workspace', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
     expect(within(dialog).getByLabelText('Source format')).toHaveAttribute('aria-invalid', 'true');
     await user.click(within(dialog).getByRole('combobox', { name: 'Source format' }));
-    await user.click(await screen.findByRole('option', { name: 'Loon' }));
+    await user.click(await screen.findByRole('option', { name: 'loon' }));
     await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());

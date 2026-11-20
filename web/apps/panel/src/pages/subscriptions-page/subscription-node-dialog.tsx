@@ -15,6 +15,7 @@ import type { SubscriptionNode, SubscriptionNodeList } from '@/api/api-client';
 
 import { nodePath } from '@/utils/node-path';
 import { ApiRequestError } from '@/api/api-client';
+import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
@@ -252,9 +253,9 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
               className={cn('min-h-5 min-w-0 flex-1 truncate text-sm', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
               id={messageId}
               role='status'
-              title={message?.text}
+              title={message ? messageLine(message.text) : undefined}
             >
-              {message?.text}
+              {message ? messageLine(message.text) : null}
             </p>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button aria-busy={save.isPending || undefined} type='submit'>{t('subscriptions.pool.detail.save')}</Button>

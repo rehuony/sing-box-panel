@@ -132,7 +132,7 @@ describe('subscriptionsPage', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Add channel' });
     await user.type(within(dialog).getByLabelText('Channel name'), 'Mobile clients');
     await user.click(within(dialog).getByRole('combobox', { name: 'Client' }));
-    await user.click(await screen.findByRole('option', { name: 'Mihomo' }));
+    await user.click(await screen.findByRole('option', { name: 'mihomo' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add channel' }));
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
       name: 'Mobile clients', format: 'mihomo', enabled: true,

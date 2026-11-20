@@ -37,6 +37,11 @@ func (problem problemDetails) write(w http.ResponseWriter, request *http.Request
 }
 
 func writeProblem(w http.ResponseWriter, request *http.Request, status int, code, title, detail string) {
+	writeProblemFields(w, request, status, code, title, detail, nil)
+}
+
+// writeProblemFields writes a problem whose fields name what it is about.
+func writeProblemFields(w http.ResponseWriter, request *http.Request, status int, code, title, detail string, fields map[string]string) {
 	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
@@ -47,5 +52,6 @@ func writeProblem(w http.ResponseWriter, request *http.Request, status int, code
 		Code:      code,
 		Detail:    detail,
 		RequestID: request.Header.Get("X-Request-ID"),
+		Fields:    fields,
 	})
 }

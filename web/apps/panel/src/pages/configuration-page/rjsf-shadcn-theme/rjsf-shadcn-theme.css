@@ -586,9 +586,6 @@
   flex: 1;
   min-width: 0;
 }
-.schema-form__select-popup {
-  max-height: min(20rem, var(--available-height));
-}
 @media (max-width: 640px) {
   .configuration-entry-dialog {
     height: calc(100dvh - 2rem);

@@ -1287,8 +1287,12 @@ paths:
     put:
       operationId: updateSubscriptionSource
       description: >-
-        Changes the source's settings. A changed filter applies to the stored
-        content at once; a changed URL or format is read on the next refresh.
+        Changes the source's settings, and a file source's content when content
+        is given, in one write. New content is read with the new format and
+        filter; content that does not parse, or holds a kept node that does not
+        convert, is rejected and nothing is saved. Without content, a changed
+        filter applies to the stored content at once and a changed URL or
+        format is read on the next refresh.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
@@ -1320,26 +1324,6 @@ paths:
         and nodes, records the failure in last_error and answers a problem.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/SubscriptionSource"
-        default:
-          $ref: "#/components/responses/Problem"
-  /subscription/sources/{sourceId}/content:
-    parameters:
-      - $ref: "#/components/parameters/SourceID"
-    put:
-      operationId: replaceSubscriptionSourceContent
-      description: >-
-        Replaces a file source's content. Content that does not parse, or holds a
-        kept node that does not convert, is rejected and the current content stays.
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: "#/components/schemas/SubscriptionSourceContent"}
       responses:
         "200":
           $ref: "#/components/responses/SubscriptionSource"
@@ -3368,8 +3352,11 @@ components:
         content is decoded before it is recognized.
     SubscriptionSourceFormatChoice:
       type: string
-      enum: [auto, sing-box, mihomo, share-links]
-      description: The format to read the content as; auto recognizes it from the content.
+      enum: [auto, sing-box, mihomo, shadowsocks, socks, http, vmess, vless, trojan, hysteria, hysteria2, tuic, anytls]
+      description: >-
+        The format to read the content as: auto recognizes it from the content;
+        a protocol reads share links that must all convert to that sing-box
+        outbound type, while share links of several protocols are read with auto.
     SubscriptionSourceFilter:
       type: object
       additionalProperties: false
@@ -3378,7 +3365,10 @@ components:
         Rules match a node's name in its source. Plain text matches a
         case-insensitive substring; text wrapped in slashes is an RE2 regular
         expression. A nonempty include list keeps only matching nodes, and the
-        exclude list then removes matching ones.
+        exclude list then removes matching ones. A refused rule answers 422
+        `subscription_source_invalid` whose fields map the rule's path, such as
+        `filter.include[1]`, to its code: `invalid_regular_expression` or
+        `invalid_length`; too many rules map the list's path to `too_many_rules`.
       properties:
         include: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
         exclude: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
@@ -3988,20 +3978,16 @@ components:
       type: object
       additionalProperties: false
       required: [name, filter]
-      description: URL sources also give url and refresh_minutes.
+      description: >-
+        URL sources also give url and refresh_minutes; a file source may give
+        content, which replaces its content.
       properties:
         name: {type: string, minLength: 1, maxLength: 128}
         url: {type: string, maxLength: 4096}
         refresh_minutes: {type: integer, minimum: 0, maximum: 10080}
         format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
         filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
-    SubscriptionSourceContent:
-      type: object
-      additionalProperties: false
-      required: [content]
-      properties:
         content: {type: string, minLength: 1, maxLength: 4194304}
-        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
     SubscriptionSourcePreviewRequest:
       type: object
       additionalProperties: false

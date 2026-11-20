@@ -190,7 +190,9 @@ diagnostic; it is not guessed from a nearby version.
 A source is either a URL or a file. A URL source is fetched when it is created,
 when an administrator refreshes it and, when `refresh_minutes` is not zero, every
 that many minutes (at least 15). A file source holds content uploaded or pasted
-in the Web UI and changes only when new content replaces it. A source is created only when its first content parses. The panel holds at most
+in the Web UI and changes only when an edit gives it new content, which is
+saved with the edit's settings in one write and read with its format and
+filter. A source is created only when its first content parses. The panel holds at most
 256 sources with 32 MiB of stored content in all, and at most 10,000 pool nodes.
 
 A source keeps only the last content that parsed, overwritten by the next, so no
@@ -209,15 +211,17 @@ Each source has a filter of name rules. Plain text matches a case-insensitive
 substring of a node's name in the source; text wrapped in slashes is an RE2
 regular expression, which matches in time linear in its input. A nonempty
 include list keeps only matching nodes, and the exclude list then removes
-matching ones. Only kept nodes enter the pool. A changed filter applies to the stored content at once, while a changed format
-applies to the next fetch or upload; `POST /subscription/sources/preview` shows which nodes a
+matching ones. A refused rule answers 422 `subscription_source_invalid` whose
+fields map the rule's path, such as `filter.include[1]`, to its code. Only kept
+nodes enter the pool. A changed filter applies to the stored content at once, while a changed format
+applies to the next fetch unless the edit gives new content; `POST /subscription/sources/preview` shows which nodes a
 filter keeps before it is saved.
 
 Sources, channels and node display names use their `updated_at` timestamp as
 their version: RFC 3339 with nanoseconds, strictly increasing for each record.
 Changing or deleting one sends it quoted in `If-Match`, and a stale value answers
-412. A source's timestamp changes only with its settings, so a refresh never
-invalidates an edit in progress.
+412. A source's timestamp changes only with an edit, which may carry a file
+source's new content, so a refresh never invalidates an edit in progress.
 
 ### Parsing
 
@@ -240,7 +244,11 @@ providers.
 
 With the format `auto`, Base64-wrapped content is decoded first, then each
 format scores the content and the highest score reads it; a source can name its
-format instead. A share link without a name is named by its sing-box type, server and port,
+format instead: `sing-box`, `mihomo`, or a protocol share links convert to
+(`shadowsocks`, `socks`, `http`, `vmess`, `vless`, `trojan`, `hysteria`,
+`hysteria2`, `tuic` or `anytls`), whose content must hold only that protocol's
+links. Share links of several protocols are read with `auto`; the content
+format of any share links is `share-links`. A share link without a name is named by its sing-box type, server and port,
 such as `hysteria2 example.com:443`. Each format is one parser registered with its name, its scoring and its
 reading into named nodes, and share links register one converter per scheme, so
 a new format or scheme is added without changing the rest of the pipeline.

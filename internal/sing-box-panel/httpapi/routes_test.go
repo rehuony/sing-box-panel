@@ -141,8 +141,9 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/sources", "", http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/sources/preview",
 		`{"source_id":"`+source.ID+`","filter":{"include":[],"exclude":[]}}`, http.StatusOK, true, nil)
-	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID+"/content",
-		`{"content":"trojan://broken.example:443#Broken"}`, http.StatusUnprocessableEntity, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID,
+		`{"name":"contract source","filter":{"include":[],"exclude":["skip"]},"content":"trojan://broken.example:443#Broken"}`,
+		http.StatusUnprocessableEntity, true, map[string]string{"If-Match": created.Header().Get("ETag")})
 	listed := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/nodes", "", http.StatusOK, true, nil)
 	var pool subscription.SubscriptionNodeList
 	if err := json.Unmarshal(listed.Body.Bytes(), &pool); err != nil || len(pool.Items) != 2 {

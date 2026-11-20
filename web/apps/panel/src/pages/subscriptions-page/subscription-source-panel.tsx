@@ -1,17 +1,19 @@
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
-import { CirclePlus, TriangleAlert } from 'lucide-react';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { formatDateTime, formatShortDateTime } from '@shared/lib/format-time';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
+import { CirclePlus, FileText, Link2, PencilLine, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { SubscriptionSource } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
+import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ListPagination } from '@/components/list-pagination';
@@ -21,35 +23,68 @@ import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 
 import type { SourceDialogMode } from './subscription-source-dialog';
 
+import { contentLabel } from './source-format';
 import { useIntervalLabel } from './use-interval-label';
 import { SubscriptionContentState } from './subscription-content-state';
 import { SubscriptionSourceDialog } from './subscription-source-dialog';
 
-/** When the source last got content, and the failure of its last attempt where there was one. */
+/** The source's name on one line after its kind's icon; the URL, or the kind, on hover. */
+function NameCell({ source }: { source: SubscriptionSource }) {
+  const { t } = useTranslation();
+  const kind = t(`subscriptions.sources.kind.${source.kind}`);
+  const Icon = source.kind === 'url' ? Link2 : FileText;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className='flex max-w-full min-w-0 items-center gap-2' />}>
+        <Icon aria-hidden='true' className='size-4 flex-none text-muted-foreground' />
+        <span className='sr-only'>{`${kind}: `}</span>
+        <span className='truncate'>{source.name}</span>
+      </TooltipTrigger>
+      <TooltipContent>
+        {source.url ? <span className='font-[family-name:var(--font-data)] break-all'>{source.url}</span> : kind}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * When the source last got content, on one line with a warning where its
+ * last attempt failed; the full time, the format it read as, its refresh
+ * interval and the failure on hover.
+ */
 function ContentCell({ source }: { source: SubscriptionSource }) {
   const { i18n, t } = useTranslation();
+  const intervalLabel = useIntervalLabel();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const time = formatShortDateTime(source.content_at, locale) || '—';
+  const details = [
+    formatDateTime(source.content_at, locale),
+    contentLabel(source.content_format, undefined, t),
+    source.kind === 'url' ? intervalLabel(source.refresh_minutes ?? 0) : '',
+  ].filter(Boolean).join(' · ');
+  const failure = source.last_error
+    ? t('subscriptions.sources.lastError', { code: source.last_error, time: formatDateTime(source.last_attempt_at, locale) || '—' })
+    : '';
   return (
-    <span className='flex min-w-0 flex-col items-center'>
-      <span className='flex max-w-full items-center gap-1.5'>
-        <span className='truncate tabular-nums' title={formatDateTime(source.content_at, locale) || undefined}>{time}</span>
-        {source.last_error
+    <Tooltip>
+      <TooltipTrigger render={<span className='inline-flex max-w-full items-center gap-1.5' />}>
+        <span className='truncate tabular-nums'>{time}</span>
+        {failure
           ? (
-              <Tooltip>
-                <TooltipTrigger render={<span className='flex flex-none text-[var(--color-warning)]' />}>
-                  <TriangleAlert aria-hidden='true' className='size-4' />
-                  <span className='sr-only'>
-                    {t('subscriptions.sources.lastError', { code: source.last_error, time: formatDateTime(source.last_attempt_at, locale) || '—' })}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{t('subscriptions.sources.lastError', { code: source.last_error, time: formatDateTime(source.last_attempt_at, locale) || '—' })}</TooltipContent>
-              </Tooltip>
+              <>
+                <TriangleAlert aria-hidden='true' className='size-4 flex-none text-[var(--color-warning)]' />
+                <span className='sr-only'>{failure}</span>
+              </>
             )
           : null}
-      </span>
-      {source.content_format ? <span className='text-xs text-muted-foreground'>{t(`subscriptions.sources.formats.${source.content_format}`)}</span> : null}
-    </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <span className='grid gap-1'>
+          <span>{details}</span>
+          {failure ? <span className='text-[var(--color-warning-text)]'>{failure}</span> : null}
+        </span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -69,7 +104,6 @@ export function SubscriptionSourcePanel({ active = true, onStarted, startCreatin
   const client = useApiClient();
   const cache = useQueryClient();
   const visible = usePageVisible();
-  const intervalLabel = useIntervalLabel();
   const enabled = active && visible;
   const list = useQuery({ ...queries.sources(client), enabled, refetchInterval: enabled ? 15_000 : false });
   const [search, setSearch] = useState('');
@@ -172,44 +206,34 @@ export function SubscriptionSourcePanel({ active = true, onStarted, startCreatin
       </ToolbarActions>
       {list.error && list.data !== undefined ? <ErrorNotice error={list.error} title={t('subscriptions.sources.loadFailed')} /> : null}
       <div aria-busy={list.isPending || undefined} className='flex min-h-0 flex-1 flex-col overflow-auto *:[table]:flex-none'>
-        <table className='workspace-table w-full min-w-224 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[30%] [&_th:nth-child(2)]:w-[16%] [&_th:nth-child(3)]:w-[10%] [&_th:nth-child(4)]:w-[18%] [&_th:nth-child(5)]:w-[26%]'>
+        <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[50%] [&_th:nth-child(2)]:w-[14%] [&_th:nth-child(3)]:w-[24%] [&_th:nth-child(4)]:w-[12%]'>
           <thead>
             <tr>
               <th>{t('subscriptions.sources.columns.name')}</th>
-              <th>{t('subscriptions.sources.columns.kind')}</th>
               <th>{t('subscriptions.sources.columns.nodes')}</th>
               <th>{t('subscriptions.sources.columns.content')}</th>
-              <th>{t('subscriptions.sources.columns.actions')}</th>
+              <th><span className='sr-only'>{t('subscriptions.sources.columns.actions')}</span></th>
             </tr>
           </thead>
           <tbody>
             {rows.map(source => (
               <tr key={source.id}>
-                <td>
-                  <span className='flex min-w-0 flex-col'>
-                    <span className='truncate' title={source.name}>{source.name}</span>
-                    {source.url ? <span className='truncate font-[family-name:var(--font-data)] text-xs text-muted-foreground' title={source.url}>{source.url}</span> : null}
-                  </span>
-                </td>
-                <td>
-                  <span className='flex min-w-0 flex-col'>
-                    <span>{t(`subscriptions.sources.kind.${source.kind}`)}</span>
-                    {source.kind === 'url' ? <span className='truncate text-xs text-muted-foreground'>{intervalLabel(source.refresh_minutes ?? 0)}</span> : null}
-                  </span>
-                </td>
+                <td><NameCell source={source} /></td>
                 <td className='tabular-nums'>{source.node_count}</td>
                 <td><ContentCell source={source} /></td>
                 <td>
-                  <div className='inline-flex flex-wrap justify-center gap-2'>
-                    <Button onClick={() => setDialog({ kind: 'edit', source })} size='sm' variant='outline'>{t('subscriptions.sources.edit')}</Button>
+                  {/* Edit keeps the row's end, so the pencils line up with or without a refresh. */}
+                  <div className='flex items-center justify-end gap-1'>
                     {source.kind === 'url'
                       ? (
-                          <Button aria-busy={refreshing.has(source.id) || undefined} onClick={() => void refresh(source)} size='sm' variant='outline'>
-                            {t('subscriptions.sources.refresh')}
-                          </Button>
+                          <IconAction aria-busy={refreshing.has(source.id) || undefined} label={t('subscriptions.sources.refreshNow')} onClick={() => void refresh(source)}>
+                            <RefreshCw aria-hidden='true' className={cn(refreshing.has(source.id) && 'motion-safe:animate-spin')} />
+                          </IconAction>
                         )
-                      : <Button onClick={() => setDialog({ kind: 'content', source })} size='sm' variant='outline'>{t('subscriptions.sources.replace')}</Button>}
-                    <Button onClick={() => setDeleting(source)} size='sm' variant='destructive'>{t('subscriptions.sources.delete')}</Button>
+                      : null}
+                    <IconAction label={t('subscriptions.sources.edit')} onClick={() => setDialog({ kind: 'edit', source })}>
+                      <PencilLine aria-hidden='true' />
+                    </IconAction>
                   </div>
                 </td>
               </tr>
@@ -229,7 +253,18 @@ export function SubscriptionSourcePanel({ active = true, onStarted, startCreatin
         pageSize={size}
         pages={pages}
       />
-      {dialog ? <SubscriptionSourceDialog mode={dialog} onClose={() => setDialog(null)} /> : null}
+      {dialog
+        ? (
+            <SubscriptionSourceDialog
+              mode={dialog}
+              onClose={() => setDialog(null)}
+              onDelete={(source) => {
+                setDialog(null);
+                setDeleting(source);
+              }}
+            />
+          )
+        : null}
       <Dialog open={deleting !== null} onOpenChange={(open) => {
         if (!open && !remove.isPending) setDeleting(null);
       }}>

@@ -106,7 +106,7 @@ function PreviewIssue({ issue }: { issue: SubscriptionPreview['result']['diagnos
         {issue.node_type && <Badge variant='secondary'>{issue.node_type}</Badge>}
         <span className='text-muted-foreground'>{t('channels.previewOmitted')}</span>
       </div>
-      <p>{t(`channels.previewReasons.${reason}`, { format: issue.format === 'loon' ? 'Loon' : issue.format === 'mihomo' ? 'Mihomo' : 'sing-box' })}</p>
+      <p>{t(`channels.previewReasons.${reason}`, { format: issue.format })}</p>
       <p className='text-muted-foreground'>{t(`channels.previewActions.${reason}`)}</p>
       <div className='grid gap-1 text-xs text-muted-foreground'>
         <span>

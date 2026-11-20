@@ -192,7 +192,7 @@ export function ChannelRuleEditor({ rule, format, onClose, onSave, otherRuleName
                             yaml: 'YAML / YML',
                             text: 'TEXT',
                             mrs: 'MRS',
-                            loon: 'Loon',
+                            loon: 'loon',
                           }[value],
                         })),
                       ]}

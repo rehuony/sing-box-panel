@@ -16,7 +16,9 @@ import (
 	"unicode/utf8"
 )
 
-// SourceFormat is a content format, or auto to recognize it.
+// SourceFormat is a content format, or auto to recognize it. A source may
+// also name a share link protocol, such as vless, for content that holds only
+// that protocol's links.
 type SourceFormat string
 
 const (
@@ -78,10 +80,14 @@ func init() {
 	registerSourceParser(shareLinkSourceParser{})
 }
 
-// ValidSourceFormat reports whether format names a registered format, or
-// auto when allowAuto.
+// ValidSourceFormat reports whether a source can name format: a
+// configuration format, a share link protocol, or auto when allowAuto. Share
+// links of several protocols are read with auto.
 func ValidSourceFormat(format SourceFormat, allowAuto bool) bool {
-	return lookupSourceParser(format) != nil || allowAuto && format == SourceFormatAuto
+	if format == SourceFormatShareLinks {
+		return false
+	}
+	return lookupSourceParser(format) != nil || shareLinkProtocol(format) || allowAuto && format == SourceFormatAuto
 }
 
 // Source parse error codes.
@@ -148,7 +154,7 @@ func (reading SourceReading) Kept() []SourceReadingItem {
 
 // ReadSource reads content strictly: the content must parse as format, or as
 // the format that recognizes it best for auto, after Base64 wrapping is
-// removed; the filter then selects nodes by name, and every kept node must
+// removed; a share link protocol reads share links that must all be of it; the filter then selects nodes by name, and every kept node must
 // convert. A failure is a SourceParseError. When the content parses but a
 // kept node does not convert, the reading still lists every item.
 func ReadSource(content []byte, format SourceFormat, filter SourceFilter) (SourceReading, error) {
@@ -223,6 +229,9 @@ func convertSourceItem(item SourceItem) (map[string]any, error) {
 }
 
 func sourceParser(format SourceFormat, body []byte) (SourceParser, error) {
+	if shareLinkProtocol(format) {
+		return shareLinkSourceParser{protocol: string(format)}, nil
+	}
 	if format != SourceFormatAuto {
 		parser := lookupSourceParser(format)
 		if parser == nil {

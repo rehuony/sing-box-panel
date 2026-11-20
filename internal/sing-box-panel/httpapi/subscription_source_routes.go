@@ -79,28 +79,12 @@ func (handler *Handler) updateSubscriptionSource(w http.ResponseWriter, request 
 		return
 	}
 	var input subscription.UpdateSubscriptionSourceRequest
-	if !decodeStrictRequest(w, request, maximumSubscriptionRequestBytes, &input) {
+	if !decodeStrictRequest(w, request, maximumSourceRequestBytes, &input) {
 		return
 	}
 	source, err := handler.services.Subscriptions.UpdateSubscriptionSource(request.Context(), identifier, input, expected)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_update_failed", err)
-		return
-	}
-	writeSubscriptionResource(w, http.StatusOK, source.UpdatedAt, source)
-}
-
-func (handler *Handler) replaceSubscriptionSourceContent(w http.ResponseWriter, request *http.Request, identifier string) {
-	if !handler.subscriptionMutationRequest(w, request) {
-		return
-	}
-	var input subscription.SubscriptionSourceContentRequest
-	if !decodeStrictRequest(w, request, maximumSourceRequestBytes, &input) {
-		return
-	}
-	source, err := handler.services.Subscriptions.ReplaceSubscriptionSourceContent(request.Context(), identifier, input)
-	if err != nil {
-		writeSubscriptionProblem(w, request, "subscription_source_content_failed", err)
 		return
 	}
 	writeSubscriptionResource(w, http.StatusOK, source.UpdatedAt, source)

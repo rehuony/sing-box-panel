@@ -146,7 +146,6 @@ var routes = []route{
 	{http.MethodPut, "/subscription/sources/{sourceId}", "updateSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).updateSubscriptionSource)},
 	{http.MethodDelete, "/subscription/sources/{sourceId}", "deleteSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).deleteSubscriptionSource)},
 	{http.MethodPost, "/subscription/sources/{sourceId}/refresh", "refreshSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).refreshSubscriptionSource)},
-	{http.MethodPut, "/subscription/sources/{sourceId}/content", "replaceSubscriptionSourceContent", accessSession, withPathValue("sourceId", (*Handler).replaceSubscriptionSourceContent)},
 
 	{http.MethodGet, "/subscription/tokens", "listSubscriptionTokens", accessSession, (*Handler).listSubscriptionTokens},
 	{http.MethodPost, "/subscription/tokens", "createSubscriptionToken", accessSession, (*Handler).createSubscriptionToken},

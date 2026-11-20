@@ -15,7 +15,7 @@ import (
 )
 
 // ErrSourceKindMismatch rejects an operation the source's kind does not
-// support: refreshing a file source or uploading content to a URL source.
+// support: refreshing a file source or giving content to a URL source.
 var ErrSourceKindMismatch = errors.New("the subscription source kind does not support the operation")
 
 const minimumSourceRefreshMinutes = 15
@@ -58,19 +58,15 @@ type CreateSubscriptionSourceRequest struct {
 }
 
 // UpdateSubscriptionSourceRequest replaces a source's settings; URL sources
-// also give their URL and refresh interval.
+// also give their URL and refresh interval, and a file source may give new
+// content.
 type UpdateSubscriptionSourceRequest struct {
 	Name           string        `json:"name"`
 	URL            *string       `json:"url"`
 	RefreshMinutes *int          `json:"refresh_minutes"`
 	Format         SourceFormat  `json:"format"`
 	Filter         *SourceFilter `json:"filter"`
-}
-
-// SubscriptionSourceContentRequest replaces a file source's content.
-type SubscriptionSourceContentRequest struct {
-	Content string       `json:"content"`
-	Format  SourceFormat `json:"format"`
+	Content        *string       `json:"content"`
 }
 
 // SubscriptionSourcePreviewRequest reads exactly one of a stored source's
@@ -235,9 +231,11 @@ func (application *Service) ListSubscriptionSources(ctx context.Context, request
 	return page, nil
 }
 
-// UpdateSubscriptionSource replaces a source's settings. A changed filter
+// UpdateSubscriptionSource replaces a source's settings, and a file source's
+// content when the request gives it, in one write. New content must parse
+// with every node the filter keeps converting. Without it, a changed filter
 // applies to the stored content at once and must keep only nodes that
-// convert; a changed URL or format applies to the next content.
+// convert, and a changed URL or format applies to the next content.
 func (application *Service) UpdateSubscriptionSource(ctx context.Context, sourceID string, request UpdateSubscriptionSourceRequest, expected time.Time) (SubscriptionSource, error) {
 	current, err := application.database.GetSubscriptionSource(ctx, strings.TrimSpace(sourceID))
 	if err != nil {
@@ -247,8 +245,22 @@ func (application *Service) UpdateSubscriptionSource(ctx context.Context, source
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
+	var content []byte
+	var contentFormat string
 	filterChanged := !sameStrings(settings.filter.Include, current.Filter.Include) || !sameStrings(settings.filter.Exclude, current.Filter.Exclude)
-	if filterChanged {
+	if request.Content != nil {
+		if current.Kind != store.SubscriptionSourceFile {
+			return SubscriptionSource{}, ErrSourceKindMismatch
+		}
+		reading, err := ReadSource([]byte(*request.Content), settings.format, settings.filter)
+		if err != nil {
+			return SubscriptionSource{}, err
+		}
+		if err := application.ensurePoolCapacity(ctx, current.ID, len(reading.Kept())); err != nil {
+			return SubscriptionSource{}, err
+		}
+		content, contentFormat = []byte(*request.Content), string(reading.Format)
+	} else if filterChanged {
 		stored, err := application.database.SubscriptionSourceContent(ctx, current.ID)
 		if err != nil {
 			return SubscriptionSource{}, err
@@ -277,6 +289,7 @@ func (application *Service) UpdateSubscriptionSource(ctx context.Context, source
 	stored, err := application.database.UpdateSubscriptionSource(ctx, store.UpdateSubscriptionSourceInput{
 		ID: current.ID, Name: request.Name, URL: settings.url, RefreshMinutes: settings.refreshMinutes,
 		Format: string(settings.format), Filter: storeSourceFilter(settings.filter), NextRefreshAt: next,
+		Content: content, ContentFormat: contentFormat, ContentAt: application.now().UTC(),
 		ExpectedUpdatedAt: expected, UpdatedAt: application.nextSubscriptionUpdateTime(expected),
 	})
 	if err != nil {
@@ -284,40 +297,6 @@ func (application *Service) UpdateSubscriptionSource(ctx context.Context, source
 	}
 	application.PoolInputsChanged(ctx)
 	return application.SubscriptionSource(ctx, stored.ID)
-}
-
-// ReplaceSubscriptionSourceContent replaces a file source's content, which
-// must parse with every kept node converting.
-func (application *Service) ReplaceSubscriptionSourceContent(ctx context.Context, sourceID string, request SubscriptionSourceContentRequest) (SubscriptionSource, error) {
-	current, err := application.database.GetSubscriptionSource(ctx, strings.TrimSpace(sourceID))
-	if err != nil {
-		return SubscriptionSource{}, err
-	}
-	if current.Kind != store.SubscriptionSourceFile {
-		return SubscriptionSource{}, ErrSourceKindMismatch
-	}
-	format := SourceFormat(current.Format)
-	if request.Format != "" {
-		if !ValidSourceFormat(request.Format, true) {
-			return SubscriptionSource{}, &SourceFieldError{Path: "format", Code: "invalid_value"}
-		}
-		format = request.Format
-	}
-	reading, err := ReadSource([]byte(request.Content), format, sourceFilter(current.Filter))
-	if err != nil {
-		return SubscriptionSource{}, err
-	}
-	if err := application.ensurePoolCapacity(ctx, current.ID, len(reading.Kept())); err != nil {
-		return SubscriptionSource{}, err
-	}
-	if _, err := application.database.ReplaceSubscriptionSourceContent(ctx, store.SubscriptionSourceContentUpdate{
-		ID: current.ID, Content: []byte(request.Content), ContentFormat: string(reading.Format), At: application.now().UTC(),
-		Format: string(format), UpdatedAt: application.nextSubscriptionUpdateTime(current.UpdatedAt),
-	}); err != nil {
-		return SubscriptionSource{}, err
-	}
-	application.PoolInputsChanged(ctx)
-	return application.SubscriptionSource(ctx, current.ID)
 }
 
 // RefreshSubscriptionSource fetches a URL source now. A failed fetch or parse

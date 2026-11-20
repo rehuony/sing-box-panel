@@ -78,7 +78,8 @@ func TestSubscriptionSourceHTTP(t *testing.T) {
 	version := created.Header().Get("ETag")
 
 	// Strict parsing names the node that does not convert and saves nothing.
-	rejected := authenticatedRequest(t, handler, http.MethodPut, sourcePath+"/content", `{"content":"socks5://a.example:1080#A\ntrojan://t.example:443#Broken"}`, "")
+	rejected := authenticatedRequest(t, handler, http.MethodPut, sourcePath,
+		`{"name":"Upload","filter":{"include":[],"exclude":[]},"content":"socks5://a.example:1080#A\ntrojan://t.example:443#Broken"}`, version)
 	var problem Problem
 	if rejected.Code != http.StatusUnprocessableEntity || json.Unmarshal(rejected.Body.Bytes(), &problem) != nil ||
 		problem.Code != "subscription_source_unreadable" || problem.Fields["location"] != "line 2" || problem.Fields["name"] != "Broken" || problem.Fields["code"] != "node_not_convertible" {
@@ -96,14 +97,16 @@ func TestSubscriptionSourceHTTP(t *testing.T) {
 		t.Fatalf("preview of two inputs status=%d body=%s", ambiguous.Code, ambiguous.Body.String())
 	}
 
-	// Settings change under If-Match; content uploads do not change the version.
+	// Settings and content change under If-Match, together.
 	settings := `{"name":"Upload","filter":{"include":[],"exclude":["/^B$/"]}}`
 	if response := authenticatedRequest(t, handler, http.MethodPut, sourcePath, settings, ""); response.Code != http.StatusPreconditionRequired {
 		t.Fatalf("update without If-Match status=%d", response.Code)
 	}
-	if response := authenticatedRequest(t, handler, http.MethodPut, sourcePath, `{"name":"Upload","filter":{"include":["/(/"],"exclude":[]}}`, version); response.Code != http.StatusUnprocessableEntity ||
-		!strings.Contains(response.Body.String(), "filter.include[0]") {
-		t.Fatalf("invalid filter status=%d body=%s", response.Code, response.Body.String())
+	// A refused rule is named in the problem's fields by its path.
+	invalidFilter := authenticatedRequest(t, handler, http.MethodPut, sourcePath, `{"name":"Upload","filter":{"include":["HK","/(/"],"exclude":[]}}`, version)
+	if problem = (Problem{}); invalidFilter.Code != http.StatusUnprocessableEntity || json.Unmarshal(invalidFilter.Body.Bytes(), &problem) != nil ||
+		problem.Code != "subscription_source_invalid" || problem.Fields["filter.include[1]"] != "invalid_regular_expression" {
+		t.Fatalf("invalid filter status=%d body=%s", invalidFilter.Code, invalidFilter.Body.String())
 	}
 	updated := authenticatedRequest(t, handler, http.MethodPut, sourcePath, settings, version)
 	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"node_count":1`) {
@@ -112,8 +115,9 @@ func TestSubscriptionSourceHTTP(t *testing.T) {
 	if stale := authenticatedRequest(t, handler, http.MethodPut, sourcePath, settings, version); stale.Code != http.StatusPreconditionFailed {
 		t.Fatalf("stale update status=%d", stale.Code)
 	}
-	replaced := authenticatedRequest(t, handler, http.MethodPut, sourcePath+"/content", `{"content":"socks5://c.example:1080#C"}`, "")
-	if replaced.Code != http.StatusOK || replaced.Header().Get("ETag") != updated.Header().Get("ETag") || !strings.Contains(replaced.Body.String(), `"node_count":1`) {
+	replaced := authenticatedRequest(t, handler, http.MethodPut, sourcePath,
+		`{"name":"Upload","filter":{"include":[],"exclude":["/^B$/"]},"content":"socks5://c.example:1080#C\nsocks5://b.example:1080#B"}`, updated.Header().Get("ETag"))
+	if replaced.Code != http.StatusOK || replaced.Header().Get("ETag") == updated.Header().Get("ETag") || !strings.Contains(replaced.Body.String(), `"node_count":1`) {
 		t.Fatalf("content status=%d body=%s", replaced.Code, replaced.Body.String())
 	}
 	if refresh := authenticatedRequest(t, handler, http.MethodPost, sourcePath+"/refresh", "", ""); refresh.Code != http.StatusUnprocessableEntity {

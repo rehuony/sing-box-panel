@@ -251,6 +251,7 @@ func TestReadSourceIsStrict(t *testing.T) {
 		{"missing credential", "trojan://trojan.example:443#T\n", SourceFormatShareLinks, SourceErrorNodeNotConvertible, "line 1"},
 		{"invalid outbound", `{"outbounds":[{"type":"hysteria2","tag":"H","server":"h.example","server_port":443,"password":"p"}]}`, SourceFormatAuto, SourceErrorNodeNotConvertible, "outbounds[0]"},
 		{"control character", "socks5://a.example:1080#A%0AB\n", SourceFormatShareLinks, SourceErrorInvalidNodeName, "line 1"},
+		{"another protocol", "socks5://a.example:1080#A\ntrojan://pass@t.example:443#T\n", "socks", SourceErrorInvalidContent, "line 2"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := ReadSource([]byte(test.content), test.format, SourceFilter{})

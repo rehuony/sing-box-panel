@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -82,7 +83,9 @@ type NewSubscriptionSource struct {
 }
 
 // UpdateSubscriptionSourceInput replaces a source's settings when its
-// updated_at is still ExpectedUpdatedAt.
+// updated_at is still ExpectedUpdatedAt. Content, when set, also replaces a
+// file source's content in the same write: content that parsed as
+// ContentFormat, stored at ContentAt with the source's last error cleared.
 type UpdateSubscriptionSourceInput struct {
 	ID                string
 	Name              string
@@ -91,21 +94,21 @@ type UpdateSubscriptionSourceInput struct {
 	Format            string
 	Filter            SubscriptionSourceFilter
 	NextRefreshAt     *time.Time
+	Content           []byte
+	ContentFormat     string
+	ContentAt         time.Time
 	ExpectedUpdatedAt time.Time
 	UpdatedAt         time.Time
 }
 
-// SubscriptionSourceContentUpdate stores content that parsed: a refresh or an
-// upload. Format, when set, also replaces the source's format setting and
-// advances its updated_at to UpdatedAt.
+// SubscriptionSourceContentUpdate stores content a URL source's refresh
+// fetched and parsed.
 type SubscriptionSourceContentUpdate struct {
 	ID            string
 	Content       []byte
 	ContentFormat string
 	At            time.Time
 	NextRefreshAt *time.Time
-	Format        string
-	UpdatedAt     time.Time
 }
 
 const subscriptionSourceColumns = `
@@ -235,6 +238,15 @@ func (s *Store) UpdateSubscriptionSource(ctx context.Context, input UpdateSubscr
 	if err != nil {
 		return SubscriptionSource{}, err
 	}
+	var contentAt time.Time
+	if input.Content != nil {
+		if err := validateSourceContent(input.Content, input.ContentFormat); err != nil {
+			return SubscriptionSource{}, err
+		}
+		if contentAt, err = requiredUTC(input.ContentAt, "subscription source content time"); err != nil {
+			return SubscriptionSource{}, err
+		}
+	}
 	var stored SubscriptionSource
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
 		current, err := getSubscriptionSource(ctx, tx, input.ID)
@@ -243,6 +255,14 @@ func (s *Store) UpdateSubscriptionSource(ctx context.Context, input UpdateSubscr
 		}
 		if !current.UpdatedAt.Equal(expected) {
 			return subscriptionConflict("source", input.ID, expected, current.UpdatedAt)
+		}
+		if input.Content != nil {
+			if current.Kind != SubscriptionSourceFile {
+				return errors.New("only a file subscription source takes content")
+			}
+			if err := ensureSubscriptionSourceLimits(ctx, tx, current.ID, int64(len(input.Content))); err != nil {
+				return err
+			}
 		}
 		next := current
 		next.Name, next.URL, next.RefreshMinutes = input.Name, input.URL, input.RefreshMinutes
@@ -270,14 +290,26 @@ func (s *Store) UpdateSubscriptionSource(ctx context.Context, input UpdateSubscr
 		if err := requireSingleSubscriptionWrite(result, "update subscription source"); err != nil {
 			return err
 		}
+		if input.Content != nil {
+			result, err := tx.ExecContext(ctx, `UPDATE subscription_sources
+				SET content = ?, content_sha256 = ?, content_format = ?, content_at = ?, last_attempt_at = ?, last_error = NULL
+				WHERE id = ?`,
+				input.Content, contentDigest(input.Content), input.ContentFormat, formatTime(contentAt), formatTime(contentAt), next.ID)
+			if err != nil {
+				return fmt.Errorf("replace subscription source content: %w", err)
+			}
+			if err := requireSingleSubscriptionWrite(result, "replace subscription source content"); err != nil {
+				return err
+			}
+		}
 		stored, err = getSubscriptionSource(ctx, tx, input.ID)
 		return err
 	})
 	return stored, err
 }
 
-// ReplaceSubscriptionSourceContent stores content that parsed and clears the
-// source's last error.
+// ReplaceSubscriptionSourceContent stores content a refresh fetched and
+// clears the source's last error.
 func (s *Store) ReplaceSubscriptionSourceContent(ctx context.Context, input SubscriptionSourceContentUpdate) (SubscriptionSource, error) {
 	if err := validateSubscriptionID(input.ID, "source"); err != nil {
 		return SubscriptionSource{}, fmt.Errorf("%w: %s", ErrSubscriptionSourceNotFound, input.ID)
@@ -301,22 +333,12 @@ func (s *Store) ReplaceSubscriptionSourceContent(ctx context.Context, input Subs
 		if err := ensureSubscriptionSourceLimits(ctx, tx, current.ID, int64(len(input.Content))); err != nil {
 			return err
 		}
-		format, updated := current.Format, current.UpdatedAt
-		if input.Format != "" && input.Format != current.Format {
-			if !validSourceFormatChoice(input.Format) {
-				return fmt.Errorf("invalid subscription source format %q", input.Format)
-			}
-			format = input.Format
-			if updated, err = nextSubscriptionUpdateTime(input.UpdatedAt, current.UpdatedAt); err != nil {
-				return err
-			}
-		}
 		result, err := tx.ExecContext(ctx, `UPDATE subscription_sources
 			SET content = ?, content_sha256 = ?, content_format = ?, content_at = ?, last_attempt_at = ?,
-			    last_error = NULL, next_refresh_at = ?, format = ?, updated_at = ?
+			    last_error = NULL, next_refresh_at = ?
 			WHERE id = ?`,
 			input.Content, contentDigest(input.Content), input.ContentFormat, formatTime(at), formatTime(at),
-			nullableTime(input.NextRefreshAt), format, formatTime(updated), current.ID)
+			nullableTime(input.NextRefreshAt), current.ID)
 		if err != nil {
 			return fmt.Errorf("replace subscription source content: %w", err)
 		}
@@ -439,8 +461,12 @@ func prepareSubscriptionSource(source SubscriptionSource) (SubscriptionSource, e
 	return source, nil
 }
 
+// sourceLinkProtocols are the share link protocols a source can name as its
+// format, for content that holds only that protocol's links.
+var sourceLinkProtocols = []string{"shadowsocks", "socks", "http", "vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls"}
+
 func validSourceFormatChoice(value string) bool {
-	return value == "auto" || validSourceContentFormat(value)
+	return value == "auto" || value == "sing-box" || value == "mihomo" || slices.Contains(sourceLinkProtocols, value)
 }
 
 func validSourceContentFormat(value string) bool {

@@ -70,8 +70,8 @@ export const channels = {
 
   groupType: '策略类型', groupTypes: { 'select': '手动选择', 'url-test': '自动测速', 'fallback': '故障转移' },
   testURL: '检测链接', testInterval: '检测间隔（秒）', testTolerance: '容差（毫秒）',
-  addBuiltin: '添加内置节点', builtinNode: '内置节点', mihomoOnly: '仅 Mihomo',
-  rejectSupport: '拒绝连接候选节点适用于 Mihomo 和 Loon 手动策略组。',
+  addBuiltin: '添加内置节点', builtinNode: '内置节点', mihomoOnly: '仅 mihomo',
+  rejectSupport: '拒绝连接候选节点适用于 mihomo 和 loon 手动策略组。',
   singBoxGroupSupport: 'sing-box 支持手动选择和自动测速。',
 
   accelerationUnavailable: '请先填写 GitHub 文件链接，再启用加速。',
@@ -100,7 +100,7 @@ export const channels = {
     invalid_url: '规则集链接必须是 http 或 https 网址',
     format_required: '链接看不出源格式，请写明格式',
     format_unsupported: '此客户端不能使用 {{detail}} 格式',
-    behavior_unsupported: '规则类型只适用于 Mihomo 渠道',
+    behavior_unsupported: '规则类型只适用于 mihomo 渠道',
     mrs_classical: 'MRS 规则集不能使用 classical 类型',
     policy_dropped: '已忽略策略 {{detail}}，出口由策略组决定',
     no_resolve_dropped: '已忽略 no-resolve',

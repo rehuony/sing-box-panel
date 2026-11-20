@@ -402,7 +402,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     updateSubscriptionSource: vi.fn<ApiClient['updateSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
     deleteSubscriptionSource: vi.fn<ApiClient['deleteSubscriptionSource']>().mockResolvedValue(undefined),
     refreshSubscriptionSource: vi.fn<ApiClient['refreshSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
-    replaceSubscriptionSourceContent: vi.fn<ApiClient['replaceSubscriptionSourceContent']>().mockResolvedValue(testSubscriptionSources[0]),
     previewSubscriptionSource: vi.fn<ApiClient['previewSubscriptionSource']>().mockResolvedValue({ items: [] }),
     listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>().mockResolvedValue({
       items: testSubscriptionTokens, total: testSubscriptionTokens.length,

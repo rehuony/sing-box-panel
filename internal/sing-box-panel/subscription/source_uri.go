@@ -9,14 +9,17 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 // shareLinkSourceParser reads share links, one per line. Base64-wrapped
 // content is decoded before parsing; blank lines and lines starting with #
-// are skipped.
-type shareLinkSourceParser struct{}
+// are skipped. With a protocol, every link must convert to it.
+type shareLinkSourceParser struct {
+	protocol string
+}
 
 func (shareLinkSourceParser) Format() SourceFormat { return SourceFormatShareLinks }
 
@@ -40,7 +43,7 @@ func (shareLinkSourceParser) Sniff(body []byte) int {
 	return 100 * links / lines
 }
 
-func (shareLinkSourceParser) Items(body []byte) ([]SourceItem, error) {
+func (parser shareLinkSourceParser) Items(body []byte) ([]SourceItem, error) {
 	items := []SourceItem{}
 	for index, line := range strings.Split(string(body), "\n") {
 		line = strings.TrimSpace(line)
@@ -54,6 +57,9 @@ func (shareLinkSourceParser) Items(body []byte) ([]SourceItem, error) {
 		}
 		scheme := strings.ToLower(match[1])
 		converter, known := shareLinkConverters[scheme]
+		if parser.protocol != "" && converter.protocol != parser.protocol {
+			return nil, contentError(location, "not a "+parser.protocol+" link")
+		}
 		if !known {
 			name := scheme
 			if parsed, err := url.Parse(line); err == nil {
@@ -102,10 +108,22 @@ type shareLinkConverter struct {
 	convert  func(link string) (map[string]any, error)
 }
 
-// shareLinkConverters holds one converter per registered scheme.
-var shareLinkConverters = map[string]shareLinkConverter{}
+// shareLinkConverters holds one converter per registered scheme, and
+// shareLinkProtocols the protocols they convert to, in registration order.
+var (
+	shareLinkConverters = map[string]shareLinkConverter{}
+	shareLinkProtocols  []string
+)
+
+// shareLinkProtocol reports whether format names a protocol share links convert to.
+func shareLinkProtocol(format SourceFormat) bool {
+	return slices.Contains(shareLinkProtocols, string(format))
+}
 
 func registerShareLink(converter shareLinkConverter, schemes ...string) {
+	if !slices.Contains(shareLinkProtocols, converter.protocol) {
+		shareLinkProtocols = append(shareLinkProtocols, converter.protocol)
+	}
 	for _, scheme := range schemes {
 		if _, duplicate := shareLinkConverters[scheme]; duplicate {
 			panic(fmt.Sprintf("share link scheme %q registered twice", scheme))

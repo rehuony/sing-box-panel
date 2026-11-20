@@ -56,7 +56,6 @@ import type {
   SubscriptionNodeUpdate,
   SubscriptionPreview,
   SubscriptionSource,
-  SubscriptionSourceContent,
   SubscriptionSourceCreate,
   SubscriptionSourcePage,
   SubscriptionSourcePreview,
@@ -272,12 +271,6 @@ export interface ApiClient {
     filter?: SubscriptionListFilter & { offset?: number },
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenPage>;
-  /** Replaces a file source's content; content that does not parse is refused and the current content stays. */
-  replaceSubscriptionSourceContent: (
-    sourceID: string,
-    input: SubscriptionSourceContent,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionSource>;
   /** Runs a checked configuration on the node, verified the way applying a saved file is. */
   activateStartupArtifact: (
     startupArtifactID: string,

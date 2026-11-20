@@ -156,11 +156,6 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         signal,
       });
     },
-    replaceSubscriptionSourceContent(sourceID, input, signal) {
-      return request<SubscriptionSource>(fetcher, `${baseUrl}/subscription/sources/${encodeURIComponent(sourceID)}/content`, {
-        method: 'PUT', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,
-      });
-    },
     previewSubscriptionSource(input, signal) {
       return request<SubscriptionSourcePreview>(fetcher, `${baseUrl}/subscription/sources/preview`, {
         method: 'POST', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,

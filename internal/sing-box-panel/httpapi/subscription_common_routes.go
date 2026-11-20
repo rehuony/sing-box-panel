@@ -3,7 +3,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -90,7 +89,8 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 	}
 	var field *subscription.SourceFieldError
 	if errors.As(err, &field) {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_invalid", "Source settings invalid", field.Path+": "+field.Code)
+		writeProblemFields(w, request, http.StatusUnprocessableEntity, "subscription_source_invalid", "Source settings invalid",
+			field.Path+": "+field.Code, map[string]string{field.Path: field.Code})
 		return
 	}
 	var reference *store.SubscriptionReferenceError
@@ -150,13 +150,7 @@ func writeSourceParseProblem(w http.ResponseWriter, request *http.Request, parse
 			fields[name] = value
 		}
 	}
-	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusUnprocessableEntity)
-	_ = json.NewEncoder(w).Encode(Problem{
-		Type: "about:blank", Title: "Source content cannot be read", Status: http.StatusUnprocessableEntity,
-		Code: "subscription_source_unreadable", Detail: parse.Error(), RequestID: request.Header.Get("X-Request-ID"), Fields: fields,
-	})
+	writeProblemFields(w, request, http.StatusUnprocessableEntity, "subscription_source_unreadable", "Source content cannot be read", parse.Error(), fields)
 }
 
 // sourceFetchDetail names why a fetch failed without the URL.

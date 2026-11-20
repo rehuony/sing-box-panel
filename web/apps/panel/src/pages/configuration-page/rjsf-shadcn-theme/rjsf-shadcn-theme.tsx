@@ -503,7 +503,7 @@ function PanelSelectWidget(props: WidgetProps) {
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className='schema-form__select-popup'>
+      <SelectContent>
         <SelectGroup>
           {encodedItems.map((item) => (
             <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>

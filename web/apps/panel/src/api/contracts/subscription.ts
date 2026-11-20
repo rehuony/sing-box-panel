@@ -25,7 +25,6 @@ export type {
   SubscriptionNodeUpdate,
   SubscriptionPreview,
   SubscriptionSource,
-  SubscriptionSourceContent,
   SubscriptionSourceCreate,
   SubscriptionSourceFilter,
   SubscriptionSourceFormatChoice,

@@ -53,7 +53,9 @@ CREATE TABLE subscription_sources (
     url TEXT CHECK (url IS NULL OR length(url) BETWEEN 1 AND 4096),
     -- 0 fetches only on request.
     refresh_minutes INTEGER CHECK (refresh_minutes IS NULL OR refresh_minutes = 0 OR refresh_minutes BETWEEN 15 AND 10080),
-    format TEXT NOT NULL DEFAULT 'auto' CHECK (format IN ('auto', 'sing-box', 'mihomo', 'share-links')),
+    -- A configuration format, or a share link protocol for content holding only that protocol's links.
+    format TEXT NOT NULL DEFAULT 'auto' CHECK (format IN ('auto', 'sing-box', 'mihomo', 'shadowsocks', 'socks', 'http',
+        'vmess', 'vless', 'trojan', 'hysteria', 'hysteria2', 'tuic', 'anytls')),
     -- Name rules, JSON arrays of strings: plain text matches a substring, /text/ is an RE2 expression.
     include_rules TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(include_rules) AND json_type(include_rules) = 'array'),
     exclude_rules TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(exclude_rules) AND json_type(exclude_rules) = 'array'),

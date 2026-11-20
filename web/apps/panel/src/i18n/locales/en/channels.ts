@@ -70,8 +70,8 @@ export const channels = {
 
   groupType: 'Group type', groupTypes: { 'select': 'Manual selection', 'url-test': 'Automatic latency test', 'fallback': 'Fallback' },
   testURL: 'Test link', testInterval: 'Interval (s)', testTolerance: 'Tolerance (ms)',
-  addBuiltin: 'Add built-in node', builtinNode: 'Built-in node', mihomoOnly: 'Mihomo only',
-  rejectSupport: 'REJECT candidates are supported by Mihomo and Loon manual groups.',
+  addBuiltin: 'Add built-in node', builtinNode: 'Built-in node', mihomoOnly: 'mihomo only',
+  rejectSupport: 'REJECT candidates are supported by mihomo and loon manual groups.',
   singBoxGroupSupport: 'sing-box supports manual selection and automatic latency tests.',
 
   accelerationUnavailable: 'Enter a GitHub file link to enable acceleration.',
@@ -100,7 +100,7 @@ export const channels = {
     invalid_url: 'The rule-set link must be an http or https URL',
     format_required: 'Add the source format; the link does not show it',
     format_unsupported: 'This client cannot use the {{detail}} format',
-    behavior_unsupported: 'Rule behavior applies only to Mihomo channels',
+    behavior_unsupported: 'Rule behavior applies only to mihomo channels',
     mrs_classical: 'MRS rule sets cannot use the classical behavior',
     policy_dropped: 'Policy {{detail}} left out; the group sets the exit',
     no_resolve_dropped: 'no-resolve left out',

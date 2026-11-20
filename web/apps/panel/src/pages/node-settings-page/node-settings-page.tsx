@@ -24,6 +24,7 @@ import type { FleetNode, NodeSettings } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
+import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { MAX_TAGS, TagInput } from '@/components/tag-input';
@@ -180,7 +181,7 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
         </SettingsField>
       </SettingsGroup>
       <footer className='-mx-4 -mb-4 mt-auto flex items-center gap-3 border-t px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6'>
-        <p className='min-h-5 min-w-0 flex-1 truncate text-sm text-muted-foreground' role='status' title={message || undefined}>{message}</p>
+        <p className='min-h-5 min-w-0 flex-1 truncate text-sm text-muted-foreground' role='status' title={message ? messageLine(message) : undefined}>{message ? messageLine(message) : null}</p>
         <Button onClick={() => {
           setDraft(saved);
           setInvalid(null);
