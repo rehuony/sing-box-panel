@@ -71,8 +71,9 @@ describe('subscription node pool', () => {
     });
     await screen.findByRole('button', { name: 'tokyo' });
     expect(cards()).toEqual(['tokyo', 'hk-01', 'osaka', 'us-01']);
-    expect(screen.getByRole('button', { name: 'tokyo' })).toHaveTextContent('edge · tokyo-in');
-    expect(screen.getByRole('button', { name: 'tokyo' })).toHaveTextContent('vless edge.example:443');
+    const tokyo = within(screen.getByRole('button', { name: 'tokyo' }));
+    expect(tokyo.getByText('edge.example:443')).toBeInTheDocument();
+    expect(tokyo.getByText('edge · tokyo-in')).toBeInTheDocument();
     await userEvent.setup().type(screen.getByRole('searchbox', { name: 'Search nodes' }), 'edge');
     await waitFor(() => expect(cards()).toEqual(['tokyo', 'osaka']));
     await moveRight('tokyo', 2);
@@ -111,7 +112,9 @@ describe('subscription node pool', () => {
     await user.click(await screen.findByRole('button', { name: 'tokyo' }));
     const dialog = await screen.findByRole('dialog', { name: 'tokyo' });
     expect(await within(dialog).findByRole('region', { name: 'Outbound' })).toHaveTextContent('"server": "edge.example"');
+    expect(within(dialog).getByRole('link', { name: 'edge · tokyo-in' })).toHaveAttribute('href', '/nodes/node_edge');
     expect(within(dialog).getByRole('link', { name: 'Open configuration' })).toHaveAttribute('href', '/nodes/node_edge/configuration?inbound=tokyo-in');
+    await user.click(within(dialog).getByRole('button', { name: 'Edit display name' }));
     const name = within(dialog).getByLabelText('Display name');
     await user.clear(name);
     await user.type(name, 'Tokyo 1');

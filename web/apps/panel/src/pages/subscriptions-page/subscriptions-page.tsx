@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 
@@ -26,8 +27,10 @@ export function SubscriptionsPage() {
   const [addingSource, setAddingSource] = useState(false);
   const tokenPage = useSubscriptionTokenPage(area === 'tokens');
 
+  // Size containment keeps the areas' content out of the workspace's height, so
+  // the window fills it exactly and each area scrolls in its own region.
   return (
-    <div className='@container flex w-full min-h-0 min-w-0 flex-1 flex-col *:min-w-0'>
+    <div className='@container flex w-full min-h-0 min-w-0 flex-1 flex-col [contain:size] *:min-w-0'>
       <h1 className='sr-only'>{t('subscriptions.title')}</h1>
       <Tabs className='min-h-0 flex-1 gap-[var(--workspace-content-gap)]' onValueChange={selectArea} value={area}>
         <TitleStrip>
@@ -37,7 +40,8 @@ export function SubscriptionsPage() {
           <StripDivider className='max-sm:hidden' />
           <WorkspaceToolbarActions ref={setToolbarTarget} />
         </TitleStrip>
-        <div className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+        {/* The pool's cards sit on the content surface like the nodes home's panes; the tables share one card. */}
+        <div className={cn('flex min-h-0 flex-1 flex-col', area !== 'nodes' && 'overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]')}>
           <TabsContent className='min-h-0 flex-1 overflow-auto' value='nodes'>
             <SubscriptionNodePanel
               active={area === 'nodes'}

@@ -35,7 +35,6 @@ export const shell = {
     running: 'updating',
   },
   window: '{{number}}: {{name}}',
-  skip: 'Skip to main content',
 } as const;
 
 export const nodes = {

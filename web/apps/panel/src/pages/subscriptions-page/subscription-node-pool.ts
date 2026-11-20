@@ -28,9 +28,9 @@ export function nodeAddress(node: SubscriptionNode): string {
   return ports === undefined ? host : `${host}:${ports}`;
 }
 
-/** The node's security layer: tls, reality and the SNI it presents. */
+/** The node's security layer: tls and reality. */
 export function nodeSecurity(node: SubscriptionNode): string[] {
-  return [node.tls ? 'tls' : '', node.reality ? 'reality' : '', node.sni ?? ''].filter(Boolean);
+  return [node.tls ? 'tls' : '', node.reality ? 'reality' : ''].filter(Boolean);
 }
 
 /** Whether a search, already lower case, matches the node's display name, origin, protocol or server. */

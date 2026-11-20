@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { CirclePlus, TriangleAlert } from 'lucide-react';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
@@ -28,6 +29,8 @@ import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { ALL_ORIGINS, ALL_PROTOCOLS, FLEET_ORIGIN, matchesNode, originFilter } from './subscription-node-pool';
 
 const orderMutationKey = ['subscription-node-order'];
+/** Where the pool's empty and failed states sit, a region the size of its grid as on the nodes home. */
+const stateRegion = 'flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
 
 /**
  * The fleet nodes that publish nothing or leave out some of their inbounds,
@@ -186,66 +189,74 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
     content = <SubscriptionContentState loading />;
   } else if (list.data === undefined) {
     content = (
-      <SubscriptionContentState kind='preview' title={t('subscriptions.pool.loadFailed')}>
-        <Button onClick={() => void list.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
-      </SubscriptionContentState>
+      <div className={stateRegion}>
+        <SubscriptionContentState kind='preview' title={t('subscriptions.pool.loadFailed')}>
+          <Button onClick={() => void list.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
+        </SubscriptionContentState>
+      </div>
     );
   } else if (ordered.length === 0) {
     content = (
-      <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')}>
-        {onAddSource
-          ? (
-              <Button onClick={onAddSource} variant='outline'>
-                <CirclePlus aria-hidden='true' data-icon='inline-start' />
-                {t('subscriptions.sources.add')}
-              </Button>
-            )
-          : null}
-      </SubscriptionContentState>
+      <div className={stateRegion}>
+        <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')}>
+          {onAddSource
+            ? (
+                <Button onClick={onAddSource} variant='outline'>
+                  <CirclePlus aria-hidden='true' data-icon='inline-start' />
+                  {t('subscriptions.sources.add')}
+                </Button>
+              )
+            : null}
+        </SubscriptionContentState>
+      </div>
     );
   } else if (shown.length === 0) {
     content = (
-      <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')}>
-        <Button onClick={clearFilters} variant='outline'>{t('subscriptions.pool.clearFilters')}</Button>
-      </SubscriptionContentState>
+      <div className={stateRegion}>
+        <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')}>
+          <Button onClick={clearFilters} variant='outline'>{t('subscriptions.pool.clearFilters')}</Button>
+        </SubscriptionContentState>
+      </div>
     );
   } else {
     content = (
-      <SubscriptionNodeSortContext
-        instructions={t('subscriptions.pool.dragInstructions')}
-        items={shown.map(node => ({ id: node.id, label: node.display_name }))}
-        onDraggingChange={(dragging) => {
-          draggingRef.current = dragging;
-          if (dragging) suppressClickRef.current = true;
-        }}
-        onMove={move}
-        renderOverlay={(id) => {
-          const node = byID.get(id);
-          return node ? <PoolNodeCardOverlay node={node} /> : null;
-        }}
-      >
-        <ul
-          aria-busy={saving || undefined}
-          aria-label={t('subscriptions.tabs.nodes')}
-          className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'
-          data-slot='pool-node-grid'
-          onClickCapture={(event) => {
-            if (!suppressClickRef.current) return;
-            event.preventDefault();
-            event.stopPropagation();
+      <ScrollArea className='min-h-0 flex-1'>
+        <SubscriptionNodeSortContext
+          instructions={t('subscriptions.pool.dragInstructions')}
+          items={shown.map(node => ({ id: node.id, label: node.display_name }))}
+          onDraggingChange={(dragging) => {
+            draggingRef.current = dragging;
+            if (dragging) suppressClickRef.current = true;
           }}
-          onKeyDownCapture={(event) => {
-            if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
-          }}
-          onPointerDownCapture={() => {
-            if (!draggingRef.current) suppressClickRef.current = false;
+          onMove={move}
+          renderOverlay={(id) => {
+            const node = byID.get(id);
+            return node ? <PoolNodeCardOverlay node={node} /> : null;
           }}
         >
-          {shown.map((node, index) => (
-            <PoolNodeCard index={index} key={node.id} node={node} onOpen={setOpened} sortable={!saving} />
-          ))}
-        </ul>
-      </SubscriptionNodeSortContext>
+          <ul
+            aria-busy={saving || undefined}
+            aria-label={t('subscriptions.tabs.nodes')}
+            className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'
+            data-slot='pool-node-grid'
+            onClickCapture={(event) => {
+              if (!suppressClickRef.current) return;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onKeyDownCapture={(event) => {
+              if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
+            }}
+            onPointerDownCapture={() => {
+              if (!draggingRef.current) suppressClickRef.current = false;
+            }}
+          >
+            {shown.map((node, index) => (
+              <PoolNodeCard index={index} key={node.id} node={node} onOpen={setOpened} sortable={!saving} />
+            ))}
+          </ul>
+        </SubscriptionNodeSortContext>
+      </ScrollArea>
     );
   }
 
@@ -284,7 +295,7 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
             : null}
         </div>
       </ToolbarActions>
-      <div className='flex min-h-0 flex-1 flex-col overflow-auto p-4'>{content}</div>
+      {content}
       {opened ? <SubscriptionNodeDialog key={opened.id} node={opened} onClose={() => setOpened(null)} /> : null}
     </div>
   );

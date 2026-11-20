@@ -87,7 +87,6 @@ function useSessionScopedState() {
  * reads commands.
  */
 export function AppShell() {
-  const { t } = useTranslation();
   useFleetStream();
   useFleetWords();
   useCommandShortcut();
@@ -110,16 +109,6 @@ export function AppShell() {
 
   return (
     <div className='flex h-dvh min-h-0 flex-col gap-3 overflow-hidden p-[var(--shell-edge)] max-sm:gap-0 max-sm:p-0'>
-      <a
-        className='fixed top-3 left-4 z-[var(--z-modal)] -translate-y-[160%] rounded-[var(--radius-control)] border border-primary/50 bg-accent px-4 py-3 text-sm font-medium text-primary transition-transform duration-[var(--dur-short)] ease-[var(--ease-out)] focus:translate-y-0'
-        href='#main-content'
-        onClick={(event) => {
-          event.preventDefault();
-          mainRef.current?.focus();
-        }}
-      >
-        {t('shell.skip')}
-      </a>
       <ScrollArea
         className='min-h-0 min-w-0 flex-1'
         viewportClassName='flex flex-col max-sm:p-[var(--shell-edge)]'

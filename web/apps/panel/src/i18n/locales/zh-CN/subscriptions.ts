@@ -14,6 +14,14 @@ export const subscriptions = {
     protocolFilter: '协议',
     allProtocols: '全部协议',
     search: '搜索节点',
+    card: {
+      type: '类型',
+      server: '地址',
+      transport: '传输',
+      security: '安全',
+      sni: 'SNI',
+      origin: '来源',
+    },
     diagnostics: {
       label: '未完整发布的节点：{{count}}',
       title: '未发布的节点入站',
@@ -30,10 +38,9 @@ export const subscriptions = {
       },
     },
     detail: {
-      description: '节点的显示名称、来源以及渠道为它发布的出站',
       name: '显示名称',
+      editName: '编辑显示名称',
       origin: '来源',
-      originName: '来源中的名称',
       openConfiguration: '打开配置',
       outbound: '出站',
       copy: '复制',

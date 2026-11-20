@@ -35,7 +35,6 @@ export const shell = {
     running: '正在更新',
   },
   window: '{{number}}：{{name}}',
-  skip: '跳到主要内容',
 } as const;
 
 export const nodes = {

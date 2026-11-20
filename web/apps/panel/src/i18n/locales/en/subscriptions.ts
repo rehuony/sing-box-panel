@@ -14,6 +14,14 @@ export const subscriptions = {
     protocolFilter: 'Protocol',
     allProtocols: 'All protocols',
     search: 'Search nodes',
+    card: {
+      type: 'type',
+      server: 'server',
+      transport: 'transport',
+      security: 'security',
+      sni: 'sni',
+      origin: 'origin',
+    },
     diagnostics: {
       label: 'Fleet nodes not fully published: {{count}}',
       title: 'Not published from the fleet',
@@ -30,10 +38,9 @@ export const subscriptions = {
       },
     },
     detail: {
-      description: 'The node\'s display name, where it comes from and the outbound channels publish for it',
       name: 'Display name',
+      editName: 'Edit display name',
       origin: 'Origin',
-      originName: 'Name at origin',
       openConfiguration: 'Open configuration',
       outbound: 'Outbound',
       copy: 'Copy',

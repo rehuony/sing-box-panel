@@ -55,7 +55,7 @@ const CandidateContent = memo(({ item }: { item: ChannelNodeCard }) => {
             <Badge className={badge} title={nodeOrigin(node)} variant='secondary'><span className='truncate'>{nodeOrigin(node)}</span></Badge>
             <Badge className={badge} variant='success'>{node.protocol}</Badge>
             {address ? <Badge className={badge} title={address} variant='info'><span className='truncate'>{address}</span></Badge> : null}
-            {nodeSecurity(node).map(part => <Badge className={badge} key={part} title={part} variant='success'><span className='truncate'>{part}</span></Badge>)}
+            {[...nodeSecurity(node), node.sni ?? ''].filter(Boolean).map(part => <Badge className={badge} key={part} title={part} variant='success'><span className='truncate'>{part}</span></Badge>)}
           </>
         )}
         {builtin && (
