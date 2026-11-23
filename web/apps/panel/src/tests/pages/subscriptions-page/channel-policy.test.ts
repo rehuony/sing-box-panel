@@ -1,33 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChannelGroupMember, SubscriptionChannelConfig } from '@/api/api-client';
+import type { ChannelGroupMember, ChannelRoute, ChannelRuleGroup, SubscriptionNode, SubscriptionRuleSet } from '@/api/api-client';
 
-import { canAccelerateRuleURL, compareChannelRules, createsGroupCycle, detectRuleFormat, directRuleURL, effectiveRuleURL, emptyChannelConfig, incompatibleConfig, newRuleGroup, nextRuleIndex, removeGroupReferences, updateGroupMembers } from '@/pages/subscriptions-page/channel-policy';
+import { canAccelerateRuleURL, createsGroupCycle, detectRuleFormat, directRuleURL, effectiveRuleURL, emptyChannelConfig, groupTypeName, incompatibleConfig, matchedNodes, newRuleGroup, removeGroupReferences } from '@/pages/subscriptions-page/channel-policy';
 
 const node = (id: string): ChannelGroupMember => ({ kind: 'node', id });
 const group = (id: string): ChannelGroupMember => ({ kind: 'group', id });
+function ruleSet(id: string, client: SubscriptionRuleSet['client'], name: string): SubscriptionRuleSet {
+  return { id, client, name, rules: [], channels: [], created_at: '2026-11-20T00:00:00Z', updated_at: '2026-11-20T00:00:00Z' };
+}
+function poolNode(id: string, protocol: string, origin: SubscriptionNode['origin']): SubscriptionNode {
+  return { id, display_name: id, origin_name: id, protocol, origin, updated_at: '2026-11-20T00:00:00Z' };
+}
 describe('channel editing policy', () => {
-  it('repairs exits after removing members and keeps the remaining members in order', () => {
-    const value = {
-      ...newRuleGroup([node('two'), node('one')]),
-      rules: [{ id: 'rule', kind: 'domain_suffix' as const, value: 'example.com', enabled: true, exit: { kind: 'node' as const, id: 'one' } }],
-    };
-    const next = updateGroupMembers(value, [node('two')]);
-    expect(next.members).toEqual([node('two')]);
-    expect(next.rules[0].exit).toEqual({ kind: 'group-default' });
-    expect(value.members).toEqual([node('two'), node('one')]);
-  });
-  it('sorts signed indices with zero as the default and preserves name ties', () => {
-    const rule = { id: 'zero', kind: 'domain' as const, enabled: true, value: 'z.example', exit: { kind: 'group-default' as const } };
-    const rules = [rule, { ...rule, id: 'early', value: 'a.example', sort_index: -10 }, { ...rule, id: 'tie', value: 'a.example', sort_index: -10 }];
-    const initial: SubscriptionChannelConfig = { ...emptyChannelConfig(), groups: [{ ...newRuleGroup(), rules }] };
-    expect([...rules].sort(compareChannelRules).map(value => value.id)).toEqual(['early', 'tie', 'zero']);
-    expect(nextRuleIndex(initial)).toBe(10);
-    initial.groups[0].rules = [{ ...rule, sort_index: -20 }];
-    expect(nextRuleIndex(initial)).toBe(-10);
-    initial.groups[0].rules[0].sort_index = Number.MAX_SAFE_INTEGER;
-    expect(nextRuleIndex(initial)).toBe(Number.MAX_SAFE_INTEGER);
-  });
   it.each([
     ['mihomo', 'rules.YAML?download=1', 'yaml'], ['mihomo', 'rules.yml', 'yaml'],
     ['mihomo', 'rules.MRS#section', 'mrs'], ['mihomo', 'rules.txt', 'text'], ['mihomo', 'rules.list', 'text'],
@@ -60,31 +45,53 @@ describe('channel editing policy', () => {
     expect(effectiveRuleURL(wrapped, false)).toBe(origin);
     for (const invalid of ['', 'https://github.com.evil.example/a', 'https://user:password@github.com/a', 'https://other.example/a']) expect(canAccelerateRuleURL(invalid)).toBe(false);
   });
-  it('flags incompatible metadata without converting or discarding its URL', () => {
-    const value = newRuleGroup([node('one')]);
-    value.rules = [{ id: 'rule', enabled: true, kind: 'remote', exit: { kind: 'group-default' }, remote: { name: 'Rules', url: 'https://example.com/native', format: 'mrs', behavior: 'domain', accelerated: false } }];
-    const config = { ...emptyChannelConfig(), groups: [value] };
-    expect(incompatibleConfig(config, 'sing-box')).toBe(true);
-    expect(incompatibleConfig(config, 'mihomo')).toBe(false);
-    expect(incompatibleConfig(config, 'loon')).toBe(true);
-    value.rules[0].remote!.format = 'text';
-    expect(incompatibleConfig(config, 'loon')).toBe(true);
-    expect(value.rules[0].remote?.url).toBe('https://example.com/native');
+  it('flags exit rules the client cannot use without converting or discarding them', () => {
+    const sets = [ruleSet('mihomo-set', 'mihomo', 'Streaming'), ruleSet('sing-box-set', 'sing-box', 'Streaming')];
+    const remote: ChannelRoute = { id: 'remote', enabled: true, exit: { kind: 'direct' }, rule: { kind: 'remote', remote: { name: 'Rules', url: 'https://example.com/native', format: 'mrs', behavior: 'domain', accelerated: false } } };
+    const config = { ...emptyChannelConfig(), routes: [remote] };
+    expect(incompatibleConfig(config, 'sing-box', sets)).toBe(true);
+    expect(incompatibleConfig(config, 'mihomo', sets)).toBe(false);
+    remote.rule!.remote!.behavior = 'classical';
+    expect(incompatibleConfig(config, 'mihomo', sets)).toBe(true);
+    expect(remote.rule?.remote?.url).toBe('https://example.com/native');
+
+    config.routes = [{ id: 'set', enabled: true, exit: { kind: 'direct' }, rule_set_id: 'mihomo-set' }];
+    expect(incompatibleConfig(config, 'mihomo', sets)).toBe(false);
+    expect(incompatibleConfig(config, 'sing-box', sets)).toBe(true);
+    expect(incompatibleConfig(config, 'mihomo', [])).toBe(true);
+    // Rule sets not yet read flag nothing.
+    expect(incompatibleConfig(config, 'sing-box', undefined)).toBe(false);
   });
   it('flags unsupported strategies and built-in nodes when changing clients', () => {
     const value = newRuleGroup([node('one')]);
     const config = { ...emptyChannelConfig(), groups: [value] };
     value.type = 'fallback';
-    expect(incompatibleConfig(config, 'sing-box')).toBe(true);
-    expect(incompatibleConfig(config, 'mihomo')).toBe(false);
-    expect(incompatibleConfig(config, 'loon')).toBe(false);
+    expect(incompatibleConfig(config, 'sing-box', [])).toBe(true);
+    expect(incompatibleConfig(config, 'mihomo', [])).toBe(false);
+    expect(incompatibleConfig(config, 'loon', [])).toBe(false);
     value.type = 'url-test';
-    expect(incompatibleConfig(config, 'sing-box')).toBe(false);
+    expect(incompatibleConfig(config, 'sing-box', [])).toBe(false);
     value.members = [node('one'), { kind: 'builtin', id: 'direct' }, { kind: 'builtin', id: 'reject' }];
-    expect(incompatibleConfig(config, 'sing-box')).toBe(true);
-    expect(incompatibleConfig(config, 'mihomo')).toBe(false);
-    expect(incompatibleConfig(config, 'loon')).toBe(true);
+    expect(incompatibleConfig(config, 'sing-box', [])).toBe(true);
+    expect(incompatibleConfig(config, 'mihomo', [])).toBe(false);
+    expect(incompatibleConfig(config, 'loon', [])).toBe(true);
     value.type = 'select';
-    expect(incompatibleConfig(config, 'loon')).toBe(false);
+    expect(incompatibleConfig(config, 'loon', [])).toBe(false);
+  });
+
+  it('names group types as each client\'s configuration writes them', () => {
+    expect(['select', 'url-test', 'fallback'].map(type => groupTypeName(type as ChannelRuleGroup['type'], 'sing-box'))).toEqual(['selector', 'urltest', 'fallback']);
+    expect(['select', 'url-test', 'fallback'].map(type => groupTypeName(type as ChannelRuleGroup['type'], 'loon'))).toEqual(['select', 'url-test', 'fallback']);
+  });
+  it('matches pool nodes by origin, protocol and name rules after the members', () => {
+    const fleet = { kind: 'inbound' as const, node_id: 'edge', node_name: 'edge', inbound_tag: 'in' };
+    const source = { kind: 'source' as const, source_id: 'one', source_name: 'One' };
+    const nodes = [poolNode('HK vless', 'vless', fleet), poolNode('hk trojan', 'trojan', source), poolNode('JP vless', 'vless', source), poolNode('hk member', 'vless', source)];
+    const value: ChannelRuleGroup = { ...newRuleGroup([node('hk member')]), match: { include: ['hk'], exclude: ['/trojan$/'], origins: [], protocols: [] } };
+    expect(matchedNodes(value, nodes).map(item => item.id)).toEqual(['HK vless']);
+    value.match = { include: ['/[/', 'vless'], exclude: [], origins: ['source:one'], protocols: ['vless'] };
+    expect(matchedNodes(value, nodes).map(item => item.id)).toEqual(['JP vless']);
+    value.match = { include: [], exclude: [], origins: [], protocols: [] };
+    expect(matchedNodes(value, nodes)).toEqual([]);
   });
 });

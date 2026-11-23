@@ -139,6 +139,12 @@ var routes = []route{
 	{http.MethodDelete, "/subscription/channels/{channelId}", "deleteSubscriptionChannel", accessSession, withPathValue("channelId", (*Handler).deleteSubscriptionChannel)},
 	{http.MethodPost, "/subscription/channels/{channelId}/preview", "previewSubscriptionChannel", accessSession, withPathValue("channelId", (*Handler).previewSubscriptionChannel)},
 
+	{http.MethodGet, "/subscription/rule-sets", "listSubscriptionRuleSets", accessSession, (*Handler).listSubscriptionRuleSets},
+	{http.MethodPost, "/subscription/rule-sets", "createSubscriptionRuleSet", accessSession, (*Handler).createSubscriptionRuleSet},
+	{http.MethodGet, "/subscription/rule-sets/{ruleSetId}", "getSubscriptionRuleSet", accessSession, withPathValue("ruleSetId", (*Handler).getSubscriptionRuleSet)},
+	{http.MethodPut, "/subscription/rule-sets/{ruleSetId}", "updateSubscriptionRuleSet", accessSession, withPathValue("ruleSetId", (*Handler).updateSubscriptionRuleSet)},
+	{http.MethodDelete, "/subscription/rule-sets/{ruleSetId}", "deleteSubscriptionRuleSet", accessSession, withPathValue("ruleSetId", (*Handler).deleteSubscriptionRuleSet)},
+
 	{http.MethodGet, "/subscription/sources", "listSubscriptionSources", accessSession, (*Handler).listSubscriptionSources},
 	{http.MethodPost, "/subscription/sources", "createSubscriptionSource", accessSession, (*Handler).createSubscriptionSource},
 	{http.MethodPost, "/subscription/sources/preview", "previewSubscriptionSource", accessSession, (*Handler).previewSubscriptionSource},

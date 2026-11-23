@@ -2,7 +2,7 @@ import type { PropsWithChildren } from 'react';
 
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { ApiClient, SubscriptionChannel, SubscriptionPreview } from '@/api/api-client';
 
@@ -46,9 +46,7 @@ describe('channel draft', () => {
     const second = { ...newRuleGroup([{ kind: 'node', id: 'second' }]), name: 'Second' };
     const value = { ...channel, config: { ...channel.config, groups: [first, second] } };
     const { result, client } = mount(value);
-    const edited = { ...first, name: 'Renamed', rules: [
-      { id: 'rule', enabled: true, kind: 'domain' as const, value: 'example.com', exit: { kind: 'group-default' as const } },
-    ] };
+    const edited = { ...first, name: 'Renamed', members: [{ kind: 'node' as const, id: 'third' }] };
     act(() => result.current.updateGroup(edited));
     act(() => result.current.setGroupID(second.id));
     expect(result.current.group).toEqual(second);
@@ -128,15 +126,37 @@ describe('channel draft', () => {
     expect(result.current.config.groups).toEqual([group]);
     expect(result.current.config.template).toEqual({ format: 'loon', content: channelTemplateDefaults.loon });
   });
-  it('protects an enabled final group and reorders whole group records', () => {
+  it('protects groups an exit uses and reorders whole group records', () => {
     const first = { ...newRuleGroup([]), name: 'First' };
     const second = { ...newRuleGroup([]), name: 'Second' };
-    const config = { ...channel.config, groups: [first, second], default_exit: { kind: 'group' as const, id: first.id } };
+    const config = {
+      ...channel.config, groups: [first, second], default_exit: { kind: 'group' as const, id: first.id },
+      routes: [{ id: 'route', enabled: true, rule: { kind: 'domain' as const, value: 'example.com' }, exit: { kind: 'group' as const, id: second.id } }],
+    };
     const { result } = mount({ ...channel, config });
     act(() => result.current.updateGroup({ ...first, enabled: false }));
-    expect(result.current.config.groups[0]).toEqual(first);
+    act(() => result.current.requestRemoveGroup(second.id));
+    expect(result.current.config.groups).toEqual([first, second]);
+    expect(result.current.removeGroup).toBeNull();
     act(() => result.current.reorder(0, 1));
     expect(result.current.config.groups).toEqual([second, first]);
+  });
+  it('points exit rules at the new client’s rule set of the same name when the client changes', async () => {
+    const sets = [
+      { id: 'sing-box-streaming', client: 'sing-box' as const, name: 'Streaming', rules: [], channels: [], created_at: 'created', updated_at: 'updated' },
+      { id: 'mihomo-streaming', client: 'mihomo' as const, name: 'streaming', rules: [], channels: [], created_at: 'created', updated_at: 'updated' },
+      { id: 'sing-box-ads', client: 'sing-box' as const, name: 'Ads', rules: [], channels: [], created_at: 'created', updated_at: 'updated' },
+    ];
+    const routes = sets.filter(set => set.client === 'sing-box').map(set => ({ id: set.id, enabled: true, rule_set_id: set.id, exit: { kind: 'direct' as const } }));
+    const { result } = mount({ ...channel, config: { ...channel.config, routes } }, {
+      listSubscriptionRuleSets: vi.fn().mockResolvedValue({ items: sets }),
+    });
+    await waitFor(() => expect(result.current.ruleSets).toBeDefined());
+    expect(result.current.conflict).toBe(false);
+    act(() => result.current.applyOptions({ name: channel.name, format: 'mihomo' }));
+    expect(result.current.config.routes.map(route => route.rule_set_id)).toEqual(['mihomo-streaming', 'sing-box-ads']);
+    // The set mihomo lacks stays and blocks saving.
+    expect(result.current.conflict).toBe(true);
   });
 });
 

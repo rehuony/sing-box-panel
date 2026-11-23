@@ -51,8 +51,8 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 		}
 	}
 	config, _ := json.Marshal(map[string]any{"groups": []any{map[string]any{
-		"id": "main", "name": "Main", "enabled": true, "type": "select", "members": members, "rules": []any{},
-	}}, "default_exit": map[string]any{"kind": "group", "id": "main"}})
+		"id": "main", "name": "Main", "enabled": true, "type": "select", "members": members,
+	}}, "routes": []any{}, "default_exit": map[string]any{"kind": "group", "id": "main"}})
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
 		Name: "public", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true,
 	})

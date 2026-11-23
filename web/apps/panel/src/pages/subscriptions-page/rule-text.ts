@@ -1,6 +1,6 @@
-import type { ChannelRemoteRuleSet, ChannelRule, SubscriptionFormat } from '@/api/api-client';
+import type { ChannelRemoteRuleSet, SubscriptionFormat, SubscriptionRule } from '@/api/api-client';
 
-import { compareChannelRules, detectRuleFormat, directRuleURL, effectiveRuleURL, ruleFormats } from './channel-policy';
+import { detectRuleFormat, directRuleURL, effectiveRuleURL, ruleFormats } from './channel-policy';
 
 /** Why a line of rule text cannot become a rule. */
 export type RuleTextErrorCode
@@ -27,76 +27,61 @@ export interface RuleTextIssue<Code extends string> {
   detail?: string;
 }
 
-export interface RuleTextOptions {
-  /** The first sort index for lines beyond the group's existing rules. */
-  nextIndex: number;
-  /** The group's rules, whose identity, exit and state matching lines keep. */
-  existing: ChannelRule[];
-  format: SubscriptionFormat;
-  /** Rule-set names other groups of the channel use. */
-  otherRemoteNames: string[];
-}
-
 export interface RuleTextResult {
-  rules: ChannelRule[];
+  rules: SubscriptionRule[];
   notes: RuleTextIssue<RuleTextNoteCode>[];
   errors: RuleTextIssue<RuleTextErrorCode>[];
 }
 
-const typeKinds: Record<string, Exclude<ChannelRule['kind'], 'remote'>> = {
+const typeKinds: Record<string, Exclude<SubscriptionRule['kind'], 'remote'>> = {
   'DOMAIN': 'domain',
   'DOMAIN-SUFFIX': 'domain_suffix',
   'DOMAIN-KEYWORD': 'domain_keyword',
   'IP-CIDR': 'ip_cidr',
   'IP-CIDR6': 'ip_cidr',
 };
-const kindTypes: Record<Exclude<ChannelRule['kind'], 'remote' | 'ip_cidr'>, string> = {
+const kindTypes: Record<SubscriptionRule['kind'], string> = {
   domain: 'DOMAIN',
   domain_suffix: 'DOMAIN-SUFFIX',
   domain_keyword: 'DOMAIN-KEYWORD',
+  ip_cidr: 'IP-CIDR',
+  remote: 'RULE-SET',
 };
 const allFormats: readonly ChannelRemoteRuleSet['format'][] = ['source', 'binary', 'yaml', 'text', 'mrs', 'loon'];
 const behaviors: readonly NonNullable<ChannelRemoteRuleSet['behavior']>[] = ['domain', 'ipcidr', 'classical'];
 
-/**
- * Writes rules as Clash classic lines, one per rule in priority order. A
- * rule set is `RULE-SET,name,link,format[,behavior]`, its link accelerated
- * as the rule says. Exits and disabled states are not written; parsing the
- * text with the same rules keeps them.
- */
-export function serializeRules(rules: readonly ChannelRule[]): string {
-  return [...rules].sort(compareChannelRules).map((rule) => {
-    if (rule.kind === 'remote' && rule.remote) {
-      const { accelerated, behavior, format, name, url } = rule.remote;
-      return ['RULE-SET', name, effectiveRuleURL(url, accelerated), format, ...(behavior ? [behavior] : [])].join(',');
-    }
-    const value = rule.value ?? '';
-    if (rule.kind === 'ip_cidr') return `${value.includes(':') ? 'IP-CIDR6' : 'IP-CIDR'},${value}`;
-    return `${kindTypes[rule.kind as keyof typeof kindTypes]},${value}`;
-  }).join('\n');
+/** A rule's kind as its classic rule type, the name the interface gives it untranslated. */
+export function ruleType(kind: SubscriptionRule['kind']): string {
+  return kindTypes[kind];
+}
+
+/** One rule as a classic rule line; a remote rule set is `RULE-SET,name,link,format[,behavior]`. */
+export function ruleLine(rule: SubscriptionRule): string {
+  if (rule.kind === 'remote' && rule.remote) {
+    const { accelerated, behavior, format, name, url } = rule.remote;
+    return ['RULE-SET', name, effectiveRuleURL(url, accelerated), format, ...(behavior ? [behavior] : [])].join(',');
+  }
+  const value = rule.value ?? '';
+  if (rule.kind === 'ip_cidr') return `${value.includes(':') ? 'IP-CIDR6' : 'IP-CIDR'},${value}`;
+  return `${kindTypes[rule.kind]},${value}`;
+}
+
+/** Writes rules as classic rule lines, one per rule in order. */
+export function serializeRules(rules: readonly SubscriptionRule[]): string {
+  return rules.map(ruleLine).join('\n');
 }
 
 /**
- * Reads Clash classic lines into rules. Blank lines and lines starting with
- * `#` or `//` are skipped; a YAML list marker and quotes around a line are
- * removed. A trailing `no-resolve`, and a policy name after a match value,
- * are dropped with a note, since the group decides the exit; a rule set's
- * link may hold commas. A line that matches an existing rule by
- * type and value, or a rule set by name, keeps that rule's ID, exit and
- * enabled state. Lines take the group's existing sort indexes in order;
- * further lines continue from `nextIndex`. Rules keep the order of the
- * existing ones first, so unchanged text returns the existing rules.
+ * Reads classic rule lines into rules, in order. Blank lines and lines
+ * starting with `#` or `//` are skipped; a YAML list marker and quotes
+ * around a line are removed. A trailing `no-resolve`, and a policy name
+ * after a match value, are dropped with a note, since the exit rule that
+ * uses the rules decides the exit; a rule set's link may hold commas.
+ * Remote rule sets need distinct names.
  */
-export function parseRules(text: string, options: RuleTextOptions): RuleTextResult {
+export function parseRules(text: string, format: SubscriptionFormat): RuleTextResult {
   const result: RuleTextResult = { rules: [], errors: [], notes: [] };
-  const unmatched = new Map<string, ChannelRule[]>();
-  for (const rule of options.existing) {
-    const key = ruleKey(rule);
-    unmatched.set(key, [...(unmatched.get(key) ?? []), rule]);
-  }
-  const indexes = options.existing.map(rule => rule.sort_index ?? 0).sort((left, right) => left - right);
-  const names = new Set(options.otherRemoteNames);
-  const parsed: { rule: ChannelRule; original?: ChannelRule }[] = [];
+  const names = new Set<string>();
   text.split(/\r?\n/).forEach((raw, position) => {
     const line = position + 1;
     const content = unwrapLine(raw);
@@ -105,17 +90,17 @@ export function parseRules(text: string, options: RuleTextOptions): RuleTextResu
     const type = fields[0]!.toUpperCase();
     const error = (code: RuleTextErrorCode, detail?: string) =>
       result.errors.push({ line, code, ...(detail ? { detail } : {}) });
-    let rule: ChannelRule;
+    let rule: SubscriptionRule;
     let trailing: string[];
     if (type === 'RULE-SET') {
-      const remote = parseRemote(content.split(','), options.format, error);
+      const remote = parseRemote(content.split(','), format, error);
       if (!remote) return;
       if (names.has(remote.value.name)) {
         error('duplicate_name', remote.value.name);
         return;
       }
       names.add(remote.value.name);
-      rule = { id: '', enabled: true, kind: 'remote', remote: remote.value, exit: { kind: 'group-default' } };
+      rule = { kind: 'remote', remote: remote.value };
       trailing = remote.noResolve ? ['no-resolve'] : [];
     } else if (Object.hasOwn(typeKinds, type)) {
       const kind = typeKinds[type]!;
@@ -128,7 +113,7 @@ export function parseRules(text: string, options: RuleTextOptions): RuleTextResu
         error(kind === 'ip_cidr' ? 'invalid_ip' : 'invalid_domain', value);
         return;
       }
-      rule = { id: '', enabled: true, kind, value, exit: { kind: 'group-default' } };
+      rule = { kind, value };
       trailing = fields.slice(2);
     } else {
       error('unsupported_type', fields[0]);
@@ -139,22 +124,9 @@ export function parseRules(text: string, options: RuleTextOptions): RuleTextResu
         ? { line, code: 'no_resolve_dropped' }
         : { line, code: 'policy_dropped', detail: field });
     }
-    const original = unmatched.get(ruleKey(rule))?.shift();
-    parsed.push({ rule, original });
+    result.rules.push(rule);
   });
-  if (result.errors.length) return result;
-  const positions = new Map(options.existing.map((rule, index) => [rule.id, index]));
-  result.rules = parsed
-    .map(({ original, rule }, index) => {
-      const sortIndex = index < indexes.length ? indexes[index]! : options.nextIndex + (index - indexes.length) * 10;
-      const value: ChannelRule = original
-        ? { ...rule, id: original.id, enabled: original.enabled, exit: original.exit, sort_index: sortIndex }
-        : { ...rule, id: crypto.randomUUID(), sort_index: sortIndex };
-      return original && sameRule(value, original) ? original : value;
-    })
-    .map((rule, index) => ({ rule, position: positions.get(rule.id) ?? options.existing.length + index }))
-    .sort((left, right) => left.position - right.position)
-    .map(({ rule }) => rule);
+  if (result.errors.length) result.rules = [];
   return result;
 }
 
@@ -240,18 +212,4 @@ function validAddressOrPrefix(value: string): boolean {
   const ipv6 = !ipv4 && address.includes(':') && /^[0-9a-f:.]+$/i.test(address) && URL.canParse(`http://[${address}]/`);
   if (!ipv4 && !ipv6) return false;
   return length === undefined || (/^\d{1,3}$/.test(length) && Number(length) <= (ipv4 ? 32 : 128));
-}
-
-function ruleKey(rule: ChannelRule): string {
-  return rule.kind === 'remote' ? `remote\0${rule.remote?.name ?? ''}` : `${rule.kind}\0${rule.value ?? ''}`;
-}
-
-function sameRule(left: ChannelRule, right: ChannelRule): boolean {
-  const remote = (rule: ChannelRule) => rule.remote
-    ? [rule.remote.name, rule.remote.url, rule.remote.format, rule.remote.behavior ?? '', rule.remote.accelerated]
-    : null;
-  return left.id === right.id && left.enabled === right.enabled && (left.sort_index ?? 0) === (right.sort_index ?? 0)
-    && left.kind === right.kind && (left.value ?? '') === (right.value ?? '')
-    && JSON.stringify(remote(left)) === JSON.stringify(remote(right))
-    && left.exit.kind === right.exit.kind && left.exit.id === right.exit.id;
 }

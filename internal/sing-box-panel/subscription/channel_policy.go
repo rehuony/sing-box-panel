@@ -3,11 +3,14 @@
 package subscription
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"net/url"
 	"strings"
 	"unicode"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
 // PolicyError contains only a field path and a fixed reason, never submitted
@@ -23,8 +26,15 @@ func (e *PolicyError) Error() string {
 func (e *PolicyError) Unwrap() error      { return ErrInvalidChannel }
 func policyError(path, code string) error { return &PolicyError{Path: path, Code: code} }
 
+const (
+	maximumChannelRoutes  = 5000
+	maximumRuleSetRules   = 5000
+	maximumMatchOrigins   = 256
+	maximumMatchProtocols = 32
+)
+
 // ValidateChannelConfig checks a channel configuration for one output
-// format. References to pool nodes are checked against the pool separately.
+// format. References to pool nodes and rule sets are checked separately.
 func ValidateChannelConfig(config ChannelConfig, format RenderFormat) error {
 	if format != RenderFormatSingBox && format != RenderFormatMihomo && format != RenderFormatLoon {
 		return policyError("format", "unsupported_client")
@@ -56,8 +66,6 @@ func ValidateChannelConfig(config ChannelConfig, format RenderFormat) error {
 			enabled[group.ID] = true
 		}
 	}
-	remoteNames := map[string]bool{}
-	ruleCount := 0
 	for i, group := range config.Groups {
 		path := fmt.Sprintf("groups[%d]", i)
 		if err := validateGroupOptions(group, format, path); err != nil {
@@ -66,61 +74,171 @@ func ValidateChannelConfig(config ChannelConfig, format RenderFormat) error {
 		if err := validateGroupMembers(group, groups, format, path); err != nil {
 			return err
 		}
-		rules := map[string]bool{}
-		for j, rule := range group.Rules {
-			ruleCount++
-			if ruleCount > 5000 {
-				return policyError("groups", "too_many_rules")
-			}
-			rp := fmt.Sprintf("%s.rules[%d]", path, j)
-			if !policyID(rule.ID) || rules[rule.ID] {
-				return policyError(rp+".id", "invalid_or_duplicate_id")
-			}
-			rules[rule.ID] = true
-			if rule.SortIndex < -9007199254740991 || rule.SortIndex > 9007199254740991 {
-				return policyError(rp+".sort_index", "invalid_value")
-			}
-			if err := validateExit(rule.Exit, enabled, true, rp+".exit"); err != nil {
-				return err
-			}
-			switch rule.Kind {
-			case "domain", "domain_suffix", "domain_keyword":
-				if !policyName(rule.Value) || strings.ContainsAny(rule.Value, " /:@") || rule.Remote != nil || (format == RenderFormatLoon && !validLoonAtom(rule.Value)) {
-					return policyError(rp+".value", "invalid_domain")
-				}
-			case "ip_cidr":
-				if _, err := netip.ParsePrefix(rule.Value); err != nil {
-					if _, err = netip.ParseAddr(rule.Value); err != nil {
-						return policyError(rp+".value", "invalid_ip_cidr")
-					}
-				}
-				if rule.Remote != nil {
-					return policyError(rp+".remote", "unexpected_field")
-				}
-			case "remote":
-				if rule.Remote == nil || rule.Value != "" {
-					return policyError(rp+".remote", "required")
-				}
-				if err := validateRemoteRuleSet(*rule.Remote, format, rp+".remote"); err != nil {
-					return err
-				}
-				if remoteNames[rule.Remote.Name] {
-					return policyError(rp+".remote.name", "duplicate_name")
-				}
-				remoteNames[rule.Remote.Name] = true
-			default:
-				return policyError(rp+".kind", "unsupported_rule")
-			}
+		if err := validateGroupMatch(group.Match, path+".match"); err != nil {
+			return err
 		}
 	}
 	if err := validateGroupReferences(config.Groups); err != nil {
 		return err
 	}
-	if err := validateExit(config.DefaultExit, enabled, false, "default_exit"); err != nil {
+	if len(config.Routes) > maximumChannelRoutes {
+		return policyError("routes", "too_many_routes")
+	}
+	routes, remoteNames := map[string]bool{}, map[string]bool{}
+	for i, route := range config.Routes {
+		path := fmt.Sprintf("routes[%d]", i)
+		if !policyID(route.ID) || routes[route.ID] {
+			return policyError(path+".id", "invalid_or_duplicate_id")
+		}
+		routes[route.ID] = true
+		if (route.RuleSetID == "") == (route.Rule == nil) {
+			return policyError(path, "exactly_one_of_rule_set_id_rule")
+		}
+		if route.Rule != nil {
+			if err := validateRule(*route.Rule, format, path+".rule", remoteNames); err != nil {
+				return err
+			}
+		} else if !policyID(route.RuleSetID) {
+			return policyError(path+".rule_set_id", "invalid_value")
+		}
+		if err := validateExit(route.Exit, enabled, path+".exit"); err != nil {
+			return err
+		}
+	}
+	if err := validateExit(config.DefaultExit, enabled, "default_exit"); err != nil {
 		return err
 	}
 	_, err := parseChannelTemplate(config.Template, format)
 	return err
+}
+
+// validateRuleSetRules checks a rule set's rules for its client.
+func validateRuleSetRules(rules []SubscriptionRule, format RenderFormat, path string) error {
+	if len(rules) > maximumRuleSetRules {
+		return policyError(path, "too_many_rules")
+	}
+	remoteNames := map[string]bool{}
+	for i, rule := range rules {
+		if err := validateRule(rule, format, fmt.Sprintf("%s[%d]", path, i), remoteNames); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRule checks one rule for a client. remoteNames holds the remote
+// rule set names its list already uses, including disabled entries.
+func validateRule(rule SubscriptionRule, format RenderFormat, path string, remoteNames map[string]bool) error {
+	switch rule.Kind {
+	case "domain", "domain_suffix", "domain_keyword":
+		if !policyName(rule.Value) || strings.ContainsAny(rule.Value, " /:@") || rule.Remote != nil || (format == RenderFormatLoon && !validLoonAtom(rule.Value)) {
+			return policyError(path+".value", "invalid_domain")
+		}
+	case "ip_cidr":
+		_, prefixErr := netip.ParsePrefix(rule.Value)
+		_, addrErr := netip.ParseAddr(rule.Value)
+		if len(rule.Value) > 128 || prefixErr != nil && addrErr != nil {
+			return policyError(path+".value", "invalid_ip_cidr")
+		}
+		if rule.Remote != nil {
+			return policyError(path+".remote", "unexpected_field")
+		}
+	case "remote":
+		if rule.Remote == nil || rule.Value != "" {
+			return policyError(path+".remote", "required")
+		}
+		if err := validateRemoteRuleSet(*rule.Remote, format, path+".remote"); err != nil {
+			return err
+		}
+		if remoteNames[rule.Remote.Name] {
+			return policyError(path+".remote.name", "duplicate_name")
+		}
+		remoteNames[rule.Remote.Name] = true
+	default:
+		return policyError(path+".kind", "unsupported_rule")
+	}
+	return nil
+}
+
+// validateGroupMatch checks a group's match: name rules as a source's
+// filter, origins by their format and protocols by their length.
+func validateGroupMatch(match *GroupMatch, path string) error {
+	if match == nil {
+		return nil
+	}
+	if err := (SourceFilter{Include: match.Include, Exclude: match.Exclude}).Validate(); err != nil {
+		var field *SourceFieldError
+		if errors.As(err, &field) {
+			return policyError(path+"."+strings.TrimPrefix(field.Path, "filter."), field.Code)
+		}
+		return err
+	}
+	if len(match.Origins) > maximumMatchOrigins {
+		return policyError(path+".origins", "too_many_origins")
+	}
+	for i, origin := range match.Origins {
+		if source, ok := strings.CutPrefix(origin, originPrefixSource); origin != originFleet && (!ok || !policyID(source)) {
+			return policyError(fmt.Sprintf("%s.origins[%d]", path, i), "invalid_value")
+		}
+	}
+	if len(match.Protocols) > maximumMatchProtocols {
+		return policyError(path+".protocols", "too_many_protocols")
+	}
+	for i, protocol := range match.Protocols {
+		if protocol == "" || len(protocol) > 32 || strings.IndexFunc(protocol, unicode.IsControl) >= 0 {
+			return policyError(fmt.Sprintf("%s.protocols[%d]", path, i), "invalid_value")
+		}
+	}
+	return nil
+}
+
+const (
+	originFleet        = "fleet"
+	originPrefixSource = "source:"
+)
+
+// ChannelRuleSet is a rule set as a channel renders it.
+type ChannelRuleSet struct {
+	Client RenderFormat
+	Rules  []SubscriptionRule
+}
+
+// validateChannelRuleSets checks the rule sets config routes by against
+// ruleSets: each exists, belongs to the channel's client and holds valid
+// rules, and the enabled exit rules hold at most store.MaximumChannelRules
+// rules together.
+func validateChannelRuleSets(config ChannelConfig, format RenderFormat, ruleSets map[string]ChannelRuleSet) error {
+	count := 0
+	checked := map[string]bool{}
+	for i, route := range config.Routes {
+		if route.RuleSetID == "" {
+			if route.Enabled {
+				count++
+			}
+			continue
+		}
+		path := fmt.Sprintf("routes[%d].rule_set_id", i)
+		set, ok := ruleSets[route.RuleSetID]
+		if !ok {
+			return policyError(path, "rule_set_not_found")
+		}
+		if set.Client != format {
+			return policyError(path, "rule_set_client_mismatch")
+		}
+		if !checked[route.RuleSetID] {
+			checked[route.RuleSetID] = true
+			if err := validateRuleSetRules(set.Rules, format, fmt.Sprintf("routes[%d].rule_set.rules", i)); err != nil {
+				return err
+			}
+		}
+		if route.Enabled {
+			count += len(set.Rules)
+		}
+	}
+	if count > store.MaximumChannelRules {
+		return policyError("routes", "too_many_rules")
+	}
+	return nil
 }
 
 // validateGroupMembers checks a group's candidates: each once, built-in
@@ -239,15 +357,11 @@ func policyID(s string) bool {
 func policyName(s string) bool {
 	return s != "" && len(s) <= 128 && strings.TrimSpace(s) == s && strings.IndexFunc(s, unicode.IsControl) < 0 && !strings.Contains(s, ",")
 }
-func validateExit(exit RouteExit, groups map[string]bool, inherit bool, path string) error {
+func validateExit(exit RouteExit, groups map[string]bool, path string) error {
 	switch exit.Kind {
 	case "direct", "reject":
 		if exit.ID != "" {
 			return policyError(path, "unexpected_id")
-		}
-	case "group-default":
-		if !inherit || exit.ID != "" {
-			return policyError(path, "invalid_inherited_exit")
 		}
 	case "node":
 		if !policyID(exit.ID) {

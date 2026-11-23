@@ -7,6 +7,8 @@ import type {
   SubscriptionNodeDetail,
   SubscriptionNodeList,
   SubscriptionPreview,
+  SubscriptionRuleSet,
+  SubscriptionRuleSetList,
   SubscriptionSource,
   SubscriptionSourcePage,
   SubscriptionSourcePreview,
@@ -103,6 +105,24 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
     updateSubscriptionNode(id, input, updatedAt, signal) {
       return request<SubscriptionNodeDetail>(fetcher, `${baseUrl}/subscription/nodes/${encodeURIComponent(id)}`, {
         method: 'PUT', body: JSON.stringify(input), headers: writeJSONHeaders({ 'If-Match': quoteETag(updatedAt) }), signal,
+      });
+    },
+    listSubscriptionRuleSets(client, signal) {
+      return request<SubscriptionRuleSetList>(fetcher, `${baseUrl}/subscription/rule-sets${buildQuery({ client })}`, { method: 'GET', signal });
+    },
+    createSubscriptionRuleSet(input, signal) {
+      return request<SubscriptionRuleSet>(fetcher, `${baseUrl}/subscription/rule-sets`, {
+        method: 'POST', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,
+      });
+    },
+    updateSubscriptionRuleSet(ruleSetID, input, updatedAt, signal) {
+      return request<SubscriptionRuleSet>(fetcher, `${baseUrl}/subscription/rule-sets/${encodeURIComponent(ruleSetID)}`, {
+        method: 'PUT', body: JSON.stringify(input), headers: writeJSONHeaders({ 'If-Match': quoteETag(updatedAt) }), signal,
+      });
+    },
+    deleteSubscriptionRuleSet(ruleSetID, updatedAt, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/rule-sets/${encodeURIComponent(ruleSetID)}`, {
+        method: 'DELETE', headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }), signal,
       });
     },
     listSubscriptionSources(filter = {}, signal) {

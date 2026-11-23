@@ -26,6 +26,10 @@ const (
 	// together stay within MaximumSubscriptionInputBytes.
 	MaximumSubscriptionSources          = 256
 	MaximumSubscriptionInputBytes int64 = 32 << 20
+
+	// MaximumChannelRules bounds the rules a channel's enabled exit rules
+	// hold together, counting every rule of each rule set they route by.
+	MaximumChannelRules = 20_000
 )
 
 var (
@@ -33,6 +37,8 @@ var (
 	ErrSubscriptionChannelExists          = errors.New("subscription channel already exists")
 	ErrSubscriptionSourceNotFound         = errors.New("subscription source not found")
 	ErrSubscriptionSourceExists           = errors.New("subscription source already exists")
+	ErrSubscriptionRuleSetNotFound        = errors.New("subscription rule set not found")
+	ErrSubscriptionRuleSetExists          = errors.New("subscription rule set already exists")
 	ErrInvalidSubscriptionToken           = errors.New("invalid subscription token")
 	ErrSubscriptionTokenSecretUnavailable = errors.New("subscription token secret unavailable")
 	ErrSubscriptionTokenNotFound          = errors.New("subscription token not found")
@@ -43,8 +49,9 @@ var (
 	ErrSubscriptionReference              = errors.New("subscription reference is invalid")
 )
 
-// SubscriptionReferenceError names a reference to a pool node or channel
-// group that does not exist. Path locates it in the request, Code is fixed.
+// SubscriptionReferenceError names a reference to a pool node or rule set
+// that does not exist, a rule set of another client, or rules a channel
+// cannot hold. Path locates it in the request, Code is fixed.
 type SubscriptionReferenceError struct {
 	Path string
 	Code string

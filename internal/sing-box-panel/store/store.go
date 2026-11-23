@@ -16,7 +16,7 @@ const (
 
 	// CurrentSchemaVersion is the only schema this package can open; databases
 	// written by earlier versions are rejected.
-	CurrentSchemaVersion = 26
+	CurrentSchemaVersion = 27
 )
 
 // Store owns the panel database.

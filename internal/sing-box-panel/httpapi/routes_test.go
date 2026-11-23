@@ -156,11 +156,24 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		`{"ids":["`+pool.Items[1].ID+`","`+pool.Items[0].ID+`"]}`, http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/node-order",
 		`{"ids":["`+pool.Items[1].ID+`"]}`, http.StatusConflict, true, nil)
+	ruleSet := serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/rule-sets",
+		`{"client":"mihomo","name":"contract rules","rules":[{"kind":"domain_suffix","value":"example.net"},
+		{"kind":"remote","remote":{"name":"Remote","url":"https://rules.example/list.yaml","format":"yaml","behavior":"domain","accelerated":false}}]}`,
+		http.StatusCreated, true, nil)
+	var set subscription.SubscriptionRuleSet
+	if err := json.Unmarshal(ruleSet.Body.Bytes(), &set); err != nil {
+		t.Fatal(err)
+	}
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/rule-sets/"+set.ID,
+		`{"name":"contract rules","rules":[{"kind":"ip_cidr","value":"10.0.0.0/8"}]}`, http.StatusOK, true,
+		map[string]string{"If-Match": ruleSet.Header().Get("ETag")})
 	channel := serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/channels",
 		`{"name":"contract channel","format":"mihomo","enabled":true,"config":{"groups":[{"id":"main","name":"Main","enabled":true,"type":"url-test",
 		"health_check":{"url":"https://probe.example/","interval":600,"tolerance":10},
-		"members":[{"kind":"node","id":"`+pool.Items[0].ID+`"},{"kind":"builtin","id":"direct"}],
-		"rules":[{"id":"rule","enabled":true,"kind":"domain","value":"example.org","exit":{"kind":"node","id":"`+pool.Items[1].ID+`"}}]}],
+		"match":{"include":["A"],"exclude":[],"origins":["source:`+source.ID+`"],"protocols":["socks"]},
+		"members":[{"kind":"node","id":"`+pool.Items[0].ID+`"},{"kind":"builtin","id":"direct"}]}],
+		"routes":[{"id":"rule","enabled":true,"rule":{"kind":"domain","value":"example.org"},"exit":{"kind":"node","id":"`+pool.Items[1].ID+`"}},
+		{"id":"set","enabled":true,"rule_set_id":"`+set.ID+`","exit":{"kind":"reject"}}],
 		"default_exit":{"kind":"group","id":"main"}}}`, http.StatusCreated, true, nil)
 	var stored subscription.SubscriptionChannel
 	if err := json.Unmarshal(channel.Body.Bytes(), &stored); err != nil {
@@ -168,6 +181,10 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	}
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/channels/"+stored.ID, "", http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/channels/"+stored.ID+"/preview", `{}`, http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/rule-sets?client=mihomo", "", http.StatusOK, true, nil)
+	current := serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/rule-sets/"+set.ID, "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodDelete, "/api/v1/subscription/rule-sets/"+set.ID, "", http.StatusNoContent, true,
+		map[string]string{"If-Match": current.Header().Get("ETag")})
 
 	// A development build reports its version and updates nothing.
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/system/update", "", http.StatusOK, true, nil)

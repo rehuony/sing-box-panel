@@ -15,6 +15,7 @@ actions; they do not repeat every domain case through a complete editing journey
 | Navigation cancellation and discard | `use-unsaved-changes.test.tsx`; configuration Hook reset checks |
 | Log rotation, cursor recovery, clear races and cancellation | `use-core-logs.test.tsx`; Go core-log and HTTP tests |
 | Group members, format restrictions and save payload | `channel-policy.test.ts`, `use-channel-draft.test.tsx`, `channel-node-picker.test.tsx`; channel submit smoke |
+| Exit-rule order, rule set expansion, same-named remotes and group matches | Go `channel_policy_test.go` owns rendering and validation; `httpapi/subscription_routes_test.go` owns rule set CRUD, client refusals and the cascade that advances channel versions |
 | Pool order, filtered drag saves and stale orders | `node-order.test.ts`, `subscription-node-panel.test.tsx`; Go `pool_test.go` owns synchronization and its cleanup |
 | Source creation with a preview, server refusals, one save for settings and content, and deletion | `subscription-source-panel.test.tsx`; Go `source_parse_test.go` and `service_sources_test.go` own parsing, filters and refresh failures |
 | Settings payload, token validation and backup parsing | `use-panel-settings-draft.test.tsx`, `settings-validation.test.ts`; provider checks and submit/restore smoke |

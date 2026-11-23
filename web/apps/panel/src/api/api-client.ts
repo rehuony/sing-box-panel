@@ -55,6 +55,10 @@ import type {
   SubscriptionNodeList,
   SubscriptionNodeUpdate,
   SubscriptionPreview,
+  SubscriptionRuleSet,
+  SubscriptionRuleSetCreate,
+  SubscriptionRuleSetList,
+  SubscriptionRuleSetUpdate,
   SubscriptionSource,
   SubscriptionSourceCreate,
   SubscriptionSourcePage,
@@ -183,13 +187,14 @@ export interface ApiClient {
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
   /** The node's ready startup artifacts, newest first, twenty a page after the cursor, with revision and exact core. */
   listStartupArtifacts: (before?: CreatedAtCursor, signal?: AbortSignal) => Promise<StartupArtifactPage>;
+  /** Deletes a rule set and the exit rules that use it. */
+  deleteSubscriptionRuleSet: (ruleSetID: string, updatedAt: string, signal?: AbortSignal) => Promise<void>;
   resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
   /** Saves the pool order; ids must be every current pool ID once, or the pool changed and it answers 409. */
   setSubscriptionNodeOrder: (
     ids: string[],
     signal?: AbortSignal,
   ) => Promise<SubscriptionNodeList>;
-
   listCatalogAssets: (
     filter?: CatalogAssetFilter,
     signal?: AbortSignal,
@@ -200,6 +205,7 @@ export interface ApiClient {
   ) => Promise<CoreArtifactPage>;
   readCoreLog: (file: string, offset?: number, generation?: string, signal?: AbortSignal) => Promise<CoreLogChunk>;
 
+  createSubscriptionRuleSet: (input: SubscriptionRuleSetCreate, signal?: AbortSignal) => Promise<SubscriptionRuleSet>;
   savePanelSettings: (
     input: PanelSettingsWrite,
     signal?: AbortSignal,
@@ -207,6 +213,7 @@ export interface ApiClient {
   streamMetrics: (
     signal?: AbortSignal,
   ) => AsyncIterable<{ metrics: MetricsSnapshot; runtime: RuntimeStatus }>;
+
   deleteSubscriptionSource: (
     sourceID: string,
     updatedAt: string,
@@ -216,7 +223,6 @@ export interface ApiClient {
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSchemaContract>;
-
   saveConfigurationFile: (
     input: ConfigurationFileWrite,
     signal?: AbortSignal,
@@ -226,6 +232,9 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<void>;
+
+  /** Every rule set, or one client's, in name order. */
+  listSubscriptionRuleSets: (client?: SubscriptionRuleSet['client'], signal?: AbortSignal) => Promise<SubscriptionRuleSetList>;
   compileConfiguration: (
     input: { coreArtifactID: string },
     signal?: AbortSignal,
@@ -302,6 +311,13 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionChannel>;
+  /** Replaces a rule set's name and rules at the version it was read. */
+  updateSubscriptionRuleSet: (
+    ruleSetID: string,
+    input: SubscriptionRuleSetUpdate,
+    updatedAt: string,
+    signal?: AbortSignal,
+  ) => Promise<SubscriptionRuleSet>;
   createSubscriptionToken: (
     input: { userID?: string; label: string; expiresAt?: string; downloadLimit?: number },
     signal?: AbortSignal,

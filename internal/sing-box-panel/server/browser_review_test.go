@@ -405,11 +405,12 @@ func seedReviewSubscriptions(t *testing.T, services app.Services, linkCount int)
 	config, err := json.Marshal(map[string]any{
 		"incompatible_nodes": "skip",
 		"groups": []any{
-			map[string]any{"id": "proxy", "name": "Proxy", "enabled": true, "type": "select", "members": proxy, "rules": []any{
-				map[string]any{"id": "google", "enabled": true, "kind": "domain_suffix", "value": "google.com", "exit": map[string]any{"kind": "group-default"}},
-				map[string]any{"id": "lan", "enabled": true, "kind": "ip_cidr", "value": "192.168.0.0/16", "exit": map[string]any{"kind": "direct"}},
-			}},
-			map[string]any{"id": "auto", "name": "Auto", "enabled": true, "type": "url-test", "members": auto, "rules": []any{}},
+			map[string]any{"id": "proxy", "name": "Proxy", "enabled": true, "type": "select", "members": proxy},
+			map[string]any{"id": "auto", "name": "Auto", "enabled": true, "type": "url-test", "members": auto},
+		},
+		"routes": []any{
+			map[string]any{"id": "google", "enabled": true, "rule": map[string]any{"kind": "domain_suffix", "value": "google.com"}, "exit": map[string]any{"kind": "group", "id": "proxy"}},
+			map[string]any{"id": "lan", "enabled": true, "rule": map[string]any{"kind": "ip_cidr", "value": "192.168.0.0/16"}, "exit": map[string]any{"kind": "direct"}},
 		},
 		"default_exit": map[string]any{"kind": "group", "id": "proxy"},
 	})

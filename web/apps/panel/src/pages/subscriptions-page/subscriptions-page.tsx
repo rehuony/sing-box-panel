@@ -7,24 +7,23 @@ import { useHashTab } from '@/hooks/use-hash-tab';
 import { StripDivider, TitleStrip } from '@/components/title-strip';
 import { WorkspaceToolbarActions } from '@/components/workspace-toolbar';
 
+import { RuleSetPanel } from './rule-set-panel';
 import { SubscriptionNodePanel } from './subscription-node-panel';
 import { SubscriptionTokenPanel } from './subscription-token-panel';
-import { SubscriptionSourcePanel } from './subscription-source-panel';
 import { SubscriptionChannelPanel } from './subscription-channel-panel';
 import { useSubscriptionTokenPage } from './use-subscription-token-page';
 
-const AREAS = ['nodes', 'sources', 'channels', 'tokens'] as const;
+const AREAS = ['rules', 'nodes', 'channels', 'tokens'] as const;
 
 /**
- * The subscriptions window: the node pool first, then the sources that feed
- * it, the channels that publish it and the keys that read the channels.
+ * The subscriptions window, opening on the rule sets channels route by,
+ * then the node pool with the sources that feed it, the channels that
+ * publish the pool and the keys that read the channels.
  */
 export function SubscriptionsPage() {
   const { t } = useTranslation();
-  const [area, selectArea] = useHashTab('subscription-', AREAS, 'nodes');
+  const [area, selectArea] = useHashTab('subscription-', AREAS, 'rules');
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
-  // An empty pool leads to adding a source, which the sources tab opens as it appears.
-  const [addingSource, setAddingSource] = useState(false);
   const tokenPage = useSubscriptionTokenPage(area === 'tokens');
 
   // Size containment keeps the areas' content out of the workspace's height, so
@@ -40,25 +39,13 @@ export function SubscriptionsPage() {
           <StripDivider className='max-sm:hidden' />
           <WorkspaceToolbarActions ref={setToolbarTarget} />
         </TitleStrip>
-        {/* The pool's cards sit on the content surface like the nodes home's panes; the tables share one card. */}
-        <div className={cn('flex min-h-0 flex-1 flex-col', area !== 'nodes' && 'overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]')}>
+        {/* The pool and the rule sets lay out their own rail and cards; the tables share one card. */}
+        <div className={cn('flex min-h-0 flex-1 flex-col', area !== 'nodes' && area !== 'rules' && 'overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]')}>
           <TabsContent className='min-h-0 flex-1 overflow-auto' value='nodes'>
-            <SubscriptionNodePanel
-              active={area === 'nodes'}
-              onAddSource={() => {
-                setAddingSource(true);
-                selectArea('sources');
-              }}
-              toolbarTarget={toolbarTarget}
-            />
+            <SubscriptionNodePanel active={area === 'nodes'} toolbarTarget={toolbarTarget} />
           </TabsContent>
-          <TabsContent className='min-h-0 flex-1 overflow-auto' value='sources'>
-            <SubscriptionSourcePanel
-              active={area === 'sources'}
-              onStarted={() => setAddingSource(false)}
-              startCreating={addingSource}
-              toolbarTarget={toolbarTarget}
-            />
+          <TabsContent className='min-h-0 flex-1 overflow-auto' value='rules'>
+            <RuleSetPanel active={area === 'rules'} toolbarTarget={toolbarTarget} />
           </TabsContent>
           <TabsContent className='min-h-0 flex-1 overflow-auto' value='channels'><SubscriptionChannelPanel active={area === 'channels'} toolbarTarget={toolbarTarget} /></TabsContent>
           <TabsContent className='min-h-0 flex-1 overflow-auto' value='tokens'><SubscriptionTokenPanel list={tokenPage} active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>

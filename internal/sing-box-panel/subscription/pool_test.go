@@ -157,8 +157,8 @@ func TestPoolRemovalLeavesChannelsAndGrants(t *testing.T) {
 	config, _ := json.Marshal(map[string]any{
 		"groups": []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select",
 			"members": []any{map[string]any{"kind": "node", "id": a}, map[string]any{"kind": "node", "id": b}},
-			"rules":   []any{map[string]any{"id": "rule", "enabled": true, "kind": "domain", "value": "example.org", "exit": map[string]any{"kind": "node", "id": a}}},
 		}},
+		"routes":       []any{map[string]any{"id": "rule", "enabled": true, "rule": map[string]any{"kind": "domain", "value": "example.org"}, "exit": map[string]any{"kind": "node", "id": a}}},
 		"default_exit": map[string]any{"kind": "node", "id": a},
 	})
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{Name: "channel", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true})
@@ -182,7 +182,7 @@ func TestPoolRemovalLeavesChannelsAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	group := stored.Config.Groups[0]
-	if len(group.Members) != 1 || group.Members[0].ID != b || group.Rules[0].Exit != (RouteExit{Kind: "group-default"}) ||
+	if len(group.Members) != 1 || group.Members[0].ID != b || stored.Config.Routes[0].Exit != (RouteExit{Kind: "reject"}) ||
 		stored.Config.DefaultExit != (RouteExit{Kind: "direct"}) {
 		t.Fatalf("channel after removal = %+v", stored.Config)
 	}
@@ -207,9 +207,8 @@ func TestPoolRemovalLeavesChannelsAndGrants(t *testing.T) {
 
 	// Deleting the source releases exits that name its nodes the same way.
 	config, _ = json.Marshal(map[string]any{
-		"groups": []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select", "members": []any{},
-			"rules": []any{map[string]any{"id": "rule", "enabled": true, "kind": "domain", "value": "example.org", "exit": map[string]any{"kind": "node", "id": b}}},
-		}},
+		"groups":       []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select", "members": []any{}}},
+		"routes":       []any{map[string]any{"id": "rule", "enabled": true, "rule": map[string]any{"kind": "domain", "value": "example.org"}, "exit": map[string]any{"kind": "node", "id": b}}},
 		"default_exit": map[string]any{"kind": "node", "id": a},
 	})
 	if _, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
@@ -225,7 +224,7 @@ func TestPoolRemovalLeavesChannelsAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, err = app.SubscriptionChannel(ctx, channel.ID)
-	if err != nil || stored.Config.Groups[0].Rules[0].Exit != (RouteExit{Kind: "group-default"}) || stored.Config.DefaultExit != (RouteExit{Kind: "direct"}) {
+	if err != nil || stored.Config.Routes[0].Exit != (RouteExit{Kind: "reject"}) || stored.Config.DefaultExit != (RouteExit{Kind: "direct"}) {
 		t.Fatalf("channel after source deletion = %+v, %v", stored.Config, err)
 	}
 	if grants, err := app.SubscriptionUserGrants(ctx, user.ID); err != nil || len(grants.Grants) != 0 {

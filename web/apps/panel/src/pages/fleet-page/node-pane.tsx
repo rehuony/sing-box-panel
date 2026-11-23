@@ -7,8 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { memo, useEffect, useRef } from 'react';
 import { CellMeter } from '@shared/components/cell-meter';
 import { ReadoutParts, ReadoutRow } from '@shared/components/terminal';
+import { formatRelativeTime, formatShortDateTime } from '@shared/lib/format-time';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
-import { formatDateTime, formatRelativeTime, formatShortDateTime } from '@shared/lib/format-time';
 import { EM_DASH, formatBytes, formatDuration, formatRate, shareTone } from '@shared/lib/telemetry-format';
 
 import type { NodeStatus } from '@/utils/fleet-summary';
@@ -117,7 +117,7 @@ function TitleEnd({ item, release }: { item: NodeStatus; release: string | null 
   if (node.update_available && release) {
     const version = `v${release.replace(/^v/i, '')}`;
     return (
-      <span className='flex-none text-[var(--color-info-text)]' title={t('fleet.pane.update', { version })}>
+      <span className='flex-none text-[var(--color-info-text)]'>
         <span aria-hidden='true'>{`↑ ${version}`}</span>
         <span className='sr-only'>{t('fleet.pane.update', { version })}</span>
       </span>
@@ -165,7 +165,7 @@ function Headline({ item, now }: { item: NodeStatus; now: number }) {
     const seen = formatShortDateTime(node.last_seen_at, locale, now);
     return (
       <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
-        <span className={cn('truncate text-xl font-semibold', toneText.danger)} title={formatDateTime(node.last_seen_at, locale)}>
+        <span className={cn('truncate text-xl font-semibold', toneText.danger)}>
           {t('fleet.pane.offline', { time: since })}
         </span>
         {seen
@@ -463,7 +463,7 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected, select
     >
       <header className={cn('flex h-8 flex-none items-center gap-2 border-b px-3', selected && 'border-primary/25')}>
         <HealthDot item={item} now={now} />
-        <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium' title={node.name}>
+        <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium'>
           <Link
             aria-checked={selecting ? selected : undefined}
             className='outline-none [-webkit-touch-callout:none] after:absolute after:inset-0 after:rounded-[inherit]'

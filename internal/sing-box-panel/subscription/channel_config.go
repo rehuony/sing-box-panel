@@ -13,14 +13,18 @@ import (
 
 const maximumChannelConfigBytes = 640 << 10
 
-// ChannelConfig is a channel's strategy groups, default exit and template.
-// The channel publishes only the pool nodes its enabled groups name as
-// members, rule exits or the default exit.
+// ChannelConfig is a channel's strategy groups, exit rules, final exit and
+// template. The channel publishes only the pool nodes its enabled groups name
+// as members or match, its enabled exit rules' exits or its final exit.
+// Traffic follows the first enabled exit rule that matches, in order, and the
+// final exit when none does.
 type ChannelConfig struct {
-	IncompatibleNodes string          `json:"incompatible_nodes"`
-	Groups            []RuleGroup     `json:"groups"`
-	DefaultExit       RouteExit       `json:"default_exit"`
-	Template          *NativeTemplate `json:"template,omitempty"`
+	IncompatibleNodes string         `json:"incompatible_nodes"`
+	Groups            []RuleGroup    `json:"groups"`
+	Routes            []ChannelRoute `json:"routes"`
+	// DefaultExit is the final exit.
+	DefaultExit RouteExit       `json:"default_exit"`
+	Template    *NativeTemplate `json:"template,omitempty"`
 }
 
 type RouteExit struct {
@@ -29,15 +33,28 @@ type RouteExit struct {
 }
 
 // RuleGroup is a strategy group. Members are its candidates in order; the
-// first is the initial manual selection.
+// first is the initial manual selection. Match takes further pool nodes
+// after them.
 type RuleGroup struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Enabled     bool              `json:"enabled"`
 	Type        string            `json:"type"`
+	Match       *GroupMatch       `json:"match,omitempty"`
 	HealthCheck *GroupHealthCheck `json:"health_check,omitempty"`
 	Members     []GroupMember     `json:"members"`
-	Rules       []ChannelRule     `json:"rules"`
+}
+
+// GroupMatch selects pool nodes a group takes besides its members: nodes of
+// one of Origins, when any are named, of one of Protocols, when any are
+// named, whose display name Include and Exclude keep as a source filter
+// does. A match that names nothing takes no nodes.
+type GroupMatch struct {
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
+	// Origins are "fleet", for the fleet's inbounds, or "source:<id>".
+	Origins   []string `json:"origins"`
+	Protocols []string `json:"protocols"`
 }
 
 // GroupMember is a candidate: a pool node, a built-in direct or reject exit,
@@ -66,16 +83,24 @@ func (g RuleGroup) healthCheck() GroupHealthCheck {
 	return GroupHealthCheck{URL: "https://www.gstatic.com/generate_204", Interval: 300, Tolerance: 50}
 }
 
-// Rules and remote references share one ordered list. A disabled entry retains
-// its metadata, but is not emitted. Nothing here fetches remote rule contents.
-type ChannelRule struct {
-	SortIndex int64          `json:"sort_index"`
-	ID        string         `json:"id"`
-	Enabled   bool           `json:"enabled"`
-	Kind      string         `json:"kind"`
-	Value     string         `json:"value,omitempty"`
-	Remote    *RemoteRuleSet `json:"remote,omitempty"`
-	Exit      RouteExit      `json:"exit"`
+// ChannelRoute is one exit rule: a rule set of the channel's client, whose
+// rules all take Exit in their order, or one rule of the channel's own.
+// Exactly one of RuleSetID and Rule is present. A disabled exit rule keeps
+// its settings but is not emitted.
+type ChannelRoute struct {
+	ID        string            `json:"id"`
+	Enabled   bool              `json:"enabled"`
+	RuleSetID string            `json:"rule_set_id,omitempty"`
+	Rule      *SubscriptionRule `json:"rule,omitempty"`
+	Exit      RouteExit         `json:"exit"`
+}
+
+// SubscriptionRule matches a domain, part of one or an IP range, or names a
+// remote rule set the client fetches. Nothing here fetches remote rules.
+type SubscriptionRule struct {
+	Kind   string         `json:"kind"`
+	Value  string         `json:"value,omitempty"`
+	Remote *RemoteRuleSet `json:"remote,omitempty"`
 }
 
 type RemoteRuleSet struct {
@@ -114,6 +139,9 @@ func DecodeChannelConfig(raw json.RawMessage) (ChannelConfig, error) {
 	if config.Groups == nil {
 		return ChannelConfig{}, policyError("groups", "required")
 	}
+	if config.Routes == nil {
+		return ChannelConfig{}, policyError("routes", "required")
+	}
 	if config.DefaultExit.Kind == "" {
 		return ChannelConfig{}, policyError("default_exit", "required")
 	}
@@ -125,8 +153,15 @@ func DecodeChannelConfig(raw json.RawMessage) (ChannelConfig, error) {
 		if group.Members == nil {
 			return ChannelConfig{}, policyError(fmt.Sprintf("groups[%d].members", index), "required")
 		}
-		if group.Rules == nil {
-			return ChannelConfig{}, policyError(fmt.Sprintf("groups[%d].rules", index), "required")
+		if match := group.Match; match != nil {
+			for _, list := range []struct {
+				name   string
+				values []string
+			}{{"include", match.Include}, {"exclude", match.Exclude}, {"origins", match.Origins}, {"protocols", match.Protocols}} {
+				if list.values == nil {
+					return ChannelConfig{}, policyError(fmt.Sprintf("groups[%d].match.%s", index, list.name), "required")
+				}
+			}
 		}
 	}
 	return config, nil
@@ -158,6 +193,7 @@ func storeChannelConfig(config ChannelConfig) (store.SubscriptionChannelConfig, 
 		IncompatibleNodes: config.IncompatibleNodes,
 		DefaultExit:       store.SubscriptionChannelExit{Kind: config.DefaultExit.Kind, ID: config.DefaultExit.ID},
 		Groups:            make([]store.SubscriptionChannelGroup, 0, len(config.Groups)),
+		Routes:            make([]store.SubscriptionChannelRoute, 0, len(config.Routes)),
 	}
 	if config.Template != nil {
 		content := config.Template.Content
@@ -167,29 +203,38 @@ func storeChannelConfig(config ChannelConfig) (store.SubscriptionChannelConfig, 
 		value := store.SubscriptionChannelGroup{
 			ID: group.ID, Name: group.Name, Type: group.Type, Enabled: group.Enabled,
 			Members: make([]store.SubscriptionChannelMember, 0, len(group.Members)),
-			Rules:   make([]store.SubscriptionChannelRule, 0, len(group.Rules)),
 		}
 		if check := group.HealthCheck; check != nil {
 			value.HealthCheck = &store.SubscriptionChannelHealthCheck{URL: check.URL, Interval: check.Interval, Tolerance: check.Tolerance}
 		}
+		if group.Match != nil {
+			encoded, err := json.Marshal(group.Match)
+			if err != nil {
+				return store.SubscriptionChannelConfig{}, err
+			}
+			value.Match = encoded
+		}
 		for _, member := range group.Members {
 			value.Members = append(value.Members, store.SubscriptionChannelMember{Kind: member.Kind, ID: member.ID})
 		}
-		for _, rule := range group.Rules {
-			stored := store.SubscriptionChannelRule{
-				ID: rule.ID, SortIndex: rule.SortIndex, Enabled: rule.Enabled, Kind: rule.Kind, Value: rule.Value,
-				Exit: store.SubscriptionChannelExit{Kind: rule.Exit.Kind, ID: rule.Exit.ID},
-			}
+		stored.Groups = append(stored.Groups, value)
+	}
+	for _, route := range config.Routes {
+		value := store.SubscriptionChannelRoute{
+			ID: route.ID, Enabled: route.Enabled, RuleSetID: route.RuleSetID,
+			Exit: store.SubscriptionChannelExit{Kind: route.Exit.Kind, ID: route.Exit.ID},
+		}
+		if rule := route.Rule; rule != nil {
+			value.Kind, value.Value = rule.Kind, rule.Value
 			if rule.Remote != nil {
 				encoded, err := json.Marshal(rule.Remote)
 				if err != nil {
 					return store.SubscriptionChannelConfig{}, err
 				}
-				stored.Remote = encoded
+				value.Remote = encoded
 			}
-			value.Rules = append(value.Rules, stored)
 		}
-		stored.Groups = append(stored.Groups, value)
+		stored.Routes = append(stored.Routes, value)
 	}
 	return stored, nil
 }
@@ -201,6 +246,7 @@ func applicationChannelConfig(stored store.SubscriptionChannelConfig, format sto
 		IncompatibleNodes: stored.IncompatibleNodes,
 		DefaultExit:       RouteExit{Kind: stored.DefaultExit.Kind, ID: stored.DefaultExit.ID},
 		Groups:            make([]RuleGroup, 0, len(stored.Groups)),
+		Routes:            make([]ChannelRoute, 0, len(stored.Routes)),
 	}
 	if stored.Template != nil {
 		config.Template = &NativeTemplate{Format: RenderFormat(format), Content: *stored.Template}
@@ -208,28 +254,37 @@ func applicationChannelConfig(stored store.SubscriptionChannelConfig, format sto
 	for _, group := range stored.Groups {
 		value := RuleGroup{
 			ID: group.ID, Name: group.Name, Type: group.Type, Enabled: group.Enabled,
-			Members: make([]GroupMember, 0, len(group.Members)), Rules: make([]ChannelRule, 0, len(group.Rules)),
+			Members: make([]GroupMember, 0, len(group.Members)),
 		}
 		if check := group.HealthCheck; check != nil {
 			value.HealthCheck = &GroupHealthCheck{URL: check.URL, Interval: check.Interval, Tolerance: check.Tolerance}
 		}
+		if len(group.Match) > 0 {
+			value.Match = &GroupMatch{}
+			if err := json.Unmarshal(group.Match, value.Match); err != nil {
+				return ChannelConfig{}, fmt.Errorf("decode stored group match: %w", err)
+			}
+		}
 		for _, member := range group.Members {
 			value.Members = append(value.Members, GroupMember{Kind: member.Kind, ID: member.ID})
 		}
-		for _, rule := range group.Rules {
-			converted := ChannelRule{
-				SortIndex: rule.SortIndex, ID: rule.ID, Enabled: rule.Enabled, Kind: rule.Kind, Value: rule.Value,
-				Exit: RouteExit{Kind: rule.Exit.Kind, ID: rule.Exit.ID},
-			}
-			if len(rule.Remote) > 0 {
-				converted.Remote = &RemoteRuleSet{}
-				if err := json.Unmarshal(rule.Remote, converted.Remote); err != nil {
+		config.Groups = append(config.Groups, value)
+	}
+	for _, route := range stored.Routes {
+		value := ChannelRoute{
+			ID: route.ID, Enabled: route.Enabled, RuleSetID: route.RuleSetID,
+			Exit: RouteExit{Kind: route.Exit.Kind, ID: route.Exit.ID},
+		}
+		if route.RuleSetID == "" {
+			value.Rule = &SubscriptionRule{Kind: route.Kind, Value: route.Value}
+			if len(route.Remote) > 0 {
+				value.Rule.Remote = &RemoteRuleSet{}
+				if err := json.Unmarshal(route.Remote, value.Rule.Remote); err != nil {
 					return ChannelConfig{}, fmt.Errorf("decode stored remote rule set: %w", err)
 				}
 			}
-			value.Rules = append(value.Rules, converted)
 		}
-		config.Groups = append(config.Groups, value)
+		config.Routes = append(config.Routes, value)
 	}
 	return config, nil
 }

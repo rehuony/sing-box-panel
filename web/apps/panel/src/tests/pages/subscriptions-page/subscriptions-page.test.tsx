@@ -17,17 +17,22 @@ function LocationProbe() {
 }
 
 describe('subscriptionsPage', () => {
-  it('starts with candidate nodes when reopening a channel editor', async () => {
+  it('opens a channel on its exit rules and starts groups on candidates again after reopening', async () => {
     const user = userEvent.setup();
-    const channel = { ...testSubscriptionChannels[0], config: { ...emptyChannelConfig(), groups: [newRuleGroup()] } };
+    const group = { ...newRuleGroup(), name: 'Proxy' };
+    const channel = { ...testSubscriptionChannels[0], config: { ...emptyChannelConfig(), groups: [group] } };
     const client = createMockApiClient({ getSubscriptionChannel: vi.fn().mockResolvedValue(channel) });
     render(<TestRouter initialEntries={['/subscriptions#subscription-channels']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
     const row = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
     await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    expect(await screen.findByRole('combobox', { name: 'Final exit' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /^Proxy/ }));
     await user.click(await screen.findByRole('tab', { name: 'Exit rules' }));
     await user.click(screen.getByRole('button', { name: 'Back' }));
     const reopenedRow = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
     await user.click(within(reopenedRow).getByRole('button', { name: 'Edit' }));
+    expect(await screen.findByRole('combobox', { name: 'Final exit' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /^Proxy/ }));
     expect(await screen.findByRole('tab', { name: 'Candidate nodes' })).toHaveAttribute('aria-selected', 'true');
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
@@ -52,7 +57,7 @@ describe('subscriptionsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     const back = screen.getByRole('button', { name: 'Back' });
     expect(back.closest('[data-slot="title-strip"]')).not.toBeNull();
-    await user.click(screen.getByRole('tab', { name: 'Sources' }));
+    await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
     const confirmation = screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
     expect(within(confirmation).queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
     await waitFor(() => expect(within(confirmation).getByRole('button', { name: 'Cancel' })).toHaveFocus());
@@ -61,9 +66,9 @@ describe('subscriptionsPage', () => {
     await user.click(screen.getByRole('button', { name: /^Configure Strategy group/ }));
     expect(screen.getByLabelText('Group name')).toHaveValue('Strategy group 1 edited');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    await user.click(screen.getByRole('tab', { name: 'Sources' }));
+    await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
-    expect(screen.getByRole('tab', { name: 'Sources' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Rule sets' })).toHaveAttribute('aria-selected', 'true');
     await user.click(screen.getByRole('tab', { name: 'Channels' }));
     expect(await screen.findByRole('searchbox', { name: 'Search channels' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
@@ -74,9 +79,9 @@ describe('subscriptionsPage', () => {
     const user = userEvent.setup();
     const originalURL = window.location.href;
     try {
-      window.history.replaceState(window.history.state, '', '/subscriptions');
+      window.history.replaceState(window.history.state, '', '/subscriptions#subscription-nodes');
       render(
-        <TestRouter>
+        <TestRouter initialEntries={['/subscriptions#subscription-nodes']}>
           <ApiClientProvider client={createMockApiClient()}><SubscriptionsPage /></ApiClientProvider>
         </TestRouter>,
       );
@@ -136,12 +141,13 @@ describe('subscriptionsPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Add channel' }));
     expect(client.createSubscriptionChannel).toHaveBeenCalledWith({
       name: 'Mobile clients', format: 'mihomo', enabled: true,
-      config: { groups: [], default_exit: { kind: 'direct' } },
+      config: { groups: [], routes: [], default_exit: { kind: 'direct' } },
     }, expect.any(AbortSignal));
     expect(await screen.findByRole('button', { name: 'Add strategy group' })).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Node selection' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Final exit' })).toHaveTextContent('DIRECT');
     await user.click(screen.getByRole('button', { name: 'Add strategy group' }));
     expect(screen.getByRole('region', { name: 'Edit strategy group' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Set as final exit' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /^Strategy group 1/ })).toHaveAttribute('aria-current', 'true');
   });
 });

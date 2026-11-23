@@ -44,10 +44,10 @@ func validateChannelPoolReferences(config ChannelConfig, available map[string]bo
 				return policyError(fmt.Sprintf("groups[%d].members[%d]", groupIndex, index), "node_not_in_pool")
 			}
 		}
-		for index, rule := range group.Rules {
-			if rule.Exit.Kind == "node" && !available[rule.Exit.ID] {
-				return policyError(fmt.Sprintf("groups[%d].rules[%d].exit", groupIndex, index), "node_not_in_pool")
-			}
+	}
+	for index, route := range config.Routes {
+		if route.Exit.Kind == "node" && !available[route.Exit.ID] {
+			return policyError(fmt.Sprintf("routes[%d].exit", index), "node_not_in_pool")
 		}
 	}
 	if config.DefaultExit.Kind == "node" && !available[config.DefaultExit.ID] {

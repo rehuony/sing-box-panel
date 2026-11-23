@@ -1,9 +1,9 @@
-import { CirclePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { CirclePlus, Copy, Link2, PencilLine } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import {
   Dialog,
@@ -16,10 +16,12 @@ import {
 
 import type {
   SubscriptionChannel,
+  SubscriptionChannelSummary,
   SubscriptionFormat,
 } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
+import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
 import { usePageVisible } from '@/hooks/use-page-visible';
@@ -58,7 +60,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const [name, setName] = useState('');
   const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
   const [formError, setFormError] = useState('');
-  const [deleting, setDeleting] = useState<import('@/api/api-client').SubscriptionChannelSummary | null>(null);
+  const [deleting, setDeleting] = useState<SubscriptionChannelSummary | null>(null);
   useUnsavedChanges(creating && (name !== '' || format !== 'sing-box'), () => {
     setCreating(false);
     setName('');
@@ -155,8 +157,10 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       );
       if (lifetimeRef.current?.signal.aborted) return;
       setDeleting(null);
+      // Deleting from its settings leaves the channel's workspace.
+      if (channel?.id === fresh.id) setChannel(null);
       await load(lifetimeRef.current?.signal);
-      toast.add({ title: t('channels.remove'), type: 'success' });
+      toast.add({ title: t('channels.removed'), type: 'success' });
     } catch (reason) {
       toast.add({ title: describeRequestError(reason), type: 'error' });
     } finally {
@@ -190,6 +194,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 setChannel(null);
                 void load(lifetimeRef.current?.signal);
               }}
+              onDelete={() => setDeleting(channel)}
               onSaved={setChannel}
             />
           )
@@ -208,9 +213,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   <StripDivider />
                   <Button
                     aria-label={t('channels.add')}
-                    title={t('channels.add')}
+                    className='max-sm:w-(--control-height-sm) max-sm:px-0'
                     disabled={busy}
-                    size='icon-sm'
+                    size='sm'
                     variant='flat'
                     onClick={() => {
                       setCreating(true);
@@ -219,12 +224,13 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                       setFormError('');
                     }}
                   >
-                    <CirclePlus aria-hidden='true' />
+                    <CirclePlus aria-hidden='true' data-icon='inline-start' />
+                    <span className='max-sm:sr-only'>{t('channels.add')}</span>
                   </Button>
                 </div>
               </ToolbarActions>
               <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={list.isPending}>
-                <table className='workspace-table w-full min-w-240 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-2 [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[32%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[16%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[32%]'>
+                <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-1 [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[40%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[20%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[20%]'>
                   <thead>
                     <tr>
                       <th>{t('channels.name')}</th>
@@ -248,14 +254,15 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                         </td>
                         <td>{t(value.enabled ? 'channels.enabled' : 'channels.disabled')}</td>
                         <td>
-                          <Button size='sm' disabled={busy} variant='outline' onClick={() => void open(value.id)}>
-                            {t('channels.edit')}
-                          </Button>
-                          <Button size='sm' disabled={busy} variant='outline' onClick={() => void channelAction(value.id, 'duplicate')}>{t('channels.copy')}</Button>
-                          <Button size='sm' disabled={busy || !value.enabled} variant='outline' onClick={() => void channelAction(value.id, 'link')}>{t('channels.link')}</Button>
-                          <Button size='sm' disabled={busy} variant='destructive' onClick={() => setDeleting(value)}>
-                            {t('channels.remove')}
-                          </Button>
+                          <IconAction disabled={busy || !value.enabled} label={t('channels.link')} onClick={() => void channelAction(value.id, 'link')}>
+                            <Link2 aria-hidden='true' />
+                          </IconAction>
+                          <IconAction disabled={busy} label={t('channels.copy')} onClick={() => void channelAction(value.id, 'duplicate')}>
+                            <Copy aria-hidden='true' />
+                          </IconAction>
+                          <IconAction disabled={busy} label={t('channels.edit')} onClick={() => void open(value.id)}>
+                            <PencilLine aria-hidden='true' />
+                          </IconAction>
                         </td>
                       </tr>
                     ))}

@@ -23,7 +23,7 @@ describe('createHttpApiClient subscription domain', () => {
         }),
       );
     const client = createHttpApiClient({ fetcher });
-    const draft = { format: 'sing-box' as const, config: { groups: [], default_exit: { kind: 'direct' as const } } };
+    const draft = { format: 'sing-box' as const, config: { groups: [], routes: [], default_exit: { kind: 'direct' as const } } };
     const result = await client.previewSubscriptionChannel('channel/one', '', undefined, draft);
     expect(result.result.content).toBe(text);
     expect(fetcher).toHaveBeenCalledWith(
@@ -78,7 +78,7 @@ describe('createHttpApiClient subscription domain', () => {
       {
         name: 'Primary',
         format: 'sing-box',
-        config: { groups: [], default_exit: { kind: 'direct' } },
+        config: { groups: [], routes: [], default_exit: { kind: 'direct' } },
         enabled: true,
       },
       '2026-08-26T07:05:00.000000001Z',

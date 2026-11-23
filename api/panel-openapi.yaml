@@ -1228,6 +1228,71 @@ paths:
           $ref: "#/components/responses/SubscriptionPreview"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/rule-sets:
+    get:
+      operationId: listSubscriptionRuleSets
+      description: Every rule set, or one client's, in name order.
+      parameters:
+        - name: client
+          in: query
+          required: false
+          schema: {type: string, enum: [sing-box, mihomo, loon]}
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionRuleSetList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSubscriptionRuleSet
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionRuleSetCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/SubscriptionRuleSet"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/rule-sets/{ruleSetId}:
+    parameters:
+      - $ref: "#/components/parameters/RuleSetID"
+    get:
+      operationId: getSubscriptionRuleSet
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionRuleSet"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateSubscriptionRuleSet
+      description: >-
+        Replaces the rule set's name and rules; every channel that routes by it
+        publishes the new rules at once. Its client never changes. An update is
+        refused with rules: too_many_rules when a channel using the set would
+        expand to more than 20000 rules.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionRuleSetUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionRuleSet"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSubscriptionRuleSet
+      description: >-
+        Deletes the rule set and the exit rules of every channel that routes by it;
+        those channels' updated_at advances, so an edit opened before refuses with 412.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
   /subscription/sources:
     get:
       operationId: listSubscriptionSources
@@ -2152,6 +2217,12 @@ components:
       required: true
       schema:
         type: string
+    RuleSetID:
+      name: ruleSetId
+      in: path
+      required: true
+      schema:
+        type: string
     SubscriptionNodeID:
       name: nodeId
       in: path
@@ -2221,6 +2292,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/SubscriptionSourceCreate"
+    SubscriptionRuleSetCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionRuleSetCreate"
+    SubscriptionRuleSetUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionRuleSetUpdate"
     SubscriptionSourceUpdate:
       required: true
       content:
@@ -2296,6 +2379,12 @@ components:
     SubscriptionSource:
       description: Subscription source.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSource"}}}
+    SubscriptionRuleSetList:
+      description: Rule sets in name order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSetList"}}}
+    SubscriptionRuleSet:
+      description: Rule set.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSet"}}}
     SubscriptionTokenPage:
       description: Page of subscription token metadata.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
@@ -3243,14 +3332,25 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        A channel publishes only the pool nodes its enabled groups name as members,
-        rule exits or the default exit, in pool order and under their display names.
-        Serialized configuration is limited to 640 KiB.
-      required: [groups, default_exit]
+        A channel publishes only the pool nodes its enabled groups name as members
+        or match, its exit rules' exits or its final exit, in pool order and under
+        their display names. Traffic follows the first enabled exit rule that
+        matches, in order, and the final exit when none does. Serialized
+        configuration is limited to 640 KiB.
+      required: [groups, routes, default_exit]
       properties:
         incompatible_nodes: {type: string, enum: [skip, error], default: skip, description: "Conversion failure handling; omitted nodes are reported in diagnostics."}
         groups: {type: array, maxItems: 256, items: {$ref: "#/components/schemas/ChannelRuleGroup"}}
-        default_exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+        routes:
+          type: array
+          maxItems: 5000
+          description: >-
+            The channel's exit rules in matching order. Their rules, with each rule
+            set expanded, number at most 20000 (routes: too_many_rules).
+          items: {$ref: "#/components/schemas/ChannelRoute"}
+        default_exit:
+          $ref: "#/components/schemas/ChannelRouteExit"
+          description: The final exit, for traffic no exit rule matches.
         template: {$ref: "#/components/schemas/ChannelNativeTemplate"}
     SubscriptionDraftPreview:
       type: object
@@ -3264,17 +3364,18 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [direct, reject, node, group, group-default]}
+        kind: {type: string, enum: [direct, reject, node, group]}
         id: {type: string}
     ChannelRuleGroup:
       type: object
       additionalProperties: false
-      required: [id, name, enabled, type, members, rules]
+      required: [id, name, enabled, type, members]
       properties:
         id: {type: string, maxLength: 128}
         name: {type: string, maxLength: 128}
         enabled: {type: boolean}
-        type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported by Mihomo and Loon."}
+        type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported by mihomo and loon."}
+        match: {$ref: "#/components/schemas/ChannelGroupMatch"}
         health_check: {$ref: "#/components/schemas/ChannelGroupHealthCheck"}
         members:
           type: array
@@ -3285,7 +3386,25 @@ components:
             auto groups take no built-in candidates. Group members must be other
             enabled groups of this channel; self references and cycles are rejected.
           items: {$ref: "#/components/schemas/ChannelGroupMember"}
-        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/ChannelRule"}}
+    ChannelGroupMatch:
+      type: object
+      additionalProperties: false
+      required: [include, exclude, origins, protocols]
+      description: >-
+        Pool nodes the group takes besides its members, after them in pool order
+        and each once: nodes from one of the origins, when any are named, of one
+        of the protocols, when any are named, whose display name the name rules
+        keep. Name rules work as a source's filter. A match that names nothing
+        takes no nodes.
+      properties:
+        include: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+        exclude: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+        origins:
+          type: array
+          maxItems: 256
+          description: "fleet for the fleet's inbounds, or source:<id> for one source's nodes."
+          items: {type: string, minLength: 1, maxLength: 160}
+        protocols: {type: array, maxItems: 32, items: {type: string, minLength: 1, maxLength: 32}}
     ChannelGroupMember:
       type: object
       additionalProperties: false
@@ -3302,20 +3421,76 @@ components:
         url: {type: string, maxLength: 4096}
         interval: {type: integer, minimum: 60, maximum: 86400}
         tolerance: {type: integer, minimum: 0, maximum: 65535}
-    ChannelRule:
+    ChannelRoute:
       type: object
       additionalProperties: false
-      required: [id, enabled, kind, exit]
+      required: [id, enabled, exit]
+      description: >-
+        One exit rule: a rule set of the channel's client, whose rules all take
+        this exit in their order, or one rule of the channel's own. Exactly one of
+        rule_set_id and rule is present.
       properties:
         id: {type: string, maxLength: 128}
         enabled: {type: boolean}
-        sort_index: {type: integer, minimum: -9007199254740991, maximum: 9007199254740991, default: 0, description: "Channel-wide ascending integer priority. Ties use rule name (remote name or match value), ascending Unicode scalar order, then stable original order. Omission means zero."}
-        kind: {type: string, enum: [domain, domain_suffix, domain_keyword, ip_cidr, remote]}
-        value: {type: string}
-        remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
+        rule_set_id: {type: string, maxLength: 128}
+        rule: {$ref: "#/components/schemas/SubscriptionRule"}
         exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+    SubscriptionRule:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: A match on a domain, part of one or an IP range, or a remote rule set the client fetches.
+      properties:
+        kind: {type: string, enum: [domain, domain_suffix, domain_keyword, ip_cidr, remote]}
+        value: {type: string, maxLength: 128, description: "Every kind but remote."}
+        remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
+    SubscriptionRuleSet:
+      type: object
+      additionalProperties: false
+      required: [id, client, name, rules, channels, created_at, updated_at]
+      description: >-
+        A client's reusable list of rules; channels of that client route by it.
+        updated_at is its version for If-Match.
+      properties:
+        id: {type: string}
+        client: {type: string, enum: [sing-box, mihomo, loon]}
+        name: {type: string, maxLength: 128, description: "Unique among the client's rule sets, ignoring case."}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+        channels:
+          type: array
+          description: The channels whose exit rules use it, in name order.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, name]
+            properties:
+              id: {type: string}
+              name: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionRuleSetCreate:
+      type: object
+      additionalProperties: false
+      required: [client, name, rules]
+      properties:
+        client: {type: string, enum: [sing-box, mihomo, loon]}
+        name: {type: string, minLength: 1, maxLength: 128}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+    SubscriptionRuleSetUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, rules]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+    SubscriptionRuleSetList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionRuleSet"}}
     ChannelRemoteRuleSet:
-      description: "Names must be unique across all rules in the channel, including disabled entries. Metadata only; remote content is fetched and refreshed by the subscriber. The loon format requires native Loon rules and is distinct from Mihomo text lists."
+      description: "Names must be unique within a rule set and among a channel's own rules. Output merges remote rule sets with the same name and metadata and renames the later of two that differ. Metadata only; remote content is fetched and refreshed by the subscriber. The loon format requires native loon rules and is distinct from mihomo text lists."
       type: object
       additionalProperties: false
       required: [name, url, format, accelerated]

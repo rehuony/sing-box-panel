@@ -19,9 +19,9 @@ const (
 	SubscriptionFormatLoon    SubscriptionFormat = "loon"
 )
 
-// SubscriptionChannel is a channel with its strategy groups. The
-// subscription service validates the configuration; the store keeps it and
-// checks that every pool node it names exists.
+// SubscriptionChannel is a channel with its strategy groups and exit rules.
+// The subscription service validates the configuration; the store keeps it
+// and checks that every pool node and rule set it names exists.
 type SubscriptionChannel struct {
 	ID        string
 	Name      string
@@ -35,13 +35,15 @@ type SubscriptionChannel struct {
 type SubscriptionChannelConfig struct {
 	IncompatibleNodes string
 	// Template is the channel's base configuration; nil uses the shared default.
-	Template    *string
+	Template *string
+	// DefaultExit is the final exit, for traffic no exit rule matches.
 	DefaultExit SubscriptionChannelExit
 	Groups      []SubscriptionChannelGroup
+	Routes      []SubscriptionChannelRoute
 }
 
-// SubscriptionChannelExit is where traffic goes: direct, reject, a pool node,
-// a group of the channel or, for a rule, its group's default.
+// SubscriptionChannelExit is where traffic goes: direct, reject, a pool node
+// or a group of the channel.
 type SubscriptionChannelExit struct {
 	Kind string
 	ID   string
@@ -53,8 +55,10 @@ type SubscriptionChannelGroup struct {
 	Type        string
 	Enabled     bool
 	HealthCheck *SubscriptionChannelHealthCheck
-	Members     []SubscriptionChannelMember
-	Rules       []SubscriptionChannelRule
+	// Match selects the pool nodes the group takes besides its members; nil
+	// takes none.
+	Match   json.RawMessage
+	Members []SubscriptionChannelMember
 }
 
 type SubscriptionChannelHealthCheck struct {
@@ -70,10 +74,12 @@ type SubscriptionChannelMember struct {
 	ID   string
 }
 
-type SubscriptionChannelRule struct {
+// SubscriptionChannelRoute is one exit rule: a rule set of the channel's
+// client, named by RuleSetID, or one rule of the channel's own.
+type SubscriptionChannelRoute struct {
 	ID        string
-	SortIndex int64
 	Enabled   bool
+	RuleSetID string
 	Kind      string
 	Value     string
 	// Remote is the rule set's metadata, remote rules only.
@@ -206,8 +212,8 @@ func (s *Store) ListSubscriptionChannels(ctx context.Context, filter Subscriptio
 	return page, nil
 }
 
-// UpdateSubscriptionChannel replaces a channel, its groups, members and rules
-// together while its updated_at is still ExpectedUpdatedAt.
+// UpdateSubscriptionChannel replaces a channel, its groups, members and exit
+// rules together while its updated_at is still ExpectedUpdatedAt.
 func (s *Store) UpdateSubscriptionChannel(ctx context.Context, input UpdateSubscriptionChannelInput) (SubscriptionChannel, error) {
 	prepared, err := prepareSubscriptionChannel(input.Channel)
 	if err != nil {
@@ -247,7 +253,7 @@ func (s *Store) UpdateSubscriptionChannel(ctx context.Context, input UpdateSubsc
 		if err := requireSingleSubscriptionWrite(result, "update subscription channel"); err != nil {
 			return err
 		}
-		for _, table := range []string{"subscription_channel_rules", "subscription_channel_members", "subscription_channel_groups"} {
+		for _, table := range []string{"subscription_channel_routes", "subscription_channel_members", "subscription_channel_groups"} {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE channel_id = ?`, prepared.ID); err != nil {
 				return fmt.Errorf("replace subscription channel groups: %w", err)
 			}
@@ -316,9 +322,11 @@ func prepareSubscriptionChannel(channel SubscriptionChannel) (SubscriptionChanne
 	return channel, nil
 }
 
-// saveSubscriptionChannelGroups inserts the channel's groups, their members
-// and rules, then its default exit. A reference to a node that is not in the
-// pool fails with a SubscriptionReferenceError naming it.
+// saveSubscriptionChannelGroups inserts the channel's groups, their members,
+// its exit rules and its final exit. A reference to a node that is not in the
+// pool, or to a rule set that does not exist or belongs to another client,
+// fails with a SubscriptionReferenceError naming it, as do exit rules that
+// together hold more than MaximumChannelRules rules.
 func saveSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channel SubscriptionChannel) error {
 	nodeExists := func(id, path string) error {
 		var exists bool
@@ -331,14 +339,17 @@ func saveSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channel Subs
 		return nil
 	}
 	for index, group := range channel.Config.Groups {
-		var url, interval, tolerance any
+		var url, interval, tolerance, match any
 		if check := group.HealthCheck; check != nil {
 			url, interval, tolerance = check.URL, check.Interval, check.Tolerance
 		}
+		if len(group.Match) > 0 {
+			match = string(group.Match)
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_channel_groups(
-				channel_id, id, position, name, type, enabled, health_check_url, health_check_interval, health_check_tolerance
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			channel.ID, group.ID, index, group.Name, group.Type, boolInt(group.Enabled), url, interval, tolerance); err != nil {
+				channel_id, id, position, name, type, enabled, health_check_url, health_check_interval, health_check_tolerance, match_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			channel.ID, group.ID, index, group.Name, group.Type, boolInt(group.Enabled), url, interval, tolerance, match); err != nil {
 			return fmt.Errorf("insert subscription channel group: %w", err)
 		}
 	}
@@ -364,30 +375,52 @@ func saveSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channel Subs
 				return fmt.Errorf("insert subscription channel member: %w", err)
 			}
 		}
-		for position, rule := range group.Rules {
-			exitNode, exitGroup, err := channelExitColumns(rule.Exit)
-			if err != nil {
+	}
+	for position, route := range channel.Config.Routes {
+		path := fmt.Sprintf("routes[%d]", position)
+		exitNode, exitGroup, err := channelExitColumns(route.Exit)
+		if err != nil {
+			return err
+		}
+		if exitNode != nil {
+			if err := nodeExists(route.Exit.ID, path+".exit"); err != nil {
 				return err
 			}
-			if exitNode != nil {
-				if err := nodeExists(rule.Exit.ID, fmt.Sprintf("groups[%d].rules[%d].exit", groupIndex, position)); err != nil {
-					return err
-				}
+		}
+		var ruleSet, kind, value, remote any
+		if route.RuleSetID != "" {
+			var client SubscriptionFormat
+			err := tx.QueryRowContext(ctx, `SELECT client FROM subscription_rule_sets WHERE id = ?`, route.RuleSetID).Scan(&client)
+			if errors.Is(err, sql.ErrNoRows) {
+				return &SubscriptionReferenceError{Path: path + ".rule_set_id", Code: "rule_set_not_found"}
 			}
-			var value, remote any
-			if rule.Kind == "remote" {
-				remote = string(rule.Remote)
+			if err != nil {
+				return fmt.Errorf("read subscription rule set client: %w", err)
+			}
+			if client != channel.Format {
+				return &SubscriptionReferenceError{Path: path + ".rule_set_id", Code: "rule_set_client_mismatch"}
+			}
+			ruleSet = route.RuleSetID
+		} else {
+			kind = route.Kind
+			if route.Kind == "remote" {
+				remote = string(route.Remote)
 			} else {
-				value = rule.Value
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_channel_rules(
-					channel_id, id, group_id, position, sort_index, enabled, kind, value, remote_json, exit_kind, exit_node_id, exit_group_id
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				channel.ID, rule.ID, group.ID, position, rule.SortIndex, boolInt(rule.Enabled), rule.Kind, value, remote,
-				rule.Exit.Kind, exitNode, exitGroup); err != nil {
-				return fmt.Errorf("insert subscription channel rule: %w", err)
+				value = route.Value
 			}
 		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_channel_routes(
+				channel_id, id, position, enabled, rule_set_id, kind, value, remote_json, exit_kind, exit_node_id, exit_group_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			channel.ID, route.ID, position, boolInt(route.Enabled), ruleSet, kind, value, remote,
+			route.Exit.Kind, exitNode, exitGroup); err != nil {
+			return fmt.Errorf("insert subscription channel route: %w", err)
+		}
+	}
+	if count, err := channelRuleCount(ctx, tx, channel.ID); err != nil {
+		return err
+	} else if count > MaximumChannelRules {
+		return &SubscriptionReferenceError{Path: "routes", Code: "too_many_rules"}
 	}
 	exitNode, exitGroup, err := channelExitColumns(channel.Config.DefaultExit)
 	if err != nil {
@@ -406,9 +439,22 @@ func saveSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channel Subs
 	return nil
 }
 
+// channelRuleCount is the number of rules a channel's enabled exit rules
+// hold: each rule set's rules and each rule of the channel's own.
+func channelRuleCount(ctx context.Context, q queryRower, channelID string) (int, error) {
+	var count int
+	err := q.QueryRowContext(ctx, `SELECT coalesce(sum(CASE WHEN r.rule_set_id IS NULL THEN 1 ELSE json_array_length(s.rules) END), 0)
+		FROM subscription_channel_routes AS r LEFT JOIN subscription_rule_sets AS s ON s.id = r.rule_set_id
+		WHERE r.channel_id = ? AND r.enabled = 1`, channelID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count subscription channel rules: %w", err)
+	}
+	return count, nil
+}
+
 func channelExitColumns(exit SubscriptionChannelExit) (any, any, error) {
 	switch exit.Kind {
-	case "direct", "reject", "group-default":
+	case "direct", "reject":
 		return nil, nil, nil
 	case "node":
 		return exit.ID, nil, nil
@@ -418,8 +464,8 @@ func channelExitColumns(exit SubscriptionChannelExit) (any, any, error) {
 	return nil, nil, fmt.Errorf("invalid subscription channel exit kind %q", exit.Kind)
 }
 
-// getSubscriptionChannel reads a channel with its groups, members and rules
-// in tx, so they come from one snapshot.
+// getSubscriptionChannel reads a channel with its groups, members and exit
+// rules in tx, so they come from one snapshot.
 func getSubscriptionChannel(ctx context.Context, tx *sql.Tx, id string) (SubscriptionChannel, error) {
 	var channel SubscriptionChannel
 	var enabled int
@@ -450,12 +496,15 @@ func getSubscriptionChannel(ctx context.Context, tx *sql.Tx, id string) (Subscri
 	if channel.UpdatedAt, err = parseTime(updatedAt); err != nil {
 		return SubscriptionChannel{}, err
 	}
-	channel.Config.Groups, err = loadSubscriptionChannelGroups(ctx, tx, id)
+	if channel.Config.Groups, err = loadSubscriptionChannelGroups(ctx, tx, id); err != nil {
+		return SubscriptionChannel{}, err
+	}
+	channel.Config.Routes, err = loadSubscriptionChannelRoutes(ctx, tx, id)
 	return channel, err
 }
 
 func loadSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channelID string) ([]SubscriptionChannelGroup, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id, name, type, enabled, health_check_url, health_check_interval, health_check_tolerance
+	rows, err := tx.QueryContext(ctx, `SELECT id, name, type, enabled, health_check_url, health_check_interval, health_check_tolerance, match_json
 		FROM subscription_channel_groups WHERE channel_id = ? ORDER BY position`, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("read subscription channel groups: %w", err)
@@ -465,9 +514,9 @@ func loadSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channelID st
 	for rows.Next() {
 		var group SubscriptionChannelGroup
 		var enabled int
-		var url sql.NullString
+		var url, match sql.NullString
 		var interval, tolerance sql.NullInt64
-		if err := rows.Scan(&group.ID, &group.Name, &group.Type, &enabled, &url, &interval, &tolerance); err != nil {
+		if err := rows.Scan(&group.ID, &group.Name, &group.Type, &enabled, &url, &interval, &tolerance, &match); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -475,7 +524,10 @@ func loadSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channelID st
 		if url.Valid {
 			group.HealthCheck = &SubscriptionChannelHealthCheck{URL: url.String, Interval: int(interval.Int64), Tolerance: int(tolerance.Int64)}
 		}
-		group.Members, group.Rules = []SubscriptionChannelMember{}, []SubscriptionChannelRule{}
+		if match.Valid {
+			group.Match = json.RawMessage(match.String)
+		}
+		group.Members = []SubscriptionChannelMember{}
 		indices[group.ID] = len(groups)
 		groups = append(groups, group)
 	}
@@ -511,34 +563,38 @@ func loadSubscriptionChannelGroups(ctx context.Context, tx *sql.Tx, channelID st
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT group_id, id, sort_index, enabled, kind, coalesce(value, ''), remote_json,
+	return groups, nil
+}
+
+func loadSubscriptionChannelRoutes(ctx context.Context, tx *sql.Tx, channelID string) ([]SubscriptionChannelRoute, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, enabled, coalesce(rule_set_id, ''), coalesce(kind, ''), coalesce(value, ''), remote_json,
 		exit_kind, coalesce(exit_node_id, ''), coalesce(exit_group_id, '')
-		FROM subscription_channel_rules WHERE channel_id = ? ORDER BY group_id, position`, channelID)
+		FROM subscription_channel_routes WHERE channel_id = ? ORDER BY position`, channelID)
 	if err != nil {
-		return nil, fmt.Errorf("read subscription channel rules: %w", err)
+		return nil, fmt.Errorf("read subscription channel routes: %w", err)
 	}
 	defer rows.Close()
+	routes := []SubscriptionChannelRoute{}
 	for rows.Next() {
-		var groupID, exitNode, exitGroup string
-		var rule SubscriptionChannelRule
+		var exitNode, exitGroup string
+		var route SubscriptionChannelRoute
 		var enabled int
 		var remote sql.NullString
-		if err := rows.Scan(&groupID, &rule.ID, &rule.SortIndex, &enabled, &rule.Kind, &rule.Value, &remote,
-			&rule.Exit.Kind, &exitNode, &exitGroup); err != nil {
+		if err := rows.Scan(&route.ID, &enabled, &route.RuleSetID, &route.Kind, &route.Value, &remote,
+			&route.Exit.Kind, &exitNode, &exitGroup); err != nil {
 			return nil, err
 		}
-		rule.Enabled = enabled != 0
+		route.Enabled = enabled != 0
 		if remote.Valid {
-			rule.Remote = json.RawMessage(remote.String)
+			route.Remote = json.RawMessage(remote.String)
 		}
-		switch rule.Exit.Kind {
+		switch route.Exit.Kind {
 		case "node":
-			rule.Exit.ID = exitNode
+			route.Exit.ID = exitNode
 		case "group":
-			rule.Exit.ID = exitGroup
+			route.Exit.ID = exitGroup
 		}
-		group := &groups[indices[groupID]]
-		group.Rules = append(group.Rules, rule)
+		routes = append(routes, route)
 	}
-	return groups, rows.Err()
+	return routes, rows.Err()
 }

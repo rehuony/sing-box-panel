@@ -3,14 +3,17 @@ import { CSS } from '@dnd-kit/utilities';
 import { memo, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
-import { Badge } from '@shared/components/ui/badge';
+import { ReadoutRow } from '@shared/components/terminal';
 
-import type { ChannelRuleGroup, SubscriptionNode } from '@/api/api-client';
+import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNode } from '@/api/api-client';
 
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
+import { dropSlot } from './drag-slot';
+import { groupTypeName } from './channel-policy';
+import { BUILTIN_EXIT_NAMES } from './channel-exits';
+import { PoolNodeCardContent } from './subscription-node-card';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
-import { nodeAddress, nodeOrigin, nodeSecurity } from './subscription-node-pool';
 
 export interface ChannelNodeCard {
   id: string;
@@ -26,59 +29,56 @@ export interface ChannelNodeCard {
 
 interface Props {
   items: ChannelNodeCard[];
+  /** The channel's client, which names group types. */
+  format: SubscriptionFormat;
   onToggle: (id: string) => void;
   onDraggingChange?: (dragging: boolean) => void;
   onMove: (active: string, over: string) => void;
 }
 
-const badge = 'h-5.5 max-w-full min-w-0 rounded-[var(--radius-control)] px-1.5 font-normal';
-const card = 'relative isolate flex min-h-46 min-w-0 flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] p-3 select-none';
+/** A candidate's face: a pane's height, its title bar over labelled rows in the data face. */
+const candidateFace = 'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden font-[family-name:var(--font-data)] text-compact';
+/** One board of candidates: cells draw their top and start hairlines and the board's border closes the outer edges. */
+const candidateBoard = 'overflow-hidden rounded-[var(--radius-card)] border';
+const candidateGrid = '-ms-px -mt-px grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start';
 
 /**
- * A candidate's name, then badges for what it is: a pool node's origin,
- * protocol, address and security, a built-in exit or a group.
+ * A candidate as a pool node shows: a pool node's labelled rows, or for a
+ * built-in exit, a group or a node no longer in the pool, what it is.
+ * Why it cannot be chosen, or that it is unavailable, ends the title bar.
  */
-const CandidateContent = memo(({ item }: { item: ChannelNodeCard }) => {
+const CandidateContent = memo(({ format, item }: { item: ChannelNodeCard; format: SubscriptionFormat }) => {
   const { t } = useTranslation();
   const { builtin, disabledReason, group, node, unavailable } = item;
-  const name = node?.display_name ?? group?.name ?? builtin?.toUpperCase() ?? t('channels.missingNode');
-  const address = node ? nodeAddress(node) : '';
+  if (node) return <PoolNodeCardContent node={node} />;
+  const name = group?.name ?? (builtin ? BUILTIN_EXIT_NAMES[builtin] : t('channels.missingNode'));
+  let kind = t('channels.missingNode');
+  if (builtin) kind = t('channels.builtinNode');
+  if (group) kind = t('channels.strategyGroup');
+  const note = disabledReason ?? (unavailable ? t('channels.unavailable') : '');
   return (
     <>
-      <header className='relative z-1 flex items-center gap-1.5'>
-        <span aria-hidden='true' className={cn('mx-[3px] size-1.5 flex-none rounded-full bg-[var(--color-success)] shadow-[0_0_0_3px_var(--color-success-soft)]', unavailable && 'bg-[var(--color-text-faint)] shadow-[0_0_0_3px_var(--color-surface-raised)]')} />
-        <span className='flex min-h-(--control-height-xs) min-w-0 flex-1 items-center text-left text-sm font-normal' title={name}><span className='truncate'>{name}</span></span>
+      <header className='flex h-8 flex-none items-center gap-2 border-b px-3 font-[family-name:var(--font-body)]'>
+        <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{name}</h2>
+        {note ? <span className={cn('flex-none text-xs', disabledReason ? 'text-muted-foreground' : 'text-[var(--color-warning-text)]')}>{note}</span> : null}
       </header>
-      <div className='flex min-h-0 w-full min-w-0 flex-1 flex-wrap content-start items-start gap-1 text-left'>
-        {node && (
-          <>
-            <Badge className={badge} title={nodeOrigin(node)} variant='secondary'><span className='truncate'>{nodeOrigin(node)}</span></Badge>
-            <Badge className={badge} variant='success'>{node.protocol}</Badge>
-            {address ? <Badge className={badge} title={address} variant='info'><span className='truncate'>{address}</span></Badge> : null}
-            {[...nodeSecurity(node), node.sni ?? ''].filter(Boolean).map(part => <Badge className={badge} key={part} title={part} variant='success'><span className='truncate'>{part}</span></Badge>)}
-          </>
-        )}
-        {builtin && (
-          <>
-            <Badge className={badge} variant='secondary'>{t('channels.builtinNode')}</Badge>
-            <Badge className={badge} variant={builtin === 'direct' ? 'success' : 'warning'}>{t(`channels.${builtin}`)}</Badge>
-          </>
-        )}
-        {group && (
-          <>
-            <Badge className={badge} variant='secondary'>{t('channels.strategyGroup')}</Badge>
-            <Badge className={badge} variant='info'>{t(`channels.groupTypes.${group.type}`)}</Badge>
-          </>
-        )}
-        {disabledReason && <Badge className={badge} variant='secondary'>{disabledReason}</Badge>}
-        {unavailable && !disabledReason && <Badge className={badge} variant='warning'>{t('channels.unavailable')}</Badge>}
-      </div>
+      <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-center gap-x-3 px-3 whitespace-nowrap'>
+        <ReadoutRow label={t('subscriptions.pool.card.type')}><span className='min-w-0 truncate'>{kind}</span></ReadoutRow>
+        {group
+          ? (
+              <>
+                <ReadoutRow label={t('channels.candidateStrategy')}><span className='min-w-0 truncate'>{groupTypeName(group.type, format)}</span></ReadoutRow>
+                <ReadoutRow label={t('channels.candidateMembers')}><span className='tabular-nums'>{group.members.length}</span></ReadoutRow>
+              </>
+            )
+          : null}
+      </dl>
     </>
   );
 });
 CandidateContent.displayName = 'CandidateContent';
 
-function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Props['onToggle'] }) {
+function SortableCard({ format, item, onToggle }: { item: ChannelNodeCard; format: SubscriptionFormat; onToggle: Props['onToggle'] }) {
   const reasonId = useId();
   const reducedMotion = usePrefersReducedMotion();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -98,11 +98,11 @@ function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Pro
       aria-describedby={item.disabledReason ? reasonId : attributes['aria-describedby']}
       aria-keyshortcuts='F2'
       tabIndex={item.disabled ? -1 : 0}
-      className={cn(card, 'cursor-pointer touch-pan-y outline-none hover:not-data-[disabled=true]:border-[var(--color-border-strong)] focus-visible:ring-2 focus-visible:ring-ring data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50 data-[dragging=true]:opacity-30 data-[selected=true]:border-primary/50 data-[selected=true]:bg-accent')}
+      className={cn(candidateFace, 'cursor-pointer touch-pan-y border-s border-t outline-none select-none transition-colors duration-[var(--dur-micro)] ease-out hover:not-data-[disabled=true]:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50 data-[selected=true]:bg-accent', isDragging && dropSlot)}
       data-selected={item.selected}
       data-disabled={item.disabled || undefined}
       data-dragging={isDragging || undefined}
-      style={{ transform: CSS.Transform.toString(transform), transition: reducedMotion ? 'none' : transition }}
+      style={{ transform: CSS.Translate.toString(transform), transition: reducedMotion ? 'none' : transition }}
       onClick={() => {
         if (!item.disabled && !isDragging) onToggle(item.id);
       }}
@@ -115,15 +115,17 @@ function SortableCard({ item, onToggle }: { item: ChannelNodeCard; onToggle: Pro
       }}
     >
       {item.disabledReason && <span id={reasonId} className='sr-only'>{item.disabledReason}</span>}
-      <CandidateContent item={item} />
+      <CandidateContent format={format} item={item} />
     </div>
   );
 }
 
-export function ChannelNodeCards({ items, onToggle, onMove, onDraggingChange }: Props) {
+/** A group's candidates as one board in their order: a click or Space selects one, F2 moves it. */
+export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingChange }: Props) {
   const { t } = useTranslation();
   const suppressClickRef = useRef(false);
   const draggingRef = useRef(false);
+  if (!items.length) return null;
   return (
     <SubscriptionNodeSortContext
       items={items}
@@ -137,27 +139,56 @@ export function ChannelNodeCards({ items, onToggle, onMove, onDraggingChange }: 
       renderOverlay={(id) => {
         const dragged = items.find((item) => item.id === id);
         return dragged && (
-          <div className={cn(card, 'h-full cursor-grabbing shadow-[var(--shadow-panel)] data-[selected=true]:border-primary/50 data-[selected=true]:bg-accent')} data-selected={dragged.selected} aria-hidden='true'>
-            <CandidateContent item={dragged} />
+          <div className={cn(candidateFace, 'cursor-grabbing rounded-[var(--radius-card)] border bg-popover shadow-[var(--shadow-panel)] data-[selected=true]:bg-accent')} data-selected={dragged.selected} aria-hidden='true'>
+            <CandidateContent format={format} item={dragged} />
           </div>
         );
       }}
     >
-      <div data-slot='channel-candidates' className='grid grid-cols-[repeat(auto-fill,min(100%,18rem))] content-start gap-3 p-0.5'
-        onPointerDownCapture={() => {
-          if (!draggingRef.current) suppressClickRef.current = false;
-        }}
-        onKeyDownCapture={event => {
-          if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
-        }}
-        onClickCapture={event => {
-          if (suppressClickRef.current) {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        }}>
-        {items.map((item) => <SortableCard key={item.id} item={item} onToggle={onToggle} />)}
+      <div className={candidateBoard}>
+        <div data-slot='channel-candidates' className={candidateGrid}
+          onPointerDownCapture={() => {
+            if (!draggingRef.current) suppressClickRef.current = false;
+          }}
+          onKeyDownCapture={event => {
+            if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
+          }}
+          onClickCapture={event => {
+            if (suppressClickRef.current) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}>
+          {items.map((item) => <SortableCard format={format} key={item.id} item={item} onToggle={onToggle} />)}
+        </div>
       </div>
     </SubscriptionNodeSortContext>
+  );
+}
+
+/**
+ * The pool nodes a group's match takes, after its members under a hairline
+ * heading with their count: a board like the members', neither selectable
+ * nor sortable.
+ */
+export function ChannelMatchedCards({ nodes }: { nodes: readonly SubscriptionNode[] }) {
+  const { t } = useTranslation();
+  if (!nodes.length) return null;
+  const heading = t('channels.autoMatched', { count: nodes.length });
+  return (
+    <section aria-label={heading} className='flex flex-col gap-2'>
+      <h3 className='flex items-center gap-2 text-xs text-[var(--color-text-secondary)] after:h-px after:flex-1 after:bg-border'>
+        {heading}
+      </h3>
+      <div className={candidateBoard}>
+        <ul className={candidateGrid}>
+          {nodes.map(node => (
+            <li aria-label={node.display_name} className={cn(candidateFace, 'border-s border-t')} key={node.id}>
+              <PoolNodeCardContent node={node} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }

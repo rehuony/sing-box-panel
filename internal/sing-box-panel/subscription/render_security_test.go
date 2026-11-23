@@ -35,9 +35,9 @@ func TestPreviewDiagnosticsFollowSelectedNodeIdentity(t *testing.T) {
 	badID, goodID := bad[0].ID, good[0].ID
 	for _, nodes := range [][]ChannelNode{{excluded[0], good[0], bad[0]}, {excluded[0], bad[0], good[0]}} {
 		config := ChannelConfig{IncompatibleNodes: "skip", DefaultExit: RouteExit{Kind: "direct"}, Groups: []RuleGroup{
-			{ID: "main", Name: "Main", Enabled: true, Type: "select", Members: nodeMembers(goodID, badID), Rules: []ChannelRule{}},
+			{ID: "main", Name: "Main", Enabled: true, Type: "select", Members: nodeMembers(goodID, badID)},
 		}}
-		result, err := RenderChannelNodes(nodes, RenderFormatLoon, config)
+		result, err := RenderChannelNodes(nodes, RenderFormatLoon, config, nil)
 		if err != nil || result.NodeCount != 1 || len(result.PreviewDiagnostics) != 1 {
 			t.Fatalf("render: %v, %+v", err, result.PreviewDiagnostics)
 		}

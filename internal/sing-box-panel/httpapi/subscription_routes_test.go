@@ -164,6 +164,100 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 	}
 }
 
+func TestSubscriptionRuleSetHTTPCRUDAndChannelRoutes(t *testing.T) {
+	_, _, handler := newSubscriptionHTTPServices(t, "")
+	const base = "/api/v1/subscription/rule-sets"
+	created := authenticatedRequest(t, handler, http.MethodPost, base,
+		`{"client":"mihomo","name":"Streaming","rules":[{"kind":"domain","value":"a.example"}]}`, "")
+	if created.Code != http.StatusCreated || created.Header().Get("ETag") == "" {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var set subscription.SubscriptionRuleSet
+	if err := json.Unmarshal(created.Body.Bytes(), &set); err != nil {
+		t.Fatal(err)
+	}
+	// Names are unique within a client, ignoring case.
+	duplicate := authenticatedRequest(t, handler, http.MethodPost, base, `{"client":"mihomo","name":"streaming","rules":[]}`, "")
+	if duplicate.Code != http.StatusUnprocessableEntity || !strings.Contains(duplicate.Body.String(), "name: invalid_or_duplicate_name") {
+		t.Fatalf("duplicate status=%d body=%s", duplicate.Code, duplicate.Body.String())
+	}
+	if other := authenticatedRequest(t, handler, http.MethodPost, base, `{"client":"sing-box","name":"Streaming","rules":[]}`, ""); other.Code != http.StatusCreated {
+		t.Fatalf("other client status=%d body=%s", other.Code, other.Body.String())
+	}
+	listed := authenticatedRequest(t, handler, http.MethodGet, base+"?client=mihomo", "", "")
+	var list subscription.SubscriptionRuleSetList
+	if listed.Code != http.StatusOK || json.Unmarshal(listed.Body.Bytes(), &list) != nil || len(list.Items) != 1 || list.Items[0].ID != set.ID {
+		t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
+	}
+
+	body := `{"name":"Streaming","rules":[{"kind":"domain","value":"a.example"},{"kind":"domain_suffix","value":"b.example"}]}`
+	if missing := authenticatedRequest(t, handler, http.MethodPut, base+"/"+set.ID, body, ""); missing.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing If-Match status=%d", missing.Code)
+	}
+	updated := authenticatedRequest(t, handler, http.MethodPut, base+"/"+set.ID, body, created.Header().Get("ETag"))
+	if updated.Code != http.StatusOK || updated.Header().Get("ETag") == created.Header().Get("ETag") {
+		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	if stale := authenticatedRequest(t, handler, http.MethodPut, base+"/"+set.ID, body, created.Header().Get("ETag")); stale.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale update status=%d", stale.Code)
+	}
+
+	config := `{"groups":[],"routes":[{"id":"own","enabled":true,"rule":{"kind":"domain","value":"own.example"},"exit":{"kind":"direct"}},
+		{"id":"set","enabled":true,"rule_set_id":"` + set.ID + `","exit":{"kind":"reject"}}],"default_exit":{"kind":"direct"}}`
+	mismatch := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
+		`{"name":"sing-box","format":"sing-box","enabled":true,"config":`+config+`}`, "")
+	if mismatch.Code != http.StatusUnprocessableEntity || !strings.Contains(mismatch.Body.String(), "routes[1].rule_set_id: rule_set_client_mismatch") {
+		t.Fatalf("client mismatch status=%d body=%s", mismatch.Code, mismatch.Body.String())
+	}
+	channelResponse := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
+		`{"name":"mihomo","format":"mihomo","enabled":true,"config":`+config+`}`, "")
+	if channelResponse.Code != http.StatusCreated {
+		t.Fatalf("channel status=%d body=%s", channelResponse.Code, channelResponse.Body.String())
+	}
+	var channel subscription.SubscriptionChannel
+	if err := json.Unmarshal(channelResponse.Body.Bytes(), &channel); err != nil {
+		t.Fatal(err)
+	}
+	preview := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview", "{}", "")
+	var rendered subscription.SubscriptionPreview
+	if preview.Code != http.StatusOK || json.Unmarshal(preview.Body.Bytes(), &rendered) != nil ||
+		!strings.Contains(string(rendered.Result.Content), "- DOMAIN,own.example,DIRECT\n  - DOMAIN,a.example,REJECT\n  - DOMAIN-SUFFIX,b.example,REJECT\n") {
+		t.Fatalf("preview status=%d body=%s", preview.Code, rendered.Result.Content)
+	}
+	draft := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview",
+		`{"draft":{"format":"mihomo","config":`+config+`}}`, "")
+	var drafted subscription.SubscriptionPreview
+	if draft.Code != http.StatusOK || json.Unmarshal(draft.Body.Bytes(), &drafted) != nil || !bytes.Equal(drafted.Result.Content, rendered.Result.Content) {
+		t.Fatalf("draft preview status=%d body=%s", draft.Code, draft.Body.String())
+	}
+	if draft := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels/"+channel.ID+"/preview",
+		`{"draft":{"format":"sing-box","config":`+config+`}}`, ""); draft.Code != http.StatusUnprocessableEntity || !strings.Contains(draft.Body.String(), "rule_set_client_mismatch") {
+		t.Fatalf("mismatched draft status=%d body=%s", draft.Code, draft.Body.String())
+	}
+	current := authenticatedRequest(t, handler, http.MethodGet, base+"/"+set.ID, "", "")
+	if err := json.Unmarshal(current.Body.Bytes(), &set); err != nil || len(set.Channels) != 1 || set.Channels[0].ID != channel.ID {
+		t.Fatalf("rule set channels = %s", current.Body.String())
+	}
+
+	// Deleting the rule set deletes the exit rule that routes by it, and an
+	// edit of the channel begun before then no longer saves.
+	if deleted := authenticatedRequest(t, handler, http.MethodDelete, base+"/"+set.ID, "", current.Header().Get("ETag")); deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete status=%d body=%s", deleted.Code, deleted.Body.String())
+	}
+	if gone := authenticatedRequest(t, handler, http.MethodGet, base+"/"+set.ID, "", ""); gone.Code != http.StatusNotFound {
+		t.Fatalf("deleted rule set status=%d", gone.Code)
+	}
+	reread := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/channels/"+channel.ID, "", "")
+	var after subscription.SubscriptionChannel
+	if err := json.Unmarshal(reread.Body.Bytes(), &after); err != nil || len(after.Config.Routes) != 1 || after.Config.Routes[0].ID != "own" || !after.UpdatedAt.After(channel.UpdatedAt) {
+		t.Fatalf("channel after rule set deletion = %s", reread.Body.String())
+	}
+	if stale := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/channels/"+channel.ID,
+		`{"name":"mihomo","format":"mihomo","enabled":true,"config":`+emptyChannelConfig+`}`, subscriptionETag(channel.UpdatedAt)); stale.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale channel save status=%d body=%s", stale.Code, stale.Body.String())
+	}
+}
+
 func TestSubscriptionPreviewHTTPUsesSelectedUser(t *testing.T) {
 	_, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "")
 	ctx := context.Background()
@@ -354,7 +448,7 @@ func newSubscriptionHTTPServices(t *testing.T, basePath string) (*store.Store, a
 }
 
 // emptyChannelConfig is a channel configuration without groups.
-const emptyChannelConfig = `{"groups":[],"default_exit":{"kind":"direct"}}`
+const emptyChannelConfig = `{"groups":[],"routes":[],"default_exit":{"kind":"direct"}}`
 
 // newSubscriptionPublicationHTTPFixture returns a channel and publish, which
 // adds the node the channel publishes and returns its pool ID; until then the
@@ -382,7 +476,7 @@ func newSubscriptionPublicationHTTPFixture(
 		}
 		if _, err := app.Subscriptions.UpdateSubscriptionChannel(ctx, channel.ID, subscription.UpdateSubscriptionChannelRequest{
 			Name: current.Name, Format: current.Format, Enabled: true, ExpectedUpdatedAt: current.UpdatedAt,
-			Config: json.RawMessage(`{"groups":[],"default_exit":{"kind":"node","id":"` + node + `"}}`),
+			Config: json.RawMessage(`{"groups":[],"routes":[],"default_exit":{"kind":"node","id":"` + node + `"}}`),
 		}); err != nil {
 			t.Fatal(err)
 		}

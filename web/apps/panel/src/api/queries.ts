@@ -82,6 +82,11 @@ export const queries = {
   }),
   /** The subscription node pool in its saved order. */
   nodes: (client: ApiClient) => queryOptions({ queryKey: ['nodes'], queryFn: ({ signal }) => client.listSubscriptionNodes(signal), staleTime: 5_000 }),
+  /** Every rule set, of all clients, in name order. */
+  ruleSets: (client: ApiClient) => queryOptions({
+    queryKey: ['ruleSets'], staleTime: 5_000,
+    queryFn: async ({ signal }) => (await client.listSubscriptionRuleSets(undefined, signal)).items,
+  }),
   sources: (client: ApiClient) => queryOptions({
     queryKey: ['sources'], staleTime: 5_000,
     queryFn: async ({ signal }) => {

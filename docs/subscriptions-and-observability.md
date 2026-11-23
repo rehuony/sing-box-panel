@@ -137,8 +137,8 @@ new content, has its filter changed, or is deleted; and once when the panel star
 
 1. computes every node the inputs yield, with its ID;
 2. deletes the nodes whose ID is gone together with everything that names them:
-   their group memberships and user grants are removed by cascade, a rule exit
-   that named one falls back to its group's default, and a channel's default
+   their group memberships and user grants are removed by cascade, an exit
+   rule's exit that named one falls back to `reject`, and a channel's final
    exit that named one falls back to `direct`;
 3. replaces the content of the nodes that remain, keeping their display names
    and positions;
@@ -258,15 +258,15 @@ The public handler reads them and the stored nodes in one consistent SQLite read
 
 ## Channels
 
-A channel publishes exactly the pool nodes its enabled groups name as members,
-as the exits of their enabled rules, or as its default exit, in pool order and under their display names; a
-node no group names is not part of its output. A new channel starts with no
-nodes. Each group lists its candidates in order, pool nodes, built-in `direct`
+A channel publishes exactly the pool nodes its enabled groups name as members
+or take by their match, the exits of its enabled exit rules and its final exit,
+in pool order and under their display names; any other node is not part of its
+output. A new channel starts with no nodes. Each group lists its candidates in order, pool nodes, built-in `direct`
 and `reject` exits and other groups, and the first is the initial selection.
 Creating or opening a channel goes directly to the strategy-group
 workspace, without a separate channel-level node-selection screen. The editor
 lists strategy groups in a left sidebar and edits
-the selected group's nodes and exit rules on the right. Each sidebar card has a
+the selected group's nodes on the right. Each sidebar card has a
 settings action, shown on hover or keyboard focus, opening a compact dialog for
 name, strategy type and client-side health checks without selecting that group.
 Touch devices keep the action visible. Group icons distinguish manual selection,
@@ -289,33 +289,9 @@ channel through Back, a subscription tab or another panel route prompts to keep
 editing or discard the changes. Confirmed departure clears the detail workspace;
 returning to Channels opens the channel list. Source settings use the same navigation protection. Adding a node to a
 group publishes it in the channel. Card order is the sole source of each manual group's initial selection: the first
-candidate is selected, and an empty group rejects traffic. Removing a node also redirects any
-rules explicitly referencing that node to their group. The final group must be
+candidate is selected, and an empty group rejects traffic. The final group must be
 cleared before deletion. Existing exits remain unchanged until explicitly edited.
-Rule and rule-set actions sit beside the node/rule tabs. Their dialogs omit exit
-and enablement fields: new rules start enabled and route through their group.
-Editing existing rules, including their priority, preserves their enabled state
-and explicit exit.
-Beside them, an entries/text switch shows a group's rules as Clash classic
-lines, one per rule in priority order: `DOMAIN`, `DOMAIN-SUFFIX`,
-`DOMAIN-KEYWORD`, `IP-CIDR` or `IP-CIDR6`, and `RULE-SET,name,link[,format[,behavior]]`,
-whose missing format is inferred from the link and whose proxied GitHub link is
-kept direct and marked accelerated. Blank lines, lines starting with `#` or
-`//`, a YAML list marker and quotes around a line are ignored, so a pasted
-Clash rule list converts directly; a trailing `no-resolve`, and a policy name
-after a match value, are left out with a note, because the group sets the
-exit. A rule-set link may hold commas: the link is everything between the name
-and the trailing format and behavior, so every saved rule reads back the same.
-Other rule types,
-invalid values, formats the client cannot use and repeated rule-set names are
-listed by line. A line that matches one of the group's rules from when the text
-view opened, by type and value or by rule-set name, keeps that rule's ID, exit
-and enabled state; lines take the group's existing indices in line order, and
-further lines continue after the channel's largest index. Valid text becomes
-the group's rules as it is typed. While a line has a problem, the text stays,
-switching back to entries and saving are refused, and leaving asks about the
-unsaved text. The server's channel policy validation remains the final check.
-New pool nodes join no group until added. Missing or cyclic dependencies cannot
+New pool nodes join no group until added or matched. Missing or cyclic dependencies cannot
 silently become direct traffic: unreachable designated exits become reject actions. Group and native
 node names must not collide with generated reserved names.
 
@@ -349,7 +325,7 @@ and Save changes persists it. Built-ins remain separate
 from pool node IDs. Remove selected nodes removes all selected candidate kinds;
 Clear selection leaves group membership unchanged. Built-in candidates
 are never automatically injected into a nonempty group. An empty manual group still rejects
-traffic through rules referencing it; no candidate is inserted.
+traffic through exit rules naming it; no candidate is inserted.
 Mihomo and Loon support all three types. Mihomo supports both built-ins;
 Loon supports them in manual groups only; auto groups reject built-in candidates. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
@@ -375,37 +351,88 @@ manual initial candidate does not suppress remaining auto-group candidates.
 An empty group is omitted and its routes reject traffic instead of becoming
 implicit direct connections. Preview and delivery use the same rendering path.
 
-Each exit rule has a channel-wide integer `sort_index`, including negative values
-and zero. Omission means zero; the value must be a JavaScript-safe integer. The
-editor keeps ordering help in the information tooltip beside the field label. Generation gathers rules
-across enabled groups, sorts by index ascending, then by rule name ascending
-(remote-set name or ordinary match value, Unicode scalar order). Equal index/name
-pairs preserve their original relative order. Duplicate indices are allowed;
-new rules start ten after the current maximum (or ten for an empty channel),
-capped at the largest safe integer. The final fallback remains last.
-Indices are panel metadata and never appear in client configuration. Loon's
-native category precedence still applies.
-Each rule occupies one line with its name, compact priority/type/exit summary and
-edit/delete actions. Overflowing text is truncated with its full value available on hover.
-The list has no enable checkbox; stored disabled rules are labelled as disabled
-in the list, and editing preserves their state.
+### Group matching
 
-A channel's groups, members and rules are stored in their own tables and
+A group may take pool nodes besides its members through `match`: nodes from
+one of `origins`, when any are named, of one of `protocols`, when any are named,
+whose display name the `include` and `exclude` name rules keep exactly as a
+source's filter does. An origin is `fleet`, for the fleet's inbounds, or
+`source:<id>`, for one source's nodes, and is checked for its form only. Matched
+nodes follow the members in pool order, each once and never repeating a member,
+and are published like members. A match whose four lists are all empty takes
+no nodes; a disabled group takes none either. Invalid name rules are refused at
+their path under `match` with a source filter's codes.
+
+### Exit rules and the final exit
+
+A channel's exit rules are one ordered list, `routes`. Each routes either by a
+rule set of the channel's client, `rule_set_id`, whose rules all take the exit
+rule's exit in the set's order, or by one rule of the channel's own, `rule`.
+Its exit is `direct`, `reject`, a pool node or an enabled group of the channel.
+A disabled exit rule keeps its settings and is not emitted. Generation emits
+the enabled exit rules in order and the final exit, `default_exit`, last; the
+client follows the first rule that matches. An exit that cannot be resolved,
+such as a group without an available candidate, rejects traffic. A channel has
+at most 5000 exit rules with distinct IDs, and its enabled exit rules hold at
+most 20,000 rules, counting every rule of each rule set; more is refused with
+`too_many_rules`. An exit rule naming a rule set that does not exist is refused
+with `rule_set_not_found`, and one naming a rule set of another client with
+`rule_set_client_mismatch`, at `routes[i].rule_set_id`. Loon's native category
+precedence still applies.
+
+A node that leaves the pool drops out of every group; an exit rule that names
+it as its exit rejects traffic, and a final exit that names it becomes direct.
+A channel's groups, members and exit rules are stored in their own tables and
 replaced together on each save; the serialized configuration is limited to
 640 KiB.
+
+### Rule sets
+
+A rule set is a reusable, ordered list of rules for one client, `sing-box`,
+`mihomo` or `loon`; its client never changes. Its name, of at most 128 bytes, is
+unique among that client's rule sets ignoring case; a duplicate is refused at
+`name` with `invalid_or_duplicate_name`. A rule matches a domain (`domain`), a
+domain suffix (`domain_suffix`), a keyword (`domain_keyword`) or an IP range
+(`ip_cidr`), or names a remote rule set (`remote`). Rules are validated for the
+set's client exactly as a channel's own rules are, and a set holds at most 5000
+rules in at most 640 KiB. Changing a set changes every channel that routes by it
+at once. Deleting one deletes the exit rules that route by it, and each channel
+that loses one takes a new `updated_at`, so an edit of that channel begun
+earlier is refused with 412. The list, of one client's rule sets when asked, is
+in name order and names the channels whose exit rules use each set, in name
+order. Reads and writes use `updated_at` as the `ETag` and `If-Match` version,
+as sources do.
+
+A rule list can be edited as Clash classic lines, one per rule in order:
+`DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `IP-CIDR` or `IP-CIDR6`, and
+`RULE-SET,name,link[,format[,behavior]]`, whose missing format is inferred from
+the link and whose proxied GitHub link is kept direct and marked accelerated.
+Blank lines, lines starting with `#` or `//`, a YAML list marker and quotes
+around a line are ignored, so a pasted Clash rule list converts directly; a
+trailing `no-resolve`, and a policy name after a match value, are left out with
+a note, because the exit rule sets the exit. A rule-set link may hold commas:
+the link is everything between the name and the trailing format and behavior,
+so every saved rule reads back the same. Other rule types, invalid values,
+formats the client cannot use and repeated rule-set names are listed by line,
+and saving is refused while one remains. The server's validation remains the
+final check.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
 Loon uses the distinct `loon` format containing native rule statements, not
 Mihomo domain/IP lists. Loon omits `behavior`. Rule-set update intervals are not stored, accepted by the
-channel API or emitted into client configuration. Refresh belongs to the client:
+rule set or channel API or emitted into client configuration. Refresh belongs to the client:
 [sing-box defaults to one day](https://sing-box.sagernet.org/configuration/rule-set/#update_interval),
 while [Mihomo does not start its periodic provider refresh loop without an interval](https://github.com/MetaCubeX/mihomo/blob/Meta/component/resource/fetcher.go).
 Group health-check intervals are independent and remain configurable.
-Rule-set names must be unique across the channel, including disabled rules/groups;
-comparison is case-sensitive and names must have no surrounding whitespace.
-Mihomo provider keys and sing-box rule-set tags use these names verbatim, as do
-all generated references. Sing-box remote sets use an inline `http_client` with
+Remote names are unique within a rule set and among a channel's own rules,
+including disabled exit rules; comparison is case-sensitive and names must have
+no surrounding whitespace. Mihomo provider keys and sing-box rule-set tags use
+these names verbatim, as do all generated references. Remotes that share a name
+and their effective URL, format and behavior become one provider; a later one
+with the same name but other metadata takes the name with the next free suffix,
+`-2`, `-3` and so on. Loon emits one remote rule per such provider, with the
+policy of the first exit rule that uses it. Sing-box remote sets use an inline `http_client` with
 `detour: direct`, matching the native 1.14 Schema. Loon uses native URL-based remote rules and emits the configured rule-set name
 as `tag` alongside `policy` and `enabled`, escaping quoted values when necessary.
 This development contract change has no legacy interval migration or compatibility
@@ -416,8 +443,9 @@ sing-box JSON or SRS; and Loon LOON/LIST/TXT. Unknown or incompatible extensions
 require manual selection. Manual choices survive reopening the editor and toggling
 GitHub acceleration; changing the original link runs detection again. Detection is
 only a suggestion and does not inspect the remote content or infer rule behavior.
-Switching clients retains rules and flags incompatible formats for explicit
-source review. No format conversion is implied. Loon evaluates local rules
+Switching a channel's client retains its own rules and flags incompatible
+formats for explicit source review; exit rules that route by a rule set of the
+former client are refused until replaced. No format conversion is implied. Loon evaluates local rules
 before remote rules, domain matches before IP matches, and FINAL last; ordering
 within each category is retained.
 The client fetches the final URL; the panel never fetches, counts, uploads or

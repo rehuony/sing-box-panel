@@ -9,12 +9,13 @@ import type { ChannelGroupMember, ChannelRuleGroup, SubscriptionFormat, Subscrip
 
 import type { ChannelNodeCard } from './channel-node-cards';
 
+import { BUILTIN_EXIT_NAMES } from './channel-exits';
 import { nodeOrigin } from './subscription-node-pool';
 import { ChannelNodeCards } from './channel-node-cards';
 import { ChannelNodeActions } from './channel-node-actions';
-import { createsGroupCycle, memberKey } from './channel-policy';
 import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionContentState } from './subscription-content-state';
+import { createsGroupCycle, groupTypeName, memberKey } from './channel-policy';
 
 interface Props {
   onClose: () => void;
@@ -58,11 +59,11 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
     const candidate = entry.group;
     const unsupported = (builtin === 'reject' && format === 'sing-box')
       || (builtin !== undefined && format === 'loon' && group.type !== 'select');
-    let label = builtin ? builtin.toUpperCase() : candidate?.name ?? '';
+    let label = builtin ? BUILTIN_EXIT_NAMES[builtin] : candidate?.name ?? '';
     if (entry.node) label = entry.node.display_name;
-    let searched = `${label} ${builtin ? t(`channels.${builtin}`) : ''}`;
+    let searched = label;
     if (entry.node) searched = `${label} ${nodeOrigin(entry.node)} ${entry.node.protocol}`;
-    if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${t(`channels.groupTypes.${candidate.type}`)}`;
+    if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${groupTypeName(candidate.type, format)}`;
     if (query && !searched.toLowerCase().includes(query)) return [];
     let disabledReason: string | undefined;
     if (added.has(key)) disabledReason = t('channels.alreadyAdded');
@@ -123,6 +124,7 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
         </div>
         <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain p-0.5 flex flex-col'>
           <ChannelNodeCards
+            format={format}
             items={items}
             onToggle={(id) => setSelected((current) =>
               current.includes(id) ? current.filter((key) => key !== id) : [...current, id])}

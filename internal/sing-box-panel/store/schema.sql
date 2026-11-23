@@ -110,10 +110,25 @@ CREATE TABLE subscription_user_grants (
 
 CREATE INDEX subscription_user_grants_node ON subscription_user_grants(node_id);
 
--- A channel and its strategy groups. Saving a channel replaces its groups,
--- members and rules together. Group IDs are unique within their channel, and
--- every reference to a group carries the channel, so it cannot name another
--- channel's group.
+-- Rule sets: a client's reusable, ordered rules. Channels of that client
+-- route by them, so editing one changes every such channel at once.
+CREATE TABLE subscription_rule_sets (
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
+    client TEXT NOT NULL CHECK (client IN ('sing-box', 'mihomo', 'loon')),
+    name TEXT NOT NULL COLLATE NOCASE CHECK (length(name) BETWEEN 1 AND 128),
+    -- The rules in order, a JSON array the subscription service validates.
+    rules TEXT NOT NULL CHECK (
+        json_valid(rules) AND json_type(rules) = 'array' AND length(CAST(rules AS BLOB)) <= 655360
+    ),
+    created_at TEXT NOT NULL CHECK (created_at <> ''),
+    updated_at TEXT NOT NULL CHECK (updated_at <> ''),
+    UNIQUE (client, name)
+) STRICT;
+
+-- A channel, its strategy groups and its exit rules. Saving a channel
+-- replaces its groups, members and exit rules together. Group IDs are unique
+-- within their channel, and every reference to a group carries the channel,
+-- so it cannot name another channel's group.
 CREATE TABLE subscription_channels (
     id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
     name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(name) BETWEEN 1 AND 128),
@@ -122,6 +137,7 @@ CREATE TABLE subscription_channels (
     incompatible_nodes TEXT NOT NULL DEFAULT 'skip' CHECK (incompatible_nodes IN ('skip', 'error')),
     -- A complete client base configuration in the channel's format; null uses the shared default.
     template TEXT CHECK (template IS NULL OR length(CAST(template AS BLOB)) <= 262144),
+    -- The final exit, for traffic no exit rule matches.
     default_exit_kind TEXT NOT NULL DEFAULT 'direct' CHECK (default_exit_kind IN ('direct', 'reject', 'node', 'group')),
     default_exit_node_id TEXT REFERENCES subscription_nodes(id),
     default_exit_group_id TEXT,
@@ -145,6 +161,9 @@ CREATE TABLE subscription_channel_groups (
     health_check_url TEXT CHECK (health_check_url IS NULL OR length(health_check_url) BETWEEN 1 AND 4096),
     health_check_interval INTEGER CHECK (health_check_interval IS NULL OR health_check_interval BETWEEN 60 AND 86400),
     health_check_tolerance INTEGER CHECK (health_check_tolerance IS NULL OR health_check_tolerance BETWEEN 0 AND 65535),
+    -- The pool nodes the group takes besides its members, a JSON object the
+    -- subscription service validates; null takes none.
+    match_json TEXT CHECK (match_json IS NULL OR (json_valid(match_json) AND json_type(match_json) = 'object')),
     PRIMARY KEY (channel_id, id),
     UNIQUE (channel_id, name),
     UNIQUE (channel_id, position),
@@ -173,40 +192,45 @@ CREATE TABLE subscription_channel_members (
 CREATE INDEX subscription_channel_members_node ON subscription_channel_members(node_id);
 CREATE INDEX subscription_channel_members_group_member ON subscription_channel_members(channel_id, member_group_id);
 
-CREATE TABLE subscription_channel_rules (
-    channel_id TEXT NOT NULL,
+-- A channel's exit rules in matching order. Each routes by a rule set of the
+-- channel's client or by one rule of its own. Deleting a rule set deletes the
+-- exit rules that route by it.
+CREATE TABLE subscription_channel_routes (
+    channel_id TEXT NOT NULL REFERENCES subscription_channels(id) ON DELETE CASCADE,
     id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 128),
-    group_id TEXT NOT NULL,
     position INTEGER NOT NULL CHECK (position >= 0),
-    -- Channel-wide ascending priority; ties keep the documented order.
-    sort_index INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    kind TEXT NOT NULL CHECK (kind IN ('domain', 'domain_suffix', 'domain_keyword', 'ip_cidr', 'remote')),
-    value TEXT CHECK (value IS NULL OR length(value) BETWEEN 1 AND 4096),
+    rule_set_id TEXT REFERENCES subscription_rule_sets(id) ON DELETE CASCADE,
+    -- The channel's own rule, when there is no rule set.
+    kind TEXT CHECK (kind IS NULL OR kind IN ('domain', 'domain_suffix', 'domain_keyword', 'ip_cidr', 'remote')),
+    value TEXT CHECK (value IS NULL OR length(value) BETWEEN 1 AND 128),
     -- Remote rule-set metadata, remote rules only.
     remote_json TEXT CHECK (remote_json IS NULL OR (json_valid(remote_json) AND json_type(remote_json) = 'object')),
-    exit_kind TEXT NOT NULL CHECK (exit_kind IN ('direct', 'reject', 'node', 'group', 'group-default')),
+    exit_kind TEXT NOT NULL CHECK (exit_kind IN ('direct', 'reject', 'node', 'group')),
     exit_node_id TEXT REFERENCES subscription_nodes(id),
     exit_group_id TEXT,
     PRIMARY KEY (channel_id, id),
-    FOREIGN KEY (channel_id, group_id) REFERENCES subscription_channel_groups(channel_id, id) ON DELETE CASCADE,
+    UNIQUE (channel_id, position),
     FOREIGN KEY (channel_id, exit_group_id) REFERENCES subscription_channel_groups(channel_id, id),
-    UNIQUE (channel_id, group_id, position),
-    CHECK ((kind = 'remote') = (remote_json IS NOT NULL)),
-    CHECK ((kind = 'remote') <> (value IS NOT NULL)),
+    CHECK ((rule_set_id IS NULL) <> (kind IS NULL)),
+    CHECK (kind IS NOT NULL OR (value IS NULL AND remote_json IS NULL)),
+    CHECK (kind IS NULL OR (kind = 'remote') = (remote_json IS NOT NULL)),
+    CHECK (kind IS NULL OR (kind = 'remote') <> (value IS NOT NULL)),
     CHECK ((exit_kind = 'node') = (exit_node_id IS NOT NULL)),
     CHECK ((exit_kind = 'group') = (exit_group_id IS NOT NULL))
 ) STRICT;
 
-CREATE INDEX subscription_channel_rules_exit_node ON subscription_channel_rules(exit_node_id);
-CREATE INDEX subscription_channel_rules_exit_group ON subscription_channel_rules(channel_id, exit_group_id);
+CREATE INDEX subscription_channel_routes_rule_set ON subscription_channel_routes(rule_set_id);
+CREATE INDEX subscription_channel_routes_exit_node ON subscription_channel_routes(exit_node_id);
+CREATE INDEX subscription_channel_routes_exit_group ON subscription_channel_routes(channel_id, exit_group_id);
 
 -- A node that leaves the pool drops out of every group by cascade; exits that
--- named it fall back, a rule's to its group's default and a channel's to direct.
+-- named it fall back, an exit rule's to reject and a channel's final exit to
+-- direct.
 CREATE TRIGGER subscription_nodes_release_exits BEFORE DELETE ON subscription_nodes
 BEGIN
-    UPDATE subscription_channel_rules
-       SET exit_kind = 'group-default', exit_node_id = NULL
+    UPDATE subscription_channel_routes
+       SET exit_kind = 'reject', exit_node_id = NULL
      WHERE exit_node_id = OLD.id;
     UPDATE subscription_channels
        SET default_exit_kind = 'direct', default_exit_node_id = NULL

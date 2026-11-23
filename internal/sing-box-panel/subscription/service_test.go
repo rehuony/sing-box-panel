@@ -22,7 +22,7 @@ import (
 )
 
 // emptyChannel is a channel configuration without groups.
-var emptyChannel = json.RawMessage(`{"groups":[],"default_exit":{"kind":"direct"}}`)
+var emptyChannel = json.RawMessage(`{"groups":[],"routes":[],"default_exit":{"kind":"direct"}}`)
 
 func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	ctx := context.Background()
@@ -50,8 +50,8 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	}
 
 	config := json.RawMessage(`{"incompatible_nodes":"skip","groups":[{"id":"main","name":"Main","enabled":true,"type":"select",
-		"members":[{"kind":"node","id":"` + pool.Items[1].ID + `"},{"kind":"builtin","id":"direct"}],
-		"rules":[{"sort_index":0,"id":"r","enabled":true,"kind":"domain","value":"example.org","exit":{"kind":"node","id":"` + pool.Items[0].ID + `"}}]}],
+		"members":[{"kind":"node","id":"` + pool.Items[1].ID + `"},{"kind":"builtin","id":"direct"}]}],
+		"routes":[{"id":"r","enabled":true,"rule":{"kind":"domain","value":"example.org"},"exit":{"kind":"node","id":"` + pool.Items[0].ID + `"}}],
 		"default_exit":{"kind":"group","id":"main"},"template":{"format":"mihomo","content":"mode: rule\n"}}`)
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
 		Name: "public", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true,
@@ -76,7 +76,7 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	}
 	if _, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
 		Name: "dangling", Format: store.SubscriptionFormatMihomo, Enabled: true,
-		Config: json.RawMessage(`{"groups":[],"default_exit":{"kind":"node","id":"sn_missing"}}`),
+		Config: json.RawMessage(`{"groups":[],"routes":[],"default_exit":{"kind":"node","id":"sn_missing"}}`),
 	}); !errors.As(err, new(*store.SubscriptionReferenceError)) {
 		t.Fatalf("a channel named a node outside the pool: %v", err)
 	}

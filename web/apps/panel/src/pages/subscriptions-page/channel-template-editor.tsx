@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@shared/components/ui/dialog';
 
-import type { ChannelNativeTemplate, SubscriptionPreview } from '@/api/api-client';
+import type { ChannelNativeTemplate, SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
@@ -22,11 +22,13 @@ import { ChannelPreview } from './channel-preview';
 interface Props {
   onClose: () => void;
   template?: ChannelNativeTemplate;
+  /** The pool, which names the nodes a preview leaves out. */
+  nodes: readonly SubscriptionNode[];
   format: ChannelNativeTemplate['format'];
   onApply: (template: ChannelNativeTemplate) => void;
   onPreview: (template: ChannelNativeTemplate, signal: AbortSignal) => Promise<SubscriptionPreview>;
 }
-export function ChannelTemplateEditor({ template, format, onClose, onPreview, onApply }: Props) {
+export function ChannelTemplateEditor({ template, format, nodes, onClose, onPreview, onApply }: Props) {
   const { t } = useTranslation();
   const baseline = template?.content ?? channelTemplateDefaults[format];
   const [content, setContent] = useState(baseline);
@@ -106,7 +108,7 @@ export function ChannelTemplateEditor({ template, format, onClose, onPreview, on
           </Button>
         </DialogFooter>
         {(preview || previewError != null) && (
-          <ChannelPreview preview={preview} error={previewError} onClose={() => {
+          <ChannelPreview nodes={nodes} preview={preview} error={previewError} onClose={() => {
             setPreview(null);
             setPreviewError(null);
           }} />

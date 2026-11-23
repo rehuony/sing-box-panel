@@ -11,7 +11,7 @@ import { createMockApiClient, testSubscriptionSources } from '@/tests/api/mock-a
 
 const content = 'vless://id@hk.example:443#HK%2001\ntrojan://secret@us.example:443#US%2001';
 
-beforeEach(() => window.history.replaceState(null, '', '/subscriptions'));
+beforeEach(() => window.history.replaceState(null, '', '/subscriptions#subscription-nodes'));
 afterEach(() => vi.restoreAllMocks());
 
 describe('subscription sources', () => {
@@ -29,9 +29,9 @@ describe('subscription sources', () => {
         .mockRejectedValueOnce(new ApiRequestError('line 1 does not convert', { status: 422, code: 'node_not_convertible' }))
         .mockResolvedValue(testSubscriptionSources[0]),
     });
-    render(<TestRouter initialEntries={['/subscriptions#subscription-sources']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
     expect(await screen.findByText(testSubscriptionSources[0].name)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Add source' }));
+    await user.click(screen.getAllByRole('button', { name: 'Add source' })[0]);
     const dialog = await screen.findByRole('dialog', { name: 'Add source' });
     await user.type(within(dialog).getByLabelText('Name'), 'Provider');
     await user.click(within(dialog).getByRole('combobox', { name: 'Kind' }));
@@ -63,10 +63,10 @@ describe('subscription sources', () => {
   it('saves a file source\'s settings and new content together at the version it was read', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
-    render(<TestRouter initialEntries={['/subscriptions#subscription-sources']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
     const source = testSubscriptionSources[0];
-    const row = (await screen.findByText(source.name)).closest('tr')!;
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    await screen.findByText(source.name);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog', { name: source.name });
     await user.clear(within(dialog).getByLabelText('Name'));
     await user.type(within(dialog).getByLabelText('Name'), 'Renamed');
@@ -89,9 +89,9 @@ describe('subscription sources', () => {
         code: 'subscription_source_invalid', fields: { 'filter.include[1]': 'invalid_regular_expression' }, status: 422,
       })),
     });
-    render(<TestRouter initialEntries={['/subscriptions#subscription-sources']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
-    const row = (await screen.findByText(testSubscriptionSources[0].name)).closest('tr')!;
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    await screen.findByText(testSubscriptionSources[0].name);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog', { name: testSubscriptionSources[0].name });
     const include = within(dialog).getByRole('textbox', { name: 'Include' });
     // A pattern keeps its spaces; a space elsewhere ends a rule.
@@ -108,9 +108,9 @@ describe('subscription sources', () => {
   it('deletes a source from its dialog after a confirmation that says its nodes leave the pool and channels', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
-    render(<TestRouter initialEntries={['/subscriptions#subscription-sources']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
-    const row = (await screen.findByText(testSubscriptionSources[0].name)).closest('tr')!;
-    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    await screen.findByText(testSubscriptionSources[0].name);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
     await user.click(within(await screen.findByRole('dialog', { name: testSubscriptionSources[0].name })).getByRole('button', { name: 'Delete source' }));
     const dialog = await screen.findByRole('dialog', { name: 'Delete source' });
     expect(dialog).toHaveTextContent('Its 2 nodes leave the pool and every channel.');

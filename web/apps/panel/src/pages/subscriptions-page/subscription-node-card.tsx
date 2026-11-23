@@ -12,12 +12,14 @@ import type { SubscriptionNode } from '@/api/api-client';
 
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
+import { dropSlotCard } from './drag-slot';
 import { nodeAddress, nodeOrigin, nodeSecurity } from './subscription-node-pool';
 
 /** Cards that always paint: more than a large window shows at once. */
 const EAGER_CARDS = 48;
 
-const card = 'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] font-[family-name:var(--font-data)] text-compact';
+/** A pane's face: a card in the pool's grid, or the card the pointer carries. */
+const face = 'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact';
 
 /** Parts of a value split by faint dots. */
 function Parts({ parts }: { parts: string[] }) {
@@ -29,7 +31,7 @@ function Parts({ parts }: { parts: string[] }) {
   ));
 }
 
-/** One labelled row on one line, its full value on hover, or "—" when the node has none. */
+/** One labelled row on one line, or "—" when the node has none; the detail shows a cut value in full. */
 function Row({ children, className, label, value }: {
   label: string;
   value: string | undefined;
@@ -39,7 +41,7 @@ function Row({ children, className, label, value }: {
 }) {
   return (
     <ReadoutRow label={label}>
-      {value ? <span className={cn('min-w-0 truncate', className)} title={value}>{children ?? value}</span> : <span className='text-muted-foreground'>{EM_DASH}</span>}
+      {value ? <span className={cn('min-w-0 truncate', className)}>{children ?? value}</span> : <span className='text-muted-foreground'>{EM_DASH}</span>}
     </ReadoutRow>
   );
 }
@@ -55,7 +57,7 @@ export function PoolNodeCardContent({ node }: { node: SubscriptionNode }) {
   return (
     <>
       <header className='flex h-8 flex-none items-center border-b px-3'>
-        <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium' title={node.display_name}>{node.display_name}</h2>
+        <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium'>{node.display_name}</h2>
       </header>
       {/* Each row keeps to one line, so the card holds the panes' height. */}
       <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-center gap-x-3 px-3 whitespace-nowrap'>
@@ -70,10 +72,10 @@ export function PoolNodeCardContent({ node }: { node: SubscriptionNode }) {
   );
 }
 
-/** The card as the pointer carries it: lifted with the panel shadow above everything. */
+/** The cell as the pointer carries it: a card lifted with the panel shadow above everything. */
 export function PoolNodeCardOverlay({ node }: { node: SubscriptionNode }) {
   return (
-    <div aria-hidden='true' className={cn(card, 'cursor-grabbing bg-popover shadow-[var(--shadow-panel)]')}>
+    <div aria-hidden='true' className={cn(face, 'cursor-grabbing bg-popover shadow-[var(--shadow-panel)]')}>
       <PoolNodeCardContent node={node} />
     </div>
   );
@@ -89,9 +91,9 @@ interface PoolNodeCardProps {
 }
 
 /**
- * One pool node in the grid. The whole card drags with the mouse, a held
- * touch or F2, and its slot stays while it moves; a click, Enter or Space
- * opens its detail.
+ * One pool node, a card of its own in the pool's grid like a fleet pane. The
+ * whole card drags with the mouse, a held touch or F2, and its slot stays
+ * while it moves; a click, Enter or Space opens its detail.
  */
 export const PoolNodeCard = memo(({ index, node, onOpen, sortable }: PoolNodeCardProps) => {
   const { t } = useTranslation();
@@ -124,9 +126,9 @@ export const PoolNodeCard = memo(({ index, node, onOpen, sortable }: PoolNodeCar
         aria-label={node.display_name}
         aria-roledescription={t('subscriptions.pool.sortableCard')}
         className={cn(
-          card,
-          'cursor-grab touch-pan-y outline-none select-none transition-colors duration-[var(--dur-short)] ease-out hover:border-[var(--color-border-strong)] focus-visible:border-primary',
-          isDragging && 'opacity-40',
+          face,
+          'cursor-grab touch-pan-y bg-[var(--color-surface-translucent)] outline-none select-none transition-colors duration-[var(--dur-short)] ease-out hover:border-[var(--color-border-strong)] focus-visible:border-primary',
+          isDragging && dropSlotCard,
         )}
         data-dragging={isDragging || undefined}
         onClick={() => onOpen(node)}

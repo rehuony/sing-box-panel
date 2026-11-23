@@ -117,13 +117,13 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 	case errors.Is(err, store.ErrInvalidSubscriptionToken):
 		writeSubscriptionInvalid(w, request)
 	case errors.Is(err, store.ErrSubscriptionNodeNotFound), errors.Is(err, store.ErrSubscriptionChannelNotFound), errors.Is(err, store.ErrSubscriptionSourceNotFound),
-		errors.Is(err, store.ErrSubscriptionUserNotFound),
+		errors.Is(err, store.ErrSubscriptionRuleSetNotFound), errors.Is(err, store.ErrSubscriptionUserNotFound),
 		errors.Is(err, store.ErrSubscriptionTokenNotFound):
 		writeProblem(w, request, http.StatusNotFound, "subscription_resource_not_found", "Subscription resource not found", "The requested subscription resource does not exist.")
 	case errors.Is(err, store.ErrSubscriptionConflict):
 		writeProblem(w, request, http.StatusPreconditionFailed, "subscription_version_conflict", "Subscription version conflict", "The subscription resource changed; load its current ETag and retry.")
 	case errors.Is(err, store.ErrSubscriptionChannelExists), errors.Is(err, store.ErrSubscriptionSourceExists),
-		errors.Is(err, store.ErrSubscriptionUserExists),
+		errors.Is(err, store.ErrSubscriptionRuleSetExists), errors.Is(err, store.ErrSubscriptionUserExists),
 		errors.Is(err, store.ErrSubscriptionTokenExists):
 		writeProblem(w, request, http.StatusConflict, "subscription_resource_exists", "Subscription resource conflict", "A subscription resource with that identity already exists.")
 	case errors.Is(err, store.ErrSubscriptionLimitExceeded):

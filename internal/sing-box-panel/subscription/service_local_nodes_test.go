@@ -64,9 +64,9 @@ func TestEachNodePublishesItsAppliedInboundsAtItsOwnHost(t *testing.T) {
 	}
 
 	config, _ := json.Marshal(map[string]any{"groups": []any{map[string]any{
-		"id": "main", "name": "Main", "enabled": true, "type": "select", "rules": []any{},
+		"id": "main", "name": "Main", "enabled": true, "type": "select",
 		"members": []any{map[string]any{"kind": "node", "id": list.Items[0].ID}, map[string]any{"kind": "node", "id": list.Items[1].ID}},
-	}}, "default_exit": map[string]any{"kind": "group", "id": "main"}})
+	}}, "routes": []any{}, "default_exit": map[string]any{"kind": "group", "id": "main"}})
 	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{Name: "public", Format: store.SubscriptionFormatSingBox, Config: config, Enabled: true})
 	if err != nil {
 		t.Fatal(err)

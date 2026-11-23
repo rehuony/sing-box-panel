@@ -21,14 +21,16 @@ interface Props {
   /** Whether the channel has its own template rather than the client's default. */
   template: boolean;
   onClose: () => void;
+  /** Asks to delete the channel. */
+  onDelete: () => void;
   onTemplate: () => void;
   format: SubscriptionFormat;
   onSave: (identity: { name: string; format: SubscriptionFormat }) => void;
 }
 
-/** The channel's settings: its name, its client and its template. */
+/** The channel's settings: its name, its client and its template, with the channel's delete. */
 export function ChannelOptions({
-  template, name, format, onClose, onSave, onTemplate,
+  template, name, format, onClose, onDelete, onSave, onTemplate,
 }: Props) {
   const { t } = useTranslation();
   const [draftName, setDraftName] = useState(name);
@@ -58,9 +60,12 @@ export function ChannelOptions({
               ]}
             />
             <span>{t('channels.template')}</span>
-            <Button variant='outline' disabled={draftFormat !== format} onClick={onTemplate}>
-              <span className='truncate'>{t(template ? 'channels.customTemplate' : 'channels.defaultTemplate')}</span>
-            </Button>
+            <div className='flex min-h-(--control-height) min-w-0 items-center justify-between gap-3'>
+              <span className='min-w-0 truncate text-sm'>{t(template ? 'channels.customTemplate' : 'channels.defaultTemplate')}</span>
+              <Button aria-label={t('channels.editTemplate')} disabled={draftFormat !== format} onClick={onTemplate} size='sm' variant='outline'>
+                {t('channels.edit')}
+              </Button>
+            </div>
           </div>
           {draftFormat !== format && (
             <p role='status' className='text-sm text-muted-foreground'>{t(template ? 'channels.replaceTemplateHint' : 'channels.applyClientFirst')}</p>
@@ -69,6 +74,15 @@ export function ChannelOptions({
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>
             {t('common.cancel')}
+          </Button>
+          <Button
+            variant='destructive'
+            onClick={() => {
+              onClose();
+              onDelete();
+            }}
+          >
+            {t('channels.remove')}
           </Button>
           <Button
             variant='default'

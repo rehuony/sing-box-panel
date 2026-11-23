@@ -27,6 +27,10 @@ func (application *Service) RenderSubscriptionDraft(ctx context.Context, userID,
 	if err != nil {
 		return SubscriptionPreview{}, err
 	}
+	ruleSets, err := channelRuleSets(state.RuleSets)
+	if err != nil {
+		return SubscriptionPreview{}, err
+	}
 	if draft != nil {
 		config, err := validateSubscriptionChannelConfig(draft.Format, draft.Config)
 		if err != nil {
@@ -43,9 +47,12 @@ func (application *Service) RenderSubscriptionDraft(ctx context.Context, userID,
 		if err := validateChannelPoolReferences(config, available); err != nil {
 			return SubscriptionPreview{}, err
 		}
+		if ruleSets, err = application.readChannelRuleSets(ctx, config); err != nil {
+			return SubscriptionPreview{}, err
+		}
 		channel.Config, channel.Format = config, draft.Format
 	}
-	rendered, _, err := application.renderSubscriptionState(state, channel.Format, channel.Config)
+	rendered, _, err := application.renderSubscriptionState(state, channel.Format, channel.Config, ruleSets)
 	if err != nil {
 		return SubscriptionPreview{}, err
 	}

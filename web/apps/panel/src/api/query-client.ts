@@ -29,7 +29,7 @@ export function retryableRead(error: unknown): boolean {
 
 type QueryRoot
   = | 'catalog' | 'channels' | 'coreLogFiles' | 'fleetNodes' | 'fleetStatus' | 'installed' | 'nodes' | 'nodeSettings'
-    | 'runtime' | 'schema' | 'settings' | 'sources' | 'systemUpdate' | 'tokens';
+    | 'ruleSets' | 'runtime' | 'schema' | 'settings' | 'sources' | 'systemUpdate' | 'tokens';
 
 const runtimeChange: readonly QueryRoot[] = ['runtime', 'nodes', 'installed'];
 const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
@@ -55,11 +55,14 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   updateSubscriptionSource: sourceChange,
   deleteSubscriptionSource: sourceChange,
   refreshSubscriptionSource: sourceChange,
+  createSubscriptionRuleSet: ['ruleSets'],
+  updateSubscriptionRuleSet: ['ruleSets', 'channels'],
+  deleteSubscriptionRuleSet: ['ruleSets', 'channels'],
   updateSubscriptionNode: nodeChange,
   setSubscriptionNodeOrder: nodeChange,
-  createSubscriptionChannel: ['channels'],
-  updateSubscriptionChannel: ['channels'],
-  deleteSubscriptionChannel: ['channels'],
+  createSubscriptionChannel: ['channels', 'ruleSets'],
+  updateSubscriptionChannel: ['channels', 'ruleSets'],
+  deleteSubscriptionChannel: ['channels', 'ruleSets'],
   createSubscriptionToken: ['tokens'],
   deleteSubscriptionToken: ['tokens'],
   rotateSubscriptionToken: ['tokens'],

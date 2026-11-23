@@ -49,11 +49,11 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/subscriptions');
 });
 
-it('opens on the node pool with keys last, without reading keys', () => {
+it('opens on rule sets with keys last, without reading keys', () => {
   const client = createMockApiClient();
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
-  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Nodes', 'Sources', 'Channels', 'Key management']);
-  expect(screen.getByRole('tab', { name: 'Nodes' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Rule sets', 'Nodes', 'Channels', 'Key management']);
+  expect(screen.getByRole('tab', { name: 'Rule sets' })).toHaveAttribute('aria-selected', 'true');
   expect(client.listSubscriptionTokens).not.toHaveBeenCalled();
 });
 
@@ -70,14 +70,14 @@ it('reuses pending and completed list requests across tab switches', async () =>
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   const signal = vi.mocked(client.listSubscriptionTokens).mock.calls[0][1]!;
   expect(screen.getByRole('status', { name: 'Loading' })).toBeVisible();
-  await user.click(screen.getByRole('tab', { name: 'Sources' }));
+  await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
   expect(signal.aborted).toBe(false);
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(1);
   await act(async () => resolve({ items: testSubscriptionTokens, total: testSubscriptionTokens.length }));
   await screen.findByText(testSubscriptionTokens[0].label);
   for (let i = 0; i < 3; i++) {
-    await user.click(screen.getByRole('tab', { name: 'Sources' }));
+    await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
     await user.click(screen.getByRole('tab', { name: 'Key management' }));
     expect(screen.getByText(testSubscriptionTokens[0].label)).toBeVisible();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -94,14 +94,14 @@ it('retries a failed list when returning and refreshes after a mutation', async 
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   await waitFor(() => expect(feedback).toHaveBeenCalledWith(expect.objectContaining({ description: 'list failed' })));
-  await user.click(screen.getByRole('tab', { name: 'Sources' }));
+  await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   await screen.findByText(testSubscriptionTokens[0].label);
   expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(2);
   const toggle = screen.getByRole('button', { name: 'Disable' });
   await user.click(toggle);
   await waitFor(() => expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(3));
-  await user.click(screen.getByRole('tab', { name: 'Sources' }));
+  await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(3);
 });

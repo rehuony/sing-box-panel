@@ -19,6 +19,7 @@ import type {
   Session,
   StartupArtifactSummary,
   SubscriptionChannel,
+  SubscriptionRuleSet,
   SubscriptionSource,
   SubscriptionToken,
   SystemUpdate,
@@ -160,10 +161,34 @@ export const testSubscriptionChannels: SubscriptionChannel[] = [
     id: 'channel_sing_box',
     name: 'Primary sing-box',
     format: 'sing-box',
-    config: { groups: [], default_exit: { kind: 'direct' } },
+    config: { groups: [], routes: [], default_exit: { kind: 'direct' } },
     enabled: true,
     created_at: '2026-08-26T07:00:00Z',
     updated_at: '2026-08-26T07:05:00.000000001Z',
+  },
+];
+
+export const testSubscriptionRuleSets: SubscriptionRuleSet[] = [
+  {
+    id: 'rule_set_streaming',
+    client: 'mihomo',
+    name: 'Streaming',
+    rules: [
+      { kind: 'domain_suffix', value: 'netflix.com' },
+      { kind: 'remote', remote: { name: 'streaming', url: 'https://rules.example/streaming.mrs', format: 'mrs', behavior: 'domain', accelerated: false } },
+    ],
+    channels: [],
+    created_at: '2026-08-26T07:00:00Z',
+    updated_at: '2026-08-26T07:00:00.000000001Z',
+  },
+  {
+    id: 'rule_set_direct',
+    client: 'sing-box',
+    name: 'Direct',
+    rules: [{ kind: 'domain_suffix', value: 'cn' }],
+    channels: [],
+    created_at: '2026-08-26T07:00:00Z',
+    updated_at: '2026-08-26T07:00:00.000000001Z',
   },
 ];
 
@@ -403,6 +428,14 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     deleteSubscriptionSource: vi.fn<ApiClient['deleteSubscriptionSource']>().mockResolvedValue(undefined),
     refreshSubscriptionSource: vi.fn<ApiClient['refreshSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
     previewSubscriptionSource: vi.fn<ApiClient['previewSubscriptionSource']>().mockResolvedValue({ items: [] }),
+    listSubscriptionRuleSets: vi.fn<ApiClient['listSubscriptionRuleSets']>().mockResolvedValue({ items: testSubscriptionRuleSets }),
+    createSubscriptionRuleSet: vi.fn<ApiClient['createSubscriptionRuleSet']>().mockImplementation(async input => ({
+      ...input, id: 'rule_set_new', channels: [], created_at: '2026-08-26T08:00:00Z', updated_at: '2026-08-26T08:00:00.000000001Z',
+    })),
+    updateSubscriptionRuleSet: vi.fn<ApiClient['updateSubscriptionRuleSet']>().mockImplementation(async (id, input) => ({
+      ...testSubscriptionRuleSets.find(set => set.id === id)!, ...input, updated_at: '2026-08-26T08:00:00.000000001Z',
+    })),
+    deleteSubscriptionRuleSet: vi.fn<ApiClient['deleteSubscriptionRuleSet']>().mockResolvedValue(undefined),
     listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>().mockResolvedValue({
       items: testSubscriptionTokens, total: testSubscriptionTokens.length,
     }),

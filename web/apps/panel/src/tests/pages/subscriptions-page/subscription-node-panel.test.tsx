@@ -31,7 +31,7 @@ const cards = () => within(screen.getByRole('list', { name: 'Nodes' })).getAllBy
 
 function mount(overrides: Parameters<typeof createMockApiClient>[0] = {}) {
   const client = createMockApiClient(overrides);
-  render(<TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+  render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
   return client;
 }
 
@@ -49,7 +49,7 @@ async function moveRight(name: string, count: number) {
 }
 
 beforeEach(() => {
-  window.history.replaceState(null, '', '/subscriptions');
+  window.history.replaceState(null, '', '/subscriptions#subscription-nodes');
   const originalRect = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     if (this.matches('[data-slot="pool-node-grid"] > li')) {

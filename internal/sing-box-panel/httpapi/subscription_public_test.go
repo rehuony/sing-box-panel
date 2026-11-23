@@ -199,7 +199,8 @@ func channelConfigWith(nodes ...string) json.RawMessage {
 		members[index] = map[string]string{"kind": "node", "id": id}
 	}
 	encoded, _ := json.Marshal(map[string]any{
-		"groups":       []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select", "members": members, "rules": []any{}}},
+		"groups":       []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select", "members": members}},
+		"routes":       []any{},
 		"default_exit": map[string]any{"kind": "group", "id": "main"},
 	})
 	return encoded

@@ -3,11 +3,12 @@ import type {
 } from '../generated';
 
 export type {
+  ChannelGroupMatch,
   ChannelGroupMember,
   ChannelNativeTemplate,
   ChannelRemoteRuleSet,
+  ChannelRoute,
   ChannelRouteExit,
-  ChannelRule,
   ChannelRuleGroup,
   CreatedSubscriptionToken,
   NodePublication,
@@ -24,6 +25,11 @@ export type {
   SubscriptionNodeList,
   SubscriptionNodeUpdate,
   SubscriptionPreview,
+  SubscriptionRule,
+  SubscriptionRuleSet,
+  SubscriptionRuleSetCreate,
+  SubscriptionRuleSetList,
+  SubscriptionRuleSetUpdate,
   SubscriptionSource,
   SubscriptionSourceCreate,
   SubscriptionSourceFilter,

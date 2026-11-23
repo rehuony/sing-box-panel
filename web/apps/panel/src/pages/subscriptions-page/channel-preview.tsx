@@ -1,6 +1,5 @@
 import { TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@shared/components/ui/badge';
 import { Button } from '@shared/components/ui/button';
 import { Separator } from '@shared/components/ui/separator';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -14,20 +13,29 @@ import {
   DialogTitle,
 } from '@shared/components/ui/dialog';
 
-import type { SubscriptionPreview } from '@/api/api-client';
+import type { SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
 import { describeRequestError } from '@/components/error-notice';
 
 import { SubscriptionContentState } from './subscription-content-state';
 
+type Diagnostic = SubscriptionPreview['result']['diagnostics'][number];
+
+/** The affected nodes an issue entry names before it gives only their count. */
+const NAMED_NODES = 10;
+
 interface Props {
   error?: unknown;
   onClose: () => void;
+  /** The pool, which names the affected nodes. */
+  nodes: readonly SubscriptionNode[];
   preview: SubscriptionPreview | null;
 }
-export function ChannelPreview({ preview, error, onClose }: Props) {
+export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
   const { t } = useTranslation();
   const issues = preview?.result.diagnostics ?? [];
+  const byCode = new Map<string, Diagnostic[]>();
+  for (const issue of issues) byCode.set(issue.code, [...byCode.get(issue.code) ?? [], issue]);
   const failure = error ? describeRequestError(error) : '';
   const issueCount = issues.length + (failure ? 1 : 0);
   async function copy() {
@@ -59,12 +67,12 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
                       <p className='wrap-anywhere'>{failure}</p>
                     </div>
                   )}
-                  {issues.length > 0 && (
+                  {byCode.size > 0 && (
                     <ul className='grid gap-3'>
-                      {issues.map((issue, index) => (
-                        <li key={`${issue.node_id ?? issue.collection}-${issue.item_index}-${issue.code}`} className='min-w-0'>
+                      {[...byCode].map(([code, group], index) => (
+                        <li key={code} className='min-w-0'>
                           {index > 0 && <Separator className='mb-3' />}
-                          <PreviewIssue issue={issue} />
+                          <PreviewIssue code={code} issues={group} nodes={nodes} />
                         </li>
                       ))}
                     </ul>
@@ -94,32 +102,36 @@ export function ChannelPreview({ preview, error, onClose }: Props) {
   );
 }
 
-function PreviewIssue({ issue }: { issue: SubscriptionPreview['result']['diagnostics'][number] }) {
+/**
+ * The issues of one code: why the nodes were left out and what to do, said
+ * once, with their count and the nodes by their pool names.
+ */
+function PreviewIssue({ code, issues, nodes }: {
+  code: string;
+  issues: Diagnostic[];
+  nodes: readonly SubscriptionNode[];
+}) {
   const { t, i18n } = useTranslation();
-  const detail = issue.reason && i18n.exists(`channels.previewReasons.${issue.reason}`) ? issue.reason : issue.code;
-  const reason = i18n.exists(`channels.previewReasons.${detail}`) ? detail : 'unknown';
-  const path = issue.field_path ?? `${issue.collection}[${issue.item_index}]`;
+  const known = (key: string) => i18n.exists(`channels.previewReasons.${key}`);
+  const reasons = new Set(issues.map(issue => issue.reason && known(issue.reason) ? issue.reason : code));
+  const shared = reasons.size === 1 ? [...reasons][0] : code;
+  const reason = known(shared) ? shared : 'unknown';
+  const pool = new Map(nodes.map(node => [node.id, node.display_name]));
+  const names = [...new Set(issues.map(issue => (issue.node_id === undefined ? undefined : pool.get(issue.node_id))
+    ?? issue.node_name ?? issue.node_id ?? t('channels.previewNode', { position: issue.item_index + 1 })))];
+  const shown = names.slice(0, NAMED_NODES).join(t('subscriptions.sources.protocolSeparator'));
   return (
     <div className='grid gap-2 wrap-anywhere'>
-      <div className='flex flex-wrap items-center gap-2'>
-        <strong>{issue.node_name ?? t('channels.previewNode', { position: issue.item_index + 1 })}</strong>
-        {issue.node_type && <Badge variant='secondary'>{issue.node_type}</Badge>}
-        <span className='text-muted-foreground'>{t('channels.previewOmitted')}</span>
+      <div className='flex items-baseline gap-2'>
+        <strong className='min-w-0 flex-1'>{t(`channels.previewReasons.${reason}`, { format: issues[0].format })}</strong>
+        <span className='flex-none font-[family-name:var(--font-data)] text-xs text-muted-foreground tabular-nums'>{issues.length}</span>
       </div>
-      <p>{t(`channels.previewReasons.${reason}`, { format: issue.format })}</p>
       <p className='text-muted-foreground'>{t(`channels.previewActions.${reason}`)}</p>
-      <div className='grid gap-1 text-xs text-muted-foreground'>
-        <span>
-          {t('channels.previewLocation')}
-          {' '}
-          <code>{path}</code>
-        </span>
-        <span>
-          {t('channels.previewCode')}
-          {' '}
-          <code>{issue.code}</code>
-        </span>
-      </div>
+      <p>
+        {shown}
+        {names.length > NAMED_NODES ? ` ${t('channels.previewMoreNodes', { total: names.length, rest: names.length - NAMED_NODES })}` : ''}
+      </p>
+      <code className='text-xs text-muted-foreground'>{code}</code>
     </div>
   );
 }

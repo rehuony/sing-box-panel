@@ -46,7 +46,7 @@ func TestChannelPreviewDeliveryAndNodeRemoval(t *testing.T) {
 	_, services, handler := newSubscriptionHTTPServices(t, "")
 	nodes := createSourceNodes(t, services, "source", "socks5://node.example.com:1080#Example\nsocks5://other.example.com:1080#Other\n")
 	config := subscription.ChannelConfig{
-		IncompatibleNodes: "error", DefaultExit: subscription.RouteExit{Kind: "node", ID: nodes[0]}, Groups: []subscription.RuleGroup{},
+		IncompatibleNodes: "error", DefaultExit: subscription.RouteExit{Kind: "node", ID: nodes[0]}, Groups: []subscription.RuleGroup{}, Routes: []subscription.ChannelRoute{},
 		Template: &subscription.NativeTemplate{Format: subscription.RenderFormatSingBox, Content: `{"log":{"level":"warn"}}`},
 	}
 	input := map[string]any{"name": "Modern", "format": "sing-box", "config": config, "enabled": true}
@@ -126,7 +126,7 @@ func TestChannelPreviewDeliveryAndNodeRemoval(t *testing.T) {
 	if err != nil || unchanged.UpdatedAt != channel.UpdatedAt || unchanged.Config.Template.Content != `{"log":{"level":"warn"}}` {
 		t.Fatal("invalid save modified channel", err)
 	}
-	// A node that leaves the pool leaves the channel: its default exit falls
+	// A node that leaves the pool leaves the channel: its final exit falls
 	// back to direct instead of naming another proxy.
 	sources, err := services.Subscriptions.ListSubscriptionSources(ctx, subscription.SubscriptionListRequest{})
 	if err != nil {
@@ -151,8 +151,8 @@ func TestLoonPreviewDiagnosticsAndALPNDelivery(t *testing.T) {
 		{"type":"anytls","tag":"AnyTLS unsupported","server":"private.example","server_port":443,"password":"private-secret","tls":{"enabled":true,"fragment":true}}]}`)
 	good, bad := ids[0], ids[1]
 	config, _ := json.Marshal(subscription.ChannelConfig{
-		IncompatibleNodes: "skip", DefaultExit: subscription.RouteExit{Kind: "group", ID: "main"},
-		Groups: []subscription.RuleGroup{{ID: "main", Name: "Selected", Type: "select", Enabled: true, Members: []subscription.GroupMember{{Kind: "node", ID: good}, {Kind: "node", ID: bad}}, Rules: []subscription.ChannelRule{}}},
+		IncompatibleNodes: "skip", DefaultExit: subscription.RouteExit{Kind: "group", ID: "main"}, Routes: []subscription.ChannelRoute{},
+		Groups: []subscription.RuleGroup{{ID: "main", Name: "Selected", Type: "select", Enabled: true, Members: []subscription.GroupMember{{Kind: "node", ID: good}, {Kind: "node", ID: bad}}}},
 	})
 	channel, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{Name: "Loon", Format: store.SubscriptionFormatLoon, Config: config, Enabled: true})
 	if err != nil {
@@ -227,10 +227,10 @@ func TestChannelStrategyTypesPersistPreviewAndDeliver(t *testing.T) {
 				IncompatibleNodes: "error",
 				DefaultExit:       subscription.RouteExit{Kind: "group", ID: "group"},
 				Groups: []subscription.RuleGroup{
-					{ID: "group", Name: "Main", Enabled: true, Type: test.kind, Members: members, HealthCheck: &subscription.GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0},
-						Rules: []subscription.ChannelRule{{ID: "remote", Enabled: true, Kind: "remote", SortIndex: -5, Remote: remote, Exit: subscription.RouteExit{Kind: "group-default"}}}},
-					{ID: "child", Name: "Child", Enabled: true, Type: "select", Members: []subscription.GroupMember{{Kind: "node", ID: node}}, Rules: []subscription.ChannelRule{}},
+					{ID: "group", Name: "Main", Enabled: true, Type: test.kind, Members: members, HealthCheck: &subscription.GroupHealthCheck{URL: "https://probe.example/check", Interval: 3600, Tolerance: 0}},
+					{ID: "child", Name: "Child", Enabled: true, Type: "select", Members: []subscription.GroupMember{{Kind: "node", ID: node}}},
 				},
+				Routes: []subscription.ChannelRoute{{ID: "remote", Enabled: true, Rule: &subscription.SubscriptionRule{Kind: "remote", Remote: remote}, Exit: subscription.RouteExit{Kind: "group", ID: "group"}}},
 			}
 			config, _ := json.Marshal(policy)
 			raw, _ := json.Marshal(map[string]any{"name": test.format + " " + test.kind, "format": test.format, "config": json.RawMessage(config), "enabled": true})
@@ -314,8 +314,8 @@ func TestChannelDefaultTemplatesAndWholeReplacement(t *testing.T) {
 				t.Fatal(err)
 			}
 			p := &subscription.ChannelConfig{
-				IncompatibleNodes: "error",
-				Groups:            []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"},
+				IncompatibleNodes: "error", Routes: []subscription.ChannelRoute{},
+				Groups: []subscription.RuleGroup{}, DefaultExit: subscription.RouteExit{Kind: "direct"},
 			}
 			input := map[string]any{"name": test.format, "format": test.format, "enabled": true, "config": p}
 			raw, _ := json.Marshal(input)
@@ -385,13 +385,17 @@ func TestChannelAPIRejectsRemovedConfiguration(t *testing.T) {
 	_, services, handler := newSubscriptionHTTPServices(t, "")
 	node := createSourceNodes(t, services, "source", "socks5://node.example.com:1080#Example\n")[0]
 	created := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels",
-		`{"name":"Current","format":"sing-box","enabled":true,"config":{"groups":[],"default_exit":{"kind":"direct"}}}`, "")
+		`{"name":"Current","format":"sing-box","enabled":true,"config":{"groups":[],"routes":[],"default_exit":{"kind":"direct"}}}`, "")
 	if created.Code != http.StatusCreated {
 		t.Fatal(created.Code, created.Body.String())
 	}
 	for _, config := range []string{
 		`{}`,
-		`{"exclude_types":["socks"],"groups":[],"default_exit":{"kind":"direct"}}`,
+		`{"groups":[],"default_exit":{"kind":"direct"}}`,
+		`{"groups":[],"routes":[{"id":"r","enabled":true,"sort_index":0,"rule":{"kind":"domain","value":"example.org"},"exit":{"kind":"direct"}}],"default_exit":{"kind":"direct"}}`,
+		`{"groups":[],"routes":[{"id":"r","enabled":true,"rule":{"kind":"domain","value":"example.org"},"exit":{"kind":"group-default"}}],"default_exit":{"kind":"direct"}}`,
+		`{"groups":[{"id":"g","name":"G","enabled":true,"type":"select","members":[],"rules":[]}],"routes":[],"default_exit":{"kind":"direct"}}`,
+		`{"exclude_types":["socks"],"groups":[],"routes":[],"default_exit":{"kind":"direct"}}`,
 		`{"policy":{"groups":[],"default_exit":{"kind":"direct"}}}`,
 		`{"selection":{"ids":[],"excluded_ids":[],"new_node_policy":"include"},"groups":[],"default_exit":{"kind":"direct"}}`,
 		`{"groups":[{"id":"g","name":"G","enabled":true,"type":"select","builtin_nodes":[],"node_ids":["` + node + `"],"rules":[]}],"default_exit":{"kind":"direct"}}`,

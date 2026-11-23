@@ -1,10 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@shared/components/ui/badge';
-import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
-import { toast } from '@shared/components/ui/toast-manager';
-import { Field, FieldGroup, FieldLabel } from '@shared/components/ui/field';
 import {
   Dialog,
   DialogContent,
@@ -13,40 +9,129 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@shared/components/ui/dialog';
-import { ArrowDown, ArrowLeft, ArrowUp, CirclePlus, Eye, Flag, Gauge, ListRestart, MousePointer2, Save, Settings2, Trash2 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
+import {
+  ArrowLeft,
+  CirclePlus,
+  Eye,
+  Gauge,
+  MoreHorizontal,
+  MousePointer2,
+  Route,
+  Save,
+  Settings2,
+  Shuffle,
+} from 'lucide-react';
 
 import type {
   ChannelNativeTemplate,
   ChannelRuleGroup,
   SubscriptionChannel,
+  SubscriptionFormat,
   SubscriptionNode,
 } from '@/api/api-client';
 
+import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
-import { SelectField } from '@/components/select-field';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
 
 import type { ChannelGroupTab } from './channel-group-editor';
 
+import { useExits } from './channel-exits';
 import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
 import { useChannelDraft } from './use-channel-draft';
 import { ChannelGroupEditor } from './channel-group-editor';
+import { ChannelGroupSettings } from './channel-group-settings';
 import { ChannelTemplateEditor } from './channel-template-editor';
-import { SubscriptionContentState } from './subscription-content-state';
-import { defaultGroupHealthCheck,
-  nextRuleIndex, removeGroupReferences } from './channel-policy';
+import { ChannelRouteAdd, ChannelRouteList } from './channel-route-list';
+import { defaultGroupHealthCheck, emptyMatch, exitsThrough, groupTypeName, matchedNodes } from './channel-policy';
+
+const groupIcons = { 'select': MousePointer2, 'url-test': Gauge, 'fallback': Shuffle };
+
+/**
+ * A strategy group in the rail: its strategy's icon, its name and members,
+ * its strategy and the exit rules through it; settings and a menu that moves
+ * or deletes it take the count's place on hover.
+ */
+function GroupRailItem({
+  busy, current, first, format, group, last, matched, onDelete, onMove, onSelect, onSettings, routes,
+}: {
+  group: ChannelRuleGroup;
+  format: SubscriptionFormat;
+  /** The pool nodes its match takes besides its members. */
+  matched: number;
+  /** The exit rules that leave through it. */
+  routes: number;
+  current: boolean;
+  first: boolean;
+  last: boolean;
+  busy: boolean;
+  onSelect: () => void;
+  onSettings: () => void;
+  onMove: (delta: number) => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const Icon = groupIcons[group.type];
+  const name = group.name || t('channels.groupName');
+  const sub = [
+    t('channels.groupSub', { type: groupTypeName(group.type, format), count: routes }),
+    group.enabled ? '' : t('channels.disabled'),
+  ].filter(Boolean).join(' · ');
+  return (
+    <RailItem
+      actions={(
+        <>
+          <IconAction aria-haspopup='dialog' disabled={busy} label={t('channels.groupSettings', { name })} onClick={onSettings} size='icon-xs'>
+            <Settings2 aria-hidden='true' />
+          </IconAction>
+          <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
+            {/* An open menu keeps its trigger in view after the pointer leaves the item. */}
+            <DropdownMenuTrigger render={<IconAction className='data-popup-open:visible' disabled={busy} label={t('channels.groupMore', { name })} size='icon-xs' />}>
+              <MoreHorizontal aria-hidden='true' />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end' className='w-auto min-w-32'>
+              <DropdownMenuGroup>
+                <DropdownMenuItem disabled={first} onClick={() => onMove(-1)}>{t('common.moveUp')}</DropdownMenuItem>
+                <DropdownMenuItem disabled={last} onClick={() => onMove(1)}>{t('common.moveDown')}</DropdownMenuItem>
+                <DropdownMenuItem onClick={onDelete} variant='destructive'>{t('common.delete')}</DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
+      current={current}
+      disabled={busy}
+      end={menuOpen ? null : <RailCount>{group.members.length + matched}</RailCount>}
+      icon={<Icon />}
+      name={name}
+      onClick={onSelect}
+      sub={sub}
+      title={name}
+    />
+  );
+}
 
 interface Props {
   active?: boolean;
   onBack: () => void;
+  /** Asks to delete the channel. */
+  onDelete: () => void;
   /** The pool in its saved order. */
   nodes: SubscriptionNode[];
   channel: SubscriptionChannel;
   toolbarTarget?: HTMLElement | null;
   onSaved: (channel: SubscriptionChannel) => void;
 }
-export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onSaved }: Props) {
+
+/**
+ * One channel: the rail of its exit rules and strategy groups beside the
+ * one shown, with its name, client and the actions on it in the title strip.
+ */
+export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onDelete, onSaved }: Props) {
   const { t } = useTranslation();
   const [groupTab, setGroupTab] = useState<ChannelGroupTab>('nodes');
   const {
@@ -55,210 +140,165 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
     format,
     name,
     busy,
+    ruleSets,
     optionsOpen,
     setOptionsOpen,
     templateOpen,
     setTemplateOpen,
     group,
-    groupIndex,
-    finalGroup,
     groupSettings,
     setGroupSettings,
     setGroupID,
     removeGroup,
     setRemoveGroup,
+    requestRemoveGroup,
+    confirmRemoveGroup,
     preview,
     previewError,
     setPreviewError,
     setPreview,
     dirty,
     conflict,
-    ruleTextResults,
-    setRuleView,
-    changeRuleText,
-    invalidTextGroup,
     confirmNavigation,
     render,
     save,
     showPreview,
     reorder,
     updateGroup,
+    setRoutes,
+    setDefaultExit,
     addGroup,
     applyOptions,
   } = useChannelDraft(channel, onSaved);
+  const exits = useExits(config.groups, nodes);
+  const firstGroup = config.groups.find(value => value.enabled);
   return (
-    <div className='@container/channel-editor flex h-full min-h-0 min-w-0 flex-col gap-2 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 [&_[data-slot=button][data-variant=ghost]]:border-transparent'>
+    <div className='flex h-full min-h-0 min-w-0 flex-col'>
       <ToolbarActions active={active} target={toolbarTarget}>
-        <div className='ms-auto flex min-w-0 flex-none items-center justify-end gap-2'>
-          <Button size='icon-sm' variant='flat' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
-          <Button size='icon-sm' variant='flat' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
-          <Button size='icon-sm' variant='flat' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
-          <Button size='sm' variant='flat' disabled={busy || conflict || !dirty} onClick={() => {
-            if (invalidTextGroup) {
-              // Show the text that needs fixing; its last valid rules stay unsaved.
-              setGroupID(invalidTextGroup.id);
-              setGroupTab('rules');
-              toast.add({ title: t('channels.ruleTextUnsaved', { name: invalidTextGroup.name }), type: 'error' });
-              return;
-            }
-            void save();
-          }}>
-            <Save data-icon='inline-start' />
-            {t('channels.save')}
-          </Button>
+        {/* The channel keeps room for its name and client; when narrow, the actions take the next line. */}
+        <div className='flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
+          <div className='flex min-w-[min(100%,12rem)] flex-1 items-center gap-2'>
+            <Button size='icon-sm' variant='flat' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
+            <span className='min-w-0 truncate text-sm font-semibold' title={name}>{name}</span>
+            <span className='flex h-5 flex-none items-center rounded-[var(--radius-pill)] border px-2 font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]'>{format}</span>
+          </div>
+          <div className='ms-auto flex flex-none items-center gap-2'>
+            <Button size='icon-sm' variant='flat' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
+            <Button size='icon-sm' variant='flat' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
+            <Button className='max-sm:w-(--control-height-sm) max-sm:px-0' size='sm' variant='flat' aria-label={t('channels.save')} disabled={busy || conflict || !dirty} onClick={() => void save()}>
+              <Save data-icon='inline-start' />
+              <span className='max-sm:sr-only'>{t('channels.save')}</span>
+            </Button>
+          </div>
         </div>
       </ToolbarActions>
-      <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden @max-[740px]/channel-editor:overflow-y-auto @max-[740px]/channel-editor:pe-1'>
-        {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
-        <div className='grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-4 @max-[740px]/channel-editor:flex @max-[740px]/channel-editor:flex-none @max-[740px]/channel-editor:flex-col @max-[740px]/channel-editor:has-[[data-rule-text]]:flex-[1_0_auto]'>
-          <aside className='flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden border-r pe-4 @max-[740px]/channel-editor:overflow-visible @max-[740px]/channel-editor:border-r-0 @max-[740px]/channel-editor:p-0' aria-label={t('channels.groups')}>
-            <div className='flex flex-none flex-wrap items-center gap-2 [&>button]:ms-auto [&>h2]:text-sm [&>h2]:font-medium'>
-              <h2>{t('channels.groups')}</h2>
-              <Badge variant='secondary'>{config.groups.length}</Badge>
-              <Button size='icon-sm' variant='ghost' aria-label={t('channels.addGroup')} title={t('channels.addGroup')} disabled={busy} onClick={addGroup}><CirclePlus /></Button>
-            </div>
-            <div className='-m-0.5 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-0.5 @max-[740px]/channel-editor:m-0 @max-[740px]/channel-editor:grid @max-[740px]/channel-editor:max-h-55 @max-[740px]/channel-editor:flex-none @max-[740px]/channel-editor:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]'>
-              {config.groups.map((value) => (
-                <div className='group/card relative min-w-0 flex-none' key={value.id}>
-                  <Button
-                    variant='ghost'
-                    className='min-h-16 w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left font-normal whitespace-normal active:scale-100 aria-pressed:bg-accent aria-pressed:text-foreground'
-                    data-group-item
-                    size='content'
-                    aria-pressed={group?.id === value.id}
-                    disabled={busy}
-                    onClick={() => setGroupID(value.id)}
-                  >
-                    <span className='flex items-center gap-2 pe-7 wrap-anywhere' title={`${value.name} · ${t(`channels.groupTypes.${value.type}`)}`}>
-                      {value.type === 'url-test' ? <Gauge aria-hidden='true' /> : value.type === 'fallback' ? <ListRestart aria-hidden='true' /> : <MousePointer2 aria-hidden='true' />}
-                      {value.name || t('channels.groupName')}
-                    </span>
-                    <span className='flex min-h-5 min-w-0 items-center gap-1.5'>
-                      <span className='min-w-0 truncate text-xs text-muted-foreground' title={t('channels.groupSummary', { nodes: value.members.length, rules: value.rules.length })}>
-                        {t('channels.groupSummary', { nodes: value.members.length, rules: value.rules.length })}
-                      </span>
-                      <span className='ms-auto flex flex-none items-center gap-1.5 empty:hidden *:data-[slot=badge]:font-normal'>
-                        {!value.enabled && <Badge variant='secondary'>{t('channels.disabled')}</Badge>}
-                        {config.default_exit.kind === 'group' && config.default_exit.id === value.id && <Badge variant='success'>{t('channels.finalExit')}</Badge>}
-                      </span>
-                    </span>
-                  </Button>
-                  <Button
-                    size='icon-sm' variant='ghost' className='pointer-events-none absolute end-1 top-1 border-transparent bg-transparent opacity-0 transition-opacity duration-[var(--dur-short)] group-hover/card:pointer-events-auto group-hover/card:opacity-100 group-has-focus-visible/card:pointer-events-auto group-has-focus-visible/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100'
-                    aria-label={t('channels.groupSettings', { name: value.name })}
-                    title={t('channels.groupSettings', { name: value.name })}
-                    aria-haspopup='dialog' disabled={busy}
-                    onClick={() => setGroupSettings(structuredClone(value))}
-                  >
-                    <Settings2 />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            {group && (
-              <div className='flex flex-none flex-wrap items-center gap-2 pt-1'>
-                <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupUp')} title={t('channels.moveGroupUp')} disabled={busy || groupIndex === 0} onClick={() => reorder(groupIndex, -1)}><ArrowUp /></Button>
-                <Button size='icon-sm' variant='ghost' aria-label={t('channels.moveGroupDown')} title={t('channels.moveGroupDown')} disabled={busy || groupIndex === config.groups.length - 1} onClick={() => reorder(groupIndex, 1)}><ArrowDown /></Button>
-                <Button
-                  size='icon-sm' variant='ghost' className='ms-auto'
-                  aria-label={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
-                  title={t(finalGroup ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
-                  aria-pressed={finalGroup} disabled={busy}
-                  onClick={() => setConfig((current) => ({
-                    ...current,
-                    groups: current.groups.map((item) =>
-                      item.id === group.id ? { ...item, enabled: true } : item),
-                    default_exit: current.default_exit.kind === 'group' && current.default_exit.id === group.id
-                      ? { kind: 'direct' }
-                      : { kind: 'group', id: group.id },
-                  }))}
-                >
-                  <Flag fill={finalGroup ? 'currentColor' : 'none'} />
-                </Button>
-                <Button variant='ghost' size='icon-sm' className='text-[var(--color-danger)]' aria-label={t('channels.deleteGroup')} title={t('channels.deleteGroup')} disabled={busy} onClick={() => {
-                  if (config.default_exit.kind === 'group' && config.default_exit.id === group.id) {
-                    toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
-                    return;
-                  }
-                  setRemoveGroup(group.id);
-                }}>
-                  <Trash2 />
-                </Button>
-              </div>
-            )}
-          </aside>
+      {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
+      {/* The rail is a column of the channels card, divided by a hairline; on a phone a capped band above. */}
+      <div className='grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)] max-md:grid-cols-1 max-md:grid-rows-[minmax(0,13rem)_minmax(0,1fr)]'>
+        <Rail className='rounded-none border-0 border-e bg-transparent max-md:border-e-0 max-md:border-b' label={t('channels.setup')}>
+          <RailItem
+            current={!group}
+            disabled={busy}
+            end={<RailCount>{config.routes.length}</RailCount>}
+            icon={<Route />}
+            name={t('channels.routes')}
+            onClick={() => setGroupID(null)}
+            sub={t('channels.finalExitSub', { exit: exits.label(config.default_exit) })}
+          />
+          <RailHeading end={(
+            <IconAction disabled={busy} label={t('channels.addGroup')} onClick={addGroup} size='icon-xs'>
+              <CirclePlus aria-hidden='true' />
+            </IconAction>
+          )}>
+            {t('channels.groups')}
+          </RailHeading>
+          {config.groups.map((value, index) => (
+            <GroupRailItem
+              busy={busy}
+              current={group?.id === value.id}
+              first={index === 0}
+              format={format}
+              group={value}
+              key={value.id}
+              last={index === config.groups.length - 1}
+              matched={matchedNodes(value, nodes).length}
+              onDelete={() => requestRemoveGroup(value.id)}
+              onMove={delta => reorder(index, delta)}
+              onSelect={() => setGroupID(value.id)}
+              onSettings={() => setGroupSettings(structuredClone(value))}
+              routes={config.routes.filter(route => exitsThrough(route.exit, value.id)).length}
+            />
+          ))}
+        </Rail>
+        <div className='flex min-h-0 min-w-0 flex-col'>
           {group
             ? (
                 <ChannelGroupEditor
-                  key={group.id} group={group} groups={config.groups} nodes={nodes}
-                  tab={groupTab} onTabChange={setGroupTab}
-                  format={format} busy={busy} onChange={updateGroup} nextSortIndex={nextRuleIndex(config)}
-                  ruleText={ruleTextResults.get(group.id)}
-                  onRuleView={view => setRuleView(group, view)} onRuleTextChange={text => changeRuleText(group, text)}
+                  busy={busy}
+                  config={config}
+                  format={format}
+                  group={group}
+                  key={group.id}
+                  nodes={nodes}
+                  onChange={updateGroup}
+                  onDefaultExitChange={setDefaultExit}
+                  onRoutesChange={setRoutes}
+                  onTabChange={setGroupTab}
+                  ruleSets={ruleSets}
+                  tab={groupTab}
                 />
               )
             : (
-                <SubscriptionContentState kind='groups' title={t('channels.noGroups')} />
+                <section aria-label={t('channels.routes')} className='flex min-h-0 min-w-0 flex-1 flex-col'>
+                  <div className='flex h-12 flex-none items-center gap-1 border-b ps-4 pe-3'>
+                    <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{t('channels.routes')}</h2>
+                    <ChannelRouteAdd
+                      busy={busy}
+                      exit={firstGroup ? { kind: 'group', id: firstGroup.id } : { kind: 'direct' }}
+                      format={format}
+                      onAdd={route => setRoutes([...config.routes, route])}
+                      routes={config.routes}
+                      ruleSets={ruleSets}
+                    />
+                  </div>
+                  <ChannelRouteList
+                    busy={busy}
+                    config={config}
+                    format={format}
+                    nodes={nodes}
+                    onDefaultExitChange={setDefaultExit}
+                    onRoutesChange={setRoutes}
+                    ruleSets={ruleSets}
+                  />
+                </section>
               )}
         </div>
       </div>
       {groupSettings && (
-        <Dialog open onOpenChange={(open) => !open && setGroupSettings(null)}>
-          <DialogContent className='w-110 max-w-[calc(100vw-32px)] sm:max-w-110'>
-            <DialogHeader>
-              <DialogTitle>{t('channels.groupSettingsTitle')}</DialogTitle>
-              <DialogDescription className='sr-only'>{groupSettings.name}</DialogDescription>
-            </DialogHeader>
-            <form className='flex flex-col gap-6' onSubmit={(event) => {
-              event.preventDefault();
-              if (busy || !groupSettings.name.trim()) return;
-              setConfig((current) => ({
-                ...current,
-                groups: current.groups.map((item) => item.id === groupSettings.id
-                  ? { ...item, name: groupSettings.name.trim(), type: groupSettings.type, health_check: groupSettings.type !== 'select' ? groupSettings.health_check ?? defaultGroupHealthCheck : undefined, enabled: true }
-                  : item),
-              }));
-              setGroupSettings(null);
-            }}>
-              <FieldGroup className='gap-4 *:data-[slot=field]:grid *:data-[slot=field]:min-h-(--control-height-sm) *:data-[slot=field]:grid-cols-[112px_minmax(0,1fr)] *:data-[slot=field]:items-center *:data-[slot=field]:gap-4 [&_[data-slot=field-label]]:font-normal [&_[data-slot=input]]:w-full [&_[data-slot=input]]:min-w-0 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:min-w-0'>
-                <Field orientation='horizontal'>
-                  <FieldLabel htmlFor='group-name'>{t('channels.groupName')}</FieldLabel>
-                  <Input id='group-name' maxLength={128} disabled={busy} value={groupSettings.name} onChange={(event) => setGroupSettings({ ...groupSettings, name: event.target.value })} />
-                </Field>
-                <Field orientation='horizontal'>
-                  <FieldLabel htmlFor='group-type'>{t('channels.groupType')}</FieldLabel>
-                  <SelectField<NonNullable<ChannelRuleGroup['type']>>
-                    id='group-type' value={groupSettings.type} disabled={busy}
-                    items={(['select', 'url-test', 'fallback'] as const).map((type) => ({ value: type, label: t(`channels.groupTypes.${type}`), disabled: format === 'sing-box' && type === 'fallback' }))}
-                    onValueChange={(type) => setGroupSettings({ ...groupSettings, type })}
-                  />
-                </Field>
-                {groupSettings.type !== 'select' && (
-                  <>
-                    <Field orientation='horizontal'>
-                      <FieldLabel htmlFor='group-test-url'>{t('channels.testURL')}</FieldLabel>
-                      <Input id='group-test-url' type='url' required maxLength={4096} disabled={busy} value={(groupSettings.health_check ?? defaultGroupHealthCheck).url} onChange={(event) => setGroupSettings({ ...groupSettings, health_check: { ...(groupSettings.health_check ?? defaultGroupHealthCheck), url: event.target.value } })} />
-                    </Field>
-                    <Field orientation='horizontal'>
-                      <FieldLabel htmlFor='group-test-interval'>{t('channels.testInterval')}</FieldLabel>
-                      <Input id='group-test-interval' type='number' min={60} max={86400} required disabled={busy} value={(groupSettings.health_check ?? defaultGroupHealthCheck).interval} onChange={(event) => setGroupSettings({ ...groupSettings, health_check: { ...(groupSettings.health_check ?? defaultGroupHealthCheck), interval: Number(event.target.value) } })} />
-                    </Field>
-                    {groupSettings.type === 'url-test' && (
-                      <Field orientation='horizontal'>
-                        <FieldLabel htmlFor='group-test-tolerance'>{t('channels.testTolerance')}</FieldLabel>
-                        <Input id='group-test-tolerance' type='number' min={0} max={65535} required disabled={busy} value={(groupSettings.health_check ?? defaultGroupHealthCheck).tolerance} onChange={(event) => setGroupSettings({ ...groupSettings, health_check: { ...(groupSettings.health_check ?? defaultGroupHealthCheck), tolerance: Number(event.target.value) } })} />
-                      </Field>
-                    )}
-                  </>
-                )}
-              </FieldGroup>
-              <DialogFooter>
-                <Button type='button' variant='outline' onClick={() => setGroupSettings(null)}>{t('common.cancel')}</Button>
-                <Button type='submit' disabled={busy || !groupSettings.name.trim()}>{t('channels.apply')}</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <ChannelGroupSettings
+          busy={busy}
+          format={format}
+          nodes={nodes}
+          onApply={(value) => {
+            setConfig((current) => ({
+              ...current,
+              groups: current.groups.map((item) => item.id === value.id
+                ? {
+                    ...item,
+                    name: value.name.trim(),
+                    type: value.type,
+                    health_check: value.type !== 'select' ? value.health_check ?? defaultGroupHealthCheck : undefined,
+                    match: emptyMatch(value.match) ? undefined : value.match,
+                    enabled: true,
+                  }
+                : item),
+            }));
+            setGroupSettings(null);
+          }}
+          onChange={setGroupSettings}
+          onClose={() => setGroupSettings(null)}
+          value={groupSettings}
+        />
       )}
       {optionsOpen && (
         <ChannelOptions
@@ -266,6 +306,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
           format={format}
           template={Boolean(config.template)}
           onClose={() => setOptionsOpen(false)}
+          onDelete={onDelete}
           onSave={applyOptions}
           onTemplate={() => setTemplateOpen(true)}
         />
@@ -274,13 +315,14 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
         <ChannelTemplateEditor
           template={config.template}
           format={format}
+          nodes={nodes}
           onClose={() => setTemplateOpen(false)}
           onPreview={(template: ChannelNativeTemplate, signal) => render({ ...config, template }, signal)}
           onApply={(template) => setConfig((current) => ({ ...current, template }))}
         />
       )}
       {(preview || previewError != null) && (
-        <ChannelPreview preview={preview} error={previewError} onClose={() => {
+        <ChannelPreview nodes={nodes} preview={preview} error={previewError} onClose={() => {
           setPreview(null);
           setPreviewError(null);
         }} />
@@ -297,18 +339,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             <Button variant='outline' onClick={() => setRemoveGroup(null)}>
               {t('common.cancel')}
             </Button>
-            <Button
-              variant='destructive'
-              onClick={() => {
-                setConfig({
-                  ...config,
-                  groups: removeGroupReferences(
-                    config.groups.filter((value) => value.id !== removeGroup), removeGroup!,
-                  ),
-                });
-                setRemoveGroup(null);
-              }}
-            >
+            <Button variant='destructive' onClick={confirmRemoveGroup}>
               {t('channels.deleteGroup')}
             </Button>
           </DialogFooter>

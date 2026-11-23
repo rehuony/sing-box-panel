@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
-import { CirclePlus, TriangleAlert } from 'lucide-react';
 import { toast } from '@shared/components/ui/toast-manager';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
+import { CirclePlus, Layers3, Server, TriangleAlert } from 'lucide-react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
 
@@ -20,7 +20,12 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError } from '@/components/error-notice';
 import { StripDivider, StripSearch } from '@/components/title-strip';
+import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
 
+import type { SourceDialogMode } from './subscription-source-dialog';
+
+import { useSourceRefresh } from './use-source-refresh';
+import { SourceDialogs, SourceRailItem } from './source-rail';
 import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionNodeDialog } from './subscription-node-dialog';
 import { SubscriptionContentState } from './subscription-content-state';
@@ -29,8 +34,8 @@ import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { ALL_ORIGINS, ALL_PROTOCOLS, FLEET_ORIGIN, matchesNode, originFilter } from './subscription-node-pool';
 
 const orderMutationKey = ['subscription-node-order'];
-/** Where the pool's empty and failed states sit, a region the size of its grid as on the nodes home. */
-const stateRegion = 'flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
+/** The region the pool's empty and failed states take: one card where the grid would be. */
+const stateCard = 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
 
 /**
  * The fleet nodes that publish nothing or leave out some of their inbounds,
@@ -85,16 +90,16 @@ function PoolDiagnostics({ diagnostics, publications }: {
 }
 
 /**
- * The subscription node pool: every node as a card in the pool's saved order,
- * unpaged, filtered by origin and protocol and searched from the strip. A
- * drop saves the whole pool's new order; while it saves the pending order
- * shows, here or after coming back, and a pool that changed meanwhile is read
+ * The subscription node pool beside the rail of its origins: every node, the
+ * fleet's inbounds, then each source, which the rail adds, refreshes and
+ * edits. The pool shows as a grid of panes in its saved order, unpaged,
+ * filtered by the rail's origin and the strip's protocol and search. A drop
+ * saves the whole pool's new order; while it saves the pending order shows,
+ * here or after coming back, and a pool that changed meanwhile is read
  * again. A click opens a node's detail.
  */
-export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarget }: {
+export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
   active?: boolean;
-  /** Leads to adding a source, the next step of an empty pool. */
-  onAddSource?: () => void;
   toolbarTarget?: HTMLElement | null;
 }) {
   const { t } = useTranslation();
@@ -103,6 +108,9 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
   const visible = usePageVisible();
   const enabled = active && visible;
   const list = useQuery({ ...queries.nodes(client), enabled, refetchInterval: enabled ? 15_000 : false });
+  const sourceList = useQuery({ ...queries.sources(client), enabled, refetchInterval: enabled ? 15_000 : false });
+  const { refresh, refreshing } = useSourceRefresh();
+  const [sourceDialog, setSourceDialog] = useState<SourceDialogMode | null>(null);
   const [origin, setOrigin] = useState(ALL_ORIGINS);
   const [protocol, setProtocol] = useState(ALL_PROTOCOLS);
   const [search, setSearch] = useState('');
@@ -145,25 +153,22 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
     const placed = new Set(pendingOrder);
     return [...pendingOrder.flatMap(id => byID.get(id) ?? []), ...items.filter(node => !placed.has(node.id))];
   }, [items, pendingOrder]);
-  const originChoices = useMemo(() => {
-    const sources = new Map<string, string>();
-    for (const node of items ?? []) {
-      if (node.origin.kind === 'source') sources.set(originFilter(node), node.origin.source_name ?? node.origin.source_id ?? '');
-    }
-    return [
-      { label: t('subscriptions.pool.allOrigins'), value: ALL_ORIGINS },
-      { label: t('subscriptions.pool.fleetOrigin'), value: FLEET_ORIGIN },
-      ...[...sources]
-        .sort(([, left], [, right]) => compareText(left, right))
-        .map(([value, label]) => ({ label, value })),
-    ];
-  }, [items, t]);
+  const sources = useMemo(
+    () => [...sourceList.data ?? []].sort((left, right) => compareText(left.name, right.name)),
+    [sourceList.data],
+  );
+  // How many pool nodes each origin adds.
+  const originCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of items ?? []) counts.set(originFilter(node), (counts.get(originFilter(node)) ?? 0) + 1);
+    return counts;
+  }, [items]);
   const protocolChoices = useMemo(() => [
     { label: t('subscriptions.pool.allProtocols'), value: ALL_PROTOCOLS },
     ...[...new Set((items ?? []).map(node => node.protocol))].sort(compareText).map(value => ({ label: value, value })),
   ], [items, t]);
   // A filter whose choice left the pool shows everything again.
-  const originValue = originChoices.some(choice => choice.value === origin) ? origin : ALL_ORIGINS;
+  const originValue = origin === FLEET_ORIGIN || sources.some(source => `source:${source.id}` === origin) ? origin : ALL_ORIGINS;
   const protocolValue = protocolChoices.some(choice => choice.value === protocol) ? protocol : ALL_PROTOCOLS;
   const shown = useMemo(() => ordered.filter(node => (originValue === ALL_ORIGINS || originFilter(node) === originValue)
     && (protocolValue === ALL_PROTOCOLS || node.protocol === protocolValue)
@@ -189,7 +194,7 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
     content = <SubscriptionContentState loading />;
   } else if (list.data === undefined) {
     content = (
-      <div className={stateRegion}>
+      <div className={stateCard}>
         <SubscriptionContentState kind='preview' title={t('subscriptions.pool.loadFailed')}>
           <Button onClick={() => void list.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
         </SubscriptionContentState>
@@ -197,22 +202,18 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
     );
   } else if (ordered.length === 0) {
     content = (
-      <div className={stateRegion}>
+      <div className={stateCard}>
         <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')}>
-          {onAddSource
-            ? (
-                <Button onClick={onAddSource} variant='outline'>
-                  <CirclePlus aria-hidden='true' data-icon='inline-start' />
-                  {t('subscriptions.sources.add')}
-                </Button>
-              )
-            : null}
+          <Button onClick={() => setSourceDialog({ kind: 'create' })} variant='outline'>
+            <CirclePlus aria-hidden='true' data-icon='inline-start' />
+            {t('subscriptions.sources.add')}
+          </Button>
         </SubscriptionContentState>
       </div>
     );
   } else if (shown.length === 0) {
     content = (
-      <div className={stateRegion}>
+      <div className={stateCard}>
         <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')}>
           <Button onClick={clearFilters} variant='outline'>{t('subscriptions.pool.clearFilters')}</Button>
         </SubscriptionContentState>
@@ -266,15 +267,6 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
         {/* On a phone the search takes a line of its own below the filters. */}
         <div className='flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
           <SelectField
-            active={originValue !== ALL_ORIGINS}
-            aria-label={t('subscriptions.pool.originFilter')}
-            className='max-w-48 min-w-0 flex-none'
-            items={originChoices}
-            onValueChange={setOrigin}
-            value={originValue}
-            variant='flat'
-          />
-          <SelectField
             active={protocolValue !== ALL_PROTOCOLS}
             aria-label={t('subscriptions.pool.protocolFilter')}
             className='max-w-40 min-w-0 flex-none'
@@ -293,9 +285,53 @@ export function SubscriptionNodePanel({ active = true, onAddSource, toolbarTarge
                 </>
               )
             : null}
+          <StripDivider />
+          <Button
+            aria-label={t('subscriptions.sources.add')}
+            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+            onClick={() => setSourceDialog({ kind: 'create' })}
+            size='sm'
+            variant='flat'
+          >
+            <CirclePlus aria-hidden='true' data-icon='inline-start' />
+            <span className='max-sm:sr-only'>{t('subscriptions.sources.add')}</span>
+          </Button>
         </div>
       </ToolbarActions>
-      {content}
+      {/* On a phone the rail takes a capped band above the grid. */}
+      <div className='grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)] gap-3 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,10.5rem)_minmax(0,1fr)]'>
+        <Rail label={t('subscriptions.pool.originFilter')}>
+          <RailItem
+            current={originValue === ALL_ORIGINS}
+            end={<RailCount>{ordered.length}</RailCount>}
+            icon={<Layers3 />}
+            name={t('subscriptions.pool.allOrigins')}
+            onClick={() => setOrigin(ALL_ORIGINS)}
+          />
+          <RailItem
+            current={originValue === FLEET_ORIGIN}
+            end={<RailCount>{originCounts.get(FLEET_ORIGIN) ?? 0}</RailCount>}
+            icon={<Server />}
+            name={t('subscriptions.pool.fleetOrigin')}
+            onClick={() => setOrigin(FLEET_ORIGIN)}
+          />
+          <RailHeading end={<RailCount>{sources.length}</RailCount>}>{t('subscriptions.pool.sources')}</RailHeading>
+          {sources.map(source => (
+            <SourceRailItem
+              count={originCounts.get(`source:${source.id}`) ?? 0}
+              current={originValue === `source:${source.id}`}
+              key={source.id}
+              onEdit={() => setSourceDialog({ kind: 'edit', source })}
+              onRefresh={() => void refresh(source)}
+              onSelect={() => setOrigin(`source:${source.id}`)}
+              refreshing={refreshing.has(source.id)}
+              source={source}
+            />
+          ))}
+        </Rail>
+        <div className='flex min-h-0 min-w-0 flex-col'>{content}</div>
+      </div>
+      <SourceDialogs mode={sourceDialog} onModeChange={setSourceDialog} />
       {opened ? <SubscriptionNodeDialog key={opened.id} node={opened} onClose={() => setOpened(null)} /> : null}
     </div>
   );

@@ -1,37 +1,27 @@
 import type {
+  ChannelGroupMatch,
   ChannelGroupMember,
   ChannelRemoteRuleSet,
-  ChannelRule,
+  ChannelRoute,
+  ChannelRouteExit,
   ChannelRuleGroup,
   SubscriptionChannelConfig,
   SubscriptionFormat,
+  SubscriptionNode,
+  SubscriptionRule,
+  SubscriptionRuleSet,
 } from '@/api/api-client';
 
-import { compareText } from '@/utils/compare-text';
+import { originFilter } from './subscription-node-pool';
 
 /** A group member's identity among the group's candidates, such as `node:<id>` or `builtin:direct`. */
 export function memberKey(member: ChannelGroupMember): string {
   return `${member.kind}:${member.id}`;
 }
 
-/**
- * Gives a group its members in order. A rule that named a node the group no
- * longer holds routes through the group instead.
- */
-export function updateGroupMembers(group: ChannelRuleGroup, members: ChannelGroupMember[]): ChannelRuleGroup {
-  const nodes = new Set(members.filter(member => member.kind === 'node').map(member => member.id));
-  return {
-    ...group,
-    members,
-    rules: group.rules.map(item => item.exit.kind === 'node' && !nodes.has(item.exit.id!)
-      ? { ...item, exit: { kind: 'group-default' } }
-      : item),
-  };
-}
-
-/** A new channel's configuration: no groups and so no nodes, unmatched traffic direct. */
+/** A new channel's configuration: no groups and so no nodes, no exit rules, all traffic direct. */
 export function emptyChannelConfig(): SubscriptionChannelConfig {
-  return { groups: [], default_exit: { kind: 'direct' } };
+  return { groups: [], routes: [], default_exit: { kind: 'direct' } };
 }
 
 export function newRuleGroup(members: ChannelGroupMember[] = []): ChannelRuleGroup {
@@ -41,29 +31,91 @@ export function newRuleGroup(members: ChannelGroupMember[] = []): ChannelRuleGro
     enabled: true,
     type: 'select',
     members: [...members],
-    rules: [],
   };
 }
+
+/** Whether an exit leaves through the group. */
+export function exitsThrough(exit: ChannelRouteExit, groupID: string): boolean {
+  return exit.kind === 'group' && exit.id === groupID;
+}
+
+/** Whether an exit rule or the final exit leaves through the group, which then cannot be deleted or disabled. */
+export function groupInUse(config: SubscriptionChannelConfig, groupID: string): boolean {
+  return exitsThrough(config.default_exit, groupID) || config.routes.some(route => exitsThrough(route.exit, groupID));
+}
+
+/** Group types as sing-box writes them; mihomo and loon write the stored type itself. */
+const singBoxGroupTypes: Partial<Record<ChannelRuleGroup['type'], string>> = { 'select': 'selector', 'url-test': 'urltest' };
+
+/** A group type as the client's configuration writes it, the name the interface gives it untranslated. */
+export function groupTypeName(type: ChannelRuleGroup['type'], format: SubscriptionFormat): string {
+  return (format === 'sing-box' ? singBoxGroupTypes[type] : undefined) ?? type;
+}
+
 export const defaultGroupHealthCheck = { url: 'https://www.gstatic.com/generate_204', interval: 300, tolerance: 50 };
 export function ruleFormats(format: SubscriptionFormat): readonly ChannelRemoteRuleSet['format'][] {
   if (format === 'loon') return ['loon'];
   return format === 'sing-box' ? (['source', 'binary'] as const) : (['yaml', 'text', 'mrs'] as const);
 }
-export function incompatibleConfig(config: SubscriptionChannelConfig, format: SubscriptionFormat): boolean {
+/** Whether the client cannot use a remote rule set: its format is another client's, or mrs with classical. */
+export function unusableRemote(rule: SubscriptionRule | undefined, format: SubscriptionFormat): boolean {
+  const remote = rule?.remote;
+  return remote !== undefined
+    && (!ruleFormats(format).includes(remote.format) || (remote.format === 'mrs' && remote.behavior === 'classical'));
+}
+
+/** The rule set a route matches by, when it exists and belongs to the channel's client. */
+export function routeRuleSet(
+  route: ChannelRoute,
+  ruleSets: readonly SubscriptionRuleSet[] | undefined,
+  format: SubscriptionFormat,
+): SubscriptionRuleSet | undefined {
+  const set = route.rule_set_id === undefined ? undefined : ruleSets?.find(value => value.id === route.rule_set_id);
+  return set?.client === format ? set : undefined;
+}
+
+/**
+ * Whether the configuration holds something the client cannot publish, which
+ * blocks saving: another client's template, a strategy or built-in the
+ * client lacks, an exit rule whose rule set is missing or another client's,
+ * or an own remote rule set the client cannot use. Rule sets not yet read
+ * flag nothing.
+ */
+export function incompatibleConfig(
+  config: SubscriptionChannelConfig,
+  format: SubscriptionFormat,
+  ruleSets: readonly SubscriptionRuleSet[] | undefined,
+): boolean {
   return (
     (Boolean(config.template) && config.template!.format !== format)
-    || config.groups.some((group) =>
+    || config.groups.some(group =>
       (format === 'sing-box' && (group.type === 'fallback' || group.members.some(member => member.kind === 'builtin' && member.id === 'reject')))
-      || (format === 'loon' && group.type !== 'select' && group.members.some(member => member.kind === 'builtin'))
-      || group.rules.some(
-        (rule) =>
-          rule.remote
-          && (!ruleFormats(format).includes(rule.remote!.format)
-            || (rule.remote.format === 'mrs' && rule.remote.behavior === 'classical')),
-      ),
-    )
+      || (format === 'loon' && group.type !== 'select' && group.members.some(member => member.kind === 'builtin')))
+    || config.routes.some(route => route.rule_set_id === undefined
+      ? unusableRemote(route.rule, format)
+      : ruleSets !== undefined && !routeRuleSet(route, ruleSets, format))
   );
 }
+
+/**
+ * Points each exit rule at the client's rule set of the same name, ignoring
+ * case, when the client has one; the others keep the set they name.
+ */
+export function remapRuleSets(
+  routes: ChannelRoute[],
+  ruleSets: readonly SubscriptionRuleSet[],
+  client: SubscriptionFormat,
+): ChannelRoute[] {
+  const byID = new Map(ruleSets.map(set => [set.id, set]));
+  return routes.map((route) => {
+    const current = route.rule_set_id === undefined ? undefined : byID.get(route.rule_set_id);
+    if (!current || current.client === client) return route;
+    const name = current.name.toLowerCase();
+    const next = ruleSets.find(set => set.client === client && set.name.toLowerCase() === name);
+    return next ? { ...route, rule_set_id: next.id } : route;
+  });
+}
+
 const proxyHosts = new Set([
   'mirror.ghproxy.com',
   'gh.api.99988866.xyz',
@@ -117,16 +169,6 @@ export function effectiveRuleURL(raw: string, accelerated: boolean): string {
   return accelerated && canAccelerateRuleURL(direct) ? `https://gh-proxy.com/${direct}` : direct;
 }
 
-export function compareChannelRules(left: ChannelRule, right: ChannelRule): number {
-  return (left.sort_index ?? 0) - (right.sort_index ?? 0)
-    || compareText(left.remote?.name ?? left.value ?? '', right.remote?.name ?? right.value ?? '');
-}
-
-export function nextRuleIndex(config: SubscriptionChannelConfig): number {
-  const indices = config.groups.flatMap(group => group.rules.map(rule => rule.sort_index ?? 0));
-  return indices.length ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(...indices) + 10) : 10;
-}
-
 export function detectRuleFormat(raw: string, client: SubscriptionFormat): ChannelRemoteRuleSet['format'] | '' {
   try {
     const url = new URL(directRuleURL(raw));
@@ -157,6 +199,47 @@ export function createsGroupCycle(groups: ChannelRuleGroup[], ownerID: string, c
 /** Removes a group from every other group's members. */
 export function removeGroupReferences(groups: ChannelRuleGroup[], id: string): ChannelRuleGroup[] {
   return groups.map(group => group.members.some(member => member.kind === 'group' && member.id === id)
-    ? updateGroupMembers(group, group.members.filter(member => !(member.kind === 'group' && member.id === id)))
+    ? { ...group, members: group.members.filter(member => !(member.kind === 'group' && member.id === id)) }
     : group);
+}
+
+/** Whether a match names nothing, and so takes no nodes. */
+export function emptyMatch(match: ChannelGroupMatch | undefined): boolean {
+  return !match || (!match.include.length && !match.exclude.length && !match.origins.length && !match.protocols.length);
+}
+
+/**
+ * A name rule as a test: text in slashes as a regular expression, which is
+ * left out when it does not compile, and other text as a substring in any case.
+ */
+function nameTest(rule: string): ((name: string) => boolean) | null {
+  if (rule.length >= 2 && rule.startsWith('/') && rule.endsWith('/')) {
+    try {
+      const pattern = new RegExp(rule.slice(1, -1));
+      return name => pattern.test(name);
+    } catch {
+      return null;
+    }
+  }
+  const text = rule.toLowerCase();
+  return name => name.toLowerCase().includes(text);
+}
+
+/**
+ * The pool nodes a group's match takes besides its members, in pool order:
+ * from one of its origins and of one of its protocols when it names any,
+ * whose display name the include rules keep and the exclude rules leave.
+ */
+export function matchedNodes(group: ChannelRuleGroup, nodes: readonly SubscriptionNode[]): SubscriptionNode[] {
+  const { match } = group;
+  if (!match || emptyMatch(match)) return [];
+  const tests = (rules: string[]) => rules.flatMap(rule => nameTest(rule) ?? []);
+  const include = tests(match.include);
+  const exclude = tests(match.exclude);
+  const members = new Set(group.members.flatMap(member => member.kind === 'node' ? [member.id] : []));
+  return nodes.filter(node => !members.has(node.id)
+    && (!match.origins.length || match.origins.includes(originFilter(node)))
+    && (!match.protocols.length || match.protocols.includes(node.protocol))
+    && (!include.length || include.some(test => test(node.display_name)))
+    && !exclude.some(test => test(node.display_name)));
 }

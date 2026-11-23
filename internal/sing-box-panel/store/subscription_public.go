@@ -11,12 +11,15 @@ import (
 )
 
 // PublicSubscriptionState is one point-in-time authorization and publication
-// view: the key and its user, the channel and the pool nodes it may publish,
-// read in one transaction.
+// view: the key and its user, the channel, the rule sets it routes by and
+// the pool nodes it may publish, read in one transaction.
 type PublicSubscriptionState struct {
 	TokenID string
 	UserID  string
 	Channel SubscriptionChannel
+	// RuleSets are the rule sets the channel's exit rules route by, without
+	// their channels.
+	RuleSets []SubscriptionRuleSet
 	// Pool is the pool in its saved order, only the user's granted nodes for
 	// a user-scoped key.
 	Pool []SubscriptionPoolNode
@@ -180,6 +183,11 @@ func loadSubscriptionPublicationState(
 	if errors.Is(err, ErrSubscriptionChannelNotFound) || err == nil && publicDelivery && !state.Channel.Enabled {
 		return ErrSubscriptionChannelNotFound
 	}
+	if err != nil {
+		return err
+	}
+	state.RuleSets, err = loadSubscriptionRuleSets(ctx, tx,
+		`WHERE id IN (SELECT rule_set_id FROM subscription_channel_routes WHERE channel_id = ?) ORDER BY id`, channelID)
 	if err != nil {
 		return err
 	}

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -27,17 +27,22 @@ type ChannelNode struct {
 }
 
 // RenderChannelNodes renders a channel from the pool nodes the caller may
-// publish, in pool order. Only the nodes the channel's enabled groups name
-// as members, rule exits or the default exit are published. It performs no
+// publish, in pool order, and the rule sets its exit rules route by. Only
+// the nodes the channel's enabled groups name as members or match, its
+// enabled exit rules' exits or its final exit are published. It performs no
 // I/O, and a missing dependency never silently routes through another proxy.
-func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig) (RenderResult, error) {
+func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig, ruleSets map[string]ChannelRuleSet) (RenderResult, error) {
 	if err := ValidateChannelConfig(config, format); err != nil {
+		return RenderResult{}, err
+	}
+	if err := validateChannelRuleSets(config, format, ruleSets); err != nil {
 		return RenderResult{}, err
 	}
 	template, err := parseChannelTemplate(config.Template, format)
 	if err != nil {
 		return RenderResult{}, err
 	}
+	config = expandGroupMatches(config, nodes)
 	values, ids, err := prepareChannelNodes(nodes, format, config)
 	if err != nil {
 		return RenderResult{}, err
@@ -105,30 +110,25 @@ func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config Channel
 			available[id] = name
 		}
 	}
-	builder := channelRuleBuilder{format: channel.Format, names: available, groups: map[string]RuleGroup{}, candidates: map[string][]string{}, rules: []any{}, providers: map[string]any{}, sets: []any{}}
+	builder := channelRuleBuilder{
+		format: channel.Format, names: available, groups: map[string]RuleGroup{}, candidates: map[string][]string{},
+		rules: []any{}, providers: map[string]any{}, sets: []any{}, remotes: map[string]remoteSource{},
+	}
 	groupNodes := builder.renderGroups(config.Groups)
-	orderedRules := []orderedChannelRule{}
-	for _, group := range config.Groups {
-		if !group.Enabled {
+	for _, route := range config.Routes {
+		if !route.Enabled {
 			continue
 		}
-		for _, rule := range group.Rules {
-			if rule.Enabled {
-				orderedRules = append(orderedRules, orderedChannelRule{rule: rule, group: group})
-			}
+		target := builder.exitName(route.Exit)
+		if route.Rule != nil {
+			builder.addRule(*route.Rule, target)
+			continue
+		}
+		for _, rule := range ruleSets[route.RuleSetID].Rules {
+			builder.addRule(rule, target)
 		}
 	}
-	sort.SliceStable(orderedRules, func(i, j int) bool {
-		a, b := orderedRules[i], orderedRules[j]
-		if a.rule.SortIndex != b.rule.SortIndex {
-			return a.rule.SortIndex < b.rule.SortIndex
-		}
-		return a.rule.sortName() < b.rule.sortName()
-	})
-	for _, item := range orderedRules {
-		builder.addRule(item.rule, &item.group)
-	}
-	final := builder.exitName(config.DefaultExit, nil)
+	final := builder.exitName(config.DefaultExit)
 	generated := map[string]any{}
 	if channel.Format == RenderFormatSingBox {
 		outbounds := append([]map[string]any{}, native...)
@@ -173,8 +173,8 @@ func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config Channel
 }
 
 // publishedNodeIDs returns the pool nodes a channel publishes: those its
-// enabled groups name as members or as exits of their enabled rules, and its
-// default exit.
+// enabled groups name as members, its enabled exit rules' exits and its
+// final exit. Matched nodes are members once expandGroupMatches has run.
 func publishedNodeIDs(config ChannelConfig) map[string]bool {
 	published := map[string]bool{}
 	for _, group := range config.Groups {
@@ -186,16 +186,72 @@ func publishedNodeIDs(config ChannelConfig) map[string]bool {
 				published[member.ID] = true
 			}
 		}
-		for _, rule := range group.Rules {
-			if rule.Enabled && rule.Exit.Kind == "node" {
-				published[rule.Exit.ID] = true
-			}
+	}
+	for _, route := range config.Routes {
+		if route.Enabled && route.Exit.Kind == "node" {
+			published[route.Exit.ID] = true
 		}
 	}
 	if config.DefaultExit.Kind == "node" {
 		published[config.DefaultExit.ID] = true
 	}
 	return published
+}
+
+// expandGroupMatches returns config with each enabled group's matched pool
+// nodes appended to its members, in pool order and each once. config itself
+// is not changed.
+func expandGroupMatches(config ChannelConfig, nodes []ChannelNode) ChannelConfig {
+	expanded := config
+	expanded.Groups = make([]RuleGroup, len(config.Groups))
+	for index, group := range config.Groups {
+		expanded.Groups[index] = group
+		if !group.Enabled || group.Match == nil {
+			continue
+		}
+		matched := group.Match.nodes(nodes)
+		if len(matched) == 0 {
+			continue
+		}
+		members := append([]GroupMember{}, group.Members...)
+		seen := make(map[string]bool, len(members))
+		for _, member := range members {
+			if member.Kind == memberNode {
+				seen[member.ID] = true
+			}
+		}
+		for _, id := range matched {
+			if !seen[id] {
+				seen[id] = true
+				members = append(members, GroupMember{Kind: memberNode, ID: id})
+			}
+		}
+		expanded.Groups[index].Members = members
+	}
+	return expanded
+}
+
+// nodes returns the IDs of the pool nodes match takes, in pool order.
+func (match GroupMatch) nodes(pool []ChannelNode) []string {
+	if len(match.Include) == 0 && len(match.Exclude) == 0 && len(match.Origins) == 0 && len(match.Protocols) == 0 {
+		return nil
+	}
+	filter, err := SourceFilter{Include: match.Include, Exclude: match.Exclude}.compile()
+	if err != nil {
+		return nil
+	}
+	ids := []string{}
+	for _, node := range pool {
+		origin := originFleet
+		if node.SourceID != "" {
+			origin = originPrefixSource + node.SourceID
+		}
+		if (len(match.Origins) == 0 || slices.Contains(match.Origins, origin)) &&
+			(len(match.Protocols) == 0 || slices.Contains(match.Protocols, node.Protocol)) && filter.keep(node.Name) {
+			ids = append(ids, node.ID)
+		}
+	}
+	return ids
 }
 
 func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig) ([]outbound, map[string]string, error) {
@@ -277,9 +333,16 @@ type channelRuleBuilder struct {
 	providers  map[string]any
 	sets       []any
 	loonRemote []string
+	// remotes holds the source of each remote rule set tag emitted so far.
+	remotes map[string]remoteSource
 }
 
-func (b *channelRuleBuilder) exitName(exit RouteExit, group *RuleGroup) string {
+// remoteSource is what a client fetches for a remote rule set.
+type remoteSource struct {
+	url, format, behavior string
+}
+
+func (b *channelRuleBuilder) exitName(exit RouteExit) string {
 	switch exit.Kind {
 	case "direct":
 		if b.format == RenderFormatSingBox {
@@ -293,10 +356,6 @@ func (b *channelRuleBuilder) exitName(exit RouteExit, group *RuleGroup) string {
 	case "group":
 		if g, ok := b.groups[exit.ID]; ok {
 			return b.groupExit(g)
-		}
-	case "group-default":
-		if group != nil {
-			return b.groupExit(*group)
 		}
 	}
 	return "REJECT"
@@ -339,7 +398,7 @@ func (b *channelRuleBuilder) candidateName(member GroupMember) string {
 	case memberNode:
 		return b.names[member.ID]
 	case memberBuiltin:
-		return b.exitName(RouteExit{Kind: member.ID}, nil)
+		return b.exitName(RouteExit{Kind: member.ID})
 	case memberGroup:
 		if group, exists := b.groups[member.ID]; exists && b.groupExit(group) != "REJECT" {
 			return group.Name
@@ -411,8 +470,27 @@ func (b *channelRuleBuilder) groupExit(group RuleGroup) string {
 	}
 	return group.Name
 }
-func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
-	target := b.exitName(rule.Exit, group)
+
+// remoteTag returns the tag of a remote rule set and whether it is new. Rule
+// sets that share a name and source share one tag; a later one with the
+// same name but another source takes the name with the next free suffix.
+func (b *channelRuleBuilder) remoteTag(remote RemoteRuleSet) (string, bool) {
+	source := remoteSource{url: EffectiveRuleURL(remote.URL, remote.Accelerated), format: remote.Format, behavior: remote.Behavior}
+	tag := remote.Name
+	for suffix := 2; ; suffix++ {
+		existing, taken := b.remotes[tag]
+		if !taken {
+			b.remotes[tag] = source
+			return tag, true
+		}
+		if existing == source {
+			return tag, false
+		}
+		tag = fmt.Sprintf("%s-%d", remote.Name, suffix)
+	}
+}
+
+func (b *channelRuleBuilder) addRule(rule SubscriptionRule, target string) {
 	value := rule.Value
 	kind := rule.Kind
 	if kind == "ip_cidr" {
@@ -422,15 +500,20 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 	}
 	if kind == "remote" {
 		remote := rule.Remote
+		name, added := b.remoteTag(*remote)
+		url := EffectiveRuleURL(remote.URL, remote.Accelerated)
 		if b.format == RenderFormatLoon {
-			b.loonRemote = append(b.loonRemote, EffectiveRuleURL(remote.URL, remote.Accelerated)+",policy="+target+",tag="+loonOptionValue(remote.Name)+",enabled=true")
+			// A Loon remote rule carries its own policy; a later one with the
+			// same tag would never match first.
+			if added {
+				b.loonRemote = append(b.loonRemote, url+",policy="+target+",tag="+loonOptionValue(name)+",enabled=true")
+			}
 			return
 		}
-		name := remote.Name
-		if b.format == RenderFormatSingBox {
-			b.sets = append(b.sets, map[string]any{"type": "remote", "tag": name, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated), "http_client": map[string]any{"detour": "direct"}})
-		} else {
-			b.providers[name] = map[string]any{"type": "http", "behavior": remote.Behavior, "format": remote.Format, "url": EffectiveRuleURL(remote.URL, remote.Accelerated)}
+		if added && b.format == RenderFormatSingBox {
+			b.sets = append(b.sets, map[string]any{"type": "remote", "tag": name, "format": remote.Format, "url": url, "http_client": map[string]any{"detour": "direct"}})
+		} else if added {
+			b.providers[name] = map[string]any{"type": "http", "behavior": remote.Behavior, "format": remote.Format, "url": url}
 		}
 		value = name
 	}
@@ -453,16 +536,4 @@ func (b *channelRuleBuilder) addRule(rule ChannelRule, group *RuleGroup) {
 		}
 		b.rules = append(b.rules, prefix+","+value+","+target)
 	}
-}
-
-type orderedChannelRule struct {
-	rule  ChannelRule
-	group RuleGroup
-}
-
-func (rule ChannelRule) sortName() string {
-	if rule.Remote != nil {
-		return rule.Remote.Name
-	}
-	return rule.Value
 }

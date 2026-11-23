@@ -67,7 +67,7 @@ func (application *Service) ListSubscriptionChannels(
 }
 
 // UpdateSubscriptionChannel replaces a channel with its groups, members and
-// rules while its updated_at is still the expected one.
+// exit rules while its updated_at is still the expected one.
 func (application *Service) UpdateSubscriptionChannel(
 	ctx context.Context,
 	channelID string,
