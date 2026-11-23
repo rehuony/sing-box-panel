@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package server
+
+import (
+	"context"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+)
+
+const (
+	catalogRefreshRecheck = time.Minute
+	catalogRefreshRetry   = 5 * time.Minute
+)
+
+type catalogRefreshCommands interface {
+	Catalog(context.Context) (corecache.CatalogSnapshot, error)
+	EffectiveSettings(context.Context) (settings.Settings, error)
+	RefreshCatalog(context.Context, corecache.CatalogRefreshOptions) (corecache.CatalogSnapshot, error)
+}
+
+// catalogRefreshServices joins the catalog with the settings that schedule it.
+type catalogRefreshServices struct {
+	cores    *corecache.Service
+	settings *settings.Service
+}
+
+func (services catalogRefreshServices) Catalog(ctx context.Context) (corecache.CatalogSnapshot, error) {
+	return services.cores.Catalog(ctx)
+}
+
+func (services catalogRefreshServices) EffectiveSettings(ctx context.Context) (settings.Settings, error) {
+	return services.settings.EffectiveSettings(ctx)
+}
+
+func (services catalogRefreshServices) RefreshCatalog(ctx context.Context, options corecache.CatalogRefreshOptions) (corecache.CatalogSnapshot, error) {
+	return services.cores.RefreshCatalog(ctx, options)
+}
+
+func (services catalogRefreshServices) SettingsChanges() (<-chan struct{}, func()) {
+	return services.settings.SettingsChanges()
+}
+
+func startCatalogRefresh(ctx context.Context, commands catalogRefreshCommands) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runCatalogRefresh(ctx, commands, time.Now)
+	}()
+	return done
+}
+
+func runCatalogRefresh(ctx context.Context, commands catalogRefreshCommands, now func() time.Time) {
+	var changes <-chan struct{}
+	if source, ok := commands.(interface {
+		SettingsChanges() (<-chan struct{}, func())
+	}); ok {
+		var unsubscribe func()
+		changes, unsubscribe = source.SettingsChanges()
+		defer unsubscribe()
+	}
+	for {
+		wait := catalogRefreshStep(ctx, commands, now())
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-changes:
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
+}
+
+func catalogRefreshStep(ctx context.Context, commands catalogRefreshCommands, now time.Time) time.Duration {
+	configuration, settingsErr := commands.EffectiveSettings(ctx)
+	snapshot, catalogErr := commands.Catalog(ctx)
+	if ctx.Err() != nil {
+		return catalogRefreshRecheck
+	}
+	force := catalogErr != nil
+	due := force || settingsErr != nil
+	if !due {
+		interval := time.Duration(configuration.GitHub.CatalogRefreshIntervalHours) * time.Hour
+		due = !now.UTC().Before(snapshot.RefreshedAt.Add(interval))
+	}
+	if !due {
+		return catalogRefreshRecheck
+	}
+	if _, err := commands.RefreshCatalog(ctx, corecache.CatalogRefreshOptions{Force: force}); err != nil {
+		return catalogRefreshRetry
+	}
+	return catalogRefreshRecheck
+}

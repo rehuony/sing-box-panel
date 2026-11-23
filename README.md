@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="web/public/favicon.svg" width="128" height="128" alt="sing-box-panel icon">
+  <img src="web/packages/shared/public/favicon.svg" width="128" height="128" alt="sing-box-panel icon">
   <h1>sing-box-panel</h1>
-  <p>A Linux control plane for one exact, verifiable sing-box runtime.</p>
+  <p>A Linux control plane for a fleet of exact, verifiable sing-box runtimes.</p>
   <div>
     <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-FCC624?logo=linux&logoColor=black" alt="Linux amd64 and arm64">
     <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
@@ -17,70 +17,79 @@
   </div>
 </div>
 
-sing-box-panel manages exact-version sing-box binaries, immutable
-configuration and activation artifacts, subscriptions, and
-sanitized operational metadata. Release builds embed the React interface and
-the SQLite schema in one Go executable, so a target host does not need Go,
-Node.js, pnpm, or a separate SQLite CLI.
+sing-box-panel manages sing-box on any number of Linux hosts from one panel.
+The panel, `sing-box-panel`, holds every node's configuration, the core version
+catalog, subscriptions and aggregated telemetry, and runs no sing-box itself. A
+node, `sing-box-node`, runs one exact-version sing-box on its host, reports its
+state and carries out the panel's commands. Release builds embed each service's
+React interface and SQLite schema in its Go executable, so a target host does
+not need Go, Node.js, pnpm, or a separate SQLite CLI.
 
 ## Features
 
+- Manage a fleet from one panel: nodes dial out to the panel over gRPC, enroll
+  with a one-time code and a node-generated Ed25519 key, and keep running their
+  applied configuration while the panel is unreachable.
 - Manage official and administrator-imported sing-box artifacts by exact
   version and Linux architecture (amd64 or arm64), with recorded installation hashes.
-  Each platform uses the static musl build.
-- Edit one lossless sing-box JSON document, validate every candidate with
-  the selected exact binary, and add structured editing only for versions that
-  have a committed native or project-reviewed JSON Schema.
+  The panel caches and verifies each archive and nodes install from it. Each
+  platform uses the static musl build.
+- Edit one lossless sing-box JSON document per node, validate every candidate
+  with the selected exact binary on that node, and add structured editing only
+  for versions that have a committed native or project-reviewed JSON Schema.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
-  rollback bundles separate and immutable.
+  rollback bundles separate and immutable; roll back to the previous bundle
+  through the authenticated API.
 - Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
-  from the last applied local nodes and current third-party source versions.
-- Manage core versions, configuration and subscriptions through the embedded React
-  UI and versioned HTTP API; maintain panel settings and services through a focused
-  CLI and audited systemd integration.
-- Return completed operation results, serialize process controls, and retain
-  sanitized logs and immutable runtime history.
+  from each node's last applied inbounds and current third-party source versions.
+- Manage nodes, core versions, configuration and subscriptions through the
+  embedded React UI and versioned HTTP API; maintain panel settings, nodes and
+  services through a focused CLI and audited systemd integration.
+- Return completed operation results, serialize each node's process controls,
+  and retain sanitized logs and immutable runtime history.
 
 The supported deployment targets are `linux/amd64` and `linux/arm64`. Windows,
-macOS, BSD, multiple simultaneous sing-box runtimes, and external databases are
+macOS, BSD, more than one sing-box runtime on a node, and external databases are
 outside the current product contract.
 
 ## Installation
 
-The installer supports Linux on amd64 and arm64. With no arguments it selects
-the latest published stable GitHub Release. An explicit `--version vX.Y.Z`
-may select an already published stable release or GitHub pre-release. The
-installer authenticates the exact `SHA256SUMS` bytes and release version
-with the Ed25519 key retrieved from the repository's canonical
-`.github/keypair/release-signing-public-key` file, verifies the selected
-binary's SHA-256 digest, and installs only that binary. It does not read,
-initialize, migrate, or rewrite settings or data.
+A release has two components: the panel, `sing-box-panel`, and the node agent
+that runs sing-box on each proxy host, `sing-box-node`. The installer supports
+Linux on amd64 and arm64 and installs one component per run. With no
+arguments it selects the latest published stable GitHub Release. An explicit
+`--version vX.Y.Z` may select an already published stable release or GitHub
+pre-release. It first reports which components are installed for the current
+user and the state of their systemd services, then installs `--component panel`
+or `--component node`, or asks which one when neither is given; without a
+terminal the component is required. The installer authenticates the exact
+`SHA256SUMS` bytes and release version with the Ed25519 key retrieved from the
+repository's canonical `.github/keypair/release-signing-public-key` file,
+verifies the selected binary's SHA-256 digest, and installs only that binary.
+It does not read, initialize, migrate, or rewrite settings or data.
 
-Install for the current user:
+Install the panel for the current user, or a node as root:
 
 ```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash
-```
-
-Install the fixed system layout as root:
-
-```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash -s -- --component node
 ```
 
 Pin an exact published release, including a pre-release, when reproducibility
 matters:
 
 ```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --version v0.1.0
+curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel --version v0.1.0
 ```
 
 The default layouts are:
 
-| Effective user | Binary | Settings | Data |
-| --- | --- | --- | --- |
-| Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
-| root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
+| Component | Effective user | Binary | Settings | Data |
+| --- | --- | --- | --- | --- |
+| Panel | Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
+| Panel | root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
+| Node | Regular user | `~/.local/bin/sing-box-node` | — | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-node` |
+| Node | root | `/usr/local/bin/sing-box-node` | — | `/var/lib/sing-box-node` |
 
 An existing binary requires overwrite confirmation; pass `--yes` for an unattended
 replacement. The formatted completion summary lists the installed binary, default
@@ -91,7 +100,7 @@ eval "$(sing-box-panel completion zsh)"
 ```
 
 The installer leaves shell startup files and systemd unchanged. Add `~/.local/bin`
-to `PATH` when it is not already present. To install and start the audited service
+to `PATH` when it is not already present. To install and start an audited service
 explicitly:
 
 ```sh
@@ -102,10 +111,19 @@ explicitly:
 /usr/local/bin/sing-box-panel systemd install --scope=system --now
 ```
 
+A node first needs its panel: enroll it with the command the panel shows when
+the node is added (`sing-box-node enroll --code ...`), or enable its local
+console (`sing-box-node console enable`) and enroll it from there. Then install
+its service the same way:
+
+```sh
+sudo /usr/local/bin/sing-box-node systemd install --scope=system --now
+```
+
 A user service requires administrator-enabled lingering if it must continue
 after logout. An already running service keeps its existing process after a
 binary upgrade; restart it explicitly when ready. See the authoritative
-[systemd packaging guide](systemd/README.md) for ownership and hardening.
+[systemd packaging guide](docs/systemd.md) for ownership and hardening.
 
 The no-argument latest-version lookup requires at least one published,
 non-prerelease GitHub Release. Before the first stable release is published,
@@ -123,21 +141,22 @@ Building from source requires:
 
 A production build targets Linux and embeds its web assets. The managed
 sing-box binary is installed or imported separately through the panel. The
-supported build workflow generates `web/dist` before compiling the panel; Go
+supported build workflow generates `web/apps/panel/dist` and `web/apps/node/dist` before compiling the binaries; Go
 has no alternate UI input.
 
 ## Quick start
 
 Install the locked frontend dependencies, run the repository checks, and build
-the web-enabled binary:
+both binaries with their Web applications:
 
 ```sh
-make bootstrap
+make deps
 make check build
 ```
 
-For daily work, `make` builds `bin/sing-box-panel`, `make check` runs the ordinary
-checks, and `make fmt` formats Go sources. See [Contributing](CONTRIBUTING.md#validation)
+For daily work, `make build` builds `bin/sing-box-panel` and `bin/sing-box-node`,
+`make check` runs the ordinary checks, and `make fmt` formats Go sources; plain
+`make` lists every target. See [Contributing](.github/CONTRIBUTING.md#validation)
 for focused checks and generated-file maintenance.
 
 Initialize an isolated development instance and start the server:
@@ -155,23 +174,26 @@ prints the bound panel URL and streams formatted panel logs. Existing settings
 are never overwritten by startup.
 
 The default listener is `127.0.0.1:3000`. The settings file contains a random
-password hash and must not be committed. Keep `server start` active for configuration checks and core process controls.
-Use the Web UI for catalog refresh, installation, import and subscription management.
+password hash and must not be committed. The panel runs no sing-box: add a node
+in the Web UI, then enroll and start `sing-box-node` on a Linux host with the
+command the panel shows. Use the Web UI for nodes, catalog refresh, installation,
+import, configuration and subscription management.
 
-See [Getting started](docs/getting-started.md) for the first configuration,
-settings precedence, and systemd deployment paths.
+See [Getting started](docs/getting-started.md) for adding the first node, the
+first configuration, settings precedence, and systemd deployment paths.
 
 ## Documentation
 
 | Workflow | Guide |
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
-| Use commands, automation output, and shell completion | [CLI reference](docs/guides/cli.md) |
-| Install exact versions and inspect configuration capabilities | [Core versions](docs/guides/core-versions.md) |
-| Edit, check, apply, restart, and roll back configuration | [Configuration and runtime](docs/guides/configuration-and-runtime.md) |
-| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/guides/subscriptions-and-observability.md) |
-| Integrate with the API and operate its security boundary | [HTTP API and security](docs/development/architecture.md#http-api-and-security) |
-| Build, sign, test, and publish release artifacts | [Release process](docs/development/release.md) |
+| Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
+| Install exact versions and inspect configuration capabilities | [Core versions](docs/core-versions.md) |
+| Edit, check, apply, and restart configuration; roll back through the API | [Configuration and runtime](docs/configuration-and-runtime.md) |
+| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
+| Understand the panel and node services, their protocol and state ownership | [Panel and node architecture](docs/panel-node-architecture.md) |
+| Integrate with the API and operate its security boundary | [HTTP API and security](docs/architecture.md#http-api-and-security) |
+| Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
 
 The [documentation index](docs/README.md) also links the component-level
 sources of truth for OpenAPI, version capabilities, systemd packaging, release
@@ -181,20 +203,22 @@ builds, and the web application.
 
 ```text
 .github/             Workflows, community templates, code ownership, and signing keys
-api/                 OpenAPI source contract
-cmd/                 Panel entry point and repository development tools
-internal/            Go implementation packages
+api/                 HTTP (OpenAPI) and panel–node (protobuf) contracts
+cmd/                 The panel and node binaries' main.go files
+docs/                Guides, architecture, testing, packaging, and release process
+internal/            Go packages: sing-box-panel/ and sing-box-node/ per service, shared ones beside them
 scripts/             End-user installation, release, and local test scripts
-systemd/             Embedded systemd templates and packaging guidance
-web/                 React/Vite application managed with pnpm
+tools/               Maintainer commands run through go tool
+web/                 pnpm workspace: the panel and node console React applications and their shared package
+DESIGN.md            Visual identity, design tokens, and interface rules
 ```
 
 ## Contributing
 
-Read the [contribution guide](CONTRIBUTING.md) before opening an issue or pull
-request. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md),
+Read the [contribution guide](.github/CONTRIBUTING.md) before opening an issue or pull
+request. Participation is governed by the [Code of Conduct](.github/CODE_OF_CONDUCT.md),
 and vulnerabilities must be reported privately according to the
-[Security Policy](SECURITY.md).
+[Security Policy](.github/SECURITY.md).
 
 ## License
 

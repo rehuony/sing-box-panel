@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//go:build !darwin && !linux
+
+package procctl
+
+import "os"
+
+func openAndLockLease(string) (*os.File, error) {
+	return nil, ErrLeaseUnsupported
+}
+
+func unlockAndCloseRuntimeExecutorLease(file *os.File) error {
+	return file.Close()
+}
+
+func leaseHeld(string) (bool, error) { return false, ErrLeaseUnsupported }

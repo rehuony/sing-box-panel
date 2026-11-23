@@ -1,0 +1,673 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Package sbp.node.v1 is the contract between the panel and its nodes. Nodes
+// dial out to the panel; the panel never connects to a node. Within v1 the
+// contract changes only additively, and Hello carries the node's minor
+// protocol version so the panel can reject commands an older node lacks.
+// Minor version 1 adds FetchRelease, UpdateNode and StateReport.last_update.
+syntax = "proto3";
+
+package sbp.node.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/rehuony/sing-box-panel/internal/nodeapi";
+
+// NodeService is served by the panel on its Web port, under its base path:
+// with base path /panel, nodes call /panel/sbp.node.v1.NodeService/Connect.
+service NodeService {
+  // Enroll exchanges a one-time enrollment token and the node's public key
+  // for a node identity.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // Connect is the control session. The node sends Hello and Proof, the
+  // panel sends Challenge and Welcome, and only then do commands, results and
+  // events flow. A new authenticated session for a node replaces the old one.
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+  // FetchArtifact streams one cached core artifact, authorized by a grant
+  // issued in the node's current session.
+  rpc FetchArtifact(FetchArtifactRequest) returns (stream FetchArtifactResponse);
+  // FetchRelease streams the panel's node release for the node's platform.
+  // It has its own signed handshake, apart from Connect, so a running node
+  // and the node's update command can both use it: the node sends Hello and
+  // Proof, the panel sends Challenge, then ReleaseHeader and the binary in
+  // chunks. Since minor version 1.
+  rpc FetchRelease(stream FetchReleaseRequest) returns (stream FetchReleaseResponse);
+}
+
+// ProtocolVersion identifies this contract. The panel accepts nodes with the
+// same major version.
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+// Platform is the operating system and CPU architecture of the node host,
+// using Go's GOOS and GOARCH names.
+message Platform {
+  string os = 1;
+  string arch = 2;
+}
+
+message EnrollRequest {
+  // The token from the enrollment code. The panel stores only its hash.
+  string token = 1;
+  // The node's Ed25519 public key (32 bytes).
+  bytes public_key = 2;
+  ProtocolVersion protocol = 3;
+  string build_version = 4;
+  Platform platform = 5;
+  string hostname = 6;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  string panel_id = 2;
+}
+
+// ConnectRequest is one node-to-panel frame.
+message ConnectRequest {
+  oneof frame {
+    Hello hello = 1;
+    Proof proof = 2;
+    Result result = 3;
+    Event event = 4;
+  }
+}
+
+// ConnectResponse is one panel-to-node frame.
+message ConnectResponse {
+  oneof frame {
+    Challenge challenge = 1;
+    Welcome welcome = 2;
+    Command command = 3;
+    Cancel cancel = 4;
+    TelemetryControl telemetry_control = 5;
+  }
+}
+
+message Hello {
+  string node_id = 1;
+  ProtocolVersion protocol = 2;
+  string build_version = 3;
+  Platform platform = 4;
+  // The random identity of the node's database. Runtime history IDs and
+  // traffic counters are scoped to it, so a node whose database was
+  // recreated starts both again.
+  string instance_id = 5;
+}
+
+message Challenge {
+  string panel_id = 1;
+  // A random nonce (32 bytes) that the node signs in Proof.
+  bytes nonce = 2;
+}
+
+// Proof is the node's Ed25519 signature over the proof message built from the
+// fixed context string, the panel ID, the node ID and the challenge nonce.
+message Proof {
+  bytes signature = 1;
+}
+
+message Welcome {
+  string session_id = 1;
+  string panel_build_version = 2;
+  ProtocolVersion protocol = 3;
+  // The baseline interval between metrics samples.
+  google.protobuf.Duration metrics_interval = 4;
+  // The ID of the newest runtime transition of this node instance that the
+  // panel holds. The node sends the transitions after it, oldest first.
+  int64 runtime_history_after = 5;
+}
+
+// Command asks the node to do one thing. A repeated request ID returns the
+// node's recorded result instead of running the command again. Commands that
+// snapshot the configuration carry the panel's saved revision, so the node
+// always runs what the panel holds.
+message Command {
+  string request_id = 1;
+  google.protobuf.Timestamp deadline = 2;
+  reserved 11, 21;
+  oneof body {
+    CheckConfiguration check_configuration = 10;
+    StartRuntime start_runtime = 12;
+    StopRuntime stop_runtime = 13;
+    RestartRuntime restart_runtime = 14;
+    RollbackRuntime rollback_runtime = 15;
+    InstallCore install_core = 16;
+    RemoveCore remove_core = 17;
+    BrowseFilesystem browse_filesystem = 18;
+    ResolveFilesystemPath resolve_filesystem_path = 19;
+    ReadCoreLog read_core_log = 20;
+    GetRuntimeStatus get_runtime_status = 22;
+    EnableCore enable_core = 23;
+    DisableCore disable_core = 24;
+    CheckStartup check_startup = 25;
+    ActivateStartup activate_startup = 26;
+    ListStartupArtifacts list_startup_artifacts = 27;
+    ListCores list_cores = 28;
+    ListCoreLogs list_core_logs = 29;
+    DeleteCoreLog delete_core_log = 30;
+    ClearCoreLog clear_core_log = 31;
+    // Since minor version 1.
+    UpdateNode update_node = 32;
+  }
+}
+
+// Cancel abandons a command whose result the panel no longer waits for.
+message Cancel {
+  string request_id = 1;
+}
+
+// TelemetryControl sets the node's metrics interval. The panel raises it to
+// one sample per second while a browser views the node's live metrics.
+message TelemetryControl {
+  google.protobuf.Duration metrics_interval = 1;
+}
+
+// ArtifactIdentity is the immutable identity of one installable core
+// artifact. Digest, platform, variant and reported version all belong to it.
+message ArtifactIdentity {
+  // The artifact ID, derived from the identity on both sides.
+  string id = 1;
+  ArtifactSourceKind source_kind = 2;
+  int64 repository_id = 3;
+  int64 release_id = 4;
+  int64 asset_id = 5;
+  string user_source = 6;
+  // Lowercase hexadecimal SHA-256 of the archive bytes.
+  string sha256 = 7;
+  string os = 8;
+  string arch = 9;
+  string variant = 10;
+  string reported_version = 11;
+}
+
+enum ArtifactSourceKind {
+  ARTIFACT_SOURCE_KIND_UNSPECIFIED = 0;
+  ARTIFACT_SOURCE_KIND_OFFICIAL = 1;
+  ARTIFACT_SOURCE_KIND_USER_VERIFIED = 2;
+}
+
+// ConfigurationRevision carries exact configuration bytes. The node uses them
+// only to check or run them.
+message ConfigurationRevision {
+  string revision_id = 1;
+  int64 revision = 2;
+  // Lowercase hexadecimal SHA-256 of content.
+  string sha256 = 3;
+  bytes content = 4;
+}
+
+// CheckConfiguration records the revision and checks it with the core.
+message CheckConfiguration {
+  ConfigurationRevision configuration = 1;
+  string artifact_id = 2;
+}
+
+// StartRuntime starts the core with the revision, reusing the applied bundle
+// when the revision is the one it runs.
+message StartRuntime {
+  ConfigurationRevision configuration = 1;
+}
+
+message StopRuntime {}
+
+// RestartRuntime checks the revision with the applied core and replaces the
+// running process.
+message RestartRuntime {
+  ConfigurationRevision configuration = 1;
+}
+
+message RollbackRuntime {
+  // The bundle to return to; empty selects the node's rollback bundle.
+  string bundle_id = 1;
+}
+
+// EnableCore selects the core, checking the revision with it and replacing
+// a running process.
+message EnableCore {
+  ConfigurationRevision configuration = 1;
+  string artifact_id = 2;
+}
+
+// DisableCore stops the process and clears the core selection.
+message DisableCore {
+  string artifact_id = 1;
+}
+
+message CheckStartup {
+  string startup_artifact_id = 1;
+}
+
+message ActivateStartup {
+  string startup_artifact_id = 1;
+  MonitoringTier monitoring_tier = 2;
+}
+
+enum MonitoringTier {
+  MONITORING_TIER_UNSPECIFIED = 0;
+  MONITORING_TIER_LIMITED = 1;
+  MONITORING_TIER_PROCESS_ONLY = 2;
+}
+
+message GetRuntimeStatus {}
+
+message ListStartupArtifacts {
+  google.protobuf.Timestamp before_time = 1;
+  string before_id = 2;
+  uint32 limit = 3;
+  string core_artifact_id = 4;
+  StartupArtifactState state = 5;
+  string revision_id = 6;
+  string exact_core_version = 7;
+}
+
+message InstallCore {
+  ArtifactIdentity artifact = 1;
+  // A short-lived grant that authorizes FetchArtifact for this artifact.
+  string fetch_grant = 2;
+  int64 size = 3;
+}
+
+message RemoveCore {
+  string artifact_id = 1;
+}
+
+message ListCores {
+  google.protobuf.Timestamp before_time = 1;
+  string before_id = 2;
+  uint32 limit = 3;
+  string exact_version = 4;
+  string arch = 5;
+  string variant = 6;
+  ArtifactSourceKind source_kind = 7;
+  // Set to return only the core with this ID.
+  string id = 8;
+}
+
+message BrowseFilesystem {
+  string path = 1;
+  FilesystemMode mode = 2;
+  string search = 3;
+  bool show_hidden = 4;
+  uint32 offset = 5;
+  uint32 limit = 6;
+}
+
+message ResolveFilesystemPath {
+  string path = 1;
+  FilesystemMode mode = 2;
+}
+
+enum FilesystemMode {
+  FILESYSTEM_MODE_UNSPECIFIED = 0;
+  FILESYSTEM_MODE_FILE = 1;
+  FILESYSTEM_MODE_DIRECTORY = 2;
+  FILESYSTEM_MODE_OUTPUT_FILE = 3;
+  FILESYSTEM_MODE_SOCKET = 4;
+}
+
+message ListCoreLogs {}
+
+message ReadCoreLog {
+  string file = 1;
+  int64 offset = 2;
+  // The generation from an earlier read; a changed file resets the offset.
+  string generation = 3;
+}
+
+message DeleteCoreLog {
+  string file = 1;
+}
+
+message ClearCoreLog {
+  string file = 1;
+}
+
+// UpdateNode updates the node to the panel's release of version. The node
+// fetches it with FetchRelease, verifies it with the release key embedded in
+// its own binary, and installs it or stages it for its root update helper.
+message UpdateNode {
+  string version = 1;
+}
+
+// Result answers one command.
+message Result {
+  string request_id = 1;
+  reserved 16;
+  oneof outcome {
+    Problem problem = 2;
+    CheckOutcome check = 10;
+    RuntimeOutcome runtime = 11;
+    CoreOutcome core = 12;
+    BrowseOutcome browse = 13;
+    ResolveOutcome resolve = 14;
+    CoreLogOutcome core_log = 15;
+    StartupArtifactsOutcome startup_artifacts = 17;
+    UpdateOutcome update = 18;
+  }
+}
+
+// Problem is a command failure. Code is a stable machine-readable value that
+// the panel maps to its HTTP problem details.
+message Problem {
+  string code = 1;
+  string title = 2;
+  string detail = 3;
+}
+
+message CheckOutcome {
+  StartupArtifact startup = 1;
+}
+
+// StartupArtifact is a configuration snapshot checked, or waiting to be
+// checked, with one exact core.
+message StartupArtifact {
+  string id = 1;
+  string revision_id = 2;
+  string exact_core_version = 3;
+  string core_artifact_id = 4;
+  string config_sha256 = 5;
+  StartupArtifactState state = 6;
+  google.protobuf.Timestamp checked_at = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+enum StartupArtifactState {
+  STARTUP_ARTIFACT_STATE_UNSPECIFIED = 0;
+  STARTUP_ARTIFACT_STATE_PENDING = 1;
+  STARTUP_ARTIFACT_STATE_READY = 2;
+  STARTUP_ARTIFACT_STATE_FAILED = 3;
+}
+
+message StartupArtifactsOutcome {
+  repeated StartupArtifact items = 1;
+  // The cursor of the next page; absent on the last page.
+  google.protobuf.Timestamp next_before_time = 2;
+  string next_before_id = 3;
+}
+
+// RuntimeOutcome is the node's runtime state after a command, with the
+// activation and startup artifact the command produced, if any.
+message RuntimeOutcome {
+  RuntimeStatus status = 1;
+  Activation activation = 2;
+  StartupArtifact startup = 3;
+}
+
+message RuntimeStatus {
+  string enabled_core_artifact_id = 1;
+  string enabled_exact_core_version = 2;
+  string loaded_revision_id = 3;
+  bool desired_running = 4;
+  string desired_bundle_id = 5;
+  string applied_bundle_id = 6;
+  string rollback_bundle_id = 7;
+  int64 target_generation = 8;
+  string observation_state = 9;
+  RunningCore running = 10;
+}
+
+message RunningCore {
+  int64 pid = 1;
+  string process_start_token = 2;
+  string exact_core_version = 3;
+  string core_artifact_id = 4;
+  string archive_sha256 = 5;
+  string binary_sha256 = 6;
+  string activation_bundle_id = 7;
+  google.protobuf.Timestamp started_at = 8;
+}
+
+// Activation identifies an applied startup artifact and its bundle.
+message Activation {
+  string startup_artifact_id = 1;
+  string revision_id = 2;
+  string exact_core_version = 3;
+  string core_artifact_id = 4;
+  string config_sha256 = 5;
+  string activation_bundle_id = 6;
+  string activation_sha256 = 7;
+  MonitoringTier monitoring_tier = 8;
+}
+
+message CoreOutcome {
+  repeated InstalledCore installed = 1;
+  // The cursor of the next page; absent on the last page.
+  google.protobuf.Timestamp next_before_time = 2;
+  string next_before_id = 3;
+}
+
+message BrowseOutcome {
+  string path = 1;
+  string parent = 2;
+  string requested_path = 3;
+  bool fallback = 4;
+  repeated FilesystemEntry items = 5;
+  uint32 total = 6;
+  uint32 offset = 7;
+  uint32 limit = 8;
+}
+
+message FilesystemEntry {
+  string name = 1;
+  string path = 2;
+  string kind = 3;
+  bool symlink = 4;
+  bool available = 5;
+}
+
+message ResolveOutcome {
+  string path = 1;
+  string parent = 2;
+  string kind = 3;
+  bool exists = 4;
+  bool symlink = 5;
+}
+
+// UpdateOutcome is how an UpdateNode command left the node.
+message UpdateOutcome {
+  UpdateState state = 1;
+  string version = 2;
+}
+
+enum UpdateState {
+  UPDATE_STATE_UNSPECIFIED = 0;
+  // The node already runs the version.
+  UPDATE_STATE_UP_TO_DATE = 1;
+  // The node installed the version and its service restarts into it now.
+  UPDATE_STATE_RESTARTING = 2;
+  // The node's system service staged the version for its root update
+  // helper, which installs it and restarts the service.
+  UPDATE_STATE_STAGED = 3;
+  // The node installed the version, which runs once the node is restarted.
+  UPDATE_STATE_RESTART_REQUIRED = 4;
+}
+
+message CoreLogOutcome {
+  repeated CoreLogFile files = 1;
+  CoreLogChunk chunk = 2;
+}
+
+message CoreLogFile {
+  string name = 1;
+  int64 size = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  bool deletable = 4;
+}
+
+message CoreLogChunk {
+  string file = 1;
+  string text = 2;
+  int64 next_offset = 3;
+  int64 size = 4;
+  string generation = 5;
+  bool reset = 6;
+}
+
+// Event reports node state. Each event replaces or extends what the panel
+// knows, so an event repeated after reconnecting is harmless.
+message Event {
+  reserved 1, 13, 14;
+  // Set when the event reports the state a command left.
+  string request_id = 2;
+  oneof body {
+    StateReport state_report = 10;
+    RuntimeTransition runtime_transition = 11;
+    MetricsSample metrics_sample = 12;
+  }
+}
+
+// StateReport is the node's full observed state. It is sent first after every
+// handshake, and again whenever the state changes.
+message StateReport {
+  reserved 2;
+  Host host = 1;
+  Bundle applied = 3;
+  Bundle rollback = 4;
+  repeated InstalledCore installed = 5;
+  // The configuration of the applied bundle, sent only in the first report
+  // of a session. The panel seeds a node's editable file from it while that
+  // file is still the empty document it was created with.
+  ConfigurationRevision existing_configuration = 6;
+  RuntimeStatus runtime = 7;
+  // The node's last update attempt, absent when it has made none. After a
+  // root update helper's attempt the node reports its result once it runs
+  // again. Since minor version 1.
+  UpdateAttempt last_update = 8;
+}
+
+message UpdateAttempt {
+  string version = 1;
+  bool succeeded = 2;
+  // On failure, a short code such as signature_invalid,
+  // service_not_active or helper_unavailable.
+  string code = 3;
+  google.protobuf.Timestamp finished_at = 4;
+}
+
+message Host {
+  string hostname = 1;
+  Platform platform = 2;
+  // The node's detected public IP address, empty when unknown.
+  string public_ip = 3;
+}
+
+enum ProcessState {
+  PROCESS_STATE_UNSPECIFIED = 0;
+  PROCESS_STATE_RUNNING = 1;
+  PROCESS_STATE_STOPPED = 2;
+  PROCESS_STATE_FAILED = 3;
+  PROCESS_STATE_UNKNOWN = 4;
+}
+
+// Bundle is an activated configuration: the checked startup artifact and the
+// core that runs it. The node keeps the bytes of its applied and rollback
+// bundles.
+message Bundle {
+  reserved 4;
+  string bundle_id = 1;
+  string startup_artifact_id = 2;
+  string revision_id = 3;
+  string configuration_sha256 = 5;
+  string artifact_id = 6;
+  google.protobuf.Timestamp applied_at = 7;
+  MonitoringTier monitoring_tier = 8;
+  // The exact version of the core the bundle runs with.
+  string exact_core_version = 9;
+}
+
+message InstalledCore {
+  ArtifactIdentity artifact = 1;
+  string binary_sha256 = 2;
+  google.protobuf.Timestamp installed_at = 3;
+  string binary_path = 4;
+  // The canonical JSON feature fingerprint the binary reported.
+  string feature_fingerprint = 5;
+}
+
+// RuntimeTransition is one entry of the node's append-only runtime history.
+message RuntimeTransition {
+  // The entry's ID in the node instance's history; IDs only grow.
+  int64 id = 5;
+  ProcessState status = 1;
+  string reason = 2;
+  string bundle_id = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+  int64 generation = 6;
+  int64 pid = 7;
+  google.protobuf.Timestamp process_started_at = 8;
+  // Set for the unknown state: since when the process state is uncertain.
+  google.protobuf.Timestamp uncertain_since = 9;
+}
+
+message MetricsSample {
+  google.protobuf.Timestamp sampled_at = 1;
+  optional double cpu_percent = 2;
+  uint32 cpu_count = 3;
+  optional double load_one = 4;
+  optional uint64 memory_total = 5;
+  optional uint64 memory_used = 6;
+  optional uint64 disk_total = 7;
+  optional uint64 disk_used = 8;
+  TrafficCounters traffic = 9;
+}
+
+// TrafficCounters describe the running core. The byte counts are cumulative
+// for the node instance across core restarts, kept in a durable node
+// checkpoint, so the panel computes exact deltas, periods and quota from any
+// two samples. Absent while no core runs with limited monitoring.
+message TrafficCounters {
+  string bundle_id = 1;
+  uint64 upload_bytes = 2;
+  uint64 download_bytes = 3;
+  uint32 connections = 4;
+  int64 pid = 5;
+  string process_start_token = 6;
+  uint64 memory_bytes = 7;
+}
+
+message FetchArtifactRequest {
+  string grant = 1;
+  string artifact_id = 2;
+}
+
+// FetchArtifactResponse is one chunk of the artifact. The first chunk carries
+// the identity and size; the node verifies the digest after the last chunk.
+message FetchArtifactResponse {
+  ArtifactIdentity artifact = 1;
+  int64 size = 2;
+  bytes data = 3;
+}
+
+// FetchReleaseRequest is one node-to-panel frame of FetchRelease: Hello,
+// whose node ID, protocol and platform the panel uses, then Proof.
+message FetchReleaseRequest {
+  oneof frame {
+    Hello hello = 1;
+    Proof proof = 2;
+  }
+}
+
+// FetchReleaseResponse is one panel-to-node frame of FetchRelease:
+// Challenge, then ReleaseHeader, then the binary in chunks.
+message FetchReleaseResponse {
+  oneof frame {
+    Challenge challenge = 1;
+    ReleaseHeader header = 2;
+    bytes chunk = 3;
+  }
+}
+
+// ReleaseHeader describes the node binary that follows: the release
+// version, the binary's size and lowercase hexadecimal SHA-256, and the
+// release's signed checksum manifest with its signature, which the node
+// verifies with its embedded release key.
+message ReleaseHeader {
+  string version = 1;
+  int64 size = 2;
+  string sha256 = 3;
+  bytes checksums = 4;
+  bytes signature = 5;
+}

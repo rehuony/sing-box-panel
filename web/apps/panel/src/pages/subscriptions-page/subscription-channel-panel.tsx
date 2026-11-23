@@ -1,0 +1,347 @@
+import { useTranslation } from 'react-i18next';
+import { Input } from '@shared/components/ui/input';
+import { Button } from '@shared/components/ui/button';
+import { toast } from '@shared/components/ui/toast-manager';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { CirclePlus, Copy, Link2, PencilLine } from 'lucide-react';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@shared/components/ui/dialog';
+
+import type {
+  SubscriptionChannel,
+  SubscriptionChannelSummary,
+  SubscriptionFormat,
+} from '@/api/api-client';
+
+import { queries } from '@/api/queries';
+import { IconAction } from '@/components/icon-action';
+import { useApiClient } from '@/api/api-client-context';
+import { SelectField } from '@/components/select-field';
+import { usePageVisible } from '@/hooks/use-page-visible';
+import { ListPagination } from '@/components/list-pagination';
+import { ToolbarActions } from '@/components/workspace-toolbar';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { StripDivider, StripSearch } from '@/components/title-strip';
+import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+
+import { emptyChannelConfig } from './channel-policy';
+import { ChannelWorkspace } from './channel-workspace';
+import { ChannelLinkDialog } from './channel-token-links';
+import { SubscriptionContentState } from './subscription-content-state';
+
+export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
+  active?: boolean;
+  toolbarTarget?: HTMLElement | null;
+} = {}) {
+  const { t } = useTranslation();
+  const client = useApiClient();
+  const cache = useQueryClient();
+  const visible = usePageVisible();
+  const list = useQuery({ ...queries.channels(client), enabled: active && visible });
+  const catalog = useQuery({ ...queries.nodes(client), enabled: active && visible });
+  const channels = list.data ?? [];
+  const nodes = catalog.data?.items ?? [];
+  const [channel, setChannel] = useState<SubscriptionChannel | null>(null);
+  const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
+  const [size, setSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const error = list.error ?? catalog.error;
+  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [linkChannel, setLinkChannel] = useState<SubscriptionChannel | null>(null);
+  const [name, setName] = useState('');
+  const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
+  const [formError, setFormError] = useState('');
+  const [deleting, setDeleting] = useState<SubscriptionChannelSummary | null>(null);
+  useUnsavedChanges(creating && (name !== '' || format !== 'sing-box'), () => {
+    setCreating(false);
+    setName('');
+    setFormat('sing-box');
+  }, busy);
+  const lifetimeRef = useRef<AbortController | null>(null);
+  const load = useCallback(async (_signal?: AbortSignal) => {
+    await cache.invalidateQueries({ queryKey: ['channels'], refetchType: 'none' });
+    await cache.invalidateQueries({ queryKey: ['nodes'], refetchType: 'none' });
+    await Promise.all([cache.fetchQuery(queries.channels(client)), cache.fetchQuery(queries.nodes(client))]);
+  }, [client, cache]);
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetimeRef.current = controller;
+    return () => controller.abort();
+  }, []);
+  async function open(id: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const value = await client.getSubscriptionChannel(id, lifetimeRef.current?.signal);
+      if (!lifetimeRef.current?.signal.aborted) setChannel(value);
+    } catch (reason) {
+      toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function channelAction(id: string, action: 'duplicate' | 'link') {
+    if (busy) return;
+    setBusy(true);
+    const signal = lifetimeRef.current?.signal;
+    try {
+      const fresh = await client.getSubscriptionChannel(id, signal);
+      if (signal?.aborted) return;
+      if (action === 'link') {
+        setLinkChannel(fresh);
+      } else {
+        function nameForCopy(number: number) {
+          const suffix = ` ${t('channels.duplicateSuffix')}${number > 1 ? ` ${number}` : ''}`;
+          const characters = Array.from(fresh.name);
+          while (new TextEncoder().encode(characters.join('') + suffix).length > 128) characters.pop();
+          return characters.join('') + suffix;
+        }
+        let number = 1;
+        let copyName = nameForCopy(number);
+        while (channels.some((item) => item.name === copyName)) copyName = nameForCopy(++number);
+        await client.createSubscriptionChannel({
+          name: copyName, format: fresh.format, enabled: fresh.enabled, config: fresh.config,
+        }, signal);
+        if (signal?.aborted) return;
+        await load(signal);
+        if (!signal?.aborted) toast.add({ title: t('channels.duplicated'), type: 'success' });
+      }
+    } catch (reason) {
+      if (!signal?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      if (!signal?.aborted) setBusy(false);
+    }
+  }
+  async function create() {
+    if (busy) return;
+    if (!name.trim()) {
+      setFormError(t('channels.nameRequired'));
+      return;
+    }
+    setBusy(true);
+    setFormError('');
+    try {
+      const value = await client.createSubscriptionChannel(
+        { name: name.trim(), format, enabled: true, config: emptyChannelConfig() },
+        lifetimeRef.current?.signal,
+      );
+      if (lifetimeRef.current?.signal.aborted) return;
+      setCreating(false);
+      setChannel(value);
+      await load(lifetimeRef.current?.signal);
+      toast.add({ title: t('channels.saved'), type: 'success' });
+    } catch (reason) {
+      setFormError(describeRequestError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove() {
+    if (!deleting || busy) return;
+    setBusy(true);
+    try {
+      const fresh = await client.getSubscriptionChannel(deleting.id, lifetimeRef.current?.signal);
+      await client.deleteSubscriptionChannel(
+        fresh.id,
+        fresh.updated_at,
+        lifetimeRef.current?.signal,
+      );
+      if (lifetimeRef.current?.signal.aborted) return;
+      setDeleting(null);
+      // Deleting from its settings leaves the channel's workspace.
+      if (channel?.id === fresh.id) setChannel(null);
+      await load(lifetimeRef.current?.signal);
+      toast.add({ title: t('channels.removed'), type: 'success' });
+    } catch (reason) {
+      toast.add({ title: describeRequestError(reason), type: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }
+  const filtered = channels.filter((value) =>
+    value.name.toLowerCase().includes(deferredSearch.toLowerCase()),
+  );
+  const pages = Math.max(1, Math.ceil(filtered.length / size));
+  const current = Math.min(page, pages);
+  if (page !== current) setPage(current);
+  return (
+    <section className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
+      {linkChannel && (
+        <ChannelLinkDialog
+          channelID={linkChannel.id}
+          onClose={() => setLinkChannel(null)}
+        />
+      )}
+      {error != null && <ErrorNotice error={error} title={t('channels.title')} />}
+      {channel
+        ? (
+            <ChannelWorkspace
+              key={channel.id}
+              active={active}
+              toolbarTarget={toolbarTarget}
+              channel={channel}
+              nodes={nodes}
+              onBack={() => {
+                setChannel(null);
+                void load(lifetimeRef.current?.signal);
+              }}
+              onDelete={() => setDeleting(channel)}
+              onSaved={setChannel}
+            />
+          )
+        : (
+            <>
+              <ToolbarActions active={active} target={toolbarTarget}>
+                <div className='flex w-full min-w-0 flex-1 items-center gap-2'>
+                  <StripSearch
+                    label={t('channels.search')}
+                    value={search}
+                    onValueChange={(value) => {
+                      setSearch(value);
+                      setPage(1);
+                    }}
+                  />
+                  <StripDivider />
+                  <Button
+                    aria-label={t('channels.add')}
+                    className='max-sm:w-(--control-height-sm) max-sm:px-0'
+                    disabled={busy}
+                    size='sm'
+                    variant='flat'
+                    onClick={() => {
+                      setCreating(true);
+                      setName('');
+                      setFormat('sing-box');
+                      setFormError('');
+                    }}
+                  >
+                    <CirclePlus aria-hidden='true' data-icon='inline-start' />
+                    <span className='max-sm:sr-only'>{t('channels.add')}</span>
+                  </Button>
+                </div>
+              </ToolbarActions>
+              <div className='min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={list.isPending}>
+                <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:border-b [&_td]:px-4 [&_td]:text-center [&_td:first-child_button]:w-full [&_td:first-child_button]:justify-start [&_td:first-child_button]:truncate [&_td:first-child_button]:text-left [&_td:last-child]:whitespace-nowrap [&_td:last-child>[data-slot=button]+[data-slot=button]]:ms-1 [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-center [&_th]:text-muted-foreground [&_tr>:first-child]:w-[40%] [&_tr>:first-child]:text-left [&_tr>:nth-child(2)]:w-[20%] [&_tr>:nth-child(3)]:w-[20%] [&_tr>:nth-child(4)]:w-[20%]'>
+                  <thead>
+                    <tr>
+                      <th>{t('channels.name')}</th>
+                      <th>{t('channels.client')}</th>
+                      <th>{t('channels.state')}</th>
+                      <th>{t('channels.actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.slice((current - 1) * size, current * size).map((value) => (
+                      <tr key={value.id}>
+                        <td>
+                          <span className='block truncate' title={value.name}>{value.name}</span>
+                        </td>
+                        <td>
+                          {value.format === 'sing-box'
+                            ? t('subscriptions.channel.format.singBox')
+                            : value.format === 'mihomo'
+                              ? t('subscriptions.channel.format.mihomo')
+                              : t('subscriptions.channel.format.loon')}
+                        </td>
+                        <td>{t(value.enabled ? 'channels.enabled' : 'channels.disabled')}</td>
+                        <td>
+                          {/* The most used first: edit, then copy, then the channel's links. */}
+                          <IconAction disabled={busy} label={t('channels.edit')} onClick={() => void open(value.id)}>
+                            <PencilLine aria-hidden='true' />
+                          </IconAction>
+                          <IconAction disabled={busy} label={t('channels.copy')} onClick={() => void channelAction(value.id, 'duplicate')}>
+                            <Copy aria-hidden='true' />
+                          </IconAction>
+                          <IconAction disabled={busy || !value.enabled} label={t('channels.link')} onClick={() => void channelAction(value.id, 'link')}>
+                            <Link2 aria-hidden='true' />
+                          </IconAction>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {list.isPending && !filtered.length
+                  ? <SubscriptionContentState loading />
+                  : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
+              </div>
+              <ListPagination
+                className='border-t px-2 pb-2'
+                page={current}
+                pages={pages}
+                pageSize={size}
+                onPageChange={setPage}
+                onPageSizeChange={value => {
+                  setSize(value);
+                  setPage(1);
+                }}
+              />
+            </>
+          )}
+      <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>
+        <DialogContent className='w-160 max-w-[calc(100vw-32px)] sm:max-w-160'>
+          <DialogHeader>
+            <DialogTitle>{t('channels.add')}</DialogTitle>
+            <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
+          </DialogHeader>
+          <div className='grid grid-cols-[minmax(120px,1fr)_minmax(200px,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) max-[720px]:grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] max-[720px]:gap-3 max-[480px]:grid-cols-1 max-[480px]:gap-2 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
+            <label htmlFor='channel-name'>{t('channels.name')}</label>
+            <Input
+              id='channel-name'
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <label htmlFor='channel-format'>{t('channels.client')}</label>
+            <SelectField<SubscriptionFormat>
+              id='channel-format'
+              value={format}
+              onValueChange={setFormat}
+              items={[
+                { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
+                { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
+                { value: 'loon', label: t('subscriptions.channel.format.loon') },
+              ]}
+            />
+          </div>
+          {formError && (
+            <ErrorNotice error={formError} />
+          )}
+          <DialogFooter>
+            <Button disabled={busy} variant='outline' onClick={() => setCreating(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button disabled={busy} variant='default' onClick={() => void create()}>
+              {t('channels.add')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={deleting != null} onOpenChange={(open) => !open && !busy && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('channels.remove')}</DialogTitle>
+            <DialogDescription>
+              {t('channels.deletePrompt', { name: deleting?.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button disabled={busy} variant='outline' onClick={() => setDeleting(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button disabled={busy} variant='destructive' onClick={() => void remove()}>
+              {t('channels.remove')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}

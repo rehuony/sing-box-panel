@@ -2,15 +2,17 @@
 *.log
 *.tmp
 *.part
+*.tsbuildinfo
 /bin/
 /dist/
 /coverage/
-/web/dist/
 /web/node_modules/
-/web/src/api/generated/
-/web/src/schemas/.generated/
+/web/apps/*/dist/
+/web/apps/*/src/api/generated/
+/web/apps/panel/src/schemas/.generated/
 /setting.json
 /data/
+/.claude/dev/state/
 
 # Local Ed25519 release-signing secret; the paired public trust root is committed.
 /.github/keypair/release-signing-private-key.pem

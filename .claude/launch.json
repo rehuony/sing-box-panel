@@ -1,0 +1,47 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "panel",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [".claude/dev/panel.sh"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "node",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [".claude/dev/node.sh"],
+      "port": 3001,
+      "autoPort": false
+    },
+    {
+      "name": "panel-web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd web && exec corepack pnpm --filter @sing-box-panel/panel run dev --host 127.0.0.1 --port 5173 --strictPort"],
+      "port": 5173,
+      "autoPort": false
+    },
+    {
+      "name": "node-web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd web && exec corepack pnpm --filter @sing-box-panel/node run dev --host 127.0.0.1 --port 5174 --strictPort"],
+      "port": 5174,
+      "autoPort": false
+    },
+    {
+      "name": "panel-review",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "SBP_BROWSER_REVIEW=1 SBP_BROWSER_FLEET=${SBP_BROWSER_FLEET:-200} exec go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -count=1 -timeout 60m"],
+      "port": 3337,
+      "autoPort": false
+    },
+    {
+      "name": "panel-review-empty",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "SBP_BROWSER_REVIEW=1 SBP_BROWSER_FLEET=0 exec go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -count=1 -timeout 60m"],
+      "port": 3337,
+      "autoPort": false
+    }
+  ]
+}

@@ -4,15 +4,19 @@ package configuration
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"sort"
-
-	apiassets "github.com/rehuony/sing-box-panel/api"
 )
+
+// configurationOrder is the field order shared with the Web editor.
+//
+//go:embed configuration-order.json
+var configurationOrder []byte
 
 var presentationOrder = func() struct{ Root, Fields []string } {
 	var order struct{ Root, Fields []string }
-	if err := json.Unmarshal(apiassets.ConfigurationOrder, &order); err != nil {
+	if err := json.Unmarshal(configurationOrder, &order); err != nil {
 		panic(err)
 	}
 	return order

@@ -83,16 +83,6 @@ func (document *Document) Configuration() map[string]any {
 	return root
 }
 
-func decodeCanonicalMap(raw []byte, target *map[string]any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	return decoder.Decode(target)
-}
-
-func encodeCanonicalMap(value map[string]any) ([]byte, error) {
-	return json.Marshal(value)
-}
-
 func validateShape(value any, depth int, values *int) error {
 	if depth > maximumDepth {
 		return fmt.Errorf("document nesting exceeds depth %d", maximumDepth)

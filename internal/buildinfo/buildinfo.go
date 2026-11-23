@@ -44,3 +44,13 @@ func resolve(result Info, details *debug.BuildInfo) Info {
 	}
 	return result
 }
+
+// DisplayVersion returns the version for human-readable output, or "unknown"
+// for a development build.
+func (info Info) DisplayVersion() string {
+	switch info.Version {
+	case "", "dev", "(devel)":
+		return "unknown"
+	}
+	return info.Version
+}

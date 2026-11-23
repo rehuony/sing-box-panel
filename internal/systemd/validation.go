@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rehuony/sing-box-panel/internal/installation"
-	systemdassets "github.com/rehuony/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 )
 
-type execRunner struct{}
+// ExecRunner runs commands with a two-minute bound; it is the default Runner.
+type ExecRunner struct{}
 
-func (execRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
+func (ExecRunner) Run(ctx context.Context, name string, args ...string) (CommandResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
@@ -34,35 +34,41 @@ func (execRunner) Run(ctx context.Context, name string, args ...string) (Command
 	return CommandResult{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, err
 }
 
-func (manager *Manager) requireLinux() error {
+func (manager *Manager[T]) requireLinux() error {
 	if manager.goos != "linux" {
 		return fmt.Errorf("%w: running on %s", ErrUnsupportedOS, manager.goos)
 	}
 	return nil
 }
 
-func (manager *Manager) resolveScope(scope Scope) (Scope, error) {
+func (manager *Manager[T]) resolveScope(scope Scope) (Scope, error) {
 	parsed, err := ParseScope(string(scope))
 	if err != nil {
 		return "", err
 	}
 	if parsed == ScopeAuto {
+		parsed = ScopeUser
 		if manager.euid() == 0 {
-			return ScopeSystem, nil
+			parsed = ScopeSystem
 		}
-		return ScopeUser, nil
+	}
+	if parsed == ScopeUser && manager.definition.UserUnit == nil {
+		return "", fmt.Errorf("%w: %s has no user service", ErrInvalid, manager.definition.Name)
+	}
+	if parsed == ScopeUser && manager.layout.UserUnitPath == "" {
+		return "", fmt.Errorf("%w: user scope needs $XDG_CONFIG_HOME or $HOME", ErrInvalid)
 	}
 	return parsed, nil
 }
 
-func (manager *Manager) requireMutationPermission(scope Scope) error {
+func (manager *Manager[T]) requireMutationPermission(scope Scope) error {
 	if scope == ScopeSystem && manager.euid() != 0 {
 		return ErrPermission
 	}
 	return nil
 }
 
-func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest) (string, string, string, error) {
+func (manager *Manager[T]) validateInstallPaths(scope Scope, request InstallRequest) (string, string, string, error) {
 	executablePath, err := manager.executable()
 	if err != nil {
 		return "", "", "", fmt.Errorf("resolve current executable: %w", err)
@@ -71,7 +77,7 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 	if err != nil {
 		return "", "", "", err
 	}
-	settingsPath, err := cleanAbsolute(request.SettingsPath, "settings path")
+	statePath, err := cleanAbsolute(request.StatePath, manager.definition.StateLabel+" path")
 	if err != nil {
 		return "", "", "", err
 	}
@@ -80,10 +86,10 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 		return "", "", "", err
 	}
 	if scope == ScopeSystem {
-		if executablePath != manager.layout.SystemExecutablePath || settingsPath != manager.layout.SystemSettingsPath {
+		if executablePath != manager.layout.SystemExecutablePath || statePath != manager.layout.SystemStatePath {
 			return "", "", "", fmt.Errorf(
-				"%w: system scope requires executable=%q settings=%q",
-				ErrInvalid, manager.layout.SystemExecutablePath, manager.layout.SystemSettingsPath,
+				"%w: system scope requires executable=%q %s=%q",
+				ErrInvalid, manager.layout.SystemExecutablePath, manager.definition.StateLabel, manager.layout.SystemStatePath,
 			)
 		}
 		for _, protected := range []string{"/home", "/root", "/run/user"} {
@@ -92,7 +98,7 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 			}
 		}
 		for _, protected := range []string{"/home", "/root", "/run/user"} {
-			inside, err := installation.DataDirectoryContainsPath(protected, dataDir)
+			inside, err := pathguard.Contains(protected, dataDir)
 			if err != nil {
 				return "", "", "", err
 			}
@@ -104,66 +110,88 @@ func (manager *Manager) validateInstallPaths(scope Scope, request InstallRequest
 	if err := requireRegularExecutable(executablePath); err != nil {
 		return "", "", "", err
 	}
-	if err := preflightSettingsPaths(settingsPath); err != nil {
-		return "", "", "", err
+	if err := validateServiceDirectory(executablePath, dataDir); err != nil {
+		return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	if err := installation.ValidateCleanup(installation.Report{HistoryPath: installation.DefaultHistoryPath(), DataDir: dataDir, SettingsPath: settingsPath, Entries: []installation.Entry{{Path: executablePath}}}); err != nil {
+	if err := manager.definition.State.Validate(executablePath, statePath, dataDir); err != nil {
 		return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if err := requireDirectory(dataDir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	return executablePath, settingsPath, dataDir, nil
+	return executablePath, statePath, dataDir, nil
 }
 
-// Validate sidecars before initialization, migration, unit writes or account
-// preparation. The mutation paths retain their own checks for concurrent edits.
-func preflightSettingsPaths(path string) error {
-	directory := filepath.Dir(path)
-	if info, err := os.Lstat(directory); err == nil {
-		if !info.IsDir() {
-			return fmt.Errorf("%w: settings directory %q must be a physical directory", ErrInvalid, directory)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+// validateServiceDirectory refuses a data directory that the service account
+// must not own: a shared system directory, or one holding the executable.
+func validateServiceDirectory(executablePath, dataDir string) error {
+	if err := pathguard.RejectShared(dataDir); err != nil {
+		return fmt.Errorf("data directory %q: %w", dataDir, err)
+	}
+	resolvedData, err := pathguard.Resolve(dataDir)
+	if err != nil {
 		return err
 	}
-	for _, suffix := range []string{"", ".lock", ".pending", ".location"} {
-		if err := requireRegularFile(path+suffix, "settings path"); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	resolvedExecutable, err := pathguard.Resolve(executablePath)
+	if err != nil {
+		return err
+	}
+	if pathguard.Within(resolvedData, resolvedExecutable) {
+		return errors.New("the executable is inside the data directory; move it outside")
 	}
 	return nil
 }
 
-func (manager *Manager) installFiles(scope Scope, unit []byte, dataDir string) []managedFile {
+func (manager *Manager[T]) installFiles(scope Scope, unit []byte, dataDir string) ([]managedFile, error) {
 	files := []managedFile{{path: manager.unitPath(scope), data: unit}}
 	if scope == ScopeSystem {
-		path, _ := quotePathDirective(dataDir)
-		tmpfiles := strings.Replace(string(systemdassets.Tmpfiles), "/var/lib/sing-box-panel", path, 1)
+		path, err := quotePathDirective(dataDir)
+		if err != nil {
+			return nil, err
+		}
+		tmpfiles := strings.Replace(string(manager.definition.Tmpfiles), "/var/lib/"+manager.definition.Name, path, 1)
 		files = append(files,
-			managedFile{path: manager.layout.SystemSysusersPath, data: systemdassets.Sysusers},
+			managedFile{path: manager.layout.SystemSysusersPath, data: manager.definition.Sysusers},
 			managedFile{path: manager.layout.SystemTmpfilesPath, data: []byte(tmpfiles)},
 		)
+		for _, companion := range manager.definition.Companions {
+			data, err := manager.RenderCompanion(companion, manager.layout.SystemExecutablePath, dataDir)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, managedFile{path: manager.companionPath(companion.Name), data: data})
+		}
 	}
-	return files
+	return files, nil
 }
 
-func (manager *Manager) managedPaths(scope Scope) []string {
+// ManagedPaths lists the files the installer writes for scope.
+func (manager *Manager[T]) ManagedPaths(scope Scope) []string { return manager.managedPaths(scope) }
+
+func (manager *Manager[T]) managedPaths(scope Scope) []string {
 	paths := []string{manager.unitPath(scope)}
 	if scope == ScopeSystem {
 		paths = append(paths, manager.layout.SystemSysusersPath, manager.layout.SystemTmpfilesPath)
+		for _, companion := range manager.definition.Companions {
+			paths = append(paths, manager.companionPath(companion.Name))
+		}
 	}
 	return paths
 }
 
-func (manager *Manager) unitPath(scope Scope) string {
+// companionPath is where a companion unit sits: beside the system unit.
+func (manager *Manager[T]) companionPath(name string) string {
+	return filepath.Join(filepath.Dir(manager.layout.SystemUnitPath), name)
+}
+
+func (manager *Manager[T]) unitPath(scope Scope) string {
 	if scope == ScopeSystem {
 		return manager.layout.SystemUnitPath
 	}
 	return manager.layout.UserUnitPath
 }
 
-func (manager *Manager) systemctlPrefix(scope Scope) []string {
+func (manager *Manager[T]) systemctlPrefix(scope Scope) []string {
 	args := []string{"--no-ask-password"}
 	if scope == ScopeUser {
 		args = append(args, "--user")
@@ -171,17 +199,17 @@ func (manager *Manager) systemctlPrefix(scope Scope) []string {
 	return args
 }
 
-func (manager *Manager) runSystemctl(ctx context.Context, scope Scope, args ...string) error {
+func (manager *Manager[T]) runSystemctl(ctx context.Context, scope Scope, args ...string) error {
 	all := append(manager.systemctlPrefix(scope), args...)
 	return manager.run(ctx, "systemctl", all...)
 }
 
-func (manager *Manager) run(ctx context.Context, name string, args ...string) error {
+func (manager *Manager[T]) run(ctx context.Context, name string, args ...string) error {
 	_, err := manager.runResult(ctx, name, args...)
 	return err
 }
 
-func (manager *Manager) runResult(ctx context.Context, name string, args ...string) (CommandResult, error) {
+func (manager *Manager[T]) runResult(ctx context.Context, name string, args ...string) (CommandResult, error) {
 	result, err := manager.runner.Run(ctx, name, args...)
 	if err != nil {
 		return CommandResult{}, &CommandError{
@@ -192,47 +220,42 @@ func (manager *Manager) runResult(ctx context.Context, name string, args ...stri
 	return result, nil
 }
 
-func resolvedLayout(layout Layout) (Layout, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil && layout.UserUnitPath == "" {
-		return Layout{}, fmt.Errorf("resolve user config directory: %w", err)
+func resolvedLayout[T any](definition Definition[T], layout Layout) (Layout, error) {
+	// A process without a home, such as a root unit, has no user scope; its
+	// user unit path stays empty and user scope is refused.
+	userUnitPath := ""
+	if configDir, err := os.UserConfigDir(); err == nil {
+		userUnitPath = filepath.Join(configDir, "systemd", "user", definition.Name+".service")
 	}
+	name := definition.Name
 	defaults := Layout{
-		SystemUnitPath:       "/etc/systemd/system/" + UnitName,
-		SystemSysusersPath:   "/etc/sysusers.d/sing-box-panel.conf",
-		SystemTmpfilesPath:   "/etc/tmpfiles.d/sing-box-panel.conf",
-		SystemExecutablePath: "/usr/local/bin/sing-box-panel",
-		SystemSettingsPath:   "/etc/sing-box-panel/setting.json",
-		SystemDataDir:        "/var/lib/sing-box-panel",
-		UserUnitPath:         filepath.Join(configDir, "systemd", "user", UnitName),
+		SystemUnitPath:       "/etc/systemd/system/" + name + ".service",
+		SystemSysusersPath:   "/etc/sysusers.d/" + name + ".conf",
+		SystemTmpfilesPath:   "/etc/tmpfiles.d/" + name + ".conf",
+		SystemExecutablePath: "/usr/local/bin/" + name,
+		SystemStatePath:      definition.SystemStatePath,
+		SystemDataDir:        "/var/lib/" + name,
+		UserUnitPath:         userUnitPath,
 	}
-	if layout.SystemUnitPath != "" {
-		defaults.SystemUnitPath = layout.SystemUnitPath
-	}
-	if layout.SystemSysusersPath != "" {
-		defaults.SystemSysusersPath = layout.SystemSysusersPath
-	}
-	if layout.SystemTmpfilesPath != "" {
-		defaults.SystemTmpfilesPath = layout.SystemTmpfilesPath
-	}
-	if layout.SystemExecutablePath != "" {
-		defaults.SystemExecutablePath = layout.SystemExecutablePath
-	}
-	if layout.SystemSettingsPath != "" {
-		defaults.SystemSettingsPath = layout.SystemSettingsPath
-	}
-	if layout.SystemDataDir != "" {
-		defaults.SystemDataDir = layout.SystemDataDir
-	}
-	if layout.UserUnitPath != "" {
-		defaults.UserUnitPath = layout.UserUnitPath
+	for _, override := range []struct{ value, target *string }{
+		{&layout.SystemUnitPath, &defaults.SystemUnitPath}, {&layout.SystemSysusersPath, &defaults.SystemSysusersPath},
+		{&layout.SystemTmpfilesPath, &defaults.SystemTmpfilesPath}, {&layout.SystemExecutablePath, &defaults.SystemExecutablePath},
+		{&layout.SystemStatePath, &defaults.SystemStatePath}, {&layout.SystemDataDir, &defaults.SystemDataDir},
+		{&layout.UserUnitPath, &defaults.UserUnitPath},
+	} {
+		if *override.value != "" {
+			*override.target = *override.value
+		}
 	}
 	for name, value := range map[string]string{
 		"system unit path": defaults.SystemUnitPath, "system sysusers path": defaults.SystemSysusersPath,
 		"system tmpfiles path": defaults.SystemTmpfilesPath, "system executable path": defaults.SystemExecutablePath,
-		"system settings path": defaults.SystemSettingsPath, "system data directory": defaults.SystemDataDir,
+		"system state path": defaults.SystemStatePath, "system data directory": defaults.SystemDataDir,
 		"user unit path": defaults.UserUnitPath,
 	} {
+		if value == "" && name == "user unit path" {
+			continue
+		}
 		if _, err := cleanAbsolute(value, name); err != nil {
 			return Layout{}, err
 		}
@@ -267,17 +290,6 @@ func requireRegularExecutable(path string) error {
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("%w: executable path %q must be a regular executable file", ErrInvalid, path)
-	}
-	return nil
-}
-
-func requireRegularFile(path, label string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("inspect %s %q: %w", label, path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%w: %s %q must be a regular file", ErrInvalid, label, path)
 	}
 	return nil
 }

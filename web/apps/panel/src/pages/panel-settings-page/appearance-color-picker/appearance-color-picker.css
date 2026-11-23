@@ -1,0 +1,25 @@
+/* The picker renders its own markup, so its parts take their shape here. */
+
+.appearance-color-picker .react-colorful__saturation {
+  flex: none;
+  aspect-ratio: 2.15;
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.appearance-color-picker .react-colorful__hue {
+  height: 12px;
+  border-radius: var(--radius-pill);
+}
+
+.appearance-color-picker .react-colorful__pointer {
+  width: 18px;
+  height: 18px;
+  border-width: 3px;
+}
+
+.appearance-color-picker .react-colorful__hue-pointer {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}

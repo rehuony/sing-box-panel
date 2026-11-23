@@ -7,28 +7,30 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rehuony/sing-box-panel/internal/installation"
-	systemdassets "github.com/rehuony/sing-box-panel/systemd"
+	"github.com/rehuony/sing-box-panel/internal/pathguard"
 )
 
-func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]byte, error) {
-	template := systemdassets.SystemUnit
+// Render returns the unit for scope that runs executable with the state at
+// statePath and its data in dataDir.
+func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDir string) ([]byte, error) {
+	definition := manager.definition
+	template := definition.SystemUnit
 	if scope == ScopeUser {
-		template = systemdassets.UserUnit
+		template = definition.UserUnit
+	}
+	if template == nil {
+		return nil, fmt.Errorf("%w: %s has no %s unit", ErrInvalid, definition.Name, scope)
 	}
 	executable, err := quoteExecArgument(executablePath)
 	if err != nil {
 		return nil, err
 	}
-	settings, err := quoteExecArgument(settingsPath)
+	state, err := quoteExecArgument(statePath)
 	if err != nil {
 		return nil, err
 	}
-	data, err := quotePathDirective(dataDir)
-	if err != nil {
-		return nil, err
-	}
-	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+executable+" server start --config "+settings)
+	command := executable + " " + definition.Arguments(state)
+	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+command)
 	if err != nil {
 		return nil, err
 	}
@@ -40,15 +42,27 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	settingsDirectory, err := quotePathDirective(filepath.Dir(settingsPath))
-	if err != nil {
-		return nil, err
+	writable := []string{dataDir}
+	if definition.StateFile {
+		writable = append(writable, filepath.Dir(statePath))
 	}
-	result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+data+" "+settingsDirectory)
-	if err != nil {
-		return nil, err
+	quotedWritable := make([]string, 0, len(writable))
+	for _, path := range writable {
+		quoted, err := quotePathDirective(path)
+		if err != nil {
+			return nil, err
+		}
+		quotedWritable = append(quotedWritable, quoted)
 	}
-	if scope == ScopeSystem && dataDir != "/var/lib/sing-box-panel" {
+	// A template that confines the file system names the writable paths
+	// exactly once; one without ProtectSystem may leave them out.
+	if hasDirective(result, "ProtectSystem=") || hasDirective(result, "ReadWritePaths=") {
+		result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quotedWritable, " "))
+		if err != nil {
+			return nil, err
+		}
+	}
+	if scope == ScopeSystem && dataDir != "/var/lib/"+definition.Name {
 		// Custom roots are created by the installer; do not recreate the former
 		// default directory on each subsequent start.
 		result, err = replaceDirective(result, "StateDirectory=", "StateDirectory=")
@@ -56,12 +70,80 @@ func renderUnit(scope Scope, executablePath, settingsPath, dataDir string) ([]by
 			return nil, err
 		}
 	}
-	// PrivateTmp must not hide explicitly selected state or configuration.
-	// Bind only these dedicated directories, leaving the remaining sandbox intact.
+	if hasDirective(result, "PrivateTmp=") {
+		return bindTemporaryPaths(result, writable)
+	}
+	return result, nil
+}
+
+// RenderCompanion returns a companion unit of a system installation that
+// runs executable with its data in dataDir.
+func (manager *Manager[T]) RenderCompanion(companion Companion, executablePath, dataDir string) ([]byte, error) {
+	result := companion.Template
+	var err error
+	if hasDirective(result, "ExecStart=") {
+		if manager.definition.CompanionArguments == nil {
+			return nil, fmt.Errorf("%w: %s has no companion arguments", ErrInvalid, manager.definition.Name)
+		}
+		executable, err := quoteExecArgument(executablePath)
+		if err != nil {
+			return nil, err
+		}
+		data, err := quoteExecArgument(dataDir)
+		if err != nil {
+			return nil, err
+		}
+		if result, err = replaceDirective(result, "ExecStart=", "ExecStart="+executable+" "+manager.definition.CompanionArguments(data)); err != nil {
+			return nil, err
+		}
+	}
+	writable := []string{filepath.Dir(executablePath), dataDir}
+	if hasDirective(result, "ReadWritePaths=") {
+		quoted := make([]string, 0, len(writable))
+		for _, path := range writable {
+			value, err := quotePathDirective(path)
+			if err != nil {
+				return nil, err
+			}
+			quoted = append(quoted, value)
+		}
+		if result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quoted, " ")); err != nil {
+			return nil, err
+		}
+	}
+	if hasDirective(result, "PathExists=") {
+		watched, err := workingDirectoryValue(filepath.Join(dataDir, companion.Watch))
+		if err != nil || companion.Watch == "" {
+			return nil, fmt.Errorf("%w: the watched path cannot be represented losslessly", ErrInvalid)
+		}
+		if result, err = replaceDirective(result, "PathExists=", "PathExists="+watched); err != nil {
+			return nil, err
+		}
+	}
+	if hasDirective(result, "PrivateTmp=") {
+		return bindTemporaryPaths(result, writable[1:])
+	}
+	return result, nil
+}
+
+func hasDirective(source []byte, prefix string) bool {
+	for _, line := range strings.Split(string(source), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// bindTemporaryPaths keeps PrivateTmp from hiding explicitly selected state
+// or configuration: it binds only these dedicated directories, leaving the
+// remaining sandbox intact.
+func bindTemporaryPaths(result []byte, writable []string) ([]byte, error) {
+	var err error
 	var temporaryPaths []string
-	for _, path := range []string{dataDir, filepath.Dir(settingsPath)} {
+	for _, path := range writable {
 		for _, root := range []string{"/tmp", "/var/tmp"} {
-			inside, err := installation.DataDirectoryContainsPath(root, path)
+			inside, err := pathguard.Contains(root, path)
 			if err != nil {
 				return nil, err
 			}

@@ -13,7 +13,7 @@ package-pinned pnpm 11.21.0. Go and Web dependencies are locked by `go.mod`,
 From the repository root:
 
 ```sh
-make bootstrap
+make deps
 make check build
 ```
 
@@ -21,10 +21,10 @@ make check build
 formatting and modules, and runs `go vet`, Go tests, Web linting and tests,
 third-party notice checks, offline configuration-schema validation, OpenAPI
 checks, shell syntax checks, and network-independent installer contract tests.
-`make check-go`, `make check-web`, and `make check-contracts` run the individual
-groups described in [Contributing](../CONTRIBUTING.md#validation).
-`make build` (also the default for plain `make`) uses the same Web-first boundary
-and writes `bin/sing-box-panel`. Go compilation requires the generated `web/dist` tree;
+`make check-backend`, `make check-frontend`, and `make check-contracts` run the individual
+groups described in [Contributing](../.github/CONTRIBUTING.md#validation).
+`make build` uses the same Web-first boundary and writes `bin/sing-box-panel` and
+`bin/sing-box-node`; plain `make` lists the available targets. Go compilation requires the generated `web/apps/panel/dist` and `web/apps/node/dist` trees;
 that generated tree is the only UI source accepted by the Go build.
 
 ## Initialize settings and storage
@@ -53,23 +53,18 @@ configuration, or subscription data.
 
 ### Database compatibility
 
-The current application uses SQLite `application_id = 0x53425034` and storage
-schema version 17, defined in `internal/store/schema.sql`,
-`internal/store/traffic_months.sql`, `internal/store/traffic_checkpoint.sql` and
-`internal/store/subscription_node_orders.sql`. Empty databases are initialized directly.
-Versions 11–15 of the same application identity upgrade transactionally to
-version 17. Version 11 first adds durable monthly traffic totals; version 13
-removes obsolete `export_token_ids` from channel configuration while preserving
-all other channel data. Version 14 removes the retired channel organizer and
-independent group defaults and retains card order. Rule indices default to zero.
-Version 15 preserves recorded traffic while removing monthly completeness state
-and redundant checkpoint totals. Historical usage is not recalculated.
-Version 16 adds shared subscription node order; browser-local orders are not imported.
-Version 17 adds persistent administrator sessions while retaining business data.
-API clients must stop submitting retired fields and read recorded period usage
-directly instead of using the removed traffic availability/coverage fields. Unidentified
-databases, other application identities, and unsupported older or newer schemas
-are rejected without changing their data. The panel never deletes an unsupported database.
+The panel database uses SQLite `application_id = 0x53425034`; each node keeps
+its own `node.db` with `application_id = 0x5342504E`. Each schema is built by
+numbered migrations in `internal/sing-box-panel/store/migrations/` and
+`internal/sing-box-node/store/migrations/`, starting from `0001_baseline.sql`.
+Opening a database applies the migrations it has not recorded, in order, in one
+transaction, so an empty database receives all of them and a database written by
+an earlier release of this format is brought up to date. Databases written
+before the migration baseline, unidentified databases, other application
+identities, databases newer than the binary and databases whose recorded
+migrations differ from the binary's are rejected without changing their data.
+Use a fresh data directory for a database written before the baseline. The panel
+never deletes an unsupported database.
 Panel settings are read from the selected `setting.json` only.
 
 Configuration revisions contain a sing-box JSON object directly. SQLite's
@@ -92,18 +87,17 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/get/set/verify`, and manual edits use this same file. Shared fields retain
-their existing sections; `panel` adds the public node host, language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention. Panel events are retained indefinitely; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
+their existing sections; `panel` holds the language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention; each node's published host and traffic quota belong to that node's settings. Panel events are retained indefinitely; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
-See the [complete field mapping](guides/configuration-and-runtime.md#shared-settings-file).
+See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).
 To edit one field without replacing the document, use
 `./bin/sing-box-panel --config ./setting.json config set server.port 9090`.
 Read its stored value with `config get server.port`. Field keys use dots as
 separators. String values are literal text; numbers, arrays and objects use JSON.
-Clear an optional string with `config set github.token ''`, or a nullable value
-with `config set traffic.quota_gib null`. Use `config set auth.password --stdin`
+Clear an optional string with `config set github.token ''`. Use `config set auth.password --stdin`
 to hash and save a custom administrator password without echoing it. See
-[Panel settings](guides/cli.md#panel-settings) for field types and password handling.
+[Panel settings](cli.md#panel-settings) for field types and password handling.
 Only active settings are generated. Removed subscription author/provider and
 panel event retention fields are rejected; see the field mapping above for the
 breaking development change.
@@ -112,7 +106,7 @@ breaking development change.
 `config verify` and must be between 1 and 366;
 older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`
-without validating unrelated runtime fields; see [CLI configuration dependencies](guides/cli.md#global-flags-and-output).
+without validating unrelated runtime fields; see [CLI configuration dependencies](cli.md#global-flags-and-output).
 
 When the panel is served through a reverse proxy, set `server.external_origin`
 to the single public HTTP origin, for example `https://panel.example.com`.
@@ -129,7 +123,7 @@ logins. Successful attempts also count. A 429 response includes `Retry-After`;
 wait before trying again. Behind a reverse proxy or NAT, users share the direct
 peer's budget; forwarded IP headers do not change it. Fingerprint collection is
 local and optional, with no third-party telemetry. See the
-[authentication contract](development/architecture.md#management-authentication).
+[authentication contract](architecture.md#management-authentication).
 
 The generated listener is `127.0.0.1:3000`. Change `data_dir` to an absolute,
 empty directory when a test must also isolate the database.
@@ -168,47 +162,69 @@ Supply a new password containing 12–128 Unicode characters in `password.txt`.
 The command reads it without echoing it in output, preserves the email and
 other configuration, and stores only its Argon2id hash. Existing sessions become invalid
 at their next authentication check. It works while the server is stopped or running
-and requires no restart. See the [CLI reference](guides/cli.md) for input handling.
+and requires no restart. See the [CLI reference](cli.md) for input handling.
 
 This runs in the foreground. Stop it with `Ctrl+C`, or run
 `./bin/sing-box-panel server stop --config ./setting.json` in another terminal.
 Use `server status` with the same settings to inspect the process. For
 background operation, install and start the systemd service instead.
 
-The server exposes the embedded UI and management API and exclusively owns the
-core process. Keep it active for configuration checks, enabling/disabling a core,
-and start/stop/restart/rollback. Manage catalogs, installed cores, subscriptions,
-logs, and metrics in the Web UI. The CLI provides panel settings, service and
+The server exposes the embedded UI, the management API and the node service on
+one port, and runs no sing-box. Configuration checks, enabling or disabling a
+core, start, stop, restart, and rollback through the authenticated API are
+commands the panel sends to a node, so that node must be online; saving a
+node's configuration works while it is offline. Manage nodes, catalogs,
+installed cores, subscriptions, logs, and metrics in the Web UI. The CLI provides panel settings, node registration, service and
 installation maintenance; its panel status/stop controls use the owner-only Unix socket.
 
-Runtime recovery and configured source refresh keep their own bounded schedules.
-There is no generic operation queue or detached polling API.
+Source refresh, catalog refresh and retention keep their own bounded schedules
+on the panel; each node recovers its own runtime. There is no generic operation
+queue or detached polling API.
+
+## Add a node
+
+The panel manages sing-box only on nodes. Add one in the Web UI's Nodes view,
+or with `./bin/sing-box-panel node add NAME --config ./setting.json`. Either
+shows a one-time enrollment command that is valid for one hour; the node
+appears once it enrolls. Run it on the node's Linux host, then start the node:
+
+```sh
+./bin/sing-box-node enroll --code <code>
+./bin/sing-box-node run
+```
+
+The node dials the panel, so the code must name an address the node can reach:
+the generated loopback listener serves a node on the same host, and a node on
+another host needs `nodes.endpoint` or `server.external_origin`. See
+[Nodes](cli.md#nodes) for the node's data directory and states, and
+[Panel and node architecture](panel-node-architecture.md) for enrollment and
+trust.
 
 ## Edit the sing-box configuration
 
-Log in to the Web UI and open Configuration. The panel keeps one sing-box
-document, logically named `config.json`, as text in the `configuration_file`
-table of `panel.db`. The Web editor manages it; there is no separately editable
-file on disk or CLI for its content. Before accepting requests, startup creates
-and saves this minimal document if no configuration exists:
+Log in to the Web UI, open the node and select its Configuration tab. The panel
+keeps one sing-box document per node, logically named `config.json`, as text in
+the `node_configurations` table of `panel.db`. The Web editor manages it; there
+is no separately editable file on disk or CLI for its content. Adding a node
+saves this minimal document as its first configuration:
 
 ```json
 {}
 ```
 
-You can install and enable a core immediately without first saving an empty
-configuration manually. Edit and save the configuration in the Web editor,
+You can install and enable a core on the node immediately without first saving
+a configuration manually. Edit and save the configuration in the Web editor,
 then use Validate configuration to check the saved text and Start or Restart
-to load it. Repeated starts preserve existing configuration, including invalid
-or unfinished text.
+to load it. The saved text, including invalid or unfinished text, is kept
+across panel and node restarts.
 Concurrent saves use the current file revision and reject stale edits instead
 of merging implicitly. Invalid JSON can be saved as text but blocks validation,
 Enable, Start, and Restart until corrected. Core lifecycle and artifact management
 use the Web UI or authenticated HTTP API. The `config init/show/get/set/verify` commands manage
-only the panel's `setting.json`; see [Panel settings](guides/cli.md#panel-settings).
+only the panel's `setting.json`; see [Panel settings](cli.md#panel-settings).
 
-Continue with [Core versions](guides/core-versions.md), then
-[Configuration and runtime](guides/configuration-and-runtime.md).
+Continue with [Core versions](core-versions.md), then
+[Configuration and runtime](configuration-and-runtime.md).
 
 ## Install a systemd service
 
@@ -228,10 +244,24 @@ directory, database, and configuration storage declared by that settings file
 as it exists now. Each value names its on-disk source; the settings of the
 running process are not inspected and are reported as unknown, and a unit file
 edited since systemd loaded it is flagged as stale.
-`--scope=auto` selects `system` for root and `user` otherwise. The system unit
-grants `CAP_DAC_READ_SEARCH` for reading root-owned certificates without changing
-their ownership or permissions; the user unit grants no capabilities.
-TUN, transparent proxying, raw sockets, and
-privileged ports require a reviewed local override. See the authoritative
-[systemd packaging guide](../systemd/README.md) before deploying a
+`--scope=auto` selects `system` for root and `user` otherwise. Each node host
+installs its own service with `sing-box-node systemd install`. The node's system
+unit grants `CAP_DAC_READ_SEARCH` so sing-box can read root-owned certificates
+without changing their ownership or permissions; the panel's units and the
+node's user unit grant no capabilities. The node's user unit does not confine
+the file system: a user-scope node can write wherever its user can. TUN,
+transparent proxying, raw sockets, and privileged ports on a node require a
+reviewed local override. See the authoritative
+[systemd packaging guide](systemd.md) before deploying a
 system service.
+
+## Update the panel and nodes
+
+A release build updates itself to a newer signed release. The panel settings'
+maintenance category shows the panel's version and the newest stable release
+and updates the panel; a node's settings tab updates that node to the panel's
+own release, and nodes never contact GitHub. Restarting a node restarts its
+core, so its proxy is briefly interrupted. From a shell, `sing-box-panel update`
+and `sing-box-node update` do the same; see the [CLI reference](cli.md). A
+system service hands each update to its root update helper, described in the
+[systemd packaging guide](systemd.md#update-helper).

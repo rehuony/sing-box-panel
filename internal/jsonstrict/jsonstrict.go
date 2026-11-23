@@ -30,6 +30,14 @@ func Decode(data []byte, maxBytes int64, target any) error {
 	decoder.DisallowUnknownFields()
 	decoder.UseNumber()
 	if err := decoder.Decode(target); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			// The decoder's own text names Go types, which callers show.
+			if typeErr.Field == "" {
+				return fmt.Errorf("decode JSON: unexpected %s value", typeErr.Value)
+			}
+			return fmt.Errorf("decode JSON: field %q has an unexpected %s value", typeErr.Field, typeErr.Value)
+		}
 		return fmt.Errorf("decode JSON: %w", err)
 	}
 	var trailing any
@@ -40,6 +48,26 @@ func Decode(data []byte, maxBytes int64, target any) error {
 		return fmt.Errorf("decode JSON trailing input: %w", err)
 	}
 	return nil
+}
+
+// CanonicalObject decodes data, or fallback when data is empty, as one strict
+// JSON object and re-encodes it with sorted keys.
+func CanonicalObject(data []byte, fallback string, maxBytes int64) (json.RawMessage, error) {
+	if len(data) == 0 {
+		data = []byte(fallback)
+	}
+	var object map[string]any
+	if err := Decode(data, maxBytes, &object); err != nil {
+		return nil, err
+	}
+	if object == nil {
+		return nil, errors.New("value must be a non-null JSON object")
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, fmt.Errorf("encode JSON object: %w", err)
+	}
+	return encoded, nil
 }
 
 func rejectDuplicateKeys(data []byte) error {

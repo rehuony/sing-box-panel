@@ -9,76 +9,71 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
-	"github.com/rehuony/sing-box-panel/internal/installation"
-	"github.com/rehuony/sing-box-panel/internal/settings"
+	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 )
 
-func (manager *Manager) Install(ctx context.Context, request InstallRequest) (result InstallResult, installErr error) {
+func (manager *Manager[T]) Install(ctx context.Context, request InstallRequest) (result InstallResult[T], installErr error) {
 	if err := manager.requireLinux(); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 	scope, err := manager.resolveScope(request.Scope)
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 	if err := manager.requireMutationPermission(scope); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
-	request, err = manager.resolveInstallSettings(scope, request)
+	request, err = manager.resolveInstall(scope, request)
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
-	executablePath, settingsPath, dataDir, err := manager.validateInstallPaths(scope, request)
+	executablePath, statePath, dataDir, err := manager.validateInstallPaths(scope, request)
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 
-	unit, err := renderUnit(scope, executablePath, settingsPath, dataDir)
+	unit, err := manager.Render(scope, executablePath, statePath, dataDir)
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
-	files := manager.installFiles(scope, unit, dataDir)
+	files, err := manager.installFiles(scope, unit, dataDir)
+	if err != nil {
+		return InstallResult[T]{}, err
+	}
 	if err := preflightInstall(files, request.Force); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
-	for _, path := range append([]string{settingsPath}, manager.managedPaths(scope)...) {
+	for _, path := range append([]string{statePath}, manager.managedPaths(scope)...) {
 		if err := writableParent(path); err != nil {
-			return InstallResult{}, err
+			return InstallResult[T]{}, err
 		}
 	}
 	if err := writableDirectory(dataDir); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 	if err := manager.preflightCommands(ctx, scope, true); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 	if scope == ScopeSystem {
 		if _, err := manager.inspectSystemAccount(ctx); err != nil {
-			return InstallResult{}, err
+			return InstallResult[T]{}, err
 		}
 	}
-	if location, err := settings.ReadDataLocation(settingsPath); err == nil && (location.DataDir != dataDir || location.Move != nil) {
-		prepared, err := installation.PrepareDataLocation(ctx, settingsPath)
-		if err != nil {
-			return InstallResult{}, err
-		}
-		if prepared.DataDir != dataDir {
-			return InstallResult{}, errors.New("data directory changed during service installation; retry with the current settings")
-		}
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return InstallResult{}, err
+	if err := manager.definition.State.Relocate(ctx, statePath, dataDir); err != nil {
+		return InstallResult[T]{}, err
 	}
-	initial, err := prepareResources(ctx, request)
-	defer func() { result.InitialSettings = initial; result.SettingsCreated = initial != nil }()
+	initial, err := manager.prepareResources(ctx, request)
+	defer func() { result.Initial, result.StateCreated = initial, initial != nil }()
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 	installed := make([]string, 0, len(files))
 	for _, file := range files {
 		changed, writeErr := installFile(file.path, file.data)
 		if writeErr != nil {
-			return InstallResult{}, writeErr
+			return InstallResult[T]{}, writeErr
 		}
 		if changed {
 			installed = append(installed, file.path)
@@ -86,32 +81,38 @@ func (manager *Manager) Install(ctx context.Context, request InstallRequest) (re
 	}
 
 	if scope == ScopeSystem {
-		if err := manager.prepareSystemOwnership(ctx, settingsPath, dataDir); err != nil {
-			return InstallResult{}, err
+		if err := manager.prepareSystemOwnership(ctx, statePath, dataDir); err != nil {
+			return InstallResult[T]{}, err
 		}
 	}
 
 	if err := manager.runSystemctl(ctx, scope, "daemon-reload"); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
 	}
 	enableArgs := []string{"enable"}
 	if request.Now {
 		enableArgs = append(enableArgs, "--now")
 	}
-	enableArgs = append(enableArgs, UnitName)
+	enableArgs = append(enableArgs, manager.unitName)
 	if err := manager.runSystemctl(ctx, scope, enableArgs...); err != nil {
-		return InstallResult{}, err
+		return InstallResult[T]{}, err
+	}
+	// Companions such as the update helper's path unit run whether or not
+	// the service starts now.
+	if names := manager.enabledCompanions(scope); len(names) != 0 {
+		if err := manager.runSystemctl(ctx, scope, append([]string{"enable", "--now"}, names...)...); err != nil {
+			return InstallResult[T]{}, err
+		}
 	}
 
-	return InstallResult{
-		SettingsCreated: initial != nil,
-		Scope:           scope, Unit: UnitName, UnitPath: manager.unitPath(scope), ExecutablePath: executablePath,
-		SettingsPath: settingsPath, DataDir: dataDir, InstalledPaths: installed,
+	return InstallResult[T]{
+		Scope: scope, Unit: manager.unitName, UnitPath: manager.unitPath(scope), ExecutablePath: executablePath,
+		StatePath: statePath, DataDir: dataDir, InstalledPaths: installed,
 		Enabled: true, Started: request.Now, PersistentState: true,
 	}, nil
 }
 
-func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest) (result UninstallResult, uninstallErr error) {
+func (manager *Manager[T]) Uninstall(ctx context.Context, request UninstallRequest) (result UninstallResult, uninstallErr error) {
 	if err := manager.requireLinux(); err != nil {
 		return UninstallResult{}, err
 	}
@@ -122,10 +123,10 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 	if err := manager.requireMutationPermission(scope); err != nil {
 		return UninstallResult{}, err
 	}
-	result = UninstallResult{Scope: scope, Unit: UnitName, RemovedPaths: []string{},
+	result = UninstallResult{Scope: scope, Unit: manager.unitName, RemovedPaths: []string{},
 		ConfigRetained: true, DataRetained: true}
 	paths := manager.managedPaths(scope)
-	existing, err := preflightUninstall(paths, request.Force)
+	existing, err := preflightUninstall(paths, manager.managedMark(), request.Force)
 	if err != nil {
 		return result, err
 	}
@@ -178,11 +179,15 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 		result.Stopped = true
 		return result, nil
 	}
+	// The update helper must not act on a service being removed.
+	if err := manager.stopCompanions(ctx, scope, existing); err != nil {
+		return result, err
+	}
 	if !unitStopped(status) {
 		if status.UnitPath != manager.unitPath(scope) {
 			return result, fmt.Errorf("%w: cannot establish running service ownership", ErrConflict)
 		}
-		if err := manager.runSystemctl(ctx, scope, "stop", UnitName); err != nil {
+		if err := manager.runSystemctl(ctx, scope, "stop", manager.unitName); err != nil {
 			return result, err
 		}
 		status, err = manager.queryStatus(ctx, scope)
@@ -200,12 +205,12 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 	}
 	result.Stopped = true
 	if fileExists(manager.unitPath(scope)) || len(links) > 0 {
-		args := []string{"disable", "--no-reload", UnitName}
+		args := []string{"disable", "--no-reload", manager.unitName}
 		if account != (systemAccount{}) {
 			// Account removal rechecks NeedDaemonReload. Let systemctl refresh
 			// its own enablement changes before that check; stale configuration
 			// present before disable is still rejected above.
-			args = []string{"disable", UnitName}
+			args = []string{"disable", manager.unitName}
 		}
 		disableErr := manager.runSystemctl(ctx, scope, args...)
 		// Disable can remove links before its implicit reload fails.
@@ -260,7 +265,7 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 			return result, fmt.Errorf("remove managed systemd file %q: %w", path, err)
 		}
 		result.RemovedPaths = append(result.RemovedPaths, path)
-		if err := syncDirectory(filepath.Dir(path)); err != nil {
+		if err := atomicfile.SyncDir(filepath.Dir(path)); err != nil {
 			return result, err
 		}
 	}
@@ -270,11 +275,47 @@ func (manager *Manager) Uninstall(ctx context.Context, request UninstallRequest)
 	return result, nil
 }
 
+// enabledCompanions names the companions enabled with the service.
+func (manager *Manager[T]) enabledCompanions(scope Scope) []string {
+	var names []string
+	if scope == ScopeSystem {
+		for _, companion := range manager.definition.Companions {
+			if companion.Enable {
+				names = append(names, companion.Name)
+			}
+		}
+	}
+	return names
+}
+
+// stopCompanions disables and stops the installed companions, the enabled
+// ones first so they start no other.
+func (manager *Manager[T]) stopCompanions(ctx context.Context, scope Scope, existing []string) error {
+	if scope != ScopeSystem {
+		return nil
+	}
+	for _, enabled := range []bool{true, false} {
+		for _, companion := range manager.definition.Companions {
+			if companion.Enable != enabled || !slices.Contains(existing, manager.companionPath(companion.Name)) {
+				continue
+			}
+			args := []string{"stop", companion.Name}
+			if enabled {
+				args = []string{"disable", "--now", companion.Name}
+			}
+			if err := manager.runSystemctl(ctx, scope, args...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func unitStopped(status Status) bool {
 	return status.MainPID == 0 && (status.ActiveState == "inactive" || status.ActiveState == "failed")
 }
 
-func (manager *Manager) prepareSystemOwnership(ctx context.Context, settingsPath, dataDir string) error {
+func (manager *Manager[T]) prepareSystemOwnership(ctx context.Context, statePath, dataDir string) error {
 	if _, err := manager.inspectSystemAccount(ctx); err != nil {
 		return err
 	}
@@ -284,32 +325,24 @@ func (manager *Manager) prepareSystemOwnership(ctx context.Context, settingsPath
 	if err := manager.run(ctx, "systemd-tmpfiles", "--create", manager.layout.SystemTmpfilesPath); err != nil {
 		return err
 	}
-	settingsDirectory := filepath.Dir(settingsPath)
-	for _, path := range []string{settingsDirectory, settingsPath, settingsPath + ".lock", settingsPath + ".pending", settingsPath + ".location"} {
-		info, err := os.Lstat(path)
-		if errors.Is(err, os.ErrNotExist) && path != settingsPath && path != settingsDirectory {
+	account := manager.definition.Name + ":" + manager.definition.Name
+	for _, owned := range manager.definition.State.Owned(statePath) {
+		info, err := os.Lstat(owned.Path)
+		if errors.Is(err, os.ErrNotExist) && owned.Optional {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || (path != settingsDirectory && !info.Mode().IsRegular()) {
-			return fmt.Errorf("invalid settings path %q", path)
+		if info.Mode()&os.ModeSymlink != 0 || (owned.Directory && !info.IsDir()) || (!owned.Directory && !info.Mode().IsRegular()) {
+			return fmt.Errorf("invalid %s path %q", manager.definition.StateLabel, owned.Path)
 		}
-		if err := manager.run(ctx, "chown", serviceUser+":"+serviceGroup, path); err != nil {
+		if err := manager.run(ctx, "chown", account, owned.Path); err != nil {
 			return err
 		}
-		mode := os.FileMode(0600)
-		if path == settingsDirectory {
-			mode = 0700
-		}
-		if err := os.Chmod(path, mode); err != nil {
-			return fmt.Errorf("set settings permissions: %w", err)
+		if err := os.Chmod(owned.Path, owned.Mode); err != nil {
+			return fmt.Errorf("set %s permissions: %w", manager.definition.StateLabel, err)
 		}
 	}
-	if err := manager.run(ctx, "chown", "--recursive", "--no-dereference", serviceUser+":"+serviceGroup, dataDir); err != nil {
-		return err
-	}
-
-	return nil
+	return manager.run(ctx, "chown", "--recursive", "--no-dereference", account, dataDir)
 }

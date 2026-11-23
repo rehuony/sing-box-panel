@@ -1,0 +1,4193 @@
+openapi: 3.1.0
+info:
+  title: sing-box-panel API
+  version: 0.2.0
+  description: >-
+    Local management API for one raw sing-box configuration
+    history, optional native schemas, immutable startup artifacts, runtime
+    operations, live subscription publication, and sanitized observability.
+    Responses include X-Request-ID, also returned as request_id in problems.
+    Every error is an RFC 9457 problem: 401 without a valid session, 403 when a
+    write fails its CSRF or origin check, 405 for a method its path lacks, 413
+    for a body over the operation's limit, and 503 when the panel cannot read
+    its records; operations list their other statuses.
+    A single nonempty, valid UTF-8 request ID of at most 128 bytes is preserved;
+    missing, empty, oversized, invalid UTF-8, or repeated request ID headers
+    receive a generated ID.
+  license:
+    name: GPL-3.0-or-later
+    identifier: GPL-3.0-or-later
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /nodes/{nodeId}/filesystem/entries:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: listFilesystemEntries
+      description: >-
+        Read-only browsing within the node process filesystem namespace and OS permissions.
+        Relative paths use data_dir/runtime. An existing file opens its parent;
+        missing paths ascend to the nearest existing directory with fallback=true.
+        Permission errors do not ascend. Symlinks and dot components retain their
+        selected spelling and are resolved by the OS, without lexical path cleaning.
+        No file content is read. Hidden names are excluded by default. Directories
+        precede other entries, then names sort by UTF-8 bytes. A scan is limited
+        to 20000 entries; larger directories return filesystem_directory_too_large.
+        Invalid UTF-8 names cannot be represented and are omitted. Responses are no-store.
+      parameters:
+        - name: path
+          in: query
+          description: Initial file or directory path; defaults to data_dir/runtime.
+          schema: {type: string, minLength: 1, maxLength: 4096}
+        - name: search
+          in: query
+          description: Case-insensitive filename substring within this directory.
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: show_hidden
+          in: query
+          schema: {type: boolean, default: false}
+        - name: offset
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 2147483647, default: 0}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+      responses:
+        "200":
+          description: Directory metadata and one page; an out-of-range offset is clamped to the last page.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilesystemPage'}
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        "500":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/filesystem/resolve:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: resolveFilesystemPath
+      description: >-
+        Check existence and target type immediately before selecting an absolute path.
+        Relative paths use data_dir/runtime. output-file accepts an existing regular
+        file or a missing file with an existing directory parent. Broken links are
+        rejected. Links are followed for type checks but their paths are preserved.
+        Dot components are resolved by the OS without lexical path cleaning.
+        Does not create files, read content, check content validity or guarantee
+        availability or write permission at core startup. Responses are no-store.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 4096}
+        - name: mode
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/FilesystemMode'}
+      responses:
+        "200":
+          description: Checked absolute path and target metadata.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilesystemSelection'}
+        "400":
+          $ref: '#/components/responses/Problem'
+        "401":
+          $ref: '#/components/responses/Problem'
+        "403":
+          $ref: '#/components/responses/Problem'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        "500":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/settings:
+    get:
+      operationId: getPanelSettings
+      responses:
+        "200":
+          description: Persisted settings with credentials redacted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelSettingsView"
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: savePanelSettings
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PanelSettingsWrite"
+      responses:
+        "200":
+          description: Saved settings. Network changes require a panel restart; credential changes invalidate prior sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelSettingsSaveResult"
+        "412":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /panel/backup:
+    get:
+      operationId: exportPanelBackup
+      responses:
+        "200":
+          description: Plaintext backup of the saved panel settings, including credentials. Never cached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelBackup'}
+        "500":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/restore:
+    post:
+      operationId: restorePanelBackup
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PanelRestoreRequest'}
+      responses:
+        "200":
+          description: The saved panel settings restored atomically. Node configurations are not part of a backup.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelRestoreResult'}
+        "412":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/config/file:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getConfigurationFile
+      responses:
+        "200":
+          description: The one editable configuration file, including incomplete JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationFile"
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: saveConfigurationFile
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationFileWrite"
+      responses:
+        "200":
+          description: Exact saved text. Saving does not validate or change the running process.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationFile"
+        "412":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Health"
+        default:
+          $ref: "#/components/responses/Problem"
+  /auth/session:
+    get:
+      operationId: getSession
+      description: Restore identity and CSRF after reload or restart. A storage error returns 503 without clearing the Cookie.
+      responses:
+        "200":
+          $ref: "#/components/responses/Session"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSession
+      description: Email/password login. Requires a same-origin application/json request with a body of at most 4 KiB. Rotates the current browser session on success. Attempts are counted before verification, including successful and malformed requests. Fixed one-minute windows permit 5 attempts per direct peer (IPv6 /64) and optional fingerprint, and 30 across the process; at most 2 logins execute concurrently. Login reads, lock waits, and response writes share a 5-second deadline, including rejected responses and buffered output. Deadline expiry may close the connection or reset the stream before a problem response can be delivered. Limits return 429 with Retry-After and are not reset by success.
+      security: []
+      parameters:
+        - name: Origin
+          in: header
+          required: true
+          schema: {type: string}
+          description: Configured external origin, or the listener origin when no external origin is configured.
+        - name: X-Client-Fingerprint
+          in: header
+          required: false
+          schema: {type: string, pattern: '^[a-f0-9]{32}$', minLength: 32, maxLength: 32}
+          description: Optional FingerprintJS visitorId. An untrusted supplementary rate-limit key, never an authentication factor. Missing fingerprints retain peer and global limits; malformed or repeated headers return 400. Forwarded IP headers are ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Session"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "429":
+          description: Login rate or concurrency limit reached.
+          headers:
+            Retry-After:
+              description: Seconds before attempting another login.
+              schema: {type: integer, minimum: 1}
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        "503":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSession
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Problem"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /system/status:
+    get:
+      operationId: getSystemStatus
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /system/update:
+    get:
+      operationId: getSystemUpdate
+      description: >-
+        The panel's version, the newest stable release it knows, when it last
+        checked, and the state of its update. The panel checks on the catalog
+        refresh interval.
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemUpdate"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: startSystemUpdate
+      description: >-
+        Starts updating the panel to the newest stable release it knows, in
+        the background. A system service downloads and verifies the release
+        and stages it for its root update helper, which installs it and
+        restarts the panel; a panel that may replace its executable installs
+        it and, under a user unit, restarts, or otherwise waits for a manual
+        restart. Follow the state with getSystemUpdate; the panel restarts,
+        so the connection ends.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "202":
+          $ref: "#/components/responses/SystemUpdate"
+        "409":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /system/update/check:
+    post:
+      operationId: checkSystemUpdate
+      description: Asks GitHub for the newest stable release now.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/SystemUpdate"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "502":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/config/preview:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: previewConfiguration
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [core_artifact_id]
+              properties:
+                core_artifact_id:
+                  type: string
+      responses:
+        "200":
+          description: Non-persisted raw sing-box JSON for the selected exact binary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationPreview"
+        "409":
+          description: configuration_not_saved; save a configuration before previewing it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/config/compile:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: compileConfiguration
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [core_artifact_id]
+              properties:
+                core_artifact_id:
+                  type: string
+      responses:
+        "200":
+          description: Immutable raw configuration artifact after the exact-core check completes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationCompile"
+        "409":
+          description: configuration_not_saved; save a configuration before checking it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/config/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: listStartupArtifacts
+      parameters:
+        - $ref: "#/components/parameters/CanonicalRevisionFilter"
+        - $ref: "#/components/parameters/CoreVersionFilter"
+        - $ref: "#/components/parameters/CoreArtifactFilter"
+        - $ref: "#/components/parameters/StartupStateFilter"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/StartupArtifactPage"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/config/apply:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: applyStartupArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/Activation"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeResponse"
+        default:
+          $ref: "#/components/responses/Problem"
+  /core/catalog/assets:
+    get:
+      operationId: listCoreCatalogAssets
+      parameters:
+        - $ref: "#/components/parameters/ExactVersion"
+        - $ref: "#/components/parameters/Architecture"
+        - $ref: "#/components/parameters/Variant"
+      responses:
+        "200":
+          $ref: "#/components/responses/CatalogAssetList"
+        default:
+          $ref: "#/components/responses/Problem"
+  /core/catalog/refresh:
+    post:
+      operationId: refreshCoreCatalog
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [force]
+              properties:
+                force:
+                  type: boolean
+      responses:
+        "200":
+          $ref: "#/components/responses/CatalogRefresh"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: listCoreArtifacts
+      parameters:
+        - $ref: "#/components/parameters/ExactVersion"
+        - $ref: "#/components/parameters/Architecture"
+        - $ref: "#/components/parameters/Variant"
+        - $ref: "#/components/parameters/CoreSourceKind"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/CoreArtifactPage"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/artifacts/{artifactId}:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: getCoreArtifact
+      responses:
+        "200":
+          $ref: "#/components/responses/CoreArtifact"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteCoreArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/artifacts/{artifactId}/enable:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: "#/components/parameters/ArtifactID"
+    post:
+      operationId: enableCoreArtifact
+      description: Validate and select this platform-matching binary using the saved configuration. Adding a node initializes its configuration to an empty JSON object. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        "409":
+          description: configuration_not_saved or core_enable_blocked; save a configuration and select a compatible core before retrying.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/artifacts/{artifactId}/disable:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: "#/components/parameters/ArtifactID"
+    post:
+      operationId: disableCoreArtifact
+      description: Stop the enabled core and clear its selected version and current symlink after the stop succeeds. Reject requests for a different or no-longer-enabled artifact. Ordinary runtime stop retains the selected version.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/artifacts/{artifactId}/configuration-support:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: getCoreArtifactConfigurationSupport
+      responses:
+        "200":
+          description: Structured editor availability for the exact sing-box version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationSupport"
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/core/artifacts/{artifactId}/configuration-schema:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: getCoreArtifactConfigurationSchema
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Native Draft 2020-12 schema for the artifact's exact sing-box version.
+          headers:
+            ETag:
+              description: Validator bound to the exact version and Schema digest.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationSchemaContract"
+        "304":
+          description: The exact-version Schema has not changed.
+          headers:
+            ETag:
+              description: Validator bound to the exact version and Schema digest.
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/core/install:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: installCoreArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [asset_id]
+              properties:
+                asset_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+      responses:
+        "200":
+          $ref: "#/components/responses/CoreArtifact"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/import:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: importCoreArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [archive, exact_version, architecture, variant]
+              properties:
+                archive:
+                  type: string
+                  format: binary
+                exact_version:
+                  type: string
+                architecture:
+                  type: string
+                variant:
+                  $ref: "#/components/schemas/CoreVariant"
+                source_description:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/CoreArtifact"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/status:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getCoreRuntimeStatus
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/runtime/history:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getCoreRuntimeHistory
+      description: The node's runtime history as it reported it; entries survive the node going offline.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/RuntimeTransitionStateFilter"
+        - $ref: "#/components/parameters/RuntimeTransitionReasonFilter"
+        - $ref: "#/components/parameters/ActivationBundleFilter"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/RuntimeTransitionBeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeHistoryPage"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/check:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: checkStartupArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/StartupArtifact"
+      responses:
+        "200":
+          $ref: "#/components/responses/StartupArtifactSummary"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/activate:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: activateStartupArtifact
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/Activation"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeResponse"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/start:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: startCoreRuntime
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/stop:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: stopCoreRuntime
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/restart:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: restartCoreRuntime
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/core/rollback:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: rollbackCoreRuntime
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeRollbackRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /fleet/status:
+    get:
+      operationId: getFleetStatus
+      description: >-
+        Registered nodes with the metrics and recorded traffic getMetrics
+        returns for each, without latest_sample and the period's counters, in
+        one read for the fleet views. The panel answers from the snapshot
+        streamFleetStatus shares while it is at most two seconds old, and
+        reads a new one otherwise. Without parameters every node is
+        returned. Quotas belong to nodes and are never summed.
+      parameters:
+        - $ref: "#/components/parameters/FleetState"
+        - $ref: "#/components/parameters/FleetTag"
+        - $ref: "#/components/parameters/FleetQuery"
+        - $ref: "#/components/parameters/FleetLimit"
+        - $ref: "#/components/parameters/FleetCursor"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The selected nodes ordered by name, each with its metrics.
+          headers:
+            ETag:
+              description: Digest of the response body; an unchanged page answers If-None-Match with 304.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FleetStatus'}
+        "304":
+          description: The page matches If-None-Match.
+          headers:
+            ETag:
+              description: Digest of the unchanged response body.
+              schema:
+                type: string
+        "400":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /fleet/stream:
+    get:
+      operationId: streamFleetStatus
+      summary: Stream the selected nodes, then their changes every two seconds
+      parameters:
+        - $ref: "#/components/parameters/FleetState"
+        - $ref: "#/components/parameters/FleetTag"
+        - $ref: "#/components/parameters/FleetQuery"
+      responses:
+        '200':
+          description: Server-sent fleet events, each limited to 16 MiB including UTF-8 framing. Each data field is a FleetStreamFrame. The first frame of a connection has reset true and every selected node in name order, as getFleetStatus returns them; later frames carry only the nodes whose item differs from what this connection last received and the IDs of nodes deleted or no longer selected, and a read with no difference sends no frame. A node's item keeps its collected_at while nothing else in it changes. One shared read every two seconds serves every client, and it runs only while a client streams; streaming does not change how often nodes sample. Invalid parameters and initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication and start again from a reset frame.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
+  /fleet/commands:
+    post:
+      operationId: runFleetCommand
+      description: >-
+        Runs one action on the listed nodes, or on every node with a tag, at
+        most four nodes at once, and streams every node's outcome as it
+        finishes, so progress and partial success are visible. Each node's
+        command is the single-node operation, recorded as one, with its own
+        deadline; the batch keeps running when the client disconnects.
+        install_core installs exact_version from the official catalog archive
+        for each node's recorded platform, caching each platform's archive
+        once, when its first node needs it. update runs updateNodeRelease on one
+        node at a time instead: it waits for each node to come back reporting
+        the panel's version, for at most five minutes, and stops at the first
+        failure, reporting the nodes after it as skipped. Problems found
+        before any node runs answer as a problem.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FleetCommand'}
+      responses:
+        "200":
+          description: >-
+            Server-sent events: one result event per selected node as it
+            finishes, whose data is a FleetCommandResult, then one done event
+            whose data is a FleetCommandSummary. An ID of no node is reported
+            at once. Heartbeat comments arrive every ten seconds while the
+            batch runs.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes:
+    get:
+      operationId: listNodes
+      description: Enrolled nodes with their session state.
+      responses:
+        "200":
+          description: Nodes ordered by name.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NodePage'}
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createNode
+      description: >-
+        Issues the one-time enrollment code for a new node, which a host
+        redeems with sing-box-node enroll. The node exists, with the returned
+        ID, only once a host enrolls with the code: until then no node list,
+        status, stream, count, fleet command or name lookup includes it. A new
+        code for the same name, ignoring case, replaces an unused one; a name
+        an enrolled node uses is a conflict. Responses are no-store.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeNameRequest'}
+      responses:
+        "201":
+          $ref: '#/components/responses/NodeEnrollment'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getNode
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Node'}
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: updateNode
+      description: Renames the node.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeNameRequest'}
+      responses:
+        "200":
+          description: The renamed node.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Node'}
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteNode
+      description: Removes the node and its key and ends its session.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "204":
+          $ref: '#/components/responses/NoContent'
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/enrollment:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: createNodeEnrollment
+      description: >-
+        Issues a new one-time enrollment code for the node, replacing an
+        unused one. Enrolling with it replaces the node's key and ends its
+        session; the current key stays valid until then. Responses are
+        no-store.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "201":
+          $ref: '#/components/responses/NodeEnrollment'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: cancelNodeEnrollment
+      description: >-
+        Discards the unused enrollment code issued for this node ID, whether a
+        new node's, which then creates nothing, or an enrolled node's, which
+        keeps its key. Succeeds when there is no such code.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "204":
+          $ref: '#/components/responses/NoContent'
+        default:
+          $ref: '#/components/responses/Problem'
+  /subscription/nodes:
+    get:
+      operationId: listSubscriptionNodes
+      description: >-
+        The subscription node pool in its saved order: every inbound the fleet's
+        nodes publish and every node their sources keep after filtering. The pool
+        is synchronized when a node applies a configuration, changes its public
+        host or is deleted, and when a source's content, filter or existence
+        changes; a node that disappears is deleted together with its channel
+        memberships and grants, and new nodes are appended in origin order.
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionNodeList"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/node-order:
+    put:
+      operationId: setSubscriptionNodeOrder
+      description: >-
+        Saves the pool order. The IDs must be exactly the pool's current IDs, each
+        once; otherwise the pool changed since it was read and the request answers 409.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionNodeOrder"}
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionNodeList"
+        "409":
+          description: The pool changed since it was read; reload it before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
+  /subscription/nodes/{nodeId}:
+    parameters: [{$ref: "#/components/parameters/SubscriptionNodeID"}]
+    get:
+      operationId: getSubscriptionNode
+      responses:
+        "200":
+          description: Node detail including its outbound and credentials; never cache
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: updateSubscriptionNode
+      description: Changes the node's display name, the name channels publish it under.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionNodeUpdate"}
+      responses:
+        "200":
+          description: Updated node
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeDetail"}}}
+        "409":
+          description: Another node already uses the display name
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
+  /subscription/users:
+    get:
+      operationId: listSubscriptionUsers
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionUserPage"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSubscriptionUser
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionUser"
+      responses:
+        "201":
+          $ref: "#/components/responses/SubscriptionUser"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/users/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      operationId: getSubscriptionUser
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionUser"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateSubscriptionUser
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionUser"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionUser"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSubscriptionUser
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/users/{userId}/grants:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    get:
+      operationId: getSubscriptionUserGrants
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionUserGrants"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: replaceSubscriptionUserGrants
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [grants]
+              properties:
+                grants:
+                  type: array
+                  description: Subscription node IDs the user may receive.
+                  items:
+                    type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionUserGrants"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/channels:
+    get:
+      operationId: listSubscriptionChannels
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionChannelPage"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionChannel"
+      responses:
+        "201":
+          $ref: "#/components/responses/SubscriptionChannel"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/channels/{channelId}:
+    parameters:
+      - $ref: "#/components/parameters/ChannelID"
+    get:
+      operationId: getSubscriptionChannel
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionChannel"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionChannel"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionChannel"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/channels/{channelId}/preview:
+    parameters:
+      - $ref: "#/components/parameters/ChannelID"
+    post:
+      operationId: previewSubscriptionChannel
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                user_id:
+                  type: string
+                draft:
+                  $ref: "#/components/schemas/SubscriptionDraftPreview"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionPreview"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/rule-sets:
+    get:
+      operationId: listSubscriptionRuleSets
+      description: Every rule set, or one client's, in name order.
+      parameters:
+        - name: client
+          in: query
+          required: false
+          schema: {type: string, enum: [sing-box, mihomo, loon]}
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionRuleSetList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSubscriptionRuleSet
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionRuleSetCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/SubscriptionRuleSet"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/rule-sets/{ruleSetId}:
+    parameters:
+      - $ref: "#/components/parameters/RuleSetID"
+    get:
+      operationId: getSubscriptionRuleSet
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionRuleSet"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateSubscriptionRuleSet
+      description: >-
+        Replaces the rule set's name and rules; every channel that routes by it
+        publishes the new rules at once. Its client never changes. An update is
+        refused with rules: too_many_rules when a channel using the set would
+        expand to more than 20000 rules.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionRuleSetUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionRuleSet"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSubscriptionRuleSet
+      description: >-
+        Deletes the rule set and the exit rules of every channel that routes by it;
+        those channels' updated_at advances, so an edit opened before refuses with 412.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/sources:
+    get:
+      operationId: listSubscriptionSources
+      parameters:
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionSourcePage"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSubscriptionSource
+      description: >-
+        Creates a source from a URL, which is fetched now, or from content in the
+        request. The source is created only when the content parses and every node
+        its filter keeps converts; its nodes then join the pool.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionSourceCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/SubscriptionSource"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/sources/preview:
+    post:
+      operationId: previewSubscriptionSource
+      description: >-
+        Parses content without saving anything: a stored source's content, a URL's
+        content or the content in the request, filtered by the given rules.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionSourcePreviewRequest"}
+      responses:
+        "200":
+          description: The nodes the content holds and whether the filter keeps each
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourcePreview"}}}
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/sources/{sourceId}:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+    get:
+      operationId: getSubscriptionSource
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionSource"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateSubscriptionSource
+      description: >-
+        Changes the source's settings, and a file source's content when content
+        is given, in one write. New content is read with the new format and
+        filter; content that does not parse, or holds a kept node that does not
+        convert, is rejected and nothing is saved. Without content, a changed
+        filter applies to the stored content at once and a changed URL or
+        format is read on the next refresh.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        $ref: "#/components/requestBodies/SubscriptionSourceUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionSource"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSubscriptionSource
+      description: Deletes the source and removes its nodes from the pool and every channel.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/sources/{sourceId}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/SourceID"
+    post:
+      operationId: refreshSubscriptionSource
+      description: >-
+        Fetches a URL source now. A failed fetch or parse keeps the current content
+        and nodes, records the failure in last_error and answers a problem.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionSource"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/tokens:
+    get:
+      operationId: listSubscriptionTokens
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionTokenPage"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionTokenCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/CreatedSubscriptionToken"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/tokens/{tokenId}:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    get:
+      operationId: getSubscriptionToken
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionToken"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/tokens/{tokenId}/secret:
+    parameters:
+      - $ref: '#/components/parameters/TokenID'
+    get:
+      operationId: getSubscriptionTokenSecret
+      summary: Reveal a stored subscription key for authenticated administration
+      responses:
+        '200':
+          description: Secret key. Response is never cached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SubscriptionTokenSecret'}
+        default: {$ref: '#/components/responses/Problem'}
+  /subscription/tokens/{tokenId}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: rotateSubscriptionToken
+      description: >-
+        Replaces an unrevoked key regardless of its enabled or active state.
+        Atomically revokes the old key and preserves enablement, access scope,
+        download quota and usage. Expiry is retained unless expires_at is supplied.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expires_at:
+                  type: [string, "null"]
+                  format: date-time
+      responses:
+        "201":
+          $ref: "#/components/responses/SubscriptionTokenRotation"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/tokens/{tokenId}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: revokeSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionToken"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/tokens/{tokenId}/enable:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: enableSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionToken"
+        default:
+          $ref: "#/components/responses/Problem"
+  /subscription/tokens/{tokenId}/disable:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: disableSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionToken"
+        default:
+          $ref: "#/components/responses/Problem"
+  /sub/{token}/{channelId}:
+    servers:
+      - url: /
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: "#/components/parameters/ChannelID"
+    get:
+      operationId: downloadSubscription
+      security: []
+      description: >-
+        Successful responses include the recorded traffic of the fleet nodes whose
+        inbounds the channel publishes, each in that node's current period; total is
+        always 0. Settings or traffic-storage failures return 503 without consuming
+        download quota. The final authorization recheck must pass before traffic
+        metadata is exposed. Traffic changes do not change the body ETag.
+      responses:
+        "200":
+          description: Rendered subscription for the key's channel scope and policy, retaining live grants for legacy user-scoped keys.
+          headers:
+            Subscription-Userinfo:
+              $ref: '#/components/headers/SubscriptionUserinfo'
+        "304":
+          description: The current live publication matches If-None-Match. Includes refreshed traffic metadata and consumes no body download quota.
+          headers:
+            Subscription-Userinfo:
+              $ref: '#/components/headers/SubscriptionUserinfo'
+        "404":
+          $ref: '#/components/responses/Problem'
+        "503":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /nodes/{nodeId}/core/logs/files:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    delete:
+      operationId: deleteCoreLogFile
+      summary: Delete one managed core output file outside the current UTC day
+      description: Deletes only the node's captured copy, never the native log.output file. All segments from the current UTC day are protected. Cookie sessions require CSRF protection.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+      responses:
+        '204':
+          description: The selected managed file was deleted.
+        '400': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409':
+          description: The selected file belongs to the current UTC day (core_log_current).
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        default: {$ref: '#/components/responses/Problem'}
+    get:
+      operationId: listCoreLogFiles
+      summary: List bounded captured core output files
+      description: The panel service creates a capture for the current UTC date at startup and UTC midnight, even without core output. Existing daily segments are preserved. Empty files are listed and follow the same retention policy. Offline dates are not backfilled.
+      responses:
+        '200':
+          description: Most recent files first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/CoreLogFile'}}
+        default: {$ref: '#/components/responses/Problem'}
+  /nodes/{nodeId}/core/logs/content:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    delete:
+      operationId: clearCoreLog
+      summary: Clear the persisted contents of one managed core output file
+      description: Truncates only the selected captured file, including an active file from today. The file remains available and new output continues to append. Other segments, dates, database events and the native log.output file are unchanged. Filters do not restrict clearing. Discard pending reads and streams before clearing; after success discard displayed contents and restart at offset 0. Byte offsets from before clearing are invalid. Cookie sessions require CSRF protection.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+      responses:
+        '204':
+          description: Existing captured contents were cleared. New output may already have been appended.
+        '400': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        default: {$ref: '#/components/responses/Problem'}
+    get:
+      operationId: readCoreLog
+      parameters:
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+        - name: offset
+          in: query
+          schema: {type: integer, format: int64, minimum: -1, default: -1}
+        - name: generation
+          in: query
+          description: Generation returned with the previous chunk. If stale, the read restarts at zero and returns reset=true.
+          schema: {type: string, maxLength: 128}
+      responses:
+        '200':
+          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset and generation. Clearing a file or restarting the server changes its generation; discard the previous display when reset is true. Offset-only clients remain supported but must discard their own pre-clear cursors.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CoreLogChunk'}
+        default: {$ref: '#/components/responses/Problem'}
+  /nodes/{nodeId}/core/logs/stream:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: streamCoreLog
+      parameters:
+        - name: file
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}-\d{3,20}\.log$'}
+        - name: offset
+          in: query
+          schema: {type: integer, format: int64, minimum: -1, default: -1}
+        - name: generation
+          in: query
+          description: Generation returned with the previous chunk. If stale, the read restarts at zero and returns reset=true.
+          schema: {type: string, maxLength: 128}
+      responses:
+        '200':
+          description: Sanitized native process output. Offset -1 starts at the last 64 KiB; reconnect using next_offset and generation. Clearing a file or restarting the server changes its generation; discard the previous display when reset is true. Offset-only clients remain supported but must discard their own pre-clear cursors.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
+  /logs/panel:
+    get:
+      operationId: listPanelLogs
+      summary: Panel events and runtime transitions, newest first
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
+        - $ref: '#/components/parameters/Limit'
+        - name: before_time
+          in: query
+          schema: {type: string, format: date-time}
+        - name: before_id
+          in: query
+          schema: {type: string}
+        - name: search
+          in: query
+          schema: {type: string, maxLength: 256}
+          description: Case-insensitive substring of the original message or event code. Combined with search_codes using OR.
+        - name: node_id
+          in: query
+          schema: {type: string, maxLength: 128}
+          description: Keeps only the entries about this node, such as its runtime transitions and the operations on it.
+        - name: search_codes
+          in: query
+          description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 64 KiB, allowing the full code range even with percent encoding.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 128
+            items: {type: string, maxLength: 128, pattern: '^[a-z][a-z0-9_.-]*$'}
+      responses:
+        '200':
+          description: Panel activity and runtime transition history.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelLogPage'}
+        default: {$ref: '#/components/responses/Problem'}
+  /logs:
+    get:
+      operationId: listLogs
+      parameters:
+        - $ref: "#/components/parameters/LogSource"
+        - $ref: "#/components/parameters/LogLevel"
+        - $ref: "#/components/parameters/LogCode"
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/AfterTime"
+        - $ref: "#/components/parameters/AfterID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/LogPage"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: clearLogs
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/LogSource"
+        - $ref: "#/components/parameters/Before"
+      responses:
+        "200":
+          $ref: "#/components/responses/LogClearResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /logs/stream:
+    get:
+      operationId: streamLogs
+      description: >-
+        Sanitized log entries as `log` events whose IDs resume the stream
+        through Last-Event-ID. The stream ends within a minute with a
+        `control` event of type `reconnect`, so the client reconnects and
+        authenticates again.
+      parameters:
+        - $ref: "#/components/parameters/LogSource"
+        - $ref: "#/components/parameters/LogLevel"
+        - $ref: "#/components/parameters/LogCode"
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/AfterTime"
+        - $ref: "#/components/parameters/AfterID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/LastEventID"
+      responses:
+        "200":
+          description: Sanitized durable log stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Problem'
+  /logs/{logId}:
+    parameters:
+      - $ref: "#/components/parameters/LogID"
+    get:
+      operationId: getLog
+      responses:
+        "200":
+          $ref: "#/components/responses/LogEntry"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteLog
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/LogDeleteResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/metrics:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getMetrics
+      responses:
+        "200":
+          $ref: "#/components/responses/MetricsSnapshot"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/metrics/stream:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: streamMetrics
+      summary: Stream the node's current metrics and reported runtime every second
+      responses:
+        '200':
+          description: Server-sent metrics events, each containing metrics and runtime objects. While any client streams a node's metrics, the node samples once a second; otherwise it samples every ten seconds. Initial snapshot failures return a Problem response before opening the stream. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
+  /nodes/{nodeId}/dashboard/stream:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: streamDashboard
+      summary: Stream the node's cached dashboard projection every thirty seconds
+      responses:
+        '200':
+          description: Server-sent dashboard events, each limited to 1 MiB including UTF-8 framing. Each data field is a DashboardStreamSnapshot. Runtime history includes at most 4096 newest transitions, or fewer to fit the byte limit, with a next cursor whenever older records are omitted. Initial snapshot failures return a Problem response. Heartbeat comments arrive every ten seconds. A control event with type reconnect precedes normal rotation within one minute; clients should immediately renew authentication. Shared collection is independent of client writes, and the last subscriber cancels pending collection.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Problem'}
+  /nodes/{nodeId}/metrics/history:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getMetricsHistory
+      description: Returns at most 512 buckets across a range no longer than 90 days; missing evidence remains null.
+      parameters:
+        - $ref: "#/components/parameters/MetricsHistoryFrom"
+        - $ref: "#/components/parameters/MetricsHistoryTo"
+        - $ref: "#/components/parameters/MetricsHistoryBucketSeconds"
+        - $ref: "#/components/parameters/ActivationBundleFilter"
+      responses:
+        "200":
+          $ref: "#/components/responses/MetricsHistory"
+        default:
+          $ref: "#/components/responses/Problem"
+  /traffic/status:
+    get:
+      operationId: getTrafficStatus
+      description: Every node's recorded traffic in its own current period against its own quota, and the summed usage. Quotas belong to nodes and are never summed.
+      responses:
+        "200":
+          $ref: "#/components/responses/TrafficStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/settings:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getNodeSettings
+      responses:
+        "200":
+          description: The panel's settings for the node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeSettings"
+        default:
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: saveNodeSettings
+      description: Replaces the node's settings while revision is still current. Subscriptions, periods and quota status follow at once; recorded traffic is unchanged.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeSettings"
+      responses:
+        "200":
+          description: The saved settings with their new revision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeSettings"
+        "412":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/update:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    post:
+      operationId: updateNodeRelease
+      description: >-
+        Asks the node to update itself to the panel's release, which the
+        panel caches and verifies first. The node fetches it from the panel,
+        verifies it with its own release key, and installs it or stages it
+        for its root update helper; restarting the node restarts its core, so
+        its proxy is briefly interrupted. A panel that is not a release build
+        answers node_update_unavailable, a node whose protocol predates
+        updates node_upgrade_required, and a node already updating
+        node_update_in_progress.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          description: How the update left the node.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NodeUpdate'}
+        "409":
+          $ref: "#/components/responses/Problem"
+        "502":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/traffic/periods:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: listTrafficPeriods
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/BeforeTime"
+        - $ref: "#/components/parameters/BeforeID"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/TrafficPeriodPage"
+        default:
+          $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/traffic/periods/{periodId}:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+      - $ref: "#/components/parameters/TrafficPeriodID"
+    get:
+      operationId: getTrafficPeriod
+      responses:
+        "200":
+          $ref: "#/components/responses/TrafficPeriod"
+        default:
+          $ref: "#/components/responses/Problem"
+components:
+  headers:
+    SubscriptionUserinfo:
+      description: >-
+        Semicolon-and-space-separated byte integers. upload is every node's recorded
+        outbound bytes in that node's current period; download is the same for
+        inbound bytes. total is always 0, because quotas belong to individual nodes
+        and their sum would not tell a client how much it can still use. A node's
+        new period starts with zero recorded usage without deleting historical
+        totals. This header contains no expire field or refresh
+        interval; clients see updated values
+        on their next successful subscription refresh.
+      schema:
+        type: string
+        pattern: '^upload=[0-9]+; download=[0-9]+; total=[0-9]+$'
+        example: 'upload=123; download=456; total=0'
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: sbp_session
+  parameters:
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      description: Required for authenticated writes, together with a same-origin Origin header.
+      schema:
+        type: string
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+    FleetState:
+      name: state
+      in: query
+      description: Only nodes in this state.
+      schema:
+        type: string
+        enum: [online, offline]
+    FleetTag:
+      name: tag
+      in: query
+      description: Only nodes with this tag.
+      schema:
+        $ref: "#/components/schemas/NodeTag"
+    FleetQuery:
+      name: q
+      in: query
+      description: Only nodes whose name, hostname or public IP contains this text, ignoring case.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    FleetLimit:
+      name: limit
+      in: query
+      description: At most this many nodes; without it every selected node.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+    FleetCursor:
+      name: cursor
+      in: query
+      description: The next_cursor of the previous page. It holds a position in name order, so pages continue correctly when nodes change.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    BeforeTime:
+      name: before_time
+      in: query
+      description: Must be supplied together with before_id.
+      schema:
+        type: string
+        format: date-time
+    BeforeID:
+      name: before_id
+      in: query
+      description: Must be supplied together with before_time.
+      schema:
+        type: string
+    RuntimeTransitionBeforeID:
+      name: before_id
+      in: query
+      description: Numeric runtime-transition ID; must be supplied together with before_time.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    ExactVersion:
+      name: exact_version
+      in: query
+      schema:
+        type: string
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    Architecture:
+      name: architecture
+      in: query
+      schema:
+        type: string
+        enum: [amd64, arm64]
+    Variant:
+      name: variant
+      in: query
+      schema:
+        $ref: "#/components/schemas/CoreVariant"
+    CoreSourceKind:
+      name: source_kind
+      in: query
+      schema:
+        type: string
+        enum: [official, user_verified]
+    CanonicalRevisionFilter:
+      name: canonical_revision_id
+      in: query
+      schema:
+        type: string
+    CoreVersionFilter:
+      name: core_version
+      in: query
+      schema:
+        type: string
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    CoreArtifactFilter:
+      name: core_artifact_id
+      in: query
+      schema:
+        type: string
+    StartupStateFilter:
+      name: state
+      in: query
+      schema:
+        type: string
+        enum: [pending, ready, failed]
+    LogSource:
+      name: source
+      in: query
+      schema:
+        type: string
+        enum: [panel, core, security]
+    PageOffset:
+      name: offset
+      in: query
+      description: Zero-based row offset for numbered pages. Cannot be combined with before_time or before_id. Existing cursor pagination remains supported.
+      schema: {type: integer, minimum: 0, maximum: 2147483647, default: 0}
+    LogLevel:
+      name: level
+      in: query
+      schema:
+        type: string
+        enum: [trace, debug, info, warn, error, fatal]
+    LogCode:
+      name: code
+      in: query
+      schema:
+        type: string
+    Since:
+      name: since
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Until:
+      name: until
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Before:
+      name: before
+      in: query
+      schema:
+        type: string
+        format: date-time
+    AfterTime:
+      name: after_time
+      in: query
+      description: Must be supplied together with after_id.
+      schema:
+        type: string
+        format: date-time
+    AfterID:
+      name: after_id
+      in: query
+      description: Must be supplied together with after_time.
+      schema:
+        type: string
+    LastEventID:
+      name: Last-Event-ID
+      in: header
+      schema:
+        type: string
+    ActivationBundleFilter:
+      name: activation_bundle_id
+      in: query
+      schema:
+        type: string
+    RuntimeTransitionStateFilter:
+      name: state
+      in: query
+      schema:
+        type: string
+        enum: [running, stopped, failed, unknown]
+    RuntimeTransitionReasonFilter:
+      name: reason
+      in: query
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[a-z][a-z0-9_.-]*$'
+    From:
+      name: from
+      in: query
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      schema:
+        type: string
+        format: date-time
+    MetricsHistoryFrom:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+    MetricsHistoryTo:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+    MetricsHistoryBucketSeconds:
+      name: bucket_seconds
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    ArtifactID:
+      name: artifactId
+      in: path
+      required: true
+      schema:
+        type: string
+    UserID:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    NodeID:
+      name: nodeId
+      in: path
+      required: true
+      description: >-
+        The node. Operations that command it answer 503 node_offline while it
+        is disconnected, since commands are not queued, and 502
+        node_result_unknown when its session ends before it answers.
+      schema: {type: string}
+    ChannelID:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
+    SourceID:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+    RuleSetID:
+      name: ruleSetId
+      in: path
+      required: true
+      schema:
+        type: string
+    SubscriptionNodeID:
+      name: nodeId
+      in: path
+      required: true
+      description: A node of the subscription node pool.
+      schema:
+        type: string
+    TokenID:
+      name: tokenId
+      in: path
+      required: true
+      schema:
+        type: string
+    LogID:
+      name: logId
+      in: path
+      required: true
+      schema:
+        type: string
+    TrafficPeriodID:
+      name: periodId
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBodies:
+    StartupArtifact:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [startup_artifact_id]
+            properties:
+              startup_artifact_id:
+                type: string
+    Activation:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [startup_artifact_id, monitoring_tier]
+            properties:
+              startup_artifact_id:
+                type: string
+              monitoring_tier:
+                type: string
+                enum: [process_only, limited]
+    SubscriptionUser:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionUserInput"
+    SubscriptionChannel:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionChannelInput"
+    SubscriptionSourceCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionSourceCreate"
+    SubscriptionRuleSetCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionRuleSetCreate"
+    SubscriptionRuleSetUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionRuleSetUpdate"
+    SubscriptionSourceUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionSourceUpdate"
+  responses:
+    StartupArtifactSummary:
+      description: Validated startup artifact.
+      content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactSummary"}}}
+    CatalogRefresh:
+      description: Completed catalog refresh.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CatalogRefresh"}}}
+    Health:
+      $ref: "#/components/responses/HealthResponse"
+    HealthResponse:
+      description: Panel process health and build version.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Health"}}}
+    Session:
+      description: Current management session.
+      content: {application/json: {schema: {$ref: "#/components/schemas/Session"}}}
+    SystemStatus:
+      description: The panel's build and platform.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SystemStatus"}}}
+    SystemUpdate:
+      description: The panel's version, the newest release it knows and the state of its update.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SystemUpdate"}}}
+    StartupArtifactPage:
+      description: Page of immutable startup artifacts.
+      content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactPage"}}}
+    RuntimeResponse:
+      description: Completed runtime operation and observed process state.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeResponse"}}}
+    CatalogAssetList:
+      description: Filtered catalog assets.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CatalogAssetList"}}}
+    CoreArtifactPage:
+      description: Page of immutable core artifacts.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CoreArtifactPage"}}}
+    CoreArtifact:
+      description: Immutable core artifact metadata.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CoreArtifact"}}}
+    RuntimeStatus:
+      description: Durable runtime intent and observed process identity.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeStatus"}}}
+    RuntimeHistoryPage:
+      description: Stable newest-first page of durable runtime transitions.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeHistoryPage"}}}
+    SubscriptionNodeList:
+      description: The subscription node pool in its saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeList"}}}
+    SubscriptionUserPage:
+      description: Page of subscription users.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserPage"}}}
+    SubscriptionUser:
+      description: Subscription user.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUser"}}}
+    SubscriptionUserGrants:
+      description: Subscription user and live node grants.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserGrants"}}}
+    SubscriptionChannelPage:
+      description: Page of subscription channels.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannelPage"}}}
+    SubscriptionChannel:
+      description: Subscription channel.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannel"}}}
+    SubscriptionPreview:
+      description: Rendered subscription preview and provenance.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionPreview"}}}
+    SubscriptionSourcePage:
+      description: Page of subscription sources.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourcePage"}}}
+    SubscriptionSource:
+      description: Subscription source.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSource"}}}
+    SubscriptionRuleSetList:
+      description: Rule sets in name order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSetList"}}}
+    SubscriptionRuleSet:
+      description: Rule set.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSet"}}}
+    SubscriptionTokenPage:
+      description: Page of subscription token metadata.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
+    CreatedSubscriptionToken:
+      description: Token metadata and plaintext token.
+      content: {application/json: {schema: {$ref: "#/components/schemas/CreatedSubscriptionToken"}}}
+    SubscriptionToken:
+      description: Subscription token metadata.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionToken"}}}
+    SubscriptionTokenRotation:
+      description: Revoked token, replacement metadata, and plaintext token.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenRotation"}}}
+    LogPage:
+      description: Page of sanitized durable logs.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogPage"}}}
+    LogClearResult:
+      description: Count of deleted log entries.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogClearResult"}}}
+    LogEntry:
+      description: Sanitized durable log entry.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogEntry"}}}
+    LogDeleteResult:
+      description: Deleted log identity.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogDeleteResult"}}}
+    MetricsSnapshot:
+      description: The node's latest reported metrics and recorded traffic.
+      content: {application/json: {schema: {$ref: "#/components/schemas/MetricsSnapshot"}}}
+    TrafficStatus:
+      description: Each node's recorded traffic and quota, and the fleet's summed usage.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TrafficStatus"}}}
+    MetricsHistory:
+      description: Bounded, gap-preserving historical metric buckets.
+      content: {application/json: {schema: {$ref: "#/components/schemas/MetricsHistory"}}}
+    TrafficPeriodPage:
+      description: Traffic periods.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriodPage"}}}
+    TrafficPeriod:
+      description: One persisted traffic period.
+      content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriod"}}}
+    NoContent:
+      description: Operation completed without a response body.
+    NodeEnrollment:
+      description: A node's one-time enrollment code. Never cached.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/NodeEnrollment'}
+    Problem:
+      description: RFC 9457 problem response.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    FilesystemMode:
+      type: string
+      enum: [file, directory, output-file, socket]
+    FilesystemEntry:
+      type: object
+      additionalProperties: false
+      required: [name, path, kind, symlink, available]
+      properties:
+        name: {type: string}
+        path: {type: string}
+        kind: {type: string, enum: [file, directory, socket, other]}
+        symlink: {type: boolean}
+        available:
+          type: boolean
+          description: Target metadata was accessible; false includes broken links and entries removed during listing.
+    FilesystemPage:
+      type: object
+      additionalProperties: false
+      required: [path, parent, requested_path, fallback, items, total, offset, limit]
+      properties:
+        path: {type: string}
+        parent: {type: string}
+        requested_path: {type: string}
+        fallback: {type: boolean}
+        items:
+          type: array
+          maxItems: 200
+          items: {$ref: '#/components/schemas/FilesystemEntry'}
+        total: {type: integer, minimum: 0}
+        offset: {type: integer, minimum: 0}
+        limit: {type: integer, minimum: 1, maximum: 200}
+    FilesystemSelection:
+      type: object
+      additionalProperties: false
+      required: [path, parent, kind, exists, symlink]
+      properties:
+        path: {type: string}
+        parent: {type: string}
+        kind: {type: string, enum: [file, directory, socket]}
+        exists: {type: boolean}
+        symlink: {type: boolean}
+    CatalogRefresh:
+      type: object
+      additionalProperties: false
+      required: [refreshed_at, not_modified, releases, assets]
+      properties:
+        refreshed_at: {type: string, format: date-time}
+        not_modified: {type: boolean}
+        releases: {type: integer, minimum: 0}
+        assets: {type: integer, minimum: 0}
+    AppearanceSettings:
+      type: object
+      additionalProperties: false
+      required: [theme, color, radius]
+      properties:
+        theme:
+          type: string
+          enum: [light, dark, system]
+        color:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        radius:
+          type: integer
+          minimum: 0
+          maximum: 32
+    PanelPreferences:
+      type: object
+      additionalProperties: false
+      required: [listen_host, listen_port, external_origin, language, appearance]
+      properties:
+        listen_host:
+          type: string
+          maxLength: 64
+        listen_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        external_origin:
+          type: string
+          maxLength: 2048
+        language:
+          type: string
+          enum: [zh-CN, en]
+        appearance:
+          $ref: '#/components/schemas/AppearanceSettings'
+    ConfigurationFile:
+      type: object
+      description: The saved sing-box document. Adding a node initializes its document to {} at revision 1.
+      additionalProperties: false
+      required: [revision, content, syntax_valid]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        content:
+          type: string
+          maxLength: 2097152
+        canonical_revision_id:
+          type: string
+        syntax_valid:
+          type: boolean
+          description: Strict JSON object syntax only; does not imply sing-box check succeeded.
+        updated_at:
+          type: string
+          format: date-time
+    ConfigurationFileWrite:
+      type: object
+      additionalProperties: false
+      required: [revision, content]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        content:
+          type: string
+          maxLength: 2097152
+    Node:
+      type: object
+      additionalProperties: false
+      required: [id, name, state, created_at, enrolled_at, last_seen_at, hostname, os, arch, build_version, tags, update_available, last_update]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 64}
+        state:
+          type: string
+          enum: [online, offline]
+          description: online while the node holds an authenticated session.
+        created_at:
+          type: string
+          format: date-time
+          description: When the node first enrolled.
+        enrolled_at:
+          type: string
+          format: date-time
+          description: When the node last enrolled.
+        last_seen_at:
+          type: [string, "null"]
+          format: date-time
+        hostname:
+          type: string
+          description: Reported by the node when it enrolls.
+        os:
+          type: string
+          description: The node host's GOOS, reported in its latest session.
+        arch:
+          type: string
+          description: The node host's GOARCH, reported in its latest session.
+        build_version:
+          type: string
+          description: The node's build version, reported in its latest session.
+        tags:
+          type: array
+          description: The node's tags from its settings, sorted.
+          items: {$ref: '#/components/schemas/NodeTag'}
+        reported_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the node last reported its state. The reported values stay visible while the node is offline and are then stale.
+        public_ip:
+          type: string
+          description: The public IP address the node last reported; empty when unknown.
+        runtime:
+          $ref: "#/components/schemas/RuntimeStatus"
+          description: The runtime state the node last reported; absent before its first report.
+        update_available:
+          type: boolean
+          description: The node's version differs from the panel's release; always false on a panel that is not a release build.
+        last_update:
+          description: The node's last update attempt as it last reported it; after its root update helper's attempt the node reports it once it runs again.
+          oneOf:
+            - {$ref: '#/components/schemas/UpdateAttempt'}
+            - {type: 'null'}
+    UpdateAttempt:
+      type: object
+      additionalProperties: false
+      required: [version, succeeded, code, finished_at]
+      properties:
+        version: {type: string}
+        succeeded: {type: boolean}
+        code:
+          type: string
+          description: On failure, a short code such as signature_invalid, version_not_newer, service_not_active or helper_unavailable (the root update helper did not take a staged release within two minutes); empty on success.
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+    NodeUpdate:
+      type: object
+      additionalProperties: false
+      required: [node_id, version, state]
+      properties:
+        node_id: {type: string}
+        version: {type: string, description: The panel's release the node was asked to run.}
+        state:
+          type: string
+          enum: [up_to_date, restarting, staged, restart_required]
+          description: >-
+            up_to_date: the node already runs it. restarting: the node
+            installed it and its service restarts now. staged: the node's
+            system service staged it for its root update helper, which
+            installs it and restarts the node. restart_required: the node
+            installed it and runs it once restarted.
+    SystemUpdate:
+      type: object
+      additionalProperties: false
+      required: [current_version, supported, latest_version, checked_at, check_failure, update_available, state, target_version, last_attempt]
+      properties:
+        current_version: {type: string}
+        supported:
+          type: boolean
+          description: The panel is a release build on linux/amd64 or linux/arm64 and can update itself.
+        latest_version: {type: [string, "null"]}
+        checked_at: {type: [string, "null"], format: date-time}
+        check_failure:
+          type: [string, "null"]
+          description: The code of the last check's failure.
+        update_available: {type: boolean}
+        state:
+          type: string
+          enum: [idle, updating, staged, restarting, restart_required]
+          description: >-
+            updating: the release is being downloaded, verified and installed
+            or staged. staged: the root update helper installs it and
+            restarts the panel. restarting: the panel's unit restarts into it.
+            restart_required: it runs once the panel is restarted.
+        target_version: {type: [string, "null"]}
+        last_attempt:
+          oneOf:
+            - {$ref: '#/components/schemas/UpdateAttempt'}
+            - {type: 'null'}
+    NodePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Node'}
+    FleetStatus:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/NodeStatus'}
+        next_cursor:
+          type: string
+          description: Continues with the next page; absent on the last page.
+    NodeStatus:
+      type: object
+      additionalProperties: false
+      required: [node, metrics]
+      properties:
+        node: {$ref: '#/components/schemas/Node'}
+        metrics:
+          $ref: '#/components/schemas/MetricsSnapshot'
+          description: The node's metrics without latest_sample and the period's counters.
+    NodeTag:
+      type: string
+      minLength: 1
+      maxLength: 32
+      pattern: '^[a-z0-9_-]+$'
+    FleetCommand:
+      type: object
+      additionalProperties: false
+      required: [action]
+      description: Exactly one of node_ids and tag selects the nodes.
+      properties:
+        action:
+          type: string
+          enum: [start, stop, restart, install_core, update]
+        node_ids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {type: string}
+          description: The nodes, each commanded once.
+        tag:
+          $ref: '#/components/schemas/NodeTag'
+          description: Every node with this tag.
+        exact_version:
+          $ref: '#/components/schemas/ExactCoreVersion'
+          description: >-
+            The version install_core installs; required for install_core
+            only, and the catalog must have it for some platform. A node with
+            no recorded platform fails with node_platform_unknown, a platform
+            the version has no archive for with core_asset_unavailable, and
+            every node of a platform whose archive cannot be cached with
+            core_download_failed.
+    FleetCommandResult:
+      type: object
+      additionalProperties: false
+      required: [node_id, ok]
+      properties:
+        node_id: {type: string}
+        ok: {type: boolean}
+        skipped:
+          type: boolean
+          description: Set on the nodes an update did not reach after an earlier node failed.
+        code:
+          type: string
+          description: On failure, the problem code the single-node operation answers with.
+        title:
+          type: string
+          description: On failure, the problem title the single-node operation answers with.
+    FleetCommandSummary:
+      type: object
+      additionalProperties: false
+      required: [total, succeeded, failed, skipped]
+      description: The data of a fleet command's done event.
+      properties:
+        total: {type: integer, minimum: 0}
+        succeeded: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+        skipped: {type: integer, minimum: 0}
+    FleetStreamFrame:
+      type: object
+      additionalProperties: false
+      required: [reset, items, removed]
+      description: The data of a streamFleetStatus event.
+      properties:
+        reset:
+          type: boolean
+          description: The frame holds every selected node; the client replaces what it held.
+        items:
+          type: array
+          description: Selected nodes in name order, each as getFleetStatus returns it; without reset, only those that changed.
+          items: {$ref: '#/components/schemas/NodeStatus'}
+        removed:
+          type: array
+          description: IDs of nodes deleted or no longer selected since the previous frame.
+          items: {type: string}
+    NodeNameRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Unique ignoring case; no control characters or surrounding spaces.
+    NodeEnrollment:
+      type: object
+      additionalProperties: false
+      required: [node_id, name, code, command, expires_at]
+      properties:
+        node_id:
+          type: string
+          description: The node the code enrolls; a new node takes this ID when it enrolls.
+        name: {type: string, minLength: 1, maxLength: 64}
+        code:
+          type: string
+          description: >-
+            One-time code naming the panel endpoint and base path, how to trust it
+            and the enrollment token. Shown once; the panel keeps only a hash
+            of the token.
+        command:
+          type: string
+          description: The command that enrolls the node with this code.
+        expires_at: {type: string, format: date-time}
+    PanelBackup:
+      type: object
+      additionalProperties: false
+      required: [format, version, exported_at, panel_settings]
+      properties:
+        format: {type: string, enum: [sing-box-panel-backup]}
+        version: {type: integer, enum: [3]}
+        exported_at: {type: string, format: date-time}
+        panel_settings:
+          type: object
+          additionalProperties: true
+          description: Complete native setting.json, including credentials. Validated using the settings-file contract; at most 1 MiB.
+    PanelRestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [backup, settings_revision]
+      properties:
+        backup: {$ref: '#/components/schemas/PanelBackup'}
+        settings_revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+    PanelRestoreResult:
+      type: object
+      additionalProperties: false
+      required: [settings, reauthentication_required]
+      properties:
+        settings: {$ref: '#/components/schemas/PanelSettingsView'}
+        reauthentication_required: {type: boolean}
+    PanelServiceSettings:
+      type: object
+      additionalProperties: false
+      required: [data_dir, base_path, catalog_refresh_interval_hours, sample_retention_days, private_source_cidrs]
+      properties:
+        data_dir:
+          type: string
+          description: Absolute data directory. Takes effect after restarting the service.
+        base_path:
+          type: string
+        catalog_refresh_interval_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        sample_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 366
+        private_source_cidrs:
+          type: array
+          items: {type: string}
+        core_log_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          default: 7
+          description: UTC dates retained, including today. Omitted writes preserve the saved policy.
+        core_log_max_files:
+          type: integer
+          minimum: 0
+          maximum: 1024
+          default: 0
+          description: Zero is unlimited. A positive cap can shorten date-based retention.
+        core_log_max_file_size_mib:
+          type: integer
+          minimum: 1
+          maximum: 1024
+          default: 32
+        panel_log_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          default: 90
+          description: >-
+            Days the panel keeps its log entries and each node's runtime
+            history; a daily pass deletes older ones, keeping each node
+            instance's newest runtime transition. Omitted writes preserve the
+            saved policy.
+    PanelSettingsView:
+      type: object
+      additionalProperties: false
+      required: [revision, preferences, service, admin_email, github_token_configured, restart_required]
+      properties:
+        admin_email: {type: string, format: email}
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Opaque fingerprint of the shared settings file, including manual edits; not a sequence number.
+        preferences:
+          $ref: '#/components/schemas/PanelPreferences'
+        service:
+          $ref: '#/components/schemas/PanelServiceSettings'
+        github_token_configured:
+          type: boolean
+        restart_required:
+          type: boolean
+    PanelSettingsWrite:
+      type: object
+      additionalProperties: false
+      required: [revision, preferences]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Opaque fingerprint of the shared settings file, including manual edits; not a sequence number.
+        preferences:
+          $ref: '#/components/schemas/PanelPreferences'
+        service:
+          $ref: '#/components/schemas/PanelServiceSettings'
+        github_token:
+          type: string
+          maxLength: 8192
+          description: Write-only. Empty or omitted retains the existing credential.
+        clear_github_token:
+          type: boolean
+          description: Explicitly removes the persisted GitHub credential.
+        credentials:
+          $ref: '#/components/schemas/CredentialsWrite'
+    CredentialsWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Omitted preserves the email. Empty is invalid; surrounding whitespace is trimmed and the address is lowercased.
+        new_password:
+          type: string
+          maxLength: 128
+          writeOnly: true
+          description: Empty or omitted preserves the password. Otherwise 12–128 Unicode characters; whitespace is significant.
+    PanelSettingsSaveResult:
+      type: object
+      additionalProperties: false
+      required: [settings, reauthentication_required]
+      properties:
+        settings: {$ref: '#/components/schemas/PanelSettingsView'}
+        reauthentication_required: {type: boolean}
+    LoginInput:
+      type: object
+      description: Creates a persistent session with a fixed seven-day lifetime. Activity does not extend the expiration.
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, maxLength: 128, writeOnly: true}
+    DynamicObject:
+      type: object
+      additionalProperties: true
+    DynamicValue: {}
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status: {type: string, const: ok}
+        version: {type: string}
+    Session:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, csrfToken, expiresAt]
+      properties:
+        email: {type: string, format: email}
+        displayName: {type: string}
+        csrfToken: {type: string}
+        expiresAt: {type: string, format: date-time}
+    SystemStatus:
+      type: object
+      additionalProperties: false
+      required: [platform, panel_version]
+      properties:
+        platform:
+          type: object
+          additionalProperties: false
+          required: [os, arch]
+          properties:
+            os: {type: string}
+            arch: {type: string}
+        panel_version: {type: string}
+    CreatedAtCursor:
+      type: object
+      additionalProperties: false
+      required: [created_at, id]
+      properties:
+        created_at: {type: string, format: date-time}
+        id: {type: string}
+    RuntimeIdentity:
+      type: object
+      additionalProperties: false
+      required: [pid, process_start_token, exact_core_version, core_artifact_id, archive_sha256, binary_sha256, activation_bundle_id, started_at]
+      properties:
+        pid: {type: integer, minimum: 1}
+        process_start_token: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        core_artifact_id: {type: string}
+        archive_sha256: {$ref: "#/components/schemas/SHA256"}
+        binary_sha256: {$ref: "#/components/schemas/SHA256"}
+        activation_bundle_id: {type: string}
+        started_at: {type: string, format: date-time}
+    EnabledCore:
+      type: object
+      additionalProperties: false
+      required: [core_artifact_id, exact_core_version]
+      properties:
+        core_artifact_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+    RuntimeStatus:
+      type: object
+      additionalProperties: false
+      required: [desired_running, target_generation, observation_state]
+      properties:
+        enabled_core:
+          $ref: "#/components/schemas/EnabledCore"
+          description: Last successfully selected binary, retained while stopped; omitted before the first successful selection.
+        desired_running: {type: boolean}
+        desired_bundle_id: {type: string}
+        applied_bundle_id: {type: string}
+        rollback_bundle_id: {type: string}
+        target_generation: {type: integer, format: int64, minimum: 0}
+        observation_state: {type: string, enum: [stopped, running, stale, inspection_unavailable]}
+        loaded_canonical_revision_id:
+          type: string
+          description: The immutable configuration proven to belong to the observed live process; omitted for stopped or uncertain state.
+        running: {$ref: "#/components/schemas/RuntimeIdentity"}
+    RuntimeRollbackRequest:
+      type: object
+      additionalProperties: false
+      required: [activation_bundle_id]
+      properties:
+        activation_bundle_id: {type: string, minLength: 1}
+    RuntimeTransition:
+      type: object
+      additionalProperties: false
+      required: [id, state, reason, occurred_at]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        state: {type: string, enum: [running, stopped, failed, unknown]}
+        reason: {type: string}
+        activation_bundle_id: {type: string}
+        generation: {type: integer, format: int64, minimum: 0}
+        pid: {type: integer, minimum: 1}
+        process_started_at: {type: string, format: date-time}
+        occurred_at: {type: string, format: date-time}
+        uncertain_since: {type: string, format: date-time}
+    RuntimeTransitionCursor:
+      type: object
+      additionalProperties: false
+      required: [occurred_at, id]
+      properties:
+        occurred_at: {type: string, format: date-time}
+        id: {type: integer, format: int64, minimum: 1}
+    RuntimeHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, history_started_at]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/RuntimeTransition"}
+        next: {$ref: "#/components/schemas/RuntimeTransitionCursor"}
+        preceding: {$ref: "#/components/schemas/RuntimeTransition"}
+        history_started_at: {type: string, format: date-time}
+    ExactCoreVersion:
+      type: string
+      pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    CoreVariant:
+      type: string
+      const: musl
+    SHA256:
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+    CoreArtifact:
+      type: object
+      additionalProperties: false
+      required: [id, exact_version, os, arch, variant, source_kind, archive_sha256, binary_sha256, binary_path, reported_version, feature_fingerprint, created_at]
+      properties:
+        id: {type: string}
+        exact_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        os: {type: string, const: linux}
+        arch: {type: string, enum: [amd64, arm64]}
+        variant: {$ref: "#/components/schemas/CoreVariant"}
+        source_kind: {type: string, enum: [official, user_verified]}
+        user_source: {type: string}
+        repository_id: {type: integer, format: int64, minimum: 1}
+        release_id: {type: integer, format: int64, minimum: 1}
+        asset_id: {type: integer, format: int64, minimum: 1}
+        archive_sha256: {$ref: "#/components/schemas/SHA256"}
+        binary_sha256: {$ref: "#/components/schemas/SHA256"}
+        binary_path: {type: string}
+        reported_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        feature_fingerprint: {$ref: "#/components/schemas/DynamicObject"}
+        created_at: {type: string, format: date-time}
+    CoreArtifactPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/CoreArtifact"}}
+        next: {$ref: "#/components/schemas/CreatedAtCursor"}
+    CatalogAsset:
+      description: Official Linux musl archive; one asset per exact version and CPU architecture.
+      type: object
+      additionalProperties: false
+      required: [repository_id, release_id, asset_id, name, download_url, size, version, os, arch, variant, has_api_digest, has_catalog_digest]
+      properties:
+        repository_id: {type: integer, format: int64, minimum: 1}
+        release_id: {type: integer, format: int64, minimum: 1}
+        asset_id: {type: integer, format: int64, minimum: 1}
+        name: {type: string}
+        download_url: {type: string, format: uri}
+        size: {type: integer, format: int64, minimum: 0}
+        version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        os: {type: string, const: linux}
+        arch: {type: string, enum: [amd64, arm64]}
+        variant: {$ref: "#/components/schemas/CoreVariant"}
+        api_digest: {$ref: "#/components/schemas/SHA256"}
+        catalog_digest: {$ref: "#/components/schemas/SHA256"}
+        has_api_digest: {type: boolean}
+        has_catalog_digest: {type: boolean}
+    CatalogAssetList:
+      type: object
+      additionalProperties: false
+      required: [validator, refreshed_at, assets]
+      properties:
+        validator: {type: string}
+        refreshed_at: {type: string, format: date-time}
+        assets: {type: array, items: {$ref: "#/components/schemas/CatalogAsset"}}
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        code:
+          type: string
+        detail:
+          type: string
+        request_id:
+          type: string
+          maxLength: 128
+          description: Correlation ID matching X-Request-ID in the response; bounded to 128 bytes.
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+    CanonicalDocument:
+      type: object
+      description: Raw sing-box configuration JSON. Field semantics are gated by the selected exact binary's check command.
+      additionalProperties: true
+    CanonicalSnapshot:
+      type: object
+      required: [id, sequence, schema_version, document, document_json, sha256, created_at]
+      properties:
+        id:
+          type: string
+        sequence:
+          type: integer
+          format: int64
+        parent_id:
+          type: string
+        schema_version:
+          type: integer
+          const: 1
+        document:
+          $ref: "#/components/schemas/CanonicalDocument"
+        document_json:
+          type: string
+          description: Lossless JSON representation for clients that preserve large integers.
+        sha256:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ConfigurationSupport:
+      type: object
+      additionalProperties: false
+      required: [structured, exact_version]
+      properties:
+        structured:
+          type: boolean
+        exact_version:
+          type: string
+        reason:
+          type: string
+    ConfigurationSchemaContract:
+      type: object
+      additionalProperties: false
+      required: [exact_version, schema_sha256, schema]
+      properties:
+        exact_version:
+          $ref: "#/components/schemas/ExactCoreVersion"
+        schema_sha256:
+          $ref: "#/components/schemas/SHA256"
+        schema:
+          type: object
+          additionalProperties: true
+    ConfigurationPreview:
+      type: object
+      required: [canonical_revision, core_artifact, support, config]
+      properties:
+        canonical_revision:
+          $ref: "#/components/schemas/CanonicalSnapshot"
+        core_artifact:
+          $ref: "#/components/schemas/CoreArtifact"
+        support:
+          $ref: "#/components/schemas/ConfigurationSupport"
+        config:
+          $ref: "#/components/schemas/DynamicObject"
+    ConfigurationCompile:
+      type: object
+      required: [support, artifact]
+      properties:
+        support:
+          $ref: "#/components/schemas/ConfigurationSupport"
+        artifact:
+          $ref: "#/components/schemas/CompiledConfigurationArtifact"
+    CompiledConfigurationArtifact:
+      type: object
+      additionalProperties: false
+      required: [id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, state]
+      properties:
+        id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        core_artifact_id: {type: string}
+        config_sha256: {$ref: "#/components/schemas/SHA256"}
+        state: {type: string, enum: [pending, ready, failed]}
+    StartupArtifactSummary:
+      type: object
+      additionalProperties: false
+      required: [id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, state, created_at]
+      properties:
+        id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        core_artifact_id: {type: string}
+        config_sha256: {$ref: "#/components/schemas/SHA256"}
+        state: {type: string, enum: [pending, ready, failed]}
+        checked_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    StartupArtifactPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/StartupArtifactSummary"}}
+        next: {$ref: "#/components/schemas/CreatedAtCursor"}
+    ActivationSummary:
+      type: object
+      additionalProperties: false
+      required: [startup_artifact_id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, activation_bundle_id, activation_sha256, monitoring_tier]
+      properties:
+        startup_artifact_id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
+        core_artifact_id: {type: string}
+        config_sha256: {$ref: "#/components/schemas/SHA256"}
+        activation_bundle_id: {type: string}
+        activation_sha256: {$ref: "#/components/schemas/SHA256"}
+        monitoring_tier: {type: string, enum: [process_only, limited]}
+    RuntimeResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: {$ref: "#/components/schemas/RuntimeStatus"}
+        activation: {$ref: "#/components/schemas/ActivationSummary"}
+        startup: {$ref: "#/components/schemas/StartupArtifactSummary"}
+    SubscriptionCursor:
+      $ref: "#/components/schemas/CreatedAtCursor"
+    SubscriptionUser:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionUserPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionUser"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionUserGrants:
+      type: object
+      additionalProperties: false
+      required: [user, grants]
+      properties:
+        user: {$ref: "#/components/schemas/SubscriptionUser"}
+        grants: {type: array, items: {type: string}}
+    SubscriptionChannelSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, format, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionChannel:
+      type: object
+      additionalProperties: false
+      required: [id, name, format, config, enabled, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        config: {$ref: "#/components/schemas/SubscriptionChannelConfig"}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionChannelConfig:
+      type: object
+      additionalProperties: false
+      description: >-
+        A channel publishes only the pool nodes its enabled groups name as members
+        or match, its exit rules' exits or its final exit, in pool order and under
+        their display names. Traffic follows the first enabled exit rule that
+        matches, in order, and the final exit when none does. Serialized
+        configuration is limited to 640 KiB.
+      required: [groups, routes, default_exit]
+      properties:
+        incompatible_nodes: {type: string, enum: [skip, error], default: skip, description: "Conversion failure handling; omitted nodes are reported in diagnostics."}
+        groups: {type: array, maxItems: 256, items: {$ref: "#/components/schemas/ChannelRuleGroup"}}
+        routes:
+          type: array
+          maxItems: 5000
+          description: >-
+            The channel's exit rules in matching order. Their rules, with each rule
+            set expanded, number at most 20000 (routes: too_many_rules).
+          items: {$ref: "#/components/schemas/ChannelRoute"}
+        default_exit:
+          $ref: "#/components/schemas/ChannelRouteExit"
+          description: The final exit, for traffic no exit rule matches.
+        template: {$ref: "#/components/schemas/ChannelNativeTemplate"}
+    SubscriptionDraftPreview:
+      type: object
+      additionalProperties: false
+      required: [format, config]
+      properties:
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        config: {$ref: "#/components/schemas/SubscriptionChannelConfig"}
+    ChannelRouteExit:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [direct, reject, node, group]}
+        id: {type: string}
+    ChannelRuleGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, enabled, type, members]
+      properties:
+        id: {type: string, maxLength: 128}
+        name: {type: string, maxLength: 128}
+        enabled: {type: boolean}
+        type: {type: string, enum: [select, url-test, fallback], description: "Fallback is supported by mihomo and loon."}
+        match: {$ref: "#/components/schemas/ChannelGroupMatch"}
+        health_check: {$ref: "#/components/schemas/ChannelGroupHealthCheck"}
+        members:
+          type: array
+          maxItems: 10002
+          description: >-
+            Candidates in display and output order; the first is the initial manual
+            selection. Each appears once. Reject requires Mihomo or Loon, and Loon
+            auto groups take no built-in candidates. Group members must be other
+            enabled groups of this channel; self references and cycles are rejected.
+          items: {$ref: "#/components/schemas/ChannelGroupMember"}
+    ChannelGroupMatch:
+      type: object
+      additionalProperties: false
+      required: [include, exclude, origins, protocols]
+      description: >-
+        Pool nodes the group takes besides its members, after them in pool order
+        and each once: nodes from one of the origins, when any are named, of one
+        of the protocols, when any are named, whose display name the name rules
+        keep. Name rules work as a source's filter. A match that names nothing
+        takes no nodes.
+      properties:
+        include: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+        exclude: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+        origins:
+          type: array
+          maxItems: 256
+          description: "fleet for the fleet's inbounds, or source:<id> for one source's nodes."
+          items: {type: string, minLength: 1, maxLength: 160}
+        protocols: {type: array, maxItems: 32, items: {type: string, minLength: 1, maxLength: 32}}
+    ChannelGroupMember:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind: {type: string, enum: [node, builtin, group]}
+        id: {type: string, maxLength: 128, description: "A pool node ID, direct or reject, or a group ID of this channel."}
+    ChannelGroupHealthCheck:
+      type: object
+      additionalProperties: false
+      required: [url, interval, tolerance]
+      description: "Client-side checks for url-test/fallback. If omitted: gstatic generate_204, 300 seconds, 50 ms. Tolerance applies only to url-test."
+      properties:
+        url: {type: string, maxLength: 4096}
+        interval: {type: integer, minimum: 60, maximum: 86400}
+        tolerance: {type: integer, minimum: 0, maximum: 65535}
+    ChannelRoute:
+      type: object
+      additionalProperties: false
+      required: [id, enabled, exit]
+      description: >-
+        One exit rule: a rule set of the channel's client, whose rules all take
+        this exit in their order, or one rule of the channel's own. Exactly one of
+        rule_set_id and rule is present.
+      properties:
+        id: {type: string, maxLength: 128}
+        enabled: {type: boolean}
+        rule_set_id: {type: string, maxLength: 128}
+        rule: {$ref: "#/components/schemas/SubscriptionRule"}
+        exit: {$ref: "#/components/schemas/ChannelRouteExit"}
+    SubscriptionRule:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: A match on a domain, part of one or an IP range, or a remote rule set the client fetches.
+      properties:
+        kind: {type: string, enum: [domain, domain_suffix, domain_keyword, ip_cidr, remote]}
+        value: {type: string, maxLength: 128, description: "Every kind but remote."}
+        remote: {$ref: "#/components/schemas/ChannelRemoteRuleSet"}
+    SubscriptionRuleSet:
+      type: object
+      additionalProperties: false
+      required: [id, client, name, rules, channels, created_at, updated_at]
+      description: >-
+        A client's reusable list of rules; channels of that client route by it.
+        updated_at is its version for If-Match.
+      properties:
+        id: {type: string}
+        client: {type: string, enum: [sing-box, mihomo, loon]}
+        name: {type: string, maxLength: 128, description: "Unique among the client's rule sets, ignoring case."}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+        channels:
+          type: array
+          description: The channels whose exit rules use it, in name order.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, name]
+            properties:
+              id: {type: string}
+              name: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SubscriptionRuleSetCreate:
+      type: object
+      additionalProperties: false
+      required: [client, name, rules]
+      properties:
+        client: {type: string, enum: [sing-box, mihomo, loon]}
+        name: {type: string, minLength: 1, maxLength: 128}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+    SubscriptionRuleSetUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, rules]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+    SubscriptionRuleSetList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionRuleSet"}}
+    ChannelRemoteRuleSet:
+      description: "Names must be unique within a rule set and among a channel's own rules. Output merges remote rule sets with the same name and metadata and renames the later of two that differ. Metadata only; remote content is fetched and refreshed by the subscriber. The loon format requires native loon rules and is distinct from mihomo text lists."
+      type: object
+      additionalProperties: false
+      required: [name, url, format, accelerated]
+      properties:
+        name: {type: string, maxLength: 128}
+        url: {type: string, maxLength: 4096}
+        format: {type: string, enum: [source, binary, yaml, text, mrs, loon]}
+        behavior: {type: string, enum: [domain, ipcidr, classical]}
+        accelerated: {type: boolean}
+    ChannelNativeTemplate:
+      description: "Complete channel base configuration, never deep-merged with defaults. Native JSON for sing-box, YAML for Mihomo, General/Host/MITM sections for Loon. Generated nodes, groups and routing fields are reserved. Omission uses the shared client default template; explicit empty templates remain empty."
+      type: object
+      additionalProperties: false
+      required: [format, content]
+      properties:
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        content: {type: string, maxLength: 262144}
+    SubscriptionChannelPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionChannelSummary"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourceKind:
+      type: string
+      enum: [url, file]
+    SubscriptionSourceFormat:
+      type: string
+      enum: [sing-box, mihomo, share-links]
+      description: >-
+        A content format: a sing-box configuration or outbound list, a Mihomo
+        configuration or proxy list, or share links one per line. Base64-wrapped
+        content is decoded before it is recognized.
+    SubscriptionSourceFormatChoice:
+      type: string
+      enum: [auto, sing-box, mihomo, shadowsocks, socks, http, vmess, vless, trojan, hysteria, hysteria2, tuic, anytls]
+      description: >-
+        The format to read the content as: auto recognizes it from the content;
+        a protocol reads share links that must all convert to that sing-box
+        outbound type, while share links of several protocols are read with auto.
+    SubscriptionSourceFilter:
+      type: object
+      additionalProperties: false
+      required: [include, exclude]
+      description: >-
+        Rules match a node's name in its source. Plain text matches a
+        case-insensitive substring; text wrapped in slashes is an RE2 regular
+        expression. A nonempty include list keeps only matching nodes, and the
+        exclude list then removes matching ones. A refused rule answers 422
+        `subscription_source_invalid` whose fields map the rule's path, such as
+        `filter.include[1]`, to its code: `invalid_regular_expression` or
+        `invalid_length`; too many rules map the list's path to `too_many_rules`.
+      properties:
+        include: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+        exclude: {type: array, maxItems: 256, items: {type: string, minLength: 1, maxLength: 512}}
+    SubscriptionSource:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, format, filter, node_count, created_at, updated_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {$ref: "#/components/schemas/SubscriptionSourceKind"}
+        url: {type: string, description: URL sources only.}
+        refresh_minutes: {type: integer, minimum: 0, maximum: 10080, description: "URL sources only: 0 fetches only on request, otherwise at least 15."}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+        node_count: {type: integer, minimum: 0, description: The nodes the source contributes to the pool.}
+        content_format: {$ref: "#/components/schemas/SubscriptionSourceFormat"}
+        content_at: {type: string, format: date-time, description: When the current content was fetched or uploaded.}
+        last_attempt_at: {type: string, format: date-time}
+        last_error: {type: string, description: Code of the last failed fetch or parse; cleared by the next success.}
+        next_refresh_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time, description: Changes only with the settings; send it quoted in If-Match.}
+    SubscriptionSourcePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSource"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourcePreviewItem:
+      type: object
+      additionalProperties: false
+      required: [location, name, protocol, kept]
+      properties:
+        location: {type: string, description: "Where the node sits in the content, such as outbounds[3], proxies[7] or line 12."}
+        name: {type: string}
+        protocol: {type: string}
+        kept: {type: boolean, description: Whether the filter keeps the node.}
+    SubscriptionSourceParseError:
+      type: object
+      additionalProperties: false
+      required: [code]
+      description: Why the content cannot be saved; a kept node that does not convert names its location.
+      properties:
+        code: {type: string}
+        location: {type: string}
+        name: {type: string}
+        reason: {type: string}
+    SubscriptionSourcePreview:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormat"}
+        items: {type: array, maxItems: 10000, items: {$ref: "#/components/schemas/SubscriptionSourcePreviewItem"}}
+        error: {$ref: "#/components/schemas/SubscriptionSourceParseError"}
+    SubscriptionDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [collection, item_index, code]
+      properties:
+        node_id: {type: string, description: The fleet node whose applied configuration the diagnostic is about.}
+        collection: {type: string, enum: [outbounds, endpoints, inbounds]}
+        item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
+        code: {type: string}
+    SubscriptionNodeOrigin:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [inbound, source]}
+        node_id: {type: string, description: The fleet node of an inbound.}
+        node_name: {type: string}
+        inbound_tag: {type: string}
+        source_id: {type: string}
+        source_name: {type: string}
+    SubscriptionNode:
+      type: object
+      required: [id, display_name, origin_name, protocol, origin, updated_at]
+      properties:
+        id: {type: string, description: "Stable ID derived from the origin: a fleet node with its inbound and credential, or a source with the node's name there."}
+        display_name: {type: string, description: Unique in the pool; channels publish the node under it.}
+        origin_name: {type: string, description: "The node's name at its origin; a new node takes it as its display name, prefixed with the fleet node's name for an inbound."}
+        protocol: {type: string}
+        origin: {$ref: "#/components/schemas/SubscriptionNodeOrigin"}
+        server: {type: string}
+        port: {type: integer}
+        server_ports: {type: array, items: {type: string}}
+        realm_url: {type: string}
+        tls: {type: boolean}
+        reality: {type: boolean}
+        sni: {type: string}
+        transport: {type: string}
+        updated_at: {type: string, format: date-time, description: Send it quoted in If-Match to change the display name.}
+    SubscriptionNodeDetail:
+      allOf:
+        - $ref: "#/components/schemas/SubscriptionNode"
+        - type: object
+          required: [outbound]
+          properties:
+            outbound: {type: object, additionalProperties: true, description: "The sing-box outbound published for the node, without its tag."}
+    SubscriptionNodeUpdate:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name: {type: string, minLength: 1, maxLength: 256}
+    NodePublication:
+      type: object
+      additionalProperties: false
+      description: A fleet node that publishes inbounds, from the bundle it reports running.
+      required: [node_id, node_name, applied_bundle_id, canonical_revision_id, exact_core_version, public_host]
+      properties:
+        node_id: {type: string}
+        node_name: {type: string}
+        applied_bundle_id: {type: string}
+        canonical_revision_id: {type: string}
+        exact_core_version: {type: string}
+        public_host: {type: string, description: The host its inbounds publish; empty while the node has neither an override nor a reported public IP.}
+    SubscriptionNodeOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
+    SubscriptionNodeList:
+      type: object
+      additionalProperties: false
+      required: [items, node_publications, diagnostics]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionNode"}}
+        node_publications: {type: array, items: {$ref: "#/components/schemas/NodePublication"}}
+        diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionDiagnostic"}}
+    SubscriptionToken:
+      type: object
+      additionalProperties: false
+      required: [id, label, enabled, successful_request_count, body_response_count, bytes_served, created_at, active]
+      properties:
+        id: {type: string}
+        user_id: {type: string, description: Legacy user scope; omitted for channel-scoped keys.}
+        download_limit: {type: integer, format: int64, minimum: 1, maximum: 1000000000}
+        label: {type: string}
+        enabled: {type: boolean}
+        expires_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+        successful_request_count: {type: integer, format: int64, minimum: 0}
+        body_response_count: {type: integer, format: int64, minimum: 0}
+        bytes_served: {type: integer, format: int64, minimum: 0}
+        last_used_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        active: {type: boolean}
+    SubscriptionTokenPage:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
+        items: {type: array, items: {$ref: "#/components/schemas/SubscriptionToken"}}
+        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionTokenSecret:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string}
+    CreatedSubscriptionToken:
+      type: object
+      additionalProperties: false
+      required: [metadata, token]
+      properties:
+        metadata: {$ref: "#/components/schemas/SubscriptionToken"}
+        token: {type: string}
+    SubscriptionTokenRotation:
+      type: object
+      additionalProperties: false
+      required: [revoked, created, token]
+      properties:
+        revoked: {$ref: "#/components/schemas/SubscriptionToken"}
+        created: {$ref: "#/components/schemas/SubscriptionToken"}
+        token: {type: string}
+    SubscriptionRenderDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [collection, item_index, code, format]
+      properties:
+        collection: {type: string, enum: [outbounds, endpoints, inbounds]}
+        item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
+        code: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+    SubscriptionPreviewDiagnostic:
+      type: object
+      additionalProperties: false
+      description: Authenticated preview context. Field paths refer to renderer input positions, not generated output lines. No configuration values are included.
+      required: [collection, item_index, code, format]
+      properties:
+        collection: {type: string, enum: [outbounds, endpoints, inbounds]}
+        item_index: {type: integer, minimum: -1, description: "-1 when the diagnostic is about a whole configuration."}
+        code: {type: string}
+        format: {type: string, enum: [sing-box, mihomo, loon]}
+        origin_node_id: {type: string, description: The node whose applied configuration a local inbound diagnostic is about.}
+        origin_node_name: {type: string}
+        node_id: {type: string, description: Stable publication ID when a normalized node exists.}
+        node_name: {type: string}
+        node_type: {type: string}
+        field_path: {type: string}
+        reason: {type: string, description: Fixed detail code for client-side localization.}
+    SubscriptionPreview:
+      type: object
+      additionalProperties: false
+      required: [user_id, channel, node_publications, result]
+      properties:
+        user_id: {type: string}
+        channel: {$ref: "#/components/schemas/SubscriptionChannel"}
+        node_publications: {type: array, items: {$ref: "#/components/schemas/NodePublication"}}
+        result:
+          type: object
+          additionalProperties: false
+          required: [format, media_type, content, node_count, diagnostics]
+          properties:
+            format: {type: string, enum: [sing-box, mihomo, loon]}
+            media_type: {type: string}
+            content: {type: string, format: byte}
+            node_count: {type: integer, minimum: 0}
+            diagnostics: {type: array, items: {$ref: "#/components/schemas/SubscriptionPreviewDiagnostic"}}
+    CoreLogFile:
+      type: object
+      additionalProperties: false
+      required: [name, size, updated_at, deletable]
+      properties:
+        name: {type: string}
+        size: {type: integer, format: int64, minimum: 0}
+        updated_at: {type: string, format: date-time}
+        deletable:
+          type: boolean
+          description: Whether the filename is outside the server's current UTC day. Deletion rechecks this condition at request time.
+    CoreLogChunk:
+      type: object
+      additionalProperties: false
+      required: [file, text, next_offset, size, generation]
+      properties:
+        file: {type: string}
+        text: {type: string}
+        generation:
+          type: string
+          maxLength: 128
+          description: Opaque file generation. Send it with next_offset when resuming a read.
+        reset:
+          type: boolean
+          description: If true, discard the previous display; this chunk starts at byte zero of a new generation.
+        next_offset: {type: integer, format: int64, minimum: 0}
+        size: {type: integer, format: int64, minimum: 0}
+    PanelLog:
+      type: object
+      additionalProperties: false
+      required: [id, time, source, level, code, message, status, metadata]
+      properties:
+        id: {type: string}
+        time: {type: string, format: date-time}
+        source: {type: string, enum: [runtime, panel, core, security]}
+        level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
+        code: {type: string}
+        message: {type: string}
+        status: {type: string}
+        metadata:
+          allOf: [{$ref: '#/components/schemas/DynamicObject'}]
+          description: Sanitized recorded context. Runtime transitions include available pid, process_started_at, generation, activation_bundle_id and uncertain_since; internal process identity tokens are excluded. Operation events may include duration_ms, target identifiers, error_code and a safe error description. Missing historical context is not reconstructed from current state.
+    PanelLogPage:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
+        items: {type: array, items: {$ref: '#/components/schemas/PanelLog'}}
+        next: {$ref: '#/components/schemas/LogCursor'}
+    LogEntry:
+      type: object
+      additionalProperties: false
+      required: [id, time, source, level, code, message, metadata]
+      properties:
+        id: {type: string}
+        time: {type: string, format: date-time}
+        source: {type: string, enum: [panel, core, security]}
+        level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
+        code: {type: string}
+        message: {type: string}
+        metadata: {$ref: "#/components/schemas/DynamicObject"}
+    LogCursor:
+      type: object
+      additionalProperties: false
+      required: [time, id]
+      properties:
+        time: {type: string, format: date-time}
+        id: {type: string}
+    LogPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/LogEntry"}}
+        next: {$ref: "#/components/schemas/LogCursor"}
+    LogClearResult:
+      type: object
+      additionalProperties: false
+      required: [deleted]
+      properties:
+        deleted: {type: integer, format: int64, minimum: 0}
+    LogDeleteResult:
+      type: object
+      additionalProperties: false
+      required: [id, deleted]
+      properties:
+        id: {type: string}
+        deleted: {type: boolean, const: true}
+    TrafficPeriod:
+      type: object
+      additionalProperties: false
+      required: [id, period_start, period_end, inbound_bytes, outbound_bytes, created_at]
+      properties:
+        id: {type: string}
+        activation_bundle_id: {type: string}
+        period_start: {type: string, format: date-time}
+        period_end: {type: string, format: date-time}
+        inbound_bytes: {type: integer, format: int64, minimum: 0}
+        outbound_bytes: {type: integer, format: int64, minimum: 0}
+        counters:
+          $ref: "#/components/schemas/DynamicObject"
+          description: Aggregation metadata; always present except in fleet status items.
+        created_at: {type: string, format: date-time}
+    TrafficSample:
+      type: object
+      additionalProperties: false
+      required: [id, activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, upload_delta, download_delta, coverage, accepted]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        activation_bundle_id: {type: string}
+        pid: {type: integer, minimum: 1}
+        process_start_token: {type: string}
+        sampled_at: {type: string, format: date-time}
+        memory_bytes: {type: integer, format: int64, minimum: 0}
+        active_connections: {type: integer, format: int64, minimum: 0}
+        upload_total: {type: integer, format: int64, minimum: 0}
+        download_total: {type: integer, format: int64, minimum: 0}
+        upload_delta:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        download_delta:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        coverage: {$ref: "#/components/schemas/CoverageStatus"}
+        accepted: {type: boolean}
+        diagnostic_code: {type: string}
+    LiveTrafficSample:
+      type: object
+      additionalProperties: false
+      description: The node's latest traffic reading of its running core. upload_total and download_total are cumulative for the node's database across core restarts. Never included in persisted accounting totals.
+      required: [activation_bundle_id, pid, process_start_token, sampled_at, memory_bytes, active_connections, upload_total, download_total, upload_bytes_per_second, download_bytes_per_second, accepted]
+      properties:
+        activation_bundle_id: {type: string}
+        pid: {type: integer, minimum: 1}
+        process_start_token: {type: string}
+        sampled_at: {type: string, format: date-time}
+        memory_bytes: {type: integer, format: int64, minimum: 0}
+        active_connections: {type: integer, format: int64, minimum: 0}
+        upload_total: {type: integer, format: int64, minimum: 0}
+        download_total: {type: integer, format: int64, minimum: 0}
+        upload_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+          description: Upload bytes per second over the actual interval between adjacent samples the node reported for the same process incarnation. Nodes sample once a second while a client streams their metrics and every ten seconds otherwise; null for the first sample, after a decrease, or when the interval exceeds fifteen seconds.
+        download_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+          description: Download bytes per second over the same collector interval as upload_bytes_per_second; null when that interval is unavailable.
+        accepted: {type: boolean}
+    MetricsSnapshot:
+      type: object
+      additionalProperties: false
+      required: [available, collected_at, current_traffic_period, quota_exceeded]
+      properties:
+        host:
+          type: object
+          additionalProperties: false
+          required: [sampled_at, cpu_count, cpu_percent, load_one, memory_total, memory_used, disk_total, disk_used]
+          properties:
+            sampled_at: {type: string, format: date-time}
+            cpu_count: {type: integer, minimum: 1}
+            cpu_percent: {type: number, nullable: true, minimum: 0, maximum: 100}
+            load_one: {type: number, nullable: true, minimum: 0}
+            memory_total: {type: integer, format: int64, nullable: true, minimum: 0}
+            memory_used: {type: integer, format: int64, nullable: true, minimum: 0}
+            disk_total: {type: integer, format: int64, nullable: true, minimum: 0}
+            disk_used: {type: integer, format: int64, nullable: true, minimum: 0}
+        available:
+          type: boolean
+          description: A traffic sample of the applied bundle from the last thirty seconds; does not gate recorded period usage.
+        reason_code: {type: string, enum: [not_applied, process_only, no_collector_sample, stale_collector_sample]}
+        applied_bundle_id: {type: string}
+        monitoring_tier: {type: string, enum: [process_only, limited]}
+        collected_at:
+          type: string
+          format: date-time
+          description: When the panel read the metrics. In fleet status items, when it first read the values the item shows, so an unchanged node keeps the same item.
+        current_traffic_period:
+          $ref: "#/components/schemas/TrafficPeriod"
+          description: The node's recorded sing-box upload and download usage in its current period, including zero before collection. Retained when live collection is unavailable.
+        latest_sample:
+          $ref: "#/components/schemas/TrafficSample"
+          description: The newest stored sample when the applied bundle has the limited tier; never in fleet status items.
+        live_sample: {$ref: "#/components/schemas/LiveTrafficSample"}
+        quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The node's quota; absent when unlimited.
+        quota_exceeded: {type: boolean}
+    TrafficStatus:
+      type: object
+      additionalProperties: false
+      required: [collected_at, upload_bytes, download_bytes, nodes]
+      properties:
+        collected_at: {type: string, format: date-time}
+        upload_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Every node's recorded outbound bytes in its own current period.
+        download_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Every node's recorded inbound bytes in its own current period.
+        nodes:
+          type: array
+          items: {$ref: "#/components/schemas/NodeTrafficUsage"}
+    NodeTrafficUsage:
+      type: object
+      additionalProperties: false
+      required: [node_id, current_traffic_period, quota_exceeded]
+      properties:
+        node_id: {type: string}
+        current_traffic_period: {$ref: "#/components/schemas/TrafficPeriod"}
+        quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The node's quota; absent when unlimited.
+        quota_exceeded:
+          type: boolean
+          description: Recorded upload and download together reached the node's quota.
+    NodeSettings:
+      type: object
+      additionalProperties: false
+      required: [revision, public_host, traffic, tags]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The revision read; a save fails with 412 once another save changed it.
+        public_host:
+          type: string
+          maxLength: 253
+          description: The IP address or DNS name subscriptions publish for the node's inbounds, without scheme or port; empty uses the public IP the node reports.
+        traffic: {$ref: "#/components/schemas/NodeTrafficSettings"}
+        tags:
+          type: array
+          maxItems: 16
+          description: Up to 16 tags, stored sorted and without duplicates.
+          items: {$ref: '#/components/schemas/NodeTag'}
+    NodeTrafficSettings:
+      type: object
+      additionalProperties: false
+      required: [quota_gib, period_months, reset_day]
+      properties:
+        quota_gib:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 8589934591
+          description: The node's quota in GiB; null or 0 is unlimited.
+        period_months:
+          type: integer
+          minimum: 1
+          maximum: 120
+          description: The length of each period, aligned to months counted from January 1970.
+        reset_day:
+          type: integer
+          minimum: 1
+          maximum: 28
+          description: The day of the month on which each period starts, at 00:00 UTC.
+    CoverageStatus:
+      type: string
+      enum: [complete, partial, missing]
+    MetricsHistoryBucket:
+      type: object
+      additionalProperties: false
+      required: [from, to, upload_bytes, download_bytes, memory_bytes_avg, memory_bytes_peak, active_connections_avg, active_connections_peak, sample_count, coverage]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        upload_bytes:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        download_bytes:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        memory_bytes_avg:
+          type: [number, "null"]
+          minimum: 0
+        memory_bytes_peak:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        active_connections_avg:
+          type: [number, "null"]
+          minimum: 0
+        active_connections_peak:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+        sample_count: {type: integer, format: int64, minimum: 0}
+        coverage: {$ref: "#/components/schemas/CoverageStatus"}
+    MetricsHistory:
+      type: object
+      additionalProperties: false
+      required: [from, to, bucket_seconds, buckets]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        bucket_seconds: {type: integer, format: int64, minimum: 1}
+        activation_bundle_id: {type: string}
+        buckets:
+          type: array
+          maxItems: 512
+          items: {$ref: "#/components/schemas/MetricsHistoryBucket"}
+    DashboardStreamSnapshot:
+      type: object
+      additionalProperties: false
+      required: [collected_at, history_1h, history_24h, runtime_24h, activity]
+      properties:
+        persisted_through:
+          type: [string, "null"]
+          format: date-time
+          description: Latest accepted sample in the same database read snapshot as both histories.
+        collected_at: {type: string, format: date-time}
+        history_1h: {$ref: '#/components/schemas/MetricsHistory'}
+        history_24h: {$ref: '#/components/schemas/MetricsHistory'}
+        runtime_24h: {$ref: '#/components/schemas/RuntimeHistoryPage'}
+        activity: {$ref: '#/components/schemas/PanelLogPage'}
+    TrafficPeriodCursor:
+      type: object
+      additionalProperties: false
+      required: [period_start, id]
+      properties:
+        period_start: {type: string, format: date-time}
+        id: {type: string}
+    TrafficPeriodPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/TrafficPeriod"}}
+        next: {$ref: "#/components/schemas/TrafficPeriodCursor"}
+    SubscriptionUserInput:
+      type: object
+      additionalProperties: false
+      required: [name, description, enabled]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+    SubscriptionChannelInput:
+      type: object
+      additionalProperties: false
+      required: [name, format, config, enabled]
+      properties:
+        name:
+          type: string
+        format:
+          type: string
+          enum: [sing-box, mihomo, loon]
+        config:
+          $ref: "#/components/schemas/SubscriptionChannelConfig"
+        enabled:
+          type: boolean
+    SubscriptionSourceCreate:
+      type: object
+      additionalProperties: false
+      required: [name, kind, filter]
+      description: A URL source gives url and refresh_minutes; a file source gives content.
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        kind: {$ref: "#/components/schemas/SubscriptionSourceKind"}
+        url: {type: string, maxLength: 4096}
+        refresh_minutes: {type: integer, minimum: 0, maximum: 10080}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+        content: {type: string, maxLength: 4194304}
+    SubscriptionSourceUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, filter]
+      description: >-
+        URL sources also give url and refresh_minutes; a file source may give
+        content, which replaces its content.
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        url: {type: string, maxLength: 4096}
+        refresh_minutes: {type: integer, minimum: 0, maximum: 10080}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+        content: {type: string, minLength: 1, maxLength: 4194304}
+    SubscriptionSourcePreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [filter]
+      description: Exactly one of source_id, url or content.
+      properties:
+        source_id: {type: string}
+        url: {type: string, maxLength: 4096}
+        content: {type: string, maxLength: 4194304}
+        format: {$ref: "#/components/schemas/SubscriptionSourceFormatChoice"}
+        filter: {$ref: "#/components/schemas/SubscriptionSourceFilter"}
+    SubscriptionTokenCreate:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        download_limit: {type: [integer, "null"], format: int64, minimum: 1, maximum: 1000000000}
+        user_id:
+          type: string
+        label:
+          type: string
+        expires_at:
+          type: [string, "null"]
+          format: date-time

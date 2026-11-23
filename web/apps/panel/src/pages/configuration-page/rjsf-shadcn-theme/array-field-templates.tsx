@@ -1,0 +1,315 @@
+import type { ArrayFieldItemTemplateProps, ArrayFieldTemplateProps, FieldProps, RJSFSchema } from '@rjsf/utils';
+
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
+import { createContext, use, useState } from 'react';
+import Form, { getDefaultRegistry } from '@rjsf/core';
+import { Button } from '@shared/components/ui/button';
+import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from 'lucide-react';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
+
+import { SchemaDialogLayout } from './schema-dialog-layout';
+import { resolvedSchema, schemaDiscriminatorValues, selfContainedSchema, uiSchemaFromPanel } from '../schema-ui';
+import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListRow, ConfigurationListText } from '../configuration-list';
+
+const DefaultArrayField = getDefaultRegistry().fields.ArrayField;
+const ArrayFieldActionsContext = createContext<{ create: () => void; edit: (index: number) => void } | null>(null);
+
+/** Stage additions and edits locally, including entries in nested collections. */
+export function PanelArrayField(props: FieldProps) {
+  const { t } = useTranslation();
+  const { disabled, readonly, schema, registry, formData, fieldPathId, onChange } = props;
+  const [pending, setPending] = useState<{ value: unknown; index: number | null } | null>(null);
+  const [open, setOpen] = useState(false);
+  const itemSchema = schema.items as RJSFSchema;
+  function openCreate() {
+    const value = registry.schemaUtils.getDefaultFormState(itemSchema) ?? {};
+    const discriminator = resolvedSchema(itemSchema, registry.rootSchema).discriminator?.propertyName;
+    // Native single-value enums identify the selected branch but are not RJSF defaults.
+    if (typeof discriminator === 'string' && value[discriminator] === undefined) {
+      const [first] = schemaDiscriminatorValues(itemSchema, registry.rootSchema, discriminator);
+      if (first !== undefined) value[discriminator] = first;
+    }
+    setPending({ value, index: null });
+    setOpen(true);
+  }
+  return (
+    <ArrayFieldActionsContext value={{
+      create: openCreate,
+      edit: (index) => {
+        setPending({ value: formData[index], index });
+        setOpen(true);
+      },
+    }}>
+      <DefaultArrayField {...props} />
+      <Dialog open={open} onOpenChange={setOpen} onOpenChangeComplete={(open) => {
+        // Retain the form and its size throughout the closing animation.
+        if (!open) setPending(null);
+      }}>
+        <DialogContent className='configuration-entry-dialog'>
+          <DialogHeader>
+            <DialogTitle>{t(pending?.index == null ? 'configuration.general.addEntry' : 'configuration.general.editEntry')}</DialogTitle>
+            <DialogDescription className='sr-only'>{t(pending?.index == null ? 'configuration.general.addDescription' : 'configuration.general.editDescription')}</DialogDescription>
+          </DialogHeader>
+          {pending !== null && (
+            <div className='schema-form configuration-entry-dialog__body'>
+              <SchemaDialogLayout schema={itemSchema} root={registry.rootSchema} data={pending.value}>
+                <Form
+                  tagName='div'
+                  disabled={disabled || readonly}
+                  schema={selfContainedSchema(itemSchema, registry.rootSchema)}
+                  formData={pending.value}
+                  idPrefix={`${fieldPathId.$id}-dialog`}
+                  fields={registry.fields}
+                  templates={registry.templates}
+                  widgets={registry.widgets}
+                  validator={registry.schemaUtils.getValidator()}
+                  experimental_defaultFormStateBehavior={{ emptyObjectFields: 'populateRequiredDefaults' }}
+                  noValidate
+                  noHtml5Validate
+                  uiSchema={{
+                    ...uiSchemaFromPanel(itemSchema, [], registry.rootSchema, pending.value),
+                    'ui:title': '', 'ui:description': '', 'ui:submitButtonOptions': { norender: true },
+                  }}
+                  onChange={({ formData: value }) => setPending((current) =>
+                    current === null ? null : { ...current, value })}
+                />
+              </SchemaDialogLayout>
+            </div>
+          )}
+          <DialogFooter>
+            <DialogClose render={<Button type='button' variant='outline' />}>{t('common.cancel')}</DialogClose>
+            <Button disabled={disabled || readonly} type='button' onClick={() => {
+              if (pending === null || disabled || readonly) return;
+              const next = [...(Array.isArray(formData) ? formData : [])];
+              if (pending.index === null) next.push(pending.value);
+              else next[pending.index] = pending.value;
+              onChange(next, fieldPathId.path);
+              setOpen(false);
+            }}>
+              {t(pending?.index == null ? 'common.add' : 'configuration.general.saveChanges')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </ArrayFieldActionsContext>
+  );
+}
+
+interface ArrayEditorState {
+  standalone?: boolean;
+  edit: (index: number) => void;
+  userCredentials?: typeof userCredentials;
+  records: Record<string, unknown>[] | null;
+}
+
+const ArrayEditorContext = createContext<ArrayEditorState | null>(null);
+
+const userCredentials = [
+  { keys: ['password', 'Password'], label: 'configuration.fields.password' },
+  { keys: ['uuid'], label: 'configuration.userList.uuid' },
+  { keys: ['auth', 'auth_str'], label: 'configuration.userList.auth' },
+  { keys: ['userkey'], label: 'configuration.userList.userKey' },
+  { keys: ['token'], label: 'configuration.userList.token' },
+];
+
+function itemLabel(item: Record<string, unknown>, index: number): string {
+  const value = [item.tag, item.name, item.id].find((value) => typeof value === 'string' && value !== '');
+  return typeof value === 'string' ? value : String(index + 1).padStart(2, '0');
+}
+
+function itemSummary(item: Record<string, unknown>): string {
+  return [item.server, item.outbound, item.path, item.url, item.domain, item.rule_set]
+    .flatMap((value) => typeof value === 'string' ? [value] : Array.isArray(value) ? value.filter((part) => typeof part === 'string') : [])
+    .slice(0, 3)
+    .join(' · ');
+}
+
+function hasObjectItems(schema: RJSFSchema, root: RJSFSchema): boolean {
+  const resolved = resolvedSchema(schema, root);
+  if (resolved.type === 'object') return true;
+  const branches = resolved.oneOf ?? resolved.anyOf;
+  return branches !== undefined && branches.length > 0
+    && branches.every((branch) => typeof branch === 'object' && hasObjectItems(branch, root));
+}
+
+export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
+  const { t } = useTranslation();
+  const {
+    canAdd, disabled, fieldPathId, formData, items, onAddClick, readonly, registry, schema, title, uiSchema,
+  } = props;
+  const actions = use(ArrayFieldActionsContext);
+  const data: unknown[] = Array.isArray(formData) ? formData : [];
+  const objectItems = schema.items !== undefined && typeof schema.items === 'object' && !Array.isArray(schema.items)
+    && hasObjectItems(schema.items, registry.rootSchema);
+  const records = (data.length > 0 ? data.every((item) => item !== null && typeof item === 'object' && !Array.isArray(item)) : objectItems)
+    ? data as Record<string, unknown>[]
+    : null;
+  const { ArrayFieldTitleTemplate } = registry.templates;
+  const actionContainer = fieldPathId.path.length === 0
+    ? registry.formContext?.arrayActionContainer as HTMLElement | null | undefined
+    : null;
+  const standalone = records !== null && fieldPathId.path.length === 0 && registry.formContext?.arrayLayout === 'standalone';
+  const userList = records !== null && fieldPathId.path.at(-1) === 'users';
+  const userFields = userList ? resolvedSchema(schema.items as RJSFSchema, registry.rootSchema).properties : undefined;
+  const credentials = userList
+    ? userCredentials.filter(({ keys }) => keys.some((key) => userFields?.[key] !== undefined))
+    : undefined;
+  const addButton = canAdd
+    ? (
+        standalone
+          ? (
+              <ConfigurationListAddButton
+                disabled={disabled || readonly}
+                onClick={actions !== null ? actions.create : onAddClick}
+              >
+                <Plus aria-hidden data-icon='inline-start' />
+                {t('common.add')}
+              </ConfigurationListAddButton>
+            )
+          : (
+              <Button disabled={disabled || readonly} onClick={records !== null && actions !== null ? actions.create : onAddClick} size='sm' type='button' variant={records === null ? 'ghost' : 'outline'}>
+                <Plus aria-hidden data-icon='inline-start' />
+                {t('common.add')}
+              </Button>
+            )
+      )
+    : null;
+  if (standalone) {
+    return (
+      <fieldset className='min-w-0 p-0' id={`${fieldPathId.$id}-group`}>
+        <ArrayEditorContext value={{ records, standalone, edit: (index) => actions?.edit(index) }}>
+          <ConfigurationList labels={[t('configuration.fields.tag'), t('configuration.fields.type'), t('configuration.general.summary'), t('common.actions')]}>
+            {items}
+            {addButton && <ConfigurationListAddRow>{addButton}</ConfigurationListAddRow>}
+          </ConfigurationList>
+        </ArrayEditorContext>
+      </fieldset>
+    );
+  }
+  return (
+    <fieldset className={`schema-form__array${records === null ? ' schema-form__array--values' : ''}${userList ? ' schema-form__array--users' : ''}`} data-credentials={credentials !== undefined && credentials.length > 0} id={`${fieldPathId.$id}-group`}>
+      <div className='schema-form__array-toolbar' hidden={!!actionContainer}>
+        <div className='schema-form__array-heading'>
+          <ArrayFieldTitleTemplate {...props} title={uiSchema?.['ui:title'] === '' ? '' : title} />
+        </div>
+        {actionContainer ? createPortal(addButton, actionContainer) : addButton}
+      </div>
+      <ArrayEditorContext value={{ records, userCredentials: credentials, edit: (index) => actions?.edit(index) }}>
+        {records !== null && items.length > 0
+          ? (
+              <div aria-hidden className='schema-form__list-header'>
+                {credentials !== undefined
+                  ? (
+                      <>
+                        <span>{t('configuration.fields.username')}</span>
+                        {credentials.length > 0 && <span>{t(credentials.length === 1 ? credentials[0].label : 'configuration.userList.credentials')}</span>}
+                      </>
+                    )
+                  : (
+                      <>
+                        <span>{t('configuration.fields.tag')}</span>
+                        <span>{t('configuration.fields.type')}</span>
+                        <span>{t('configuration.general.summary')}</span>
+                      </>
+                    )}
+                <span>{t('common.actions')}</span>
+              </div>
+            )
+          : null}
+        <div className='schema-form__array-items'>{items}</div>
+        {items.length === 0 && records !== null ? <p className='schema-form__empty'>{t('configuration.general.empty')}</p> : null}
+      </ArrayEditorContext>
+    </fieldset>
+  );
+}
+
+export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, registry }: ArrayFieldItemTemplateProps) {
+  const { t } = useTranslation();
+  const state = use(ArrayEditorContext);
+  const { ArrayFieldItemButtonsTemplate } = registry.templates;
+  const buttons = <div className='schema-form__item-actions'><ArrayFieldItemButtonsTemplate {...buttonsProps} /></div>;
+  const record = state?.records?.[index];
+  if (record !== undefined && state?.standalone) {
+    const name = itemLabel(record, index);
+    return (
+      <ConfigurationListRow>
+        <ConfigurationListCell>
+          <ConfigurationListText title={name}>{name}</ConfigurationListText>
+        </ConfigurationListCell>
+        <ConfigurationListCell secondary><ConfigurationListText>{String(record.type ?? record.action ?? '—')}</ConfigurationListText></ConfigurationListCell>
+        <ConfigurationListCell secondary><ConfigurationListText title={itemSummary(record)}>{itemSummary(record) || '—'}</ConfigurationListText></ConfigurationListCell>
+        <ConfigurationListCell>
+          <ConfigurationListActions>
+            <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
+            <Button aria-label={t('configuration.general.moveUp', { name })} title={t('common.moveUp')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveUp} onClick={buttonsProps.onMoveUpItem} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
+            <Button aria-label={t('configuration.general.moveDown', { name })} title={t('common.moveDown')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveDown} onClick={buttonsProps.onMoveDownItem} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
+            <ArrayFieldItemButtonsTemplate {...buttonsProps} hasMoveUp={false} hasMoveDown={false} />
+          </ConfigurationListActions>
+        </ConfigurationListCell>
+      </ConfigurationListRow>
+    );
+  }
+  if (record !== undefined) {
+    const username = [record.username, record.Username, record.name].find((value) => typeof value === 'string' && value.trim() !== '');
+    const name = state?.userCredentials !== undefined
+      ? (typeof username === 'string' ? username : t('configuration.userList.unnamed', { number: index + 1 }))
+      : itemLabel(record, index);
+    const credentials = state?.userCredentials?.map(({ keys, label }) => {
+      const values = keys.flatMap((key) => {
+        const value = record[key];
+        if (typeof value === 'string' && value.length > 0) return [value];
+        if (Array.isArray(value) && value.length > 0) return [JSON.stringify(value)];
+        return [];
+      });
+      if (state.userCredentials?.length === 1) return values.join(' · ') || '—';
+      return values.length > 0
+        ? t('configuration.userList.credentialValue', { credential: t(label), value: values.join(' · ') })
+        : t('configuration.userList.credentialMissing', { credential: t(label) });
+    }).join('\n');
+    return (
+      <div className='schema-form__list-row'>
+        <span className='schema-form__item-name' title={name}>{name}</span>
+        {credentials !== undefined
+          ? (
+              credentials !== '' && <span className='schema-form__item-summary schema-form__item-credentials'>{credentials}</span>
+            )
+          : (
+              <>
+                <span className='schema-form__item-type'>{String(record.type ?? record.action ?? '—')}</span>
+                <span className='schema-form__item-summary'>{itemSummary(record) || '—'}</span>
+              </>
+            )}
+        <div className='schema-form__item-actions'>
+          <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state?.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
+          {buttons}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className='schema-form__value-row'>
+      <div>{children}</div>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button aria-label={t('common.actions')} disabled={buttonsProps.disabled || buttonsProps.readonly} size='icon-sm' type='button' variant='ghost' />}>
+          <MoreHorizontal aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuGroup>
+            {(buttonsProps.hasMoveUp || buttonsProps.hasMoveDown)
+              ? (
+                  <>
+                    <DropdownMenuItem disabled={!buttonsProps.hasMoveUp} onClick={buttonsProps.onMoveUpItem}>{t('common.moveUp')}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={!buttonsProps.hasMoveDown} onClick={buttonsProps.onMoveDownItem}>{t('common.moveDown')}</DropdownMenuItem>
+                  </>
+                )
+              : null}
+            {buttonsProps.hasCopy ? <DropdownMenuItem onClick={buttonsProps.onCopyItem}>{t('common.copy')}</DropdownMenuItem> : null}
+            {buttonsProps.hasRemove ? <DropdownMenuItem onClick={buttonsProps.onRemoveItem} variant='destructive'>{t('common.remove')}</DropdownMenuItem> : null}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}

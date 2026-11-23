@@ -1,0 +1,8 @@
+# Protobuf module for the panel–node protocol (package sbp.node.v1).
+version: v2
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

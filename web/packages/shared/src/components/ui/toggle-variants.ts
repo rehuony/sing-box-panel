@@ -1,0 +1,23 @@
+import { cva } from 'class-variance-authority';
+
+export const toggleVariants = cva(
+  'group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all outline-none hover:bg-[var(--color-hover)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-accent aria-pressed:text-foreground data-[state=on]:bg-accent data-[state=on]:text-foreground dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=\'size-\'])]:size-4',
+  {
+    variants: {
+      variant: {
+        default: 'bg-transparent',
+        outline: 'border border-input bg-transparent hover:bg-[var(--color-hover)]',
+      },
+      size: {
+        default:
+          'h-(--control-height) min-w-(--control-height) px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        sm: 'h-(--control-height-sm) min-w-(--control-height-sm) rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*=\'size-\'])]:size-3.5',
+        lg: 'h-(--control-height-lg) min-w-(--control-height-lg) px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      size: 'default',
+    },
+  },
+);

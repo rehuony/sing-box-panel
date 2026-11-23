@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package httpapi
+
+import (
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+)
+
+func optionalPageOffset(w http.ResponseWriter, request *http.Request) (int, bool) {
+	query := request.URL.Query()
+	if !query.Has("offset") {
+		return 0, true
+	}
+	value, err := strconv.ParseInt(query.Get("offset"), 10, 32)
+	if err != nil || value < 0 || query.Has("before_time") || query.Has("before_id") {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "offset must be between 0 and 2147483647 and cannot be combined with a cursor.")
+		return 0, false
+	}
+	return int(value), true
+}
+
+func strictCoreQuery(w http.ResponseWriter, request *http.Request, allowed ...string) (url.Values, bool) {
+	return strictQueryWithLimit(w, request, maximumCoreQueryBytes, allowed...)
+}
+
+func strictQueryWithLimit(w http.ResponseWriter, request *http.Request, maximumBytes int, allowed ...string) (url.Values, bool) {
+	if len(request.URL.RawQuery) > maximumBytes {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "The query string is too large.")
+		return nil, false
+	}
+	query, err := url.ParseQuery(request.URL.RawQuery)
+	if err != nil {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "The query string is malformed.")
+		return nil, false
+	}
+	permitted := make(map[string]struct{}, len(allowed))
+	for _, name := range allowed {
+		permitted[name] = struct{}{}
+	}
+	for name, values := range query {
+		if _, ok := permitted[name]; !ok || len(values) != 1 || values[0] == "" {
+			writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "Query parameters must be recognized, non-empty, and occur at most once.")
+			return nil, false
+		}
+	}
+	return query, true
+}
+
+func optionalStrictBool(w http.ResponseWriter, request *http.Request, query url.Values, name string) (bool, bool) {
+	values, present := query[name]
+	if !present {
+		return false, true
+	}
+	switch values[0] {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", name+" must be true or false.")
+		return false, false
+	}
+}
+
+func requireEmptyCoreBody(w http.ResponseWriter, request *http.Request) bool {
+	body, err := readBoundedBody(request, maximumCoreEmptyRequestBytes)
+	if err != nil {
+		writeBodyProblem(w, request, err)
+		return false
+	}
+	if len(strings.TrimSpace(string(body))) != 0 {
+		writeProblem(w, request, http.StatusUnprocessableEntity, "request_body_not_allowed", "Request invalid", "This operation does not accept a request body.")
+		return false
+	}
+	return true
+}
+
+func validOptionalExactVersion(value string, requireNonZero bool) bool {
+	if value == "" {
+		return true
+	}
+	version, err := coreartifact.ParseExactVersion(value)
+	return err == nil && (!requireNonZero || !version.IsZero())
+}
+func validOptionalArchitecture(value string) bool {
+	return value == "" || value == "amd64" || value == "arm64"
+}
+func validOptionalCoreArtifactSource(value string) bool {
+	return value == "" || value == store.CachedArtifactOfficial || value == store.CachedArtifactUserVerified
+}
+func validOptionalVariant(value string) bool {
+	return value == "" || value == "musl"
+}
+
+func validCoreUpload(upload corecache.CoreUpload) bool {
+	version, err := coreartifact.ParseExactVersion(upload.ExactVersion)
+	if err != nil || version.IsZero() {
+		return false
+	}
+	architecture := coreartifact.Architecture(upload.Architecture)
+	if architecture != coreartifact.ArchitectureAMD64 && architecture != coreartifact.ArchitectureARM64 {
+		return false
+	}
+	variant := coreartifact.Variant(upload.Variant)
+	if variant == "" {
+		variant = coreartifact.VariantMusl
+	}
+	if _, err := coreartifact.NewUserSource(upload.SourceDescription); err != nil {
+		return false
+	}
+	return variant == coreartifact.VariantMusl
+}

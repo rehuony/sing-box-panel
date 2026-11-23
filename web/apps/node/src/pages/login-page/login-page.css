@@ -1,0 +1,29 @@
+/* The sign-in prompt's morph into the terminal window; the prompt itself uses the shared prompt classes. */
+
+/*
+ * Signing in morphs the prompt into the terminal window: the box grows from one
+ * to the other while the window, unscaled and anchored at its top, is revealed
+ * inside it and the prompt fades out.
+ */
+::view-transition-group(console-window) {
+  animation-duration: 420ms;
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-image-pair(console-window) {
+  overflow: hidden;
+  border-radius: var(--radius-card);
+}
+
+::view-transition-old(console-window),
+::view-transition-new(console-window) {
+  height: 100%;
+  animation-duration: var(--dur-short);
+  object-fit: none;
+  object-position: top center;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-short);
+}

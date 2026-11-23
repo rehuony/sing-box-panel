@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type Problem struct {
+	Type      string            `json:"type"`
+	Title     string            `json:"title"`
+	Status    int               `json:"status"`
+	Code      string            `json:"code"`
+	Detail    string            `json:"detail,omitempty"`
+	RequestID string            `json:"request_id,omitempty"`
+	Fields    map[string]string `json:"fields,omitempty"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+// problemDetails is a problem response before it is written.
+type problemDetails struct {
+	status              int
+	code, title, detail string
+}
+
+func (problem problemDetails) write(w http.ResponseWriter, request *http.Request) {
+	writeProblem(w, request, problem.status, problem.code, problem.title, problem.detail)
+}
+
+func writeProblem(w http.ResponseWriter, request *http.Request, status int, code, title, detail string) {
+	writeProblemFields(w, request, status, code, title, detail, nil)
+}
+
+// writeProblemFields writes a problem whose fields name what it is about.
+func writeProblemFields(w http.ResponseWriter, request *http.Request, status int, code, title, detail string, fields map[string]string) {
+	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(Problem{
+		Type:      "about:blank",
+		Title:     title,
+		Status:    status,
+		Code:      code,
+		Detail:    detail,
+		RequestID: request.Header.Get("X-Request-ID"),
+		Fields:    fields,
+	})
+}

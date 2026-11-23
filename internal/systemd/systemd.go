@@ -1,33 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package systemd implements the Linux systemd lifecycle used by the CLI.
+// Package systemd implements the Linux systemd lifecycle of one service:
+// the panel's or a node's. A Definition names the service, supplies its
+// audited templates and the state that identifies an installation, and the
+// Manager installs, controls, inspects and removes the unit, its dedicated
+// system account and that account's ownership of the service's files.
 package systemd
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
-
-	"github.com/rehuony/sing-box-panel/internal/settings"
-)
-
-const (
-	UnitName = "sing-box-panel.service"
-	// Persisted ownership marker; keep stable across CLI renames so existing
-	// installations remain recognized without weakening ownership checks.
-	managedMark  = "# Managed by sing-box-panel system install."
-	serviceUser  = "sing-box-panel"
-	serviceGroup = "sing-box-panel"
 )
 
 var (
 	ErrUnsupportedOS = errors.New("systemd lifecycle is supported only on Linux")
 	ErrPermission    = errors.New("system scope requires root privileges")
-	ErrNotInstalled  = errors.New("sing-box-panel systemd unit is not installed")
+	ErrNotInstalled  = errors.New("systemd unit is not installed")
 	ErrConflict      = errors.New("managed systemd destination conflicts with existing content")
 	ErrInvalid       = errors.New("invalid systemd request")
 )
@@ -58,12 +52,121 @@ const (
 	ActionRestart Action = "restart"
 )
 
+// Definition describes one service's systemd installation. Its state path
+// identifies an installation: it is the value of StateFlag in the unit's
+// ExecStart, and in system scope it is SystemStatePath.
+type Definition[T any] struct {
+	// Name names the unit (Name.service), the system account and its group,
+	// the sysusers and tmpfiles declarations, the executable, the default
+	// system data directory and the runtime directory.
+	Name string
+	// AccountDescription is the account comment in the sysusers template.
+	AccountDescription string
+	// SystemUnit, Sysusers and Tmpfiles are the audited system templates;
+	// UserUnit is the user template, nil for a service without user scope.
+	SystemUnit, UserUnit, Sysusers, Tmpfiles []byte
+	// SystemStatePath is the state path of a system installation.
+	SystemStatePath string
+	// StateFlag and StateShortFlag name the ExecStart flag that carries the
+	// state path; StateShortFlag may be empty.
+	StateFlag, StateShortFlag string
+	// StateLabel names the state path in messages, such as "settings".
+	StateLabel string
+	// StateFile reports that the state path is a file, whose directory the
+	// service also writes; otherwise the state path is the data directory.
+	StateFile bool
+	// Arguments renders the ExecStart arguments after the executable around
+	// the quoted state path.
+	Arguments func(quotedStatePath string) string
+	State     State[T]
+	// Companions are units a system installation keeps beside the service's
+	// unit, such as its root update helper, rendered with the executable
+	// and the data directory.
+	Companions []Companion
+	// CompanionArguments renders a companion's ExecStart arguments after
+	// the executable around the quoted data directory.
+	CompanionArguments func(quotedDataDir string) string
+}
+
+// Companion is a unit installed, inspected and removed with a system
+// service. In its audited template, ExecStart runs the executable with the
+// definition's CompanionArguments, ReadWritePaths names the executable's
+// directory and the data directory, and PathExists names Watch inside the
+// data directory; each directive is optional.
+type Companion struct {
+	// Name is the unit's file name, such as NAME-update.path.
+	Name     string
+	Template []byte
+	// Watch is the path inside the data directory that PathExists names.
+	Watch string
+	// Enable enables and starts the companion with the service; the others
+	// are started by an enabled companion.
+	Enable bool
+}
+
+// ScopeEnvironment is set by each service unit to its scope, so a service
+// knows how it is supervised.
+const ScopeEnvironment = "SING_BOX_SYSTEMD_SCOPE"
+
+// RunningScope returns the scope of the unit that runs this process, if a
+// unit does.
+func RunningScope() (Scope, bool) {
+	switch scope := Scope(os.Getenv(ScopeEnvironment)); scope {
+	case ScopeSystem, ScopeUser:
+		return scope, true
+	}
+	return "", false
+}
+
+// State is what a service keeps outside its unit and the lifecycle consults:
+// how a state path determines the data directory, which state the service
+// creates and owns, and how a pending move of its data proceeds.
+type State[T any] interface {
+	// DataDir returns the data directory of the installation at statePath
+	// without creating anything. fallback is the scope's default data
+	// directory, empty for user scope; now requires state the service can
+	// start with.
+	DataDir(statePath, fallback string, now bool) (string, error)
+	// Validate checks service-specific constraints on resolved paths before
+	// anything is written.
+	Validate(executable, statePath, dataDir string) error
+	// Location reports the data directory the installation uses now and the
+	// one its state selects; move reports a relocation in progress. An
+	// empty current means the state records none.
+	Location(statePath string) (current, target string, move bool, err error)
+	// Relocate moves the data to dataDir before the unit is written, when
+	// the state selects another directory.
+	Relocate(ctx context.Context, statePath, dataDir string) error
+	// Prepare creates missing state and returns what it created, nil when it
+	// created nothing.
+	Prepare(ctx context.Context, statePath, dataDir string, now bool) (*T, error)
+	// Owned lists the state paths besides the data directory that the system
+	// account owns.
+	Owned(statePath string) []OwnedPath
+	// Retained lists directories besides the data directories whose
+	// ownership returns to root when the account is removed.
+	Retained(statePath string) ([]string, error)
+	// Lock excludes the service's state writers while ownership moves; it
+	// returns nil when the service has none.
+	Lock(ctx context.Context, statePath string) (io.Closer, error)
+}
+
+// OwnedPath is a state path the system account owns.
+type OwnedPath struct {
+	Path string
+	Mode os.FileMode
+	// Directory is a directory rather than a regular file.
+	Directory bool
+	// Optional paths may be missing.
+	Optional bool
+}
+
 type Layout struct {
 	SystemUnitPath       string
 	SystemSysusersPath   string
 	SystemTmpfilesPath   string
 	SystemExecutablePath string
-	SystemSettingsPath   string
+	SystemStatePath      string
 	SystemDataDir        string
 	UserUnitPath         string
 }
@@ -77,12 +180,13 @@ type Runner interface {
 	Run(context.Context, string, ...string) (CommandResult, error)
 }
 
-type Service interface {
+// Service is the lifecycle a command line drives.
+type Service[T any] interface {
 	Files(context.Context, Scope) (FilesResult, error)
-	Install(context.Context, InstallRequest) (InstallResult, error)
+	Install(context.Context, InstallRequest) (InstallResult[T], error)
 	Uninstall(context.Context, UninstallRequest) (UninstallResult, error)
 	Status(context.Context, Scope) (Status, error)
-	Control(context.Context, Scope, Action) (ControlResult, error)
+	Control(context.Context, Scope, Action) (ControlResult[T], error)
 	Logs(context.Context, LogsRequest) (LogsResult, error)
 }
 
@@ -94,9 +198,9 @@ type FileStatus struct {
 }
 
 type FilesResult struct {
-	Scope        Scope        `json:"scope"`
-	SettingsPath string       `json:"settings_path,omitempty"`
-	Files        []FileStatus `json:"files"`
+	Scope     Scope        `json:"scope"`
+	StatePath string       `json:"state_path,omitempty"`
+	Files     []FileStatus `json:"files"`
 }
 
 type Options struct {
@@ -106,9 +210,13 @@ type Options struct {
 	Runner     Runner
 	Layout     Layout
 	LookPath   func(string) (string, error)
+	// ProcRoot is where process credentials are read; empty means /proc.
+	ProcRoot string
 }
 
-type Manager struct {
+type Manager[T any] struct {
+	definition Definition[T]
+	unitName   string
 	goos       string
 	euid       func() int
 	executable func() (string, error)
@@ -118,7 +226,7 @@ type Manager struct {
 	procRoot   string
 }
 
-func New(options Options) (*Manager, error) {
+func New[T any](definition Definition[T], options Options) (*Manager[T], error) {
 	if options.GOOS == "" {
 		options.GOOS = runtime.GOOS
 	}
@@ -129,42 +237,50 @@ func New(options Options) (*Manager, error) {
 		options.Executable = os.Executable
 	}
 	if options.Runner == nil {
-		options.Runner = execRunner{}
+		options.Runner = ExecRunner{}
 	}
 	if options.LookPath == nil {
 		options.LookPath = exec.LookPath
 	}
-	layout, err := resolvedLayout(options.Layout)
+	if options.ProcRoot == "" {
+		options.ProcRoot = "/proc"
+	}
+	layout, err := resolvedLayout(definition, options.Layout)
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{
+	return &Manager[T]{
+		definition: definition, unitName: definition.Name + ".service",
 		goos: options.GOOS, euid: options.EUID, executable: options.Executable,
-		runner: options.Runner, layout: layout, lookPath: options.LookPath, procRoot: "/proc",
+		runner: options.Runner, layout: layout, lookPath: options.LookPath, procRoot: options.ProcRoot,
 	}, nil
 }
 
+// Unit is the name of the service's unit.
+func (manager *Manager[T]) Unit() string { return manager.unitName }
+
 type InstallRequest struct {
-	Scope        Scope  `json:"scope"`
-	SettingsPath string `json:"settings_path"`
-	DataDir      string `json:"data_dir"`
-	Force        bool   `json:"force"`
-	Now          bool   `json:"now"`
+	Scope     Scope  `json:"scope"`
+	StatePath string `json:"state_path"`
+	DataDir   string `json:"data_dir"`
+	Force     bool   `json:"force"`
+	Now       bool   `json:"now"`
 }
 
-type InstallResult struct {
-	InitialSettings *settings.Settings `json:"-"`
-	SettingsCreated bool               `json:"settings_created"`
-	Scope           Scope              `json:"scope"`
-	Unit            string             `json:"unit"`
-	UnitPath        string             `json:"unit_path"`
-	ExecutablePath  string             `json:"executable_path"`
-	SettingsPath    string             `json:"settings_path"`
-	DataDir         string             `json:"data_dir"`
-	InstalledPaths  []string           `json:"installed_paths"`
-	Enabled         bool               `json:"enabled"`
-	Started         bool               `json:"started"`
-	PersistentState bool               `json:"persistent_state_preserved"`
+type InstallResult[T any] struct {
+	// Initial is the state Prepare created, if any.
+	Initial         *T       `json:"-"`
+	StateCreated    bool     `json:"state_created"`
+	Scope           Scope    `json:"scope"`
+	Unit            string   `json:"unit"`
+	UnitPath        string   `json:"unit_path"`
+	ExecutablePath  string   `json:"executable_path"`
+	StatePath       string   `json:"state_path"`
+	DataDir         string   `json:"data_dir"`
+	InstalledPaths  []string `json:"installed_paths"`
+	Enabled         bool     `json:"enabled"`
+	Started         bool     `json:"started"`
+	PersistentState bool     `json:"persistent_state_preserved"`
 }
 
 type UninstallRequest struct {
@@ -190,28 +306,41 @@ type UninstallResult struct {
 }
 
 // Status is systemd's own view of the unit plus one fact read from disk.
-// UnitFileSettingsPath is the --config argument written in the unit file at
+// UnitFileStatePath is the state path argument written in the unit file at
 // UnitPath as it exists now; it says nothing about the command line systemd
-// loaded (see NeedDaemonReload) or the settings the running process started
+// loaded (see NeedDaemonReload) or the state the running process started
 // with. It is empty when the file does not state one unambiguous path.
 type Status struct {
-	Scope                Scope  `json:"scope"`
-	Unit                 string `json:"unit"`
-	UnitPath             string `json:"unit_path"`
-	LoadState            string `json:"load_state"`
-	ActiveState          string `json:"active_state"`
-	SubState             string `json:"sub_state"`
-	UnitFileState        string `json:"unit_file_state"`
-	MainPID              int    `json:"main_pid"`
-	NeedDaemonReload     bool   `json:"need_daemon_reload"`
-	UnitFileSettingsPath string `json:"unit_file_settings_path,omitempty"`
+	Scope             Scope  `json:"scope"`
+	Unit              string `json:"unit"`
+	UnitPath          string `json:"unit_path"`
+	LoadState         string `json:"load_state"`
+	ActiveState       string `json:"active_state"`
+	SubState          string `json:"sub_state"`
+	UnitFileState     string `json:"unit_file_state"`
+	MainPID           int    `json:"main_pid"`
+	NeedDaemonReload  bool   `json:"need_daemon_reload"`
+	UnitFileStatePath string `json:"unit_file_state_path,omitempty"`
+	// Companions are systemd's view of the companion units of a system
+	// installation.
+	Companions []UnitState `json:"companions,omitempty"`
 }
 
-type ControlResult struct {
-	InitialSettings *settings.Settings `json:"-"`
-	Scope           Scope              `json:"scope"`
-	Unit            string             `json:"unit"`
-	Action          Action             `json:"action"`
+// UnitState is systemd's view of one companion unit.
+type UnitState struct {
+	Unit          string `json:"unit"`
+	LoadState     string `json:"load_state"`
+	ActiveState   string `json:"active_state"`
+	SubState      string `json:"sub_state"`
+	UnitFileState string `json:"unit_file_state"`
+}
+
+type ControlResult[T any] struct {
+	// Initial is the state recreated before a start, if any.
+	Initial *T     `json:"-"`
+	Scope   Scope  `json:"scope"`
+	Unit    string `json:"unit"`
+	Action  Action `json:"action"`
 }
 
 type LogsRequest struct {
@@ -244,3 +373,9 @@ func (err *CommandError) Error() string {
 }
 
 func (err *CommandError) Unwrap() error { return err.Cause }
+
+// managedMark is the persisted ownership marker of every installed file.
+// Keep it stable across renames so existing installations stay recognized.
+func (manager *Manager[T]) managedMark() string {
+	return "# Managed by " + manager.definition.Name + " system install."
+}

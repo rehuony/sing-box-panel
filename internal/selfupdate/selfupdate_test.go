@@ -36,14 +36,14 @@ func TestUpdateDownloadsVerifiesAndAtomicallyReplacesExecutable(t *testing.T) {
 
 	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": newBinary,
-		checksumAssetName:            []byte(checksums),
+		ChecksumsName:                []byte(checksums),
 	}, nil)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
-	updater.validateStagedExecutable = func(string, string, string) error { return nil }
+	updater.validateStagedExecutable = func(string, Binary, string, string) error { return nil }
 
 	var stages []Stage
 	var downloaded int64
@@ -109,12 +109,12 @@ func TestUpdateRejectsStagedFileWithoutPanelBuildIdentity(t *testing.T) {
 	digest := sha256.Sum256(newBinary)
 	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": newBinary,
-		checksumAssetName: []byte(fmt.Sprintf(
+		ChecksumsName: []byte(fmt.Sprintf(
 			"%x  sing-box-panel-linux-amd64\n", digest,
 		)),
 	}, nil)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
@@ -144,17 +144,17 @@ func TestUpdateHonorsCancellationAtAtomicCommitBoundary(t *testing.T) {
 	digest := sha256.Sum256(newBinary)
 	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": newBinary,
-		checksumAssetName: []byte(fmt.Sprintf(
+		ChecksumsName: []byte(fmt.Sprintf(
 			"%x  sing-box-panel-linux-amd64\n", digest,
 		)),
 	}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
-	updater.validateStagedExecutable = func(string, string, string) error {
+	updater.validateStagedExecutable = func(string, Binary, string, string) error {
 		cancel()
 		return nil
 	}
@@ -191,13 +191,13 @@ func TestUpdateRejectsExecutableChangedWhileWaitingForLock(t *testing.T) {
 	digest := sha256.Sum256(newBinary)
 	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": newBinary,
-		checksumAssetName: []byte(fmt.Sprintf(
+		ChecksumsName: []byte(fmt.Sprintf(
 			"%x  sing-box-panel-linux-amd64\n", digest,
 		)),
 	}, nil)
 	snapshotTaken := make(chan struct{})
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
@@ -250,8 +250,8 @@ func TestUpdateRejectsLatestReleaseChangingInsideLock(t *testing.T) {
 	}
 	assets := map[string][]byte{
 		"sing-box-panel-linux-amd64": binary,
-		checksumAssetName:            checksums,
-		signatureAssetName:           signature,
+		ChecksumsName:                checksums,
+		SignatureName:                signature,
 	}
 	var latestRequests atomic.Int32
 	var server *httptest.Server
@@ -286,7 +286,7 @@ func TestUpdateRejectsLatestReleaseChangingInsideLock(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
@@ -308,15 +308,15 @@ func TestValidateStagedBuildIdentity(t *testing.T) {
 	t.Parallel()
 
 	valid := &debug.BuildInfo{
-		Path: panelCommandPath,
-		Main: debug.Module{Path: panelModulePath},
+		Path: Panel.commandPath(),
+		Main: debug.Module{Path: modulePath},
 		Settings: []debug.BuildSetting{
 			{Key: "CGO_ENABLED", Value: "0"},
 			{Key: "GOARCH", Value: "amd64"},
 			{Key: "GOOS", Value: "linux"},
 		},
 	}
-	if err := validateStagedBuildIdentity(valid, "linux", "amd64"); err != nil {
+	if err := validateStagedBuildIdentity(valid, Panel, "linux", "amd64"); err != nil {
 		t.Fatalf("valid identity: %v", err)
 	}
 
@@ -324,7 +324,7 @@ func TestValidateStagedBuildIdentity(t *testing.T) {
 		name   string
 		mutate func(*debug.BuildInfo)
 	}{
-		{name: "command", mutate: func(value *debug.BuildInfo) { value.Path = panelModulePath + "/cmd/other" }},
+		{name: "command", mutate: func(value *debug.BuildInfo) { value.Path = Node.commandPath() }},
 		{name: "module", mutate: func(value *debug.BuildInfo) { value.Main.Path = "example.com/other" }},
 		{name: "architecture", mutate: func(value *debug.BuildInfo) { value.Settings[1].Value = "arm64" }},
 		{name: "operating system", mutate: func(value *debug.BuildInfo) { value.Settings[2].Value = "darwin" }},
@@ -340,7 +340,7 @@ func TestValidateStagedBuildIdentity(t *testing.T) {
 			candidate.Main = valid.Main
 			candidate.Settings = append([]debug.BuildSetting(nil), valid.Settings...)
 			testCase.mutate(&candidate)
-			if err := validateStagedBuildIdentity(&candidate, "linux", "amd64"); !errors.Is(err, ErrStagedExecutableInvalid) {
+			if err := validateStagedBuildIdentity(&candidate, Panel, "linux", "amd64"); !errors.Is(err, ErrStagedExecutableInvalid) {
 				t.Fatalf("error = %v, want ErrStagedExecutableInvalid", err)
 			}
 		})
@@ -358,12 +358,12 @@ func TestUpdateChecksumFailureLeavesExecutableUntouched(t *testing.T) {
 	wrongDigest := sha256.Sum256([]byte("different binary"))
 	server, publicKey := signedReleaseServer(t, "v1.3.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": []byte("unverified binary"),
-		checksumAssetName: []byte(fmt.Sprintf(
+		ChecksumsName: []byte(fmt.Sprintf(
 			"%x  sing-box-panel-linux-amd64\n", wrongDigest,
 		)),
 	}, nil)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: publicKey,
 	})
@@ -387,10 +387,10 @@ func TestUpdateDoesNotDownloadAssetsOrDowngrade(t *testing.T) {
 	var assetRequests atomic.Int32
 	server, publicKey := signedReleaseServer(t, "v1.2.2", map[string][]byte{
 		"sing-box-panel-linux-amd64": []byte("binary"),
-		checksumAssetName:            []byte("checksum"),
+		ChecksumsName:                []byte("checksum"),
 	}, &assetRequests)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", PublicKey: publicKey,
 		Executable: func() (string, error) {
 			t.Fatal("up-to-date check must not inspect or mutate the executable")
@@ -417,10 +417,10 @@ func TestUpdateAcceptsStrictPrereleaseAndBuildMetadata(t *testing.T) {
 	var assetRequests atomic.Int32
 	server, publicKey := signedReleaseServer(t, version, map[string][]byte{
 		"sing-box-panel-linux-amd64": []byte("binary"),
-		checksumAssetName:            []byte("checksum"),
+		ChecksumsName:                []byte("checksum"),
 	}, &assetRequests)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", PublicKey: publicKey,
 		Executable: func() (string, error) {
 			t.Fatal("an up-to-date check must not inspect the executable")
@@ -457,8 +457,8 @@ func TestUpdateRejectsUnsupportedAndDevelopmentBuildsBeforeNetwork(t *testing.T)
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			updater := New(Options{
-				LatestReleaseURL: "http://127.0.0.1:1/latest",
-				GOOS:             testCase.goos, GOARCH: testCase.goarch,
+				ReleasesURL: "http://127.0.0.1:1", Binary: Panel,
+				GOOS: testCase.goos, GOARCH: testCase.goarch,
 			})
 			_, err := updater.Update(context.Background(), testCase.version, nil)
 			if !errors.Is(err, testCase.want) {
@@ -474,8 +474,8 @@ func TestUpdatePreservesContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	updater := New(Options{
-		LatestReleaseURL: "http://127.0.0.1:1/latest",
-		GOOS:             "linux", GOARCH: "amd64", PublicKey: newPublicKey(t),
+		ReleasesURL: "http://127.0.0.1:1", Binary: Panel,
+		GOOS: "linux", GOARCH: "amd64", PublicKey: newPublicKey(t),
 	})
 	_, err := updater.Update(ctx, "v1.2.3", nil)
 	if !errors.Is(err, context.Canceled) {
@@ -486,7 +486,7 @@ func TestUpdatePreservesContextCancellation(t *testing.T) {
 func TestReleaseURLsRequireHTTPSOutsideInjectedHTTPOrigin(t *testing.T) {
 	t.Parallel()
 
-	production := New(Options{})
+	production := New(Options{Binary: Panel})
 	if _, err := production.validateURL("http://github.com/release"); !errors.Is(err, ErrReleaseInvalid) {
 		t.Fatalf("production HTTP error = %v", err)
 	}
@@ -494,7 +494,7 @@ func TestReleaseURLsRequireHTTPSOutsideInjectedHTTPOrigin(t *testing.T) {
 		t.Fatalf("production HTTPS error = %v", err)
 	}
 
-	testUpdater := New(Options{LatestReleaseURL: "http://127.0.0.1:1234/latest"})
+	testUpdater := New(Options{Binary: Panel, ReleasesURL: "http://127.0.0.1:1234"})
 	if _, err := testUpdater.validateURL("http://127.0.0.1:1234/asset"); err != nil {
 		t.Fatalf("same injected HTTP origin error = %v", err)
 	}
@@ -523,14 +523,14 @@ func TestUpdateRejectsIncompleteOrMalformedRelease(t *testing.T) {
 		},
 		{
 			name: "missing binary", tag: "v1.3.0",
-			assets:  map[string][]byte{checksumAssetName: []byte("checksum")},
+			assets:  map[string][]byte{ChecksumsName: []byte("checksum")},
 			wantErr: ErrAssetMissing,
 		},
 		{
 			name: "missing signature", tag: "v1.3.0",
 			assets: map[string][]byte{
 				"sing-box-panel-linux-amd64": []byte("binary"),
-				checksumAssetName:            []byte("checksum"),
+				ChecksumsName:                []byte("checksum"),
 			},
 			wantErr: ErrAssetMissing,
 		},
@@ -539,7 +539,7 @@ func TestUpdateRejectsIncompleteOrMalformedRelease(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			server := releaseServer(t, testCase.tag, testCase.assets, nil)
 			updater := New(Options{
-				HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+				HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 				GOOS: "linux", GOARCH: "amd64", PublicKey: newPublicKey(t),
 			})
 			_, err := updater.Update(context.Background(), "v1.2.3", nil)
@@ -572,11 +572,11 @@ func TestUpdateRejectsUntrustedSignatureBeforeDownloadingBinary(t *testing.T) {
 	var assetRequests atomic.Int32
 	server := releaseServer(t, "v1.3.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": newBinary,
-		checksumAssetName:            checksums,
-		signatureAssetName:           signature,
+		ChecksumsName:                checksums,
+		SignatureName:                signature,
 	}, &assetRequests)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", Executable: func() (string, error) { return target, nil },
 		PublicKey: newPublicKey(t),
 	})
@@ -601,8 +601,8 @@ func TestUpdateRejectsMissingVerificationKeyBeforeNetwork(t *testing.T) {
 	t.Parallel()
 
 	updater := New(Options{
-		LatestReleaseURL: "http://127.0.0.1:1/latest",
-		GOOS:             "linux", GOARCH: "amd64",
+		ReleasesURL: "http://127.0.0.1:1", Binary: Panel,
+		GOOS: "linux", GOARCH: "amd64",
 	})
 	_, err := updater.Update(context.Background(), "v1.2.3", nil)
 	if !errors.Is(err, ErrVerificationKeyInvalid) {
@@ -627,11 +627,11 @@ func TestUpdateRejectsSignatureReplayedUnderDifferentVersion(t *testing.T) {
 	var assetRequests atomic.Int32
 	server := releaseServer(t, "v1.4.0", map[string][]byte{
 		"sing-box-panel-linux-amd64": binary,
-		checksumAssetName:            checksums,
-		signatureAssetName:           signature,
+		ChecksumsName:                checksums,
+		SignatureName:                signature,
 	}, &assetRequests)
 	updater := New(Options{
-		HTTPClient: server.Client(), LatestReleaseURL: server.URL + "/latest",
+		HTTPClient: server.Client(), ReleasesURL: server.URL, Binary: Panel,
 		GOOS: "linux", GOARCH: "amd64", PublicKey: publicKey,
 		Executable: func() (string, error) {
 			t.Fatal("replayed signature must fail before inspecting the executable")
@@ -763,13 +763,13 @@ func signedReleaseServer(
 	for name, data := range assets {
 		signedAssets[name] = data
 	}
-	checksums, found := signedAssets[checksumAssetName]
+	checksums, found := signedAssets[ChecksumsName]
 	if found {
 		signature, signErr := releasecontract.Sign(privateKey, tag, checksums)
 		if signErr != nil {
 			t.Fatal(signErr)
 		}
-		signedAssets[signatureAssetName] = signature
+		signedAssets[SignatureName] = signature
 	}
 	return releaseServer(t, tag, signedAssets, requests), publicKey
 }

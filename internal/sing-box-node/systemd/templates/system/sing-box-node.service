@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Managed by sing-box-node system install.
+
+[Unit]
+Description=Sing-Box Node agent
+Documentation=https://github.com/rehuony/sing-box-panel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=SING_BOX_SYSTEMD_SCOPE=system
+Environment=SING_BOX_NODE_HOST_PROC=/run/sing-box-node/host-proc
+Type=simple
+User=sing-box-node
+Group=sing-box-node
+ExecStart=/usr/local/bin/sing-box-node --data-dir /var/lib/sing-box-node run
+WorkingDirectory=/var/lib/sing-box-node
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+
+StateDirectory=sing-box-node
+StateDirectoryMode=0700
+RuntimeDirectory=sing-box-node
+RuntimeDirectoryMode=0700
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sing-box-node
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+# Expose only the host counters the node reports, as read-only files.
+BindReadOnlyPaths=/proc/stat:/run/sing-box-node/host-proc/stat /proc/meminfo:/run/sing-box-node/host-proc/meminfo /proc/loadavg:/run/sing-box-node/host-proc/loadavg
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

@@ -31,7 +31,7 @@ trap cleanup EXIT
 contract_test="${work_directory}/core-contract.test"
 (
   cd -- "${repository_root}"
-  CGO_ENABLED=0 go test -c -o "${contract_test}" ./internal/singbox
+  CGO_ENABLED=0 go test -c -o "${contract_test}" ./internal/sing-box-panel/schema
 )
 while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
   case_directory="${work_directory}/${version}"
@@ -54,7 +54,7 @@ while IFS=$'\t' read -r version asset_name url expected_sha256 expected_size; do
   chmod 0755 "${binary}"
 
   (
-  cd -- "${repository_root}/internal/singbox"
+  cd -- "${repository_root}/internal/sing-box-panel/schema"
   SING_BOX_CONTRACT_REQUIRED=1 \
   SING_BOX_CONTRACT_BINARY="${binary}" \
   SING_BOX_CONTRACT_VERSION="${version}" \

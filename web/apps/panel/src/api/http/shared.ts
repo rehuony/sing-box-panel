@@ -1,0 +1,154 @@
+import i18n from '@/i18n';
+
+import type { Session } from '../api-client';
+
+import { ApiRequestError } from '../api-client';
+import { retryableRead } from '../query-client';
+
+interface ProblemDetails {
+  code?: string;
+  title?: string;
+  detail?: string;
+  fields?: Record<string, string>;
+}
+
+export type SessionPayload = Session;
+
+export interface HttpApiOptions {
+  baseUrl?: string;
+  fetcher?: typeof fetch;
+}
+
+export interface HttpApiContext {
+  baseUrl: string;
+  fetcher: typeof fetch;
+  /** The base URL of the selected node's resources; it fails without a node. */
+  nodeUrl: () => string;
+  clearSession: () => void;
+  invalidateSession: () => void;
+  quoteETag: (value: string) => string;
+  acceptSession: (payload: SessionPayload) => Session;
+  writeHeaders: (headers?: HeadersInit) => HeadersInit;
+  writeJSONHeaders: (headers?: HeadersInit) => HeadersInit;
+  subscribeSessionInvalidated: (listener: () => void) => () => void;
+  request: <T>(fetcher: typeof fetch, url: string, init: RequestInit) => Promise<T>;
+  buildQuery: (values: Record<string, string | number | boolean | undefined>) => string;
+  openEventStream: (fetcher: typeof fetch, url: string, init: RequestInit) => Promise<Response>;
+}
+
+async function readProblem(response: Response): Promise<ApiRequestError> {
+  let problem: ProblemDetails = {};
+  try {
+    problem = (await response.json()) as ProblemDetails;
+  } catch {
+    // A proxy or an older server may return an empty/non-JSON error response.
+  }
+  return new ApiRequestError(
+    problem.detail ?? problem.title ?? `Request failed with status ${response.status}`,
+    { status: response.status, code: problem.code ?? 'request_failed', fields: problem.fields },
+  );
+}
+
+export function createHttpApiContext(options: HttpApiOptions): HttpApiContext {
+  const baseUrl = (options.baseUrl ?? '/api/v1').replace(/\/$/, '');
+  const fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
+  let csrfToken = '';
+  const sessionInvalidatedListeners = new Set<() => void>();
+
+  const writeHeaders = (headers: HeadersInit = {}): HeadersInit =>
+    csrfToken === '' ? headers : { ...headers, 'X-CSRF-Token': csrfToken };
+
+  async function execute(
+    requestFetcher: typeof fetch,
+    url: string,
+    init: RequestInit,
+    accept: string,
+  ): Promise<Response> {
+    const response = await requestFetcher(url, {
+      ...init,
+      credentials: 'same-origin',
+      headers: { Accept: accept, ...init.headers },
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        csrfToken = '';
+        for (const listener of [...sessionInvalidatedListeners]) listener();
+      }
+      throw await readProblem(response);
+    }
+    return response;
+  }
+
+  return {
+    baseUrl,
+    nodeUrl: () => {
+      throw new ApiRequestError(i18n.t('nodes.notSelected'), { status: 0, code: 'node_not_selected' });
+    },
+    fetcher,
+    async request<T>(requestFetcher: typeof fetch, url: string, init: RequestInit): Promise<T> {
+      const readOnly = init.method === 'GET';
+      const deadline = new AbortController();
+      const timeout = readOnly ? setTimeout(() => deadline.abort(new DOMException('Request timed out', 'TimeoutError')), 15_000) : undefined;
+      const signal = init.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal;
+      try {
+        for (let attempt = 0; ; attempt++) {
+          signal.throwIfAborted();
+          try {
+            const response = await execute(requestFetcher, url, { ...init, signal }, 'application/json');
+            if (response.status === 204) return undefined as T;
+            return (await response.json()) as T;
+          } catch (error) {
+            if (!readOnly || attempt !== 0 || signal.aborted || !retryableRead(error)) throw error;
+          }
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    async openEventStream(requestFetcher, url, init) {
+      const deadline = new AbortController();
+      const timeout = setTimeout(() => deadline.abort(new ApiRequestError(
+        'The event stream stopped responding.', { code: 'stream_idle', status: 0 },
+      )), 25_000);
+      const signal = init.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal;
+      try {
+        return await execute(requestFetcher, url, { ...init, signal }, 'text/event-stream');
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    writeHeaders,
+    writeJSONHeaders: (headers: HeadersInit = {}) =>
+      writeHeaders({ 'Content-Type': 'application/json', ...headers }),
+    quoteETag: (value: string) => `"${value.replaceAll('"', '')}"`,
+    buildQuery(values) {
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(values)) {
+        if (value !== undefined && value !== '') query.set(key, String(value));
+      }
+      const encoded = query.toString();
+      return encoded === '' ? '' : `?${encoded}`;
+    },
+    acceptSession(payload) {
+      csrfToken = payload.csrfToken ?? '';
+      return payload;
+    },
+    invalidateSession() {
+      csrfToken = '';
+      for (const listener of [...sessionInvalidatedListeners]) listener();
+    },
+    clearSession() {
+      csrfToken = '';
+    },
+    subscribeSessionInvalidated(listener) {
+      sessionInvalidatedListeners.add(listener);
+      return () => sessionInvalidatedListeners.delete(listener);
+    },
+  };
+}
+
+/** Returns context with its node resources addressed to nodeID. */
+export function withNode(context: HttpApiContext, nodeID: string): HttpApiContext {
+  const nodeUrl = `${context.baseUrl}/nodes/${encodeURIComponent(nodeID)}`;
+  return { ...context, nodeUrl: () => nodeUrl };
+}

@@ -1,0 +1,207 @@
+/* Element defaults shared by every page. */
+
+:root {
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-canvas);
+  height: 100%;
+  overflow-x: clip;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--foreground);
+  font-size: var(--text-base);
+  height: 100%;
+  line-height: 1.5;
+  margin: 0;
+  overflow: clip;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--primary);
+}
+
+#root {
+  height: 100%;
+  min-width: 0;
+}
+
+/* Base UI hides the native scrollbar of scroll areas and select lists with this class; its inline rule is off under the CSP. */
+.base-ui-disable-scrollbar {
+  scrollbar-width: none;
+}
+
+.base-ui-disable-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@layer base {
+  button,
+  input,
+  textarea {
+    color: inherit;
+    font: inherit;
+  }
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+:where(
+  button,
+  a[href],
+  summary,
+  select,
+  [role='button'],
+  [role='tab'],
+  [role='combobox'],
+  [role='option'],
+  [role='menuitem'],
+  [role='menuitemcheckbox'],
+  [role='menuitemradio'],
+  [role='checkbox'],
+  [role='radio'],
+  [role='switch'],
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'],
+  input[type='color']
+):where(:not(:disabled):not([aria-disabled='true']):not([data-disabled='']):not([data-disabled='true'])) {
+  cursor: pointer;
+}
+
+:where(button, input, select, textarea, [role]):where(
+  :disabled,
+  [aria-disabled='true'],
+  [data-disabled=''],
+  [data-disabled='true']
+) {
+  cursor: default;
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  opacity: 0.55;
+}
+
+button:not(:disabled):active {
+  opacity: 0.92;
+}
+
+a[href]:active {
+  opacity: 0.92;
+}
+
+summary:active {
+  opacity: 0.92;
+}
+
+summary[aria-disabled='true'] {
+  background: var(--color-surface-raised);
+  color: var(--muted-foreground);
+  cursor: default;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Keyboard focus must not add an accent outline or halo to content regions. */
+:focus-visible:not([data-slot]) {
+  outline: none;
+}
+
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), textarea):not(
+    [data-slot]
+  ):focus-visible {
+  border-color: var(--input-focus);
+  box-shadow: none;
+  outline: 1px solid var(--input-focus);
+  outline-offset: -1px;
+}
+
+/* Selection is a soft band that keeps each text's colour. */
+::selection {
+  background: var(--color-selection);
+  color: currentcolor;
+  text-shadow: none;
+}
+
+/* Native scrollers that are not a scroll area; in the base layer so a utility can hide them. */
+@layer base {
+  * {
+    scrollbar-color: var(--color-selection) transparent;
+    scrollbar-width: thin;
+  }
+}
+
+.visually-hidden,
+.sr-only {
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  inset: 0 auto auto 0;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+@media (max-width: 700px) {
+  body {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

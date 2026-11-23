@@ -1,0 +1,356 @@
+/* Shared component classes and primitive shape rules. */
+
+/* Floating actions share one quiet surface over code and log output. */
+
+.floating-toolbar {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+  border-radius: calc(var(--radius-control) + var(--space-2xs));
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+/* Tooltip triggers replace data-slot, so style the shared buttons directly. */
+.floating-toolbar > button {
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.floating-toolbar > button:not(:disabled):hover {
+  background: var(--color-hover);
+  color: var(--foreground);
+}
+
+@media (prefers-contrast: more) {
+  .floating-toolbar {
+    border-color: var(--color-border-strong);
+  }
+}
+
+.panel-logo {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.panel-logo__mark {
+  border-radius: var(--radius-control);
+  display: block;
+  flex: 0 0 auto;
+  height: 2.25rem;
+  object-fit: contain;
+  width: 2.25rem;
+}
+
+.panel-logo__wordmark {
+  align-items: baseline;
+  display: flex;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 700;
+  gap: 0;
+  letter-spacing: -0.03em;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.panel-logo__wordmark strong {
+  font-weight: 700;
+}
+
+.workspace-table {
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
+.workspace-table > thead > tr > th {
+  font-weight: 500;
+  height: 44px;
+  padding-block: 0;
+  line-height: 20px;
+  vertical-align: middle;
+}
+
+.workspace-table > tbody > tr > td {
+  height: var(--workspace-row-height);
+  padding-block: 12px;
+  vertical-align: middle;
+}
+
+.workspace-table > tbody :is(strong, b, [data-slot='badge'], [data-slot='button']) {
+  font-weight: 400;
+}
+
+.loading-screen {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-lg);
+  text-align: center;
+}
+
+.loading-screen--inline {
+  flex: 1;
+  min-height: 10rem;
+}
+
+.loading-screen__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  animation: loading-reveal var(--duration-medium) var(--ease-out) 160ms both;
+}
+
+.loading-screen__mark {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  height: 2rem;
+  position: relative;
+  width: 2rem;
+}
+
+.loading-screen__mark::before {
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-pill);
+  content: '';
+  inset: 4px;
+  position: absolute;
+}
+
+.loading-screen__spinner {
+  width: 100%;
+  height: 100%;
+}
+
+.loading-screen__content > p {
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 28ch;
+  text-wrap: balance;
+}
+
+@keyframes loading-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 700px) {
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-screen__content,
+  .loading-screen__spinner {
+    animation: none;
+  }
+}
+
+/* Shared shape tokens also cover primitives rendered through portals. */
+[data-slot='button'],
+[data-slot='toggle-group-item'] {
+  border-radius: var(--radius-control);
+}
+
+/* Inset tab surfaces share a corner center with their surrounding track. */
+[data-slot='tabs-list'][data-variant='default'][data-orientation='horizontal'] {
+  --tabs-item-radius: max(0px, calc(var(--radius-card) - var(--tabs-inset, 3px)));
+}
+
+[data-slot='tabs-trigger'] {
+  border-radius: var(--tabs-item-radius, var(--radius-control));
+}
+
+[data-slot='card'],
+[data-slot='toast'] {
+  border-radius: var(--radius-card);
+}
+
+/*
+ * A terminal prompt's input line: the transparent input keeps the value and
+ * selection, the mirror draws one cell per character, its selection and cursor.
+ */
+
+@keyframes prompt-shake {
+  0%,
+  100% {
+    translate: 0;
+  }
+  20% {
+    translate: -6px;
+  }
+  40% {
+    translate: 5px;
+  }
+  60% {
+    translate: -3px;
+  }
+  80% {
+    translate: 2px;
+  }
+}
+
+@keyframes prompt-cell-in {
+  from {
+    opacity: 0;
+    scale: 0.3;
+  }
+}
+
+@keyframes prompt-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* A refused prompt shakes once. */
+.prompt-shake {
+  animation: prompt-shake 360ms var(--ease-out);
+}
+
+/* One cell per character, as wide as the input's character with its letter spacing; the mirror sets --prompt-cell. */
+.prompt-input__cell {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--prompt-cell);
+  height: 1.5em;
+  animation: prompt-cell-in var(--dur-short) var(--ease-out);
+}
+
+/* The input scrolls a little past its last character; the mirror can follow it there. */
+.prompt-input__cell.prompt-input__end {
+  width: calc(var(--prompt-cell) * 2);
+  justify-content: flex-start;
+}
+
+.prompt-input__cell[data-selected] {
+  background: color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+.prompt-input__dot {
+  display: block;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 999px;
+  background: currentcolor;
+}
+
+/* The cursor takes no width: a block in the last cell, a bar between characters. */
+.prompt-input__caret {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: calc((var(--prompt-cell) - 0.55em) / 2);
+  width: 0.55em;
+  height: 1.15em;
+  border-radius: 2px;
+  translate: 0 -50%;
+  background: var(--primary);
+  animation: prompt-caret-blink 1.06s steps(1) infinite;
+}
+
+.prompt-input__caret--bar {
+  left: -1px;
+  width: 2px;
+}
+
+/* The input keeps the selection but never paints it; the mirror does. */
+.prompt-input::selection {
+  background: transparent;
+  color: transparent;
+}
+
+/* Autofilled text stays in the mirror, not in the transparent input. */
+.prompt-input:-webkit-autofill {
+  -webkit-text-fill-color: transparent;
+  transition: background-color 9999s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-shake,
+  .prompt-input__cell,
+  .prompt-input__caret {
+    animation: none;
+  }
+}
+
+/*
+ * Ten cells of the monospace grid, filled from the left. The fill reveals one
+ * scale laid along the whole meter: success at empty, warning at the share
+ * where warning begins and danger from where danger does; empty cells cover it.
+ */
+.cell-meter {
+  flex: none;
+  width: 10ch;
+  height: 0.75em;
+  background:
+    linear-gradient(90deg, transparent var(--meter-fill, 0%), var(--color-meter-track) 0),
+    linear-gradient(
+      in oklch 90deg,
+      var(--color-success),
+      var(--color-warning) var(--meter-warning, 80%),
+      var(--color-danger) var(--meter-danger, 95%)
+    );
+  mask: repeating-linear-gradient(90deg, #000 0 calc(1ch - 2px), transparent 0 1ch);
+}
+
+/* A set number of cells across the room its row leaves, each an equal share of the width. */
+.cell-meter[data-cells] {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  mask: repeating-linear-gradient(
+    90deg,
+    #000 0 calc(100% / var(--meter-cells) - 2px),
+    transparent 0 calc(100% / var(--meter-cells))
+  );
+}
+
+/* An unknown share: the hatch of the unknown state in every cell, so it never reads as zero. */
+.cell-meter[data-unknown] {
+  background: repeating-linear-gradient(135deg, var(--color-border-strong) 0 1px, var(--color-surface-raised) 0 3px);
+}
+
+/* A terminal's new output types itself out from the left, a cell at a time. */
+
+@keyframes terminal-line-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+.terminal-line {
+  animation: terminal-line-type var(--type-duration, 0ms) steps(var(--type-steps, 1), end) both;
+}
+
+.terminal-input {
+  caret-color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-line {
+    animation: none;
+  }
+}

@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Managed by sing-box-node system install.
+
+[Unit]
+Description=Sing-Box Node update helper
+Documentation=https://github.com/rehuony/sing-box-panel
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/sing-box-node --data-dir /var/lib/sing-box-node update --apply-staged
+TimeoutStartSec=5min
+UMask=0022
+
+NoNewPrivileges=true
+# Root replaces the executable beside itself and reads and writes the
+# service account's private updates directory.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /var/lib/sing-box-node
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX

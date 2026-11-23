@@ -1,0 +1,102 @@
+package settings
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+)
+
+func TestPanelSettingsPersistCASAndRedact(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "panel.db")
+	db, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	bootstrap := Defaults()
+	bootstrap.Auth.Email = testutil.AdminEmail
+	bootstrap.Auth.PasswordHash = testutil.PasswordHash
+	bootstrap.GitHub.Token = "github-original-secret"
+	bootstrap = settingsFileFixture(t, bootstrap)
+	app := newTestService(db, bootstrap)
+	view, err := app.PanelSettings(ctx)
+	if err != nil || view.Revision == 0 || view.Preferences.Appearance.Radius != 12 {
+		t.Fatalf("defaults: %+v %v", view, err)
+	}
+	p := view.Preferences
+	p.Appearance.Color = "#ABCDEF"
+	p.Appearance.Radius = 0
+	p.ExternalOrigin = "https://panel.example.com"
+	input := PanelSettingsWrite{Preferences: p, Revision: view.Revision, Credentials: &CredentialsWrite{Email: new(testutil.AdminEmail), NewPassword: testutil.ChangedPassword}}
+	saved, err := app.SavePanelSettings(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(saved)
+	for _, secret := range []string{"github-original-secret", strings.Repeat("b", 32)} {
+		if strings.Contains(string(data), secret) {
+			t.Fatal("response contains secret")
+		}
+	}
+	if !saved.Settings.GitHubTokenConfigured || saved.Settings.Revision == view.Revision {
+		t.Fatalf("save: %+v", saved)
+	}
+	if _, err := app.SavePanelSettings(ctx, input); !errors.Is(err, store.ErrPanelSettingsConflict) {
+		t.Fatalf("stale save: %v", err)
+	}
+	input.Revision = saved.Settings.Revision
+	input.ClearGitHubToken = true
+	input.Credentials = nil
+	saved, err = app.SavePanelSettings(ctx, input)
+	if err != nil || saved.Settings.GitHubTokenConfigured {
+		t.Fatalf("clear: %+v %v", saved, err)
+	}
+	db2, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	reloaded := newTestService(db2, bootstrap)
+	effective, err := reloaded.EffectiveSettings(ctx)
+	if err != nil || effective.GitHub.Token != "" || effective.Auth.PasswordHash == testutil.PasswordHash {
+		t.Fatal("effective credentials did not persist")
+	}
+	if effective.Server.ExternalOrigin != p.ExternalOrigin || !saved.Settings.RestartRequired {
+		t.Fatal("HTTPS origin did not persist with a pending restart")
+	}
+	got, err := reloaded.PanelSettings(ctx)
+	if err != nil || got.Preferences.Appearance.Color != "#ABCDEF" || got.Preferences.Appearance.Radius != 0 {
+		t.Fatal("appearance did not persist")
+	}
+}
+
+func TestPanelSettingsValidation(t *testing.T) {
+	base := PanelSettingsWrite{Preferences: PanelPreferences{ListenHost: "127.0.0.1", ListenPort: 3000, Language: "zh-CN", Appearance: AppearanceSettings{Theme: "light", Color: "#6D4ED1", Radius: 24}}}
+	cases := map[string]func(*PanelSettingsWrite){
+		"radius": func(v *PanelSettingsWrite) { v.Preferences.Appearance.Radius = 33 },
+		"color":  func(v *PanelSettingsWrite) { v.Preferences.Appearance.Color = "red" },
+		"short password": func(v *PanelSettingsWrite) {
+			v.Credentials = &CredentialsWrite{Email: new(testutil.AdminEmail), NewPassword: "short"}
+		},
+		"empty email":        func(v *PanelSettingsWrite) { v.Credentials = &CredentialsWrite{Email: new("")} },
+		"invalid email":      func(v *PanelSettingsWrite) { v.Credentials = &CredentialsWrite{Email: new("invalid")} },
+		"ambiguous secret":   func(v *PanelSettingsWrite) { v.GitHubToken = "secret"; v.ClearGitHubToken = true },
+		"credential newline": func(v *PanelSettingsWrite) { v.GitHubToken = "bad\nsecret" },
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			v := base
+			change(&v)
+			if !errors.Is(validatePanelSettings(v), ErrPanelSettingsInvalid) {
+				t.Fatal("accepted invalid settings")
+			}
+		})
+	}
+}

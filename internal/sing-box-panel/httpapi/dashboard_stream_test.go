@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package httpapi
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"testing/synctest"
+	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
+)
+
+func TestDashboardStreamClosesTransportCleanly(t *testing.T) {
+	for _, http2 := range []bool{false, true} {
+		t.Run(fmt.Sprint(http2), func(t *testing.T) {
+			cancelStream := make(chan context.CancelFunc, 1)
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				ctx, cancel := context.WithCancel(request.Context())
+				defer cancel()
+				cancelStream <- cancel
+				streamDashboardSnapshots(w, request.WithContext(ctx), func(context.Context) (telemetry.DashboardStreamSnapshot, error) {
+					return telemetry.DashboardStreamSnapshot{}, nil
+				}, testSnapshotInterval, dashboardStreamLifetime)
+			}))
+			server.EnableHTTP2 = http2
+			server.StartTLS()
+			t.Cleanup(server.Close)
+			client := server.Client()
+			client.Timeout = 5 * time.Second
+			response, err := client.Get(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			cancel := <-cancelStream
+			defer cancel()
+			reader := bufio.NewReader(response.Body)
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					t.Fatalf("read initial frame: %v", err)
+				}
+				if line == "\n" {
+					break
+				}
+			}
+			cancel()
+			if _, err := io.ReadAll(reader); err != nil {
+				t.Fatalf("dashboard response did not end with a clean EOF: %v", err)
+			}
+			wantProtocol := 1
+			if http2 {
+				wantProtocol = 2
+			}
+			if response.ProtoMajor != wantProtocol {
+				t.Fatalf("HTTP protocol=%s", response.Proto)
+			}
+		})
+	}
+}
+
+func TestDashboardStreamWritesImmediateAuthenticatedSnapshot(t *testing.T) {
+	handler, database := newCoreHTTPFixture(t)
+	nodeID := testutil.CreateNode(t, database, "edge")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	response := newFlushRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+nodeID+"/dashboard/stream", nil).WithContext(ctx)
+	testutil.Authorize(t, handler, request)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handler.ServeHTTP(response, request)
+	}()
+	select {
+	case <-response.flushed:
+		cancel()
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("dashboard SSE did not flush its initial snapshot")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dashboard SSE did not stop after request cancellation")
+	}
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/event-stream; charset=utf-8" {
+		t.Fatalf("dashboard stream status=%d headers=%v", response.Code, response.Header())
+	}
+	if !strings.HasPrefix(response.Body.String(), "event: dashboard\ndata: ") {
+		t.Fatalf("dashboard stream body=%q", response.Body.String())
+	}
+	raw := strings.TrimSuffix(strings.TrimPrefix(response.Body.String(), "event: dashboard\ndata: "), "\n\n")
+	var snapshot telemetry.DashboardStreamSnapshot
+	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.History1H.BucketSeconds != 60 || snapshot.History24H.BucketSeconds != 300 {
+		t.Fatalf("dashboard snapshot=%+v", snapshot)
+	}
+}
+
+func TestDashboardStreamReportsAuthenticationStorageFailure(t *testing.T) {
+	handler, database := newCoreHTTPFixture(t)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/node_edge/dashboard/stream", nil)
+	testutil.Authorize(t, handler, request)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || !strings.HasPrefix(response.Header().Get("Content-Type"), "application/problem+json") {
+		t.Fatalf("failed snapshot status=%d content-type=%q", response.Code, response.Header().Get("Content-Type"))
+	}
+	var problem Problem
+	if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if problem.Code != "authentication_unavailable" {
+		t.Fatalf("problem code=%q", problem.Code)
+	}
+}
+
+func TestDashboardStreamExpiresForReauthentication(t *testing.T) {
+	if dashboardStreamLifetime != time.Minute {
+		t.Fatalf("dashboard stream lifetime=%s", dashboardStreamLifetime)
+	}
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		var collected []time.Duration
+		load := func(ctx context.Context) (telemetry.DashboardStreamSnapshot, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok || !deadline.Equal(start.Add(dashboardStreamLifetime)) {
+				t.Fatalf("snapshot deadline=%s present=%t", deadline, ok)
+			}
+			collected = append(collected, time.Since(start))
+			return telemetry.DashboardStreamSnapshot{}, nil
+		}
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
+		streamDashboardSnapshots(response, request, load, testSnapshotInterval, dashboardStreamLifetime)
+		if len(collected) != 2 || collected[0] != 0 || collected[1] != 30*time.Second {
+			t.Fatalf("collection times=%v; want immediate and 30 seconds", collected)
+		}
+		if time.Since(start) != 59*time.Second || strings.Count(response.Body.String(), "event: dashboard\n") != 2 {
+			t.Fatalf("stream duration=%s events=%d", time.Since(start), strings.Count(response.Body.String(), "event: dashboard\n"))
+		}
+	})
+}
+
+func TestDashboardStreamRequiresAuthentication(t *testing.T) {
+	handler, _ := newCoreHTTPFixture(t)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/nodes/node_edge/dashboard/stream", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated dashboard stream status=%d", response.Code)
+	}
+}
+
+func TestDashboardStreamLifetimeCancelsSnapshotCollection(t *testing.T) {
+	for _, blockedCall := range []int{1, 2} {
+		t.Run(fmt.Sprint(blockedCall), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				start := time.Now()
+				calls := 0
+				load := func(ctx context.Context) (telemetry.DashboardStreamSnapshot, error) {
+					calls++
+					if calls == blockedCall {
+						<-ctx.Done()
+						if !errors.Is(ctx.Err(), context.DeadlineExceeded) && !errors.Is(ctx.Err(), context.Canceled) {
+							t.Fatalf("collection context error=%v", ctx.Err())
+						}
+						// Even a loader returning a late success must not publish it.
+					}
+					return telemetry.DashboardStreamSnapshot{}, nil
+				}
+				response := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
+				streamDashboardSnapshots(response, request, load, testSnapshotInterval, dashboardStreamLifetime)
+				wantDuration := time.Minute
+				if blockedCall == 2 {
+					wantDuration = 59 * time.Second
+				}
+				if time.Since(start) != wantDuration || calls != blockedCall {
+					t.Fatalf("stream duration=%s collections=%d", time.Since(start), calls)
+				}
+				if events := strings.Count(response.Body.String(), "event: dashboard\n"); events != blockedCall-1 {
+					t.Fatalf("stream published %d snapshots, want %d", events, blockedCall-1)
+				}
+				if blockedCall == 1 && response.Code != http.StatusInternalServerError {
+					t.Fatalf("initial snapshot timeout status=%d", response.Code)
+				}
+			})
+		})
+	}
+}
+
+func TestDashboardStreamClearsWriteDeadlinesAndStopsOnFlushFailure(t *testing.T) {
+	for _, failFlush := range []bool{false, true} {
+		t.Run(fmt.Sprint(failFlush), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				response := &dashboardDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+				if failFlush {
+					response.flushError = errors.New("disconnected")
+				}
+				start := time.Now()
+				load := func(context.Context) (telemetry.DashboardStreamSnapshot, error) {
+					return telemetry.DashboardStreamSnapshot{}, nil
+				}
+				request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard/stream", nil)
+				streamDashboardSnapshots(response, request, load, 30*time.Second, 35*time.Second)
+				wantWrites := 6 // two snapshots, three heartbeats and renewal control
+				if failFlush {
+					wantWrites = 1
+					if time.Since(start) != 0 {
+						t.Fatal("flush failure must stop immediately")
+					}
+				}
+				if len(response.deadlines) != wantWrites*2 {
+					t.Fatalf("write deadlines=%v", response.deadlines)
+				}
+				for index := range wantWrites {
+					if response.deadlines[index*2].After(start.Add(35*time.Second)) || !response.deadlines[index*2+1].IsZero() {
+						t.Fatalf("write deadline escaped budget or remained armed: %v", response.deadlines)
+					}
+				}
+
+			})
+		})
+	}
+}
+
+type dashboardDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines  []time.Time
+	flushError error
+}
+
+func (w *dashboardDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.deadlines = append(w.deadlines, deadline)
+	return nil
+}
+
+func (w *dashboardDeadlineRecorder) FlushError() error {
+	w.ResponseRecorder.Flush()
+	return w.flushError
+}

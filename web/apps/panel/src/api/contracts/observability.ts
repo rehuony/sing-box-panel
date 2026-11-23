@@ -1,0 +1,28 @@
+import type { LogEntry } from '../generated';
+
+export type {
+  DashboardStreamSnapshot,
+  LogEntry,
+  MetricsHistory,
+  MetricsSnapshot,
+  NodeSettings,
+  TrafficPeriod,
+  TrafficSample,
+} from '../generated';
+
+export type LogLevel = LogEntry['level'];
+
+export type { CoreLogChunk, CoreLogFile, PanelLog, PanelLogPage } from '../generated';
+export interface PanelLogFilter {
+  limit?: number;
+  since?: string;
+  until?: string;
+  /** Keeps only the entries about this node. */
+  nodeID?: string;
+  offset?: number;
+  search?: string;
+  level?: LogLevel;
+  beforeID?: string;
+  beforeTime?: string;
+  searchCodes?: string[];
+}

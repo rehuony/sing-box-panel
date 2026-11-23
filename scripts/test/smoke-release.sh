@@ -21,7 +21,10 @@ assert_json() {
   if ! jq -e "$@" <<<"${payload}" >/dev/null; then
     printf 'assertion failed: %s\n' "${description}" >&2
     # Report only metadata; configuration text and settings can contain secrets.
-    jq -c '{version, commit, panel_version, status, running, sequence, schema_version, revision, syntax_valid, canonical_revision, canonical_revision_id, updated, previous_version, code}' \
+    # A code is reported only as a machine-readable error code, never as an
+    # enrollment code.
+    jq -c '{version, commit, panel_version, status, running, sequence, schema_version, revision, syntax_valid, canonical_revision, canonical_revision_id, updated, previous_version, state,
+      code: (.code | if . == null or (type == "string" and test("^[a-z][a-z0-9_.-]*$")) then . else "[redacted]" end)}' \
       <<<"${payload}" >&2 || true
     return 1
   fi
@@ -160,6 +163,8 @@ go tool sign-release validate-version --version "${release_version}"
 expected_assets=(
   SHA256SUMS
   SHA256SUMS.sig
+  sing-box-node-linux-amd64
+  sing-box-node-linux-arm64
   sing-box-panel-linux-amd64
   sing-box-panel-linux-arm64
 )
@@ -167,7 +172,7 @@ mapfile -t actual_assets < <(
   find "${release_dir}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort
 )
 if [[ ${#actual_assets[@]} -ne ${#expected_assets[@]} ]]; then
-  printf 'release directory must contain exactly four assets\n' >&2
+  printf 'release directory must contain exactly six assets\n' >&2
   exit 1
 fi
 for index in "${!expected_assets[@]}"; do
@@ -185,8 +190,8 @@ for asset_name in "${expected_assets[@]}"; do
 done
 
 checksum_entries="$(awk 'NF == 2 { name = $2; sub(/^\*/, "", name); sub(/^\.\//, "", name); print name }' "${release_dir}/SHA256SUMS" | LC_ALL=C sort)"
-if [[ "${checksum_entries}" != $'sing-box-panel-linux-amd64\nsing-box-panel-linux-arm64' ]]; then
-  printf 'SHA256SUMS must contain exactly the two release binaries\n' >&2
+if [[ "${checksum_entries}" != $'sing-box-node-linux-amd64\nsing-box-node-linux-arm64\nsing-box-panel-linux-amd64\nsing-box-panel-linux-arm64' ]]; then
+  printf 'SHA256SUMS must contain exactly the four release binaries\n' >&2
   exit 1
 fi
 go tool sign-release verify \
@@ -225,9 +230,26 @@ LC_ALL=C grep -aFq -- "${public_key}" "${release_binary}" || {
   printf 'release binary does not embed the repository update public key\n' >&2
   exit 1
 }
+node_binary="${release_dir}/sing-box-node-linux-${architecture}"
+chmod 0755 "${node_binary}"
+assert_json 'node release version, commit and date match the frozen source' \
+  --arg version "${release_version}" \
+  --arg commit "${source_commit}" \
+  --arg date "${source_date}" \
+  '.version == $version and .commit == $commit and .date == $date' \
+  <<<"$("${node_binary}" version --json)"
+go version -m "${node_binary}" | grep -Fqx $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-node' || {
+  printf 'node release binary metadata names another command\n' >&2
+  exit 1
+}
+LC_ALL=C grep -aFq -- "${public_key}" "${node_binary}" || {
+  printf 'node release binary does not embed the repository update public key\n' >&2
+  exit 1
+}
 
 smoke_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/sing-box-panel-release-smoke.XXXXXX")"
 panel_pid=""
+node_pid=""
 mock_pid=""
 
 terminate_process() {
@@ -254,6 +276,7 @@ cleanup() {
   local log_path
 
   set +e
+  terminate_process "${node_pid}"
   terminate_process "${panel_pid}"
   terminate_process "${mock_pid}"
   if [[ ${smoke_status} -ne 0 ]]; then
@@ -319,6 +342,8 @@ jq -n \
   --argjson assets "${asset_metadata}" \
   '{tag_name: $tag, draft: false, prerelease: false, assets: $assets}' \
   >"${mock_root}/latest"
+mkdir -p -- "${mock_root}/tags"
+cp -- "${mock_root}/latest" "${mock_root}/tags/${release_version}"
 python3 -m http.server "${mock_port}" \
   --bind 127.0.0.1 \
   --directory "${mock_root}" \
@@ -327,15 +352,16 @@ mock_pid=$!
 wait_for_url "${mock_origin}/latest"
 
 probe_version="v0.0.0-smoke"
-phase 'build and initialize the lower-version probe'
+phase 'build and initialize the lower-version probes'
 install_dir="${smoke_root}/install"
 settings_path="${smoke_root}/config/setting.json"
 smoke_config_home="${smoke_root}/xdg-config"
 smoke_data_home="${smoke_root}/xdg-data"
 installed_binary="${install_dir}/sing-box-panel"
+installed_node="${install_dir}/sing-box-node"
 mkdir -p -- "${install_dir}" "$(dirname -- "${settings_path}")" "${smoke_config_home}" "${smoke_data_home}"
-if [[ ! -s "${workspace_root}/web/dist/index.html" ]]; then
-  printf 'web/dist must be built before the native smoke-test probe\n' >&2
+if [[ ! -s "${workspace_root}/web/apps/panel/dist/index.html" || ! -s "${workspace_root}/web/apps/node/dist/index.html" ]]; then
+  printf 'web/apps/panel/dist and web/apps/node/dist must be built before the native smoke-test probe\n' >&2
   exit 1
 fi
 (
@@ -344,22 +370,24 @@ fi
   go_path="$(go env GOPATH)"
   go_module_cache="$(go env GOMODCACHE)"
   go_build_cache="$(go env GOCACHE)"
-  env \
-    CGO_ENABLED=0 \
-    GOARCH="${architecture}" \
-    GOOS=linux \
-    GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off GOWORK=off \
-    GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
-    GOFLAGS='-mod=readonly' \
-    GOTOOLCHAIN=local \
-    go build \
-      -buildvcs=false \
-      -trimpath \
-      -ldflags="-s -w -X=github.com/rehuony/sing-box-panel/internal/buildinfo.version=${probe_version} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.commit=${source_commit} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.date=${source_date} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.embeddedPublicKey=${public_key} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.defaultLatestReleaseURL=${mock_origin}/latest" \
-      -o "${installed_binary}" \
-      ./cmd/sing-box-panel
+  for command in sing-box-panel sing-box-node; do
+    env \
+      CGO_ENABLED=0 \
+      GOARCH="${architecture}" \
+      GOOS=linux \
+      GOAMD64=v1 GOARM64=v8.0 GOENV=off GOEXPERIMENT= GOFIPS140=off GOWORK=off \
+      GOPATH="${go_path}" GOMODCACHE="${go_module_cache}" GOCACHE="${go_build_cache}" \
+      GOFLAGS='-mod=readonly' \
+      GOTOOLCHAIN=local \
+      go build \
+        -buildvcs=false \
+        -trimpath \
+        -ldflags="-s -w -X=github.com/rehuony/sing-box-panel/internal/buildinfo.version=${probe_version} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.commit=${source_commit} -X=github.com/rehuony/sing-box-panel/internal/buildinfo.date=${source_date} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.embeddedPublicKey=${public_key} -X=github.com/rehuony/sing-box-panel/internal/selfupdate.defaultReleasesURL=${mock_origin}" \
+        -o "${install_dir}/${command}" \
+        "./cmd/${command}"
+  done
 )
-chmod 0755 "${installed_binary}"
+chmod 0755 "${installed_binary}" "${installed_node}"
 probe_metadata="$(${installed_binary} --output json version)"
 assert_json 'probe version' --arg version "${probe_version}" '.version == $version' <<<"${probe_metadata}"
 
@@ -438,12 +466,13 @@ authenticated_get() {
     "${panel_origin}${path}"
 }
 
-authenticated_put() {
-  local path="$1"
-  local expected_status="${2:-200}"
+authenticated_write() {
+  local method="$1"
+  local path="$2"
+  local expected_status="${3:-200}"
   local response_status
   response_status="$(curl --silent --show-error --max-time 10 \
-    --request PUT \
+    --request "${method}" \
     --header "Origin: ${panel_origin}" \
     --header "X-CSRF-Token: ${csrf_token}" \
     --cookie "${cookie_jar}" \
@@ -453,7 +482,7 @@ authenticated_put() {
     --write-out '%{http_code}' \
     "${panel_origin}${path}")"
   if [[ "${response_status}" != "${expected_status}" ]]; then
-    printf 'PUT %s returned %s, expected %s\n' "${path}" "${response_status}" "${expected_status}" >&2
+    printf '%s %s returned %s, expected %s\n' "${method}" "${path}" "${response_status}" "${expected_status}" >&2
     return 1
   fi
   cat "${smoke_root}/response.json"
@@ -468,27 +497,37 @@ jq '{email: .login_email, password: .login_password}' "${smoke_root}/initial-cre
     "${panel_origin}/api/v1/auth/session" >"${smoke_root}/session.json"
 csrf_token="$(jq -er '.csrfToken' "${smoke_root}/session.json")"
 status_payload="$(authenticated_get '/api/v1/system/status')"
-assert_json 'fresh instance initializes configuration history without starting a core' --arg version "${probe_version}" \
-  '.panel_version == $version and .canonical_revision == 1 and .running == false' <<<"${status_payload}"
+assert_json 'fresh instance reports the probe build on Linux' --arg version "${probe_version}" \
+  '.panel_version == $version and .platform.os == "linux"' <<<"${status_payload}"
 curl --fail-with-body --silent --show-error --max-time 5 "${panel_origin}/" >"${smoke_root}/index.html"
 grep -qi '<html' "${smoke_root}/index.html"
 
+created_node="$(jq -n '{name: "smoke-node"}' | authenticated_write POST '/api/v1/nodes' 201)"
+assert_json 'adding a node issues a one-time enrollment code' \
+  '.name == "smoke-node" and (.node_id | length > 0) and (.code | length > 0)' <<<"${created_node}"
+node_id="$(jq -er '.node_id' <<<"${created_node}")"
+# The node exists once a host enrolls with the code. It is never started, so it
+# stays offline while the panel keeps its editable configuration.
+"${installed_node}" --data-dir "${smoke_root}/configuration-node-data" enroll --code "$(jq -er '.code' <<<"${created_node}")" >/dev/null
+node_path="/api/v1/nodes/${node_id}"
+file_path="${node_path}/config/file"
+
 configuration_fixture="${workspace_root}/scripts/testdata/release-configuration.json"
-initial_file="$(authenticated_get '/api/v1/config/file')"
+initial_file="$(authenticated_get "${file_path}")"
 assert_json 'fresh editable file' \
   '.revision == 1 and .content == "{}" and .syntax_valid == true and (.canonical_revision_id | length > 0)' <<<"${initial_file}"
 file_write="$(jq --rawfile content "${configuration_fixture}" '{revision, content: $content}' <<<"${initial_file}")"
-saved_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
+saved_file="$(authenticated_write PUT "${file_path}" <<<"${file_write}")"
 assert_json 'valid file preserves exact text and links immutable history' \
   --argjson input "${file_write}" \
   '.revision == ($input.revision + 1) and .content == $input.content and .syntax_valid == true and (.canonical_revision_id | length > 0)' \
   <<<"${saved_file}"
-stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${file_write}")"
+stale_save="$(authenticated_write PUT "${file_path}" 412 <<<"${file_write}")"
 assert_json 'stale editable-file writes are rejected' '.code == "configuration_file_conflict"' <<<"${stale_save}"
 
 panel_settings="$(authenticated_get '/api/v1/panel/settings')"
 settings_write="$(jq '{revision, preferences: (.preferences | .language = "en" | .appearance.theme = "dark")}' <<<"${panel_settings}")"
-saved_settings="$(authenticated_put '/api/v1/panel/settings' <<<"${settings_write}")"
+saved_settings="$(authenticated_write PUT '/api/v1/panel/settings' <<<"${settings_write}")"
 assert_json 'panel settings are saved through the current settings API' \
   '.reauthentication_required == false and .settings.preferences.language == "en" and .settings.preferences.appearance.theme == "dark"' <<<"${saved_settings}"
 saved_settings="$(jq '.settings | {revision, preferences, github_token_configured}' <<<"${saved_settings}")"
@@ -496,7 +535,7 @@ settings_digest="$(sha256sum "${settings_path}" | cut -d ' ' -f 1)"
 
 # Unfinished text must survive an update without falling back to the valid head.
 draft_write="$(jq --arg content $'{\n  "log": ' '{revision, content: $content}' <<<"${saved_file}")"
-saved_draft="$(authenticated_put '/api/v1/config/file' <<<"${draft_write}")"
+saved_draft="$(authenticated_write PUT "${file_path}" <<<"${draft_write}")"
 assert_json 'unfinished JSON remains editable without a usable canonical revision' \
   --argjson input "${draft_write}" \
   '.revision == ($input.revision + 1) and .content == $input.content and .syntax_valid == false and (.canonical_revision_id // "") == ""' \
@@ -527,9 +566,13 @@ run_installed config verify >/dev/null
 
 start_panel "${release_version}"
 updated_status="$(authenticated_get '/api/v1/system/status')"
-assert_json 'release retains history and does not start a core implicitly' --arg version "${release_version}" \
-  '.panel_version == $version and .canonical_revision == 2 and .running == false' <<<"${updated_status}"
-persisted_file="$(authenticated_get '/api/v1/config/file')"
+assert_json 'restarted panel reports the release build' --arg version "${release_version}" \
+  '.panel_version == $version' <<<"${updated_status}"
+persisted_node="$(authenticated_get "${node_path}")"
+assert_json 'the enrolled node survives the update, offline and unchanged' \
+  --arg id "${node_id}" '.id == $id and .name == "smoke-node" and .state == "offline"' \
+  <<<"${persisted_node}"
+persisted_file="$(authenticated_get "${file_path}")"
 assert_json 'unfinished configuration text and revision survive restart unchanged' \
   --argjson saved "${saved_draft}" '. == $saved' <<<"${persisted_file}"
 persisted_settings="$(authenticated_get '/api/v1/panel/settings')"
@@ -540,19 +583,69 @@ assert_json 'panel preferences and credential-presence flags survive restart unc
 
 phase 'correct the draft through the new binary and verify another restart'
 file_write="$(jq --rawfile content "${configuration_fixture}" '{revision, content: $content}' <<<"${persisted_file}")"
-corrected_file="$(authenticated_put '/api/v1/config/file' <<<"${file_write}")"
+corrected_file="$(authenticated_write PUT "${file_path}" <<<"${file_write}")"
 assert_json 'corrected text reconnects to the existing valid history' \
   --argjson saved "${saved_file}" \
   --argjson input "${file_write}" \
   '.revision == ($input.revision + 1) and .syntax_valid == true and .content == $saved.content and .canonical_revision_id == $saved.canonical_revision_id' \
   <<<"${corrected_file}"
-stale_save="$(authenticated_put '/api/v1/config/file' 412 <<<"${draft_write}")"
+stale_save="$(authenticated_write PUT "${file_path}" 412 <<<"${draft_write}")"
 assert_json 'CAS remains enforced after self-update' '.code == "configuration_file_conflict"' <<<"${stale_save}"
 stop_panel
 start_panel "${release_version}"
-persisted_file="$(authenticated_get '/api/v1/config/file')"
+persisted_file="$(authenticated_get "${file_path}")"
 assert_json 'corrected configuration persists across the second restart' \
   --argjson saved "${corrected_file}" '. == $saved' <<<"${persisted_file}"
+
+phase 'update a lower-version node through the panel'
+# The panel distributes the node release of its own version. Seed its cache
+# with the signed local release; the panel verifies it with its embedded key.
+panel_data_dir="$(jq -er '.data_dir' "${settings_path}")"
+release_cache="${panel_data_dir}/release-cache/${release_version}"
+mkdir -p -- "${release_cache}"
+for asset_name in SHA256SUMS SHA256SUMS.sig sing-box-node-linux-amd64 sing-box-node-linux-arm64; do
+  cp -- "${release_dir}/${asset_name}" "${release_cache}/${asset_name}"
+done
+node_data_dir="${smoke_root}/node-data"
+node_enrollment="$(jq -n '{name: "smoke-update"}' | authenticated_write POST '/api/v1/nodes' 201)"
+update_node_path="/api/v1/nodes/$(jq -er '.node_id' <<<"${node_enrollment}")"
+"${installed_node}" --data-dir "${node_data_dir}" enroll --code "$(jq -er '.code' <<<"${node_enrollment}")" >/dev/null
+start_node() {
+  "${installed_node}" --data-dir "${node_data_dir}" run >"${smoke_root}/node-$1.log" 2>&1 &
+  node_pid=$!
+}
+wait_for_node() {
+  local expected_version="$1"
+  local count
+
+  for ((count = 0; count < 120; count++)); do
+    if authenticated_get "${update_node_path}" | jq -e --arg version "${expected_version}" \
+      '.state == "online" and .reported_at != null and .build_version == $version' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf 'node did not come online as %s\n' "${expected_version}" >&2
+  return 1
+}
+start_node "${probe_version}"
+wait_for_node "${probe_version}"
+assert_json 'the panel offers the lower-version node its release' \
+  '.update_available == true and .last_update == null' <<<"$(authenticated_get "${update_node_path}")"
+node_update="$(authenticated_write POST "${update_node_path}/update" <<<'')"
+assert_json 'a foreground node installs the panel release and waits for a restart' \
+  --arg version "${release_version}" '.state == "restart_required" and .version == $version' <<<"${node_update}"
+cmp "${installed_node}" "${node_binary}"
+terminate_process "${node_pid}"
+node_pid=""
+start_node "${release_version}"
+wait_for_node "${release_version}"
+assert_json 'the restarted node runs the release and reports its update' \
+  --arg version "${release_version}" \
+  '.update_available == false and .last_update.succeeded == true and .last_update.version == $version' \
+  <<<"$(authenticated_get "${update_node_path}")"
+terminate_process "${node_pid}"
+node_pid=""
 stop_panel
 
 printf 'release smoke test passed for linux/%s at %s\n' "${architecture}" "${source_commit}"

@@ -5,6 +5,8 @@
 package coreartifact
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -259,4 +261,15 @@ func validateDescription(value string) error {
 		}
 	}
 	return nil
+}
+
+// ID derives the stable artifact ID from the identity, so the panel's cache
+// and a node's installed core name the same artifact alike.
+func (identity Identity) ID() (string, error) {
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return "core_" + hex.EncodeToString(digest[:]), nil
 }

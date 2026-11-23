@@ -15,7 +15,7 @@ import (
 // Inspect credentials directly instead of relying on userdel's busy check,
 // which can skip processes whose /proc/PID/root is inaccessible. Check every
 // thread, including saved/filesystem IDs and supplementary groups.
-func (manager *Manager) requireAccountIdle(ctx context.Context, account systemAccount) error {
+func (manager *Manager[T]) requireAccountIdle(ctx context.Context, account systemAccount) error {
 	processes, err := os.ReadDir(manager.procRoot)
 	if err != nil {
 		return fmt.Errorf("inspect processes before account removal: %w", err)

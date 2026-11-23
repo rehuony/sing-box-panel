@@ -10,10 +10,10 @@ import (
 	"syscall"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/cli"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
-	"github.com/rehuony/sing-box-panel/internal/server"
-	webui "github.com/rehuony/sing-box-panel/web"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/cli"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/server"
+	panelweb "github.com/rehuony/sing-box-panel/web/apps/panel"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func run() int {
 	go watchSignalContext(signals, watcherDone, cancel, &signalExit)
 
 	build := buildinfo.Current()
-	updater := selfupdate.New(selfupdate.Options{})
+	updater := selfupdate.New(selfupdate.Options{Binary: selfupdate.Panel})
 	root := cli.NewRootCommand(cli.Dependencies{
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
@@ -42,7 +42,7 @@ func run() int {
 		Build:  build,
 		Update: updater.Update,
 		RunServer: func(ctx context.Context, path string) error {
-			return server.Run(ctx, path, build, webui.Assets())
+			return server.Run(ctx, path, build, panelweb.Assets())
 		},
 	})
 	if err := root.ExecuteContext(ctx); err != nil {

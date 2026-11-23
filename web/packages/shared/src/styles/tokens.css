@@ -1,0 +1,262 @@
+/* Design tokens: light and dark values, preference overrides and the Tailwind theme mapping. */
+
+:root {
+  /* Neutrals: the terminal's cool greys, the same under every accent. */
+  --color-canvas: #eeeef2;
+  --background: var(--color-canvas);
+  --foreground: oklch(24% 0.015 280);
+  --card: #f8f8fa;
+  --card-foreground: var(--foreground);
+  --popover: #fcfcfd;
+  --popover-foreground: var(--foreground);
+  --color-surface: var(--card);
+  --color-surface-raised: #f0f0f4;
+  /* Content surfaces let the glyph field show faintly through; floating layers stay opaque. */
+  --color-surface-translucent: color-mix(in oklab, var(--card) 90%, transparent);
+  /* Fields stay opaque so the glyph field never shows behind typed text. */
+  --color-field: var(--card);
+  --muted: #f0f0f4;
+  --muted-foreground: oklch(50% 0.015 280);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --border: #e2e2e9;
+  --input: #e2e2e9;
+  --input-focus: color-mix(in oklch, var(--foreground) 25%, var(--background));
+  --color-border-strong: #cfcfd9;
+  --color-text-secondary: oklch(40% 0.015 280);
+  --color-text-faint: oklch(54% 0.012 280);
+  --color-selection: oklch(24% 0.015 280 / 14%);
+  /* Hover and highlight: a wash of the text colour over whatever surface lies below. */
+  --color-hover: color-mix(in oklab, var(--foreground) 6%, transparent);
+  /* A cell meter's empty cells, opaque so they cover the scale beneath them. */
+  --color-meter-track: color-mix(in oklab, var(--muted-foreground) 30%, var(--card));
+
+  /* Accent. The panel recomputes these from the saved accent. */
+  --primary: #6d4ed1;
+  --primary-foreground: #ffffff;
+  --ring: var(--primary);
+  --accent: #ebe9f6;
+
+  /* Highlights: data series and the terminal prompt's parts. */
+  --color-highlight-cyan: #0b7189;
+  --color-highlight-magenta: #b4237a;
+  --color-highlight-yellow: #8a6a00;
+
+  /* States. */
+  --color-success: oklch(59% 0.14 165);
+  --color-success-soft: oklch(95% 0.03 165);
+  --color-success-text: oklch(42% 0.11 165);
+  --color-success-border: oklch(82% 0.06 165);
+  --color-warning: oklch(65% 0.16 62);
+  --color-warning-soft: oklch(96% 0.035 72);
+  --color-warning-text: oklch(46% 0.12 62);
+  --color-warning-border: oklch(83% 0.07 62);
+  --color-danger: oklch(56% 0.18 20);
+  --color-danger-soft: oklch(95% 0.035 20);
+  --color-danger-text: oklch(43% 0.14 20);
+  --color-danger-border: oklch(82% 0.07 20);
+  --color-info: oklch(58% 0.15 248);
+  --color-info-soft: oklch(95% 0.03 248);
+  --color-info-text: oklch(44% 0.12 248);
+  --color-info-border: oklch(82% 0.06 248);
+  --destructive: var(--color-danger);
+  --destructive-foreground: #ffffff;
+
+  /* Scrim, code syntax and the brand. */
+  --color-scrim: oklch(24% 0.015 280 / 34%);
+  --color-syntax-property: #245fa1;
+  --color-syntax-string: #21774b;
+  --color-syntax-number: #9a541e;
+  --color-syntax-keyword: #8c4989;
+  --color-brand-navy: oklch(20.8% 0.042 265.755);
+  --color-brand-orange: oklch(70.5% 0.18 47.6);
+
+  /* The node console's terminal window controls. */
+  --color-window-close: #ff5f57;
+  --color-window-minimize: #febc2e;
+  --color-window-zoom: #28c840;
+
+  /* Component roles that follow the roles above. */
+  --chart-1: var(--color-highlight-cyan);
+  --chart-2: var(--color-highlight-magenta);
+  --chart-3: var(--color-highlight-yellow);
+  --chart-4: var(--color-success);
+  --chart-5: var(--color-text-secondary);
+
+  /* Type. */
+  --font-display: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-data: 'Geist Mono Variable', ui-monospace, monospace;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-compact: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+
+  /* Shape and density. */
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-6: 2rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --form-field-gap: 12px;
+  --form-section-gap: 20px;
+  --workspace-content-gap: 16px;
+  --workspace-row-height: 65px;
+  --control-height: 40px;
+  --control-height-sm: 32px;
+  --control-height-xs: 28px;
+  --control-height-lg: 44px;
+  --radius: var(--radius-control);
+  --radius-control: 6px;
+  --radius-card: 12px;
+  --radius-window: 14px;
+  --radius-pill: 999px;
+  --shell-edge: 1rem;
+  --shell-bar-height: 2.5rem;
+  --shell-strip-height: 3rem;
+  --pane-min-width: 20rem;
+  --pane-height: 11.5rem;
+
+  /* Surfaces and motion. */
+  --shadow-card: 0 2px 5px -2px oklch(24% 0.015 280 / 6%), 0 10px 24px -18px oklch(24% 0.015 280 / 16%);
+  --shadow-popover: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
+  --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.015 280 / 30%);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 0.11s;
+  --dur-short: 0.22s;
+  --duration-medium: 0.28s;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-popover: 450;
+}
+
+:root.dark,
+:root[data-resolved-theme='dark'] {
+  --color-canvas: #1c1d24;
+  --foreground: #f8f8f2;
+  --card: #25262f;
+  --popover: #2b2c36;
+  --color-surface-raised: #2d2e38;
+  --color-field: color-mix(in oklab, var(--input) 30%, var(--card));
+  --muted: #2b2c36;
+  --muted-foreground: oklch(72% 0.02 280);
+  --border: #34353f;
+  --input: #34353f;
+  --color-border-strong: #464753;
+  --color-text-secondary: oklch(84% 0.012 280);
+  --color-text-faint: oklch(62% 0.018 280);
+  --color-selection: oklch(97% 0.01 100 / 20%);
+  --color-hover: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --primary: #a08ce1;
+  --primary-foreground: #17151e;
+  --accent: #312c49;
+  --color-highlight-cyan: #8be9fd;
+  --color-highlight-magenta: #f079bd;
+  --color-highlight-yellow: #f1fa8c;
+  --color-success: oklch(72% 0.14 165);
+  --color-success-soft: oklch(27% 0.055 165);
+  --color-success-text: oklch(83% 0.105 165);
+  --color-success-border: oklch(46% 0.08 165);
+  --color-warning: oklch(78% 0.14 72);
+  --color-warning-soft: oklch(28% 0.055 72);
+  --color-warning-text: oklch(84% 0.11 72);
+  --color-warning-border: oklch(48% 0.08 72);
+  --color-danger: oklch(70% 0.17 20);
+  --color-danger-soft: oklch(28% 0.06 20);
+  --color-danger-text: oklch(83% 0.105 20);
+  --color-danger-border: oklch(48% 0.08 20);
+  --color-info: oklch(72% 0.13 248);
+  --color-info-soft: oklch(28% 0.055 248);
+  --color-info-text: oklch(82% 0.095 248);
+  --color-info-border: oklch(47% 0.075 248);
+  --destructive-foreground: #17151e;
+  --color-scrim: oklch(7% 0.01 280 / 68%);
+  --color-syntax-property: #88bdf3;
+  --color-syntax-string: #9ac99d;
+  --color-syntax-number: #e7b685;
+  --color-syntax-keyword: #d5a0d7;
+  --color-brand-navy: oklch(17% 0.03 265.755);
+  --color-brand-orange: oklch(76% 0.16 55);
+  --shadow-card: 0 14px 34px -24px #000000b8;
+  --shadow-panel: inset 0 1px 0 oklch(100% 0 0 / 8%), 0 28px 72px -34px #000000d1;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --input-focus: color-mix(in oklch, var(--foreground) 55%, var(--background));
+    --border: #2a374c47;
+    --color-border-strong: #2a374c7a;
+    --muted-foreground: #4c586a;
+    --color-surface-translucent: var(--card);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-focus: var(--input-focus);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-data);
+  --font-heading: var(--font-display);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-card);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --text-2xs: var(--text-2xs);
+  --text-2xs--line-height: 1rem;
+  --text-compact: var(--text-compact);
+  --text-compact--line-height: 1.25rem;
+  --text-xl--letter-spacing: -0.01em;
+  --text-2xl--letter-spacing: -0.02em;
+}
+
+/* Phones carry the status line as a tab bar. */
+@media (max-width: 639.98px) {
+  :root {
+    --shell-bar-height: 3.5rem;
+  }
+}
+
+/* Touch controls keep a generous target without overriding desktop size variants. */
+@media (pointer: coarse) {
+  :root {
+    --shell-bar-height: 3.5rem;
+    --control-height: 44px;
+    --control-height-sm: 44px;
+    --control-height-xs: 44px;
+  }
+  [data-slot='tabs-trigger'] {
+    min-height: 44px;
+  }
+}
