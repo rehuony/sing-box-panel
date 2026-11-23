@@ -21,7 +21,10 @@ assert_json() {
   if ! jq -e "$@" <<<"${payload}" >/dev/null; then
     printf 'assertion failed: %s\n' "${description}" >&2
     # Report only metadata; configuration text and settings can contain secrets.
-    jq -c '{version, commit, panel_version, status, running, sequence, schema_version, revision, syntax_valid, canonical_revision, canonical_revision_id, updated, previous_version, code}' \
+    # A code is reported only as a machine-readable error code, never as an
+    # enrollment code.
+    jq -c '{version, commit, panel_version, status, running, sequence, schema_version, revision, syntax_valid, canonical_revision, canonical_revision_id, updated, previous_version, state,
+      code: (.code | if . == null or (type == "string" and test("^[a-z][a-z0-9_.-]*$")) then . else "[redacted]" end)}' \
       <<<"${payload}" >&2 || true
     return 1
   fi
@@ -501,8 +504,12 @@ grep -qi '<html' "${smoke_root}/index.html"
 
 created_node="$(jq -n '{name: "smoke-node"}' | authenticated_write POST '/api/v1/nodes' 201)"
 assert_json 'adding a node issues a one-time enrollment code' \
-  '.node.state == "pending" and (.code | length > 0)' <<<"${created_node}"
-node_path="/api/v1/nodes/$(jq -er '.node.id' <<<"${created_node}")"
+  '.name == "smoke-node" and (.node_id | length > 0) and (.code | length > 0)' <<<"${created_node}"
+node_id="$(jq -er '.node_id' <<<"${created_node}")"
+# The node exists once a host enrolls with the code. It is never started, so it
+# stays offline while the panel keeps its editable configuration.
+"${installed_node}" --data-dir "${smoke_root}/configuration-node-data" enroll --code "$(jq -er '.code' <<<"${created_node}")" >/dev/null
+node_path="/api/v1/nodes/${node_id}"
 file_path="${node_path}/config/file"
 
 configuration_fixture="${workspace_root}/scripts/testdata/release-configuration.json"
@@ -562,8 +569,8 @@ updated_status="$(authenticated_get '/api/v1/system/status')"
 assert_json 'restarted panel reports the release build' --arg version "${release_version}" \
   '.panel_version == $version' <<<"${updated_status}"
 persisted_node="$(authenticated_get "${node_path}")"
-assert_json 'the registered node survives the update and is still awaiting enrollment' \
-  --argjson created "${created_node}" '.id == $created.node.id and .name == "smoke-node" and .state == "pending"' \
+assert_json 'the enrolled node survives the update, offline and unchanged' \
+  --arg id "${node_id}" '.id == $id and .name == "smoke-node" and .state == "offline"' \
   <<<"${persisted_node}"
 persisted_file="$(authenticated_get "${file_path}")"
 assert_json 'unfinished configuration text and revision survive restart unchanged' \
@@ -601,7 +608,7 @@ for asset_name in SHA256SUMS SHA256SUMS.sig sing-box-node-linux-amd64 sing-box-n
 done
 node_data_dir="${smoke_root}/node-data"
 node_enrollment="$(jq -n '{name: "smoke-update"}' | authenticated_write POST '/api/v1/nodes' 201)"
-update_node_path="/api/v1/nodes/$(jq -er '.node.id' <<<"${node_enrollment}")"
+update_node_path="/api/v1/nodes/$(jq -er '.node_id' <<<"${node_enrollment}")"
 "${installed_node}" --data-dir "${node_data_dir}" enroll --code "$(jq -er '.code' <<<"${node_enrollment}")" >/dev/null
 start_node() {
   "${installed_node}" --data-dir "${node_data_dir}" run >"${smoke_root}/node-$1.log" 2>&1 &

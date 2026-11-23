@@ -58,8 +58,8 @@ bash scripts/test/installer-test.sh
 `build.sh` is used by local Make targets, CI, and the signed-release
 workflow. It never publishes, uploads, signs, installs, or retains artifacts.
 `test/smoke-release.sh` validates signed artifacts and exercises native startup,
-editable configuration and panel settings persistence, authenticated self-update,
-restart, and a node update through the panel. `test/release-contract.sh` builds disposable candidates from the
+node enrollment, editable configuration and panel settings persistence,
+authenticated self-update, restart, and a node update through the panel. `test/release-contract.sh` builds disposable candidates from the
 current working tree, signs them with a newly generated test key, and invokes
 that same scenario in ordinary CI and local Linux checks. It never reads the
 repository's private key or replaces the committed public key. Temporary keys,
@@ -150,8 +150,8 @@ The script:
 5. cross-builds `sing-box-panel` and `sing-box-node` for Linux amd64 and
    arm64 with `CGO_ENABLED=0`, fixed CPU baselines, `-trimpath`, and
    `-buildvcs=false`;
-6. embeds and verifies the committed update-verification key in both panel
-   binaries, the ones that update themselves;
+6. embeds and verifies the committed update-verification key in all four
+   binaries, since the panel and its nodes both install signed releases;
 7. verifies each command's embedded release version, full source commit, and
    source timestamp through a host-native metadata probe built with the same
    flags;

@@ -100,7 +100,7 @@ jobs:
       - name: Verify generated units with the real systemd parser
         run: |
           command -v systemd-analyze
-          go test ./internal/sing-box-panel/systemd -run TestGeneratedUnitsWithSystemdAnalyze -v
+          go test ./internal/sing-box-panel/systemd ./internal/sing-box-node/systemd -run TestGeneratedUnitsWithSystemdAnalyze -v
 
       - name: Run Go and contract checks
         run: make check-backend check-contracts
