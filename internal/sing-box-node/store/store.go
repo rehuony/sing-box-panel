@@ -11,10 +11,6 @@ import (
 const (
 	// ApplicationID identifies the node database ("SBPN").
 	ApplicationID = 0x5342504E
-
-	// CurrentSchemaVersion is the only schema this package can open; databases
-	// written by earlier versions are rejected.
-	CurrentSchemaVersion = 2
 )
 
 // Store owns the node database: the installed cores, the configurations the
@@ -25,8 +21,8 @@ type Store struct {
 	handle *database.DB
 }
 
-// Open opens (or creates) the node database, initializes the current schema,
-// verifies its identity, and returns a shared connection pool.
+// Open opens (or creates) the node database, applies the migrations it has
+// not recorded, verifies its identity, and returns a shared connection pool.
 //
 // The parent directory must already exist. Directory creation and ownership are
 // responsibilities of the application composition root.
@@ -35,9 +31,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func open(ctx context.Context, path string, exclusive bool) (*Store, error) {
-	handle, err := database.Open(ctx, path, database.Schema{
-		ApplicationID: ApplicationID, Version: CurrentSchemaVersion, SQL: databaseSchema,
-	}, exclusive)
+	schema, err := Schema()
+	if err != nil {
+		return nil, err
+	}
+	handle, err := database.Open(ctx, path, schema, exclusive)
 	if err != nil {
 		return nil, err
 	}

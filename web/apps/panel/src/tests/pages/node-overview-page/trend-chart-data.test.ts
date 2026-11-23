@@ -30,6 +30,17 @@ describe('live traffic evidence', () => {
     expect(chart.data[1]).toEqual([1, 1, 1, 1, null, 1, 1]);
   });
 
+  it('starts the live span at its oldest sample, at least ten seconds before the newest', () => {
+    const point = (at: number): LivePoint => ({
+      at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2,
+    });
+    expect(liveTrafficChartData([point(50_000), point(55_000), point(80_000)]).from).toBe(50_000);
+    expect(liveTrafficChartData([point(50_000), point(55_000)]).from).toBe(45_000);
+    // Two minutes on, the oldest kept sample still starts the span.
+    const tail = Array.from({ length: 30 }, (_, index) => point(index * 5000 + 3000));
+    expect(liveTrafficChartData(tail).from).toBe(28_000);
+  });
+
   it('does not mix live rates into historical traffic averages', () => {
     const tail = [{
       at: Date.parse(testMetricsHistory.to) + 1000,

@@ -53,16 +53,18 @@ configuration, or subscription data.
 
 ### Database compatibility
 
-The panel database uses SQLite `application_id = 0x53425034` and storage schema
-version 25, defined in `internal/sing-box-panel/store/schema.sql`; each node
-keeps its own `node.db` with `application_id = 0x5342504E` and storage schema
-version 2, defined in
-`internal/sing-box-node/store/schema.sql`. Empty databases are initialized
-directly. Each schema is a storage baseline with no upgrade path:
-databases written by earlier versions, unidentified databases, other application
-identities and newer schemas are rejected without changing their data. Use a
-fresh data directory when the stored schema is older. The panel never deletes an
-unsupported database.
+The panel database uses SQLite `application_id = 0x53425034`; each node keeps
+its own `node.db` with `application_id = 0x5342504E`. Each schema is built by
+numbered migrations in `internal/sing-box-panel/store/migrations/` and
+`internal/sing-box-node/store/migrations/`, starting from `0001_baseline.sql`.
+Opening a database applies the migrations it has not recorded, in order, in one
+transaction, so an empty database receives all of them and a database written by
+an earlier release of this format is brought up to date. Databases written
+before the migration baseline, unidentified databases, other application
+identities, databases newer than the binary and databases whose recorded
+migrations differ from the binary's are rejected without changing their data.
+Use a fresh data directory for a database written before the baseline. The panel
+never deletes an unsupported database.
 Panel settings are read from the selected `setting.json` only.
 
 Configuration revisions contain a sing-box JSON object directly. SQLite's

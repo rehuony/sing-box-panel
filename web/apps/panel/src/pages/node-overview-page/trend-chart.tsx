@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import type { TrendChartData } from './trend-chart-data';
+
+import { timeLabelFits } from './trend-chart-data';
 import 'uplot/dist/uPlot.min.css';
 
 export function TrendChart({
@@ -47,6 +49,8 @@ export function TrendChart({
       // Monotone cubic curves follow the samples without overshooting them,
       // so a rate never dips below zero between two.
       const smooth = UPlot.paths.spline?.();
+      // Room after the plot for the newest live tick's seconds.
+      const endPadding = live ? 28 : 8;
       const width = Math.floor(host!.clientWidth);
       const height = Math.floor(host!.clientHeight);
       if (width < 160 || height < 120) return;
@@ -55,7 +59,7 @@ export function TrendChart({
           width,
           height,
           ms: 1,
-          padding: [8, live ? 28 : 8, 0, 0],
+          padding: [8, endPadding, 0, 0],
           legend: { show: false },
           cursor: { drag: { x: false, y: false }, points: { size: 6 } },
           scales: {
@@ -73,7 +77,10 @@ export function TrendChart({
               grid: { show: false },
               ticks: { show: false },
               font: '11px sans-serif',
-              values: (_plot, splits) => splits.map((value) => time.format(new Date(value))),
+              values: (plot, splits) => splits.map((value) => {
+                const label = time.format(new Date(value));
+                return timeLabelFits(label, plot.valToPos(value, 'x'), plot.over.clientWidth, endPadding) ? label : null;
+              }),
             },
             {
               size: 44,

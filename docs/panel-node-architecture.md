@@ -182,7 +182,8 @@ ID even when its document matches the one it runs. "Unapplied changes" means the
 differs from what the node reports as applied.
 
 Both services use SQLite through `modernc.org/sqlite`, each with its own
-baseline schema. Neither has an upgrade path from an earlier format.
+numbered migrations from a shared baseline format; neither converts a database
+written before that baseline.
 
 ## Commands and consistency
 

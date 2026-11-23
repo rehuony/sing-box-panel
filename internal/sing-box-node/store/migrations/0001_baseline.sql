@@ -1,8 +1,25 @@
--- Node database schema baseline. Earlier storage formats are rejected, never converted.
+-- Node database, migration 1: the baseline.
 --
--- canonical_revisions holds the configurations the panel sent; their IDs are the
--- panel's revision IDs and hub_state.head_revision_id is the latest one received.
+-- Tables are grouped by the domain that owns them, each followed by its
+-- indexes, triggers and initial rows. A table comes after the tables it
+-- references. Every table is STRICT; identifiers and times are non-empty
+-- text, digests are lowercase hex and JSON columns are checked to be valid.
 
+-- Instance ------------------------------------------------------------------
+
+-- node_instance identifies this database. Runtime history IDs and traffic
+-- counters belong to it, so a recreated database starts both again.
+CREATE TABLE node_instance (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    id TEXT NOT NULL CHECK (length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*')
+) STRICT;
+
+INSERT INTO node_instance(singleton, id) VALUES (1, lower(hex(randomblob(16))));
+
+-- Configuration -------------------------------------------------------------
+
+-- The configurations the panel sent; their IDs are the panel's revision IDs
+-- and hub_state.head_revision_id is the latest one received.
 CREATE TABLE canonical_revisions (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0),
@@ -19,6 +36,9 @@ CREATE TABLE canonical_revisions (
     CHECK (parent_id IS NULL OR parent_id <> id)
 ) STRICT;
 
+-- Cores ---------------------------------------------------------------------
+
+-- The sing-box cores installed on this node, each checked after installing.
 CREATE TABLE core_artifacts (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     exact_version TEXT NOT NULL CHECK (exact_version <> ''),
@@ -50,6 +70,18 @@ CREATE TABLE core_artifacts (
     )
 ) STRICT;
 
+CREATE UNIQUE INDEX core_artifacts_official_asset
+    ON core_artifacts(repository_id, release_id, asset_id)
+    WHERE repository_id IS NOT NULL AND release_id IS NOT NULL AND asset_id IS NOT NULL;
+CREATE INDEX core_artifacts_version_lookup
+    ON core_artifacts(exact_version, operating_system, architecture, variant);
+CREATE INDEX core_artifacts_digest_lookup ON core_artifacts(archive_sha256);
+CREATE INDEX core_artifacts_binary_digest_lookup ON core_artifacts(binary_sha256);
+
+-- Startup and activation ----------------------------------------------------
+
+-- A configuration revision compiled for one core, and whether the core
+-- accepted it.
 CREATE TABLE startup_artifacts (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     canonical_revision_id TEXT NOT NULL
@@ -66,6 +98,11 @@ CREATE TABLE startup_artifacts (
     created_at TEXT NOT NULL CHECK (created_at <> '')
 ) STRICT;
 
+CREATE INDEX startup_artifacts_configuration_lookup
+    ON startup_artifacts(canonical_revision_id, exact_core_version, core_artifact_id, state);
+
+-- A checked startup artifact with the monitoring it runs under: what the core
+-- is started from.
 CREATE TABLE activation_bundles (
     id TEXT PRIMARY KEY CHECK (id <> ''),
     startup_artifact_id TEXT NOT NULL
@@ -77,6 +114,9 @@ CREATE TABLE activation_bundles (
     created_at TEXT NOT NULL CHECK (created_at <> '')
 ) STRICT;
 
+-- Runtime -------------------------------------------------------------------
+
+-- What the node should run and what it last applied.
 CREATE TABLE hub_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     head_revision_id TEXT REFERENCES canonical_revisions(id) ON DELETE RESTRICT,
@@ -89,6 +129,10 @@ CREATE TABLE hub_state (
     updated_at TEXT NOT NULL CHECK (updated_at <> '')
 ) STRICT;
 
+INSERT INTO hub_state(singleton, updated_at)
+VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+-- The core process the node last observed running.
 CREATE TABLE runtime_observation (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     pid INTEGER NOT NULL CHECK (pid > 0),
@@ -107,6 +151,17 @@ CREATE TABLE runtime_observation (
     stable_observed_at TEXT
 ) STRICT;
 
+-- The runtime command in progress, so an interrupted one recovers after a
+-- restart.
+CREATE TABLE runtime_recovery (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    generation INTEGER NOT NULL CHECK (generation > 0),
+    metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+    next_attempt_at TEXT,
+    succeeded INTEGER NOT NULL DEFAULT 0 CHECK (succeeded IN (0, 1))
+) STRICT;
+
+-- The node's append-only runtime history; the panel replicates it.
 CREATE TABLE runtime_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL UNIQUE
@@ -134,39 +189,12 @@ CREATE TABLE runtime_transitions (
     CHECK (uncertain_since IS NULL OR uncertain_since <= occurred_at)
 ) STRICT;
 
-CREATE TABLE runtime_recovery (
- singleton INTEGER PRIMARY KEY CHECK(singleton=1),
- generation INTEGER NOT NULL CHECK(generation>0),
- metadata_json TEXT NOT NULL CHECK(json_valid(metadata_json)),
- next_attempt_at TEXT,
- succeeded INTEGER NOT NULL DEFAULT 0 CHECK(succeeded IN (0,1))
-) STRICT;
-
-CREATE UNIQUE INDEX core_artifacts_official_asset
-    ON core_artifacts(repository_id, release_id, asset_id)
-    WHERE repository_id IS NOT NULL AND release_id IS NOT NULL AND asset_id IS NOT NULL;
-
-CREATE INDEX core_artifacts_version_lookup
-    ON core_artifacts(exact_version, operating_system, architecture, variant);
-
-CREATE INDEX core_artifacts_digest_lookup
-    ON core_artifacts(archive_sha256);
-
-CREATE INDEX core_artifacts_binary_digest_lookup
-    ON core_artifacts(binary_sha256);
-
-CREATE INDEX startup_artifacts_configuration_lookup
-    ON startup_artifacts(canonical_revision_id, exact_core_version, core_artifact_id, state);
-
 CREATE INDEX runtime_transitions_timeline
     ON runtime_transitions(occurred_at DESC, id DESC);
-
 CREATE INDEX runtime_transitions_state_timeline
     ON runtime_transitions(state, occurred_at DESC, id DESC);
-
 CREATE INDEX runtime_transitions_reason_timeline
     ON runtime_transitions(reason, occurred_at DESC, id DESC);
-
 CREATE INDEX runtime_transitions_bundle_timeline
     ON runtime_transitions(activation_bundle_id, occurred_at DESC, id DESC);
 
@@ -182,9 +210,7 @@ BEGIN
     SELECT RAISE(ABORT, 'runtime transitions are append-only');
 END;
 
-INSERT INTO hub_state(singleton, updated_at)
-VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-
+-- The history starts unknown: nothing is known about the core before it.
 INSERT INTO runtime_transitions(
     dedupe_key, state, reason, occurred_at, uncertain_since
 ) VALUES (
@@ -195,22 +221,7 @@ INSERT INTO runtime_transitions(
     strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now')
 );
 
-CREATE TABLE command_results (
-    request_id TEXT PRIMARY KEY CHECK (length(request_id) BETWEEN 1 AND 256),
-    result BLOB NOT NULL,
-    completed_at TEXT NOT NULL CHECK (completed_at <> '')
-) STRICT;
-
-CREATE INDEX command_results_completed ON command_results(completed_at);
-
--- node_instance identifies this database. Runtime history IDs and traffic
--- counters belong to it, so a recreated database starts both again.
-CREATE TABLE node_instance (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    id TEXT NOT NULL CHECK (length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*')
-) STRICT;
-
-INSERT INTO node_instance(singleton, id) VALUES (1, lower(hex(randomblob(16))));
+-- Traffic -------------------------------------------------------------------
 
 -- traffic_checkpoint holds the instance's cumulative traffic and the last
 -- counters read from the core process they were last added from.
@@ -225,3 +236,15 @@ CREATE TABLE traffic_checkpoint (
     download_total INTEGER NOT NULL CHECK (download_total >= 0),
     sampled_at TEXT NOT NULL CHECK (sampled_at <> '')
 ) STRICT;
+
+-- Commands ------------------------------------------------------------------
+
+-- The results of completed commands for a day, so a repeated request returns
+-- the recorded result instead of running again.
+CREATE TABLE command_results (
+    request_id TEXT PRIMARY KEY CHECK (length(request_id) BETWEEN 1 AND 256),
+    result BLOB NOT NULL,
+    completed_at TEXT NOT NULL CHECK (completed_at <> '')
+) STRICT;
+
+CREATE INDEX command_results_completed ON command_results(completed_at);

@@ -10,22 +10,17 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/database"
 )
 
-func TestOpenRejectsUnsupportedFormatsWithoutConvertingData(t *testing.T) {
+func TestOpenRejectsForeignAndPreBaselineDatabasesWithoutConvertingData(t *testing.T) {
 	cases := []struct {
 		name        string
 		id, version int
 		want        error
 	}{
 		{"unidentified", 0, 0, database.ErrUnexpectedApplicationID},
-		{"foreign", 123, CurrentSchemaVersion, database.ErrUnexpectedApplicationID},
-		{"future", ApplicationID, CurrentSchemaVersion + 1, database.ErrSchemaTooNew},
-	}
-	for version := 0; version < CurrentSchemaVersion; version++ {
-		cases = append(cases, struct {
-			name        string
-			id, version int
-			want        error
-		}{fmt.Sprintf("old-%d", version), ApplicationID, version, database.ErrSchemaUnsupported})
+		{"foreign", 123, 1, database.ErrUnexpectedApplicationID},
+		// Written before the migration baseline: the same application, no migration history.
+		{"pre-baseline", ApplicationID, 27, database.ErrSchemaUnsupported},
+		{"pre-baseline-empty", ApplicationID, 0, database.ErrSchemaUnsupported},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

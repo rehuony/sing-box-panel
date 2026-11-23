@@ -25,8 +25,12 @@ func TestOpenConfiguresEveryConnectionAndReopens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaInfo() error = %v", err)
 	}
-	if info.ApplicationID != ApplicationID || info.Version != CurrentSchemaVersion {
-		t.Fatalf("SchemaInfo() = %+v, want application=%#x version=%d", info, ApplicationID, CurrentSchemaVersion)
+	schema, err := Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ApplicationID != ApplicationID || info.Version != schema.Version() {
+		t.Fatalf("SchemaInfo() = %+v, want application=%#x version=%d", info, ApplicationID, schema.Version())
 	}
 
 	connections := make([]*sql.Conn, 0, 2)

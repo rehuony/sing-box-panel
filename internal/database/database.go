@@ -2,21 +2,28 @@
 
 // Package database opens a service's local SQLite database. It validates the
 // path, holds a lock on the data directory for the lifetime of the handle,
-// applies connection pragmas through the DSN, and creates or verifies the
-// store's baseline schema identity.
+// applies connection pragmas through the DSN, and brings the store's schema to
+// its latest version by applying its numbered migrations in order.
 package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"sync"
+	"time"
 
 	"modernc.org/sqlite"
 )
@@ -39,12 +46,26 @@ var (
 	ErrSchemaInconsistent      = errors.New("SQLite schema metadata is inconsistent")
 )
 
-// Schema is one store's baseline. A store opens only databases with exactly
-// this application ID and version and creates it in an empty database.
+// Schema is one store's database identity and the migrations that build its
+// tables, in order. Migration N takes a database from version N-1 to N; an
+// empty database is version 0 and receives every migration.
 type Schema struct {
 	ApplicationID int
-	Version       int
-	SQL           string
+	Migrations    []Migration
+}
+
+// Version is the schema version the migrations build.
+func (schema Schema) Version() int {
+	return len(schema.Migrations)
+}
+
+// Migration is one numbered schema change. It is applied once, inside the
+// transaction that records it, and never edited after it ships: a recorded
+// migration whose text differs from the binary's is refused.
+type Migration struct {
+	Version int
+	Name    string
+	SQL     string
 }
 
 // Info identifies the database format independently of table contents.
@@ -53,18 +74,64 @@ type Info struct {
 	Version       int
 }
 
-// Check rejects an identity other than this schema's.
+// Check rejects an identity other than this schema's latest version.
 func (schema Schema) Check(applicationID, version int) error {
 	if applicationID != schema.ApplicationID {
 		return fmt.Errorf("%w: got %#x, want %#x", ErrUnexpectedApplicationID, applicationID, schema.ApplicationID)
 	}
-	if version > schema.Version {
-		return fmt.Errorf("%w: got %d, supported %d", ErrSchemaTooNew, version, schema.Version)
+	if version > schema.Version() {
+		return fmt.Errorf("%w: got %d, supported %d", ErrSchemaTooNew, version, schema.Version())
 	}
-	if version != schema.Version {
-		return fmt.Errorf("%w: got %d, supported %d", ErrSchemaUnsupported, version, schema.Version)
+	if version != schema.Version() {
+		return fmt.Errorf("%w: version %d, migrations build %d", ErrSchemaInconsistent, version, schema.Version())
 	}
 	return nil
+}
+
+var migrationFileName = regexp.MustCompile(`^([0-9]{4})_([a-z0-9]+(?:_[a-z0-9]+)*)\.sql$`)
+
+// LoadMigrations reads a store's migrations from dir in fsys: files named
+// NNNN_name.sql, numbered from 0001 without gaps.
+func LoadMigrations(fsys fs.FS, dir string) ([]Migration, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, fmt.Errorf("read migrations: %w", err)
+	}
+	migrations := make([]Migration, 0, len(entries))
+	for _, entry := range entries {
+		match := migrationFileName.FindStringSubmatch(entry.Name())
+		if entry.IsDir() || match == nil {
+			return nil, fmt.Errorf("migration %q is not named NNNN_name.sql", entry.Name())
+		}
+		version, _ := strconv.Atoi(match[1])
+		if version != len(migrations)+1 {
+			return nil, fmt.Errorf("migration %q is out of sequence: want version %d", entry.Name(), len(migrations)+1)
+		}
+		content, err := fs.ReadFile(fsys, path.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read migration %q: %w", entry.Name(), err)
+		}
+		migrations = append(migrations, Migration{Version: version, Name: match[2], SQL: string(content)})
+	}
+	if len(migrations) == 0 {
+		return nil, errors.New("read migrations: none found")
+	}
+	return migrations, nil
+}
+
+// historyTable records every applied migration. Its presence also tells a
+// database built by migrations from one written before the migration
+// baseline, which may carry the same application ID.
+const historyTable = `CREATE TABLE migration_history (
+    version INTEGER PRIMARY KEY CHECK (version > 0),
+    name TEXT NOT NULL CHECK (name <> ''),
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    applied_at TEXT NOT NULL CHECK (applied_at <> '')
+) STRICT`
+
+func migrationDigest(migration Migration) string {
+	sum := sha256.Sum256([]byte(migration.SQL))
+	return hex.EncodeToString(sum[:])
 }
 
 // DB owns the process-local connection pool for one database file.
@@ -133,7 +200,7 @@ func Open(ctx context.Context, path string, schema Schema, exclusive bool) (*DB,
 	if err := pool.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("open SQLite database: %w", err)
 	}
-	if err := db.initializeSchema(ctx); err != nil {
+	if err := db.migrate(ctx); err != nil {
 		return nil, err
 	}
 	if _, err := db.Info(ctx); err != nil {
@@ -188,10 +255,13 @@ func dsn(path string) string {
 	return u.String()
 }
 
-// initializeSchema creates the baseline in an empty database or verifies the
-// identity of an existing one. Earlier, unrelated and newer formats are
-// rejected without conversion.
-func (db *DB) initializeSchema(ctx context.Context) error {
+// migrate brings the database to the schema's latest version in one
+// transaction. An empty database receives the history table, the application
+// ID and every migration; a database of this application receives the
+// migrations it has not recorded. Unidentified, foreign and pre-baseline
+// databases, databases newer than the binary and recorded migrations that
+// differ from the binary's are refused without changing anything.
+func (db *DB) migrate(ctx context.Context) error {
 	return db.WithTx(ctx, func(tx *sql.Tx) error {
 		applicationID, err := pragmaInt(ctx, tx, "application_id")
 		if err != nil {
@@ -201,24 +271,90 @@ func (db *DB) initializeSchema(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if applicationID != 0 {
-			return db.schema.Check(applicationID, version)
+		switch {
+		case applicationID == 0:
+			hasObjects, err := hasUserSchemaObjects(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if version != 0 || hasObjects {
+				return fmt.Errorf("%w: refusing to adopt an unidentified non-empty database", ErrUnexpectedApplicationID)
+			}
+			if _, err := tx.ExecContext(ctx, historyTable); err != nil {
+				return fmt.Errorf("create SQLite migration history: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d", db.schema.ApplicationID)); err != nil {
+				return fmt.Errorf("set SQLite application id: %w", err)
+			}
+		case applicationID != db.schema.ApplicationID:
+			return fmt.Errorf("%w: got %#x, want %#x", ErrUnexpectedApplicationID, applicationID, db.schema.ApplicationID)
+		default:
+			var tracked int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'migration_history'`).Scan(&tracked); err != nil {
+				return fmt.Errorf("inspect SQLite migration history: %w", err)
+			}
+			if tracked == 0 {
+				return fmt.Errorf("%w: schema version %d predates the migration baseline", ErrSchemaUnsupported, version)
+			}
 		}
-		hasObjects, err := hasUserSchemaObjects(ctx, tx)
+		applied, err := appliedMigrations(ctx, tx)
 		if err != nil {
 			return err
 		}
-		if version != 0 || hasObjects {
-			return fmt.Errorf("%w: refusing to adopt an unidentified non-empty database", ErrUnexpectedApplicationID)
+		if len(applied) > db.schema.Version() {
+			return fmt.Errorf("%w: got %d, supported %d", ErrSchemaTooNew, len(applied), db.schema.Version())
 		}
-		if _, err := tx.ExecContext(ctx, db.schema.SQL); err != nil {
-			return fmt.Errorf("initialize SQLite schema: %w", err)
+		for index, record := range applied {
+			want := db.schema.Migrations[index]
+			if record.Version != want.Version || record.Name != want.Name || record.SHA256 != migrationDigest(want) {
+				return fmt.Errorf("%w: recorded migration %04d_%s differs from this binary's %04d_%s", ErrSchemaInconsistent, record.Version, record.Name, want.Version, want.Name)
+			}
 		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", db.schema.ApplicationID, db.schema.Version)); err != nil {
-			return fmt.Errorf("set SQLite schema identity: %w", err)
+		if version != len(applied) {
+			return fmt.Errorf("%w: version %d with %d recorded migrations", ErrSchemaInconsistent, version, len(applied))
+		}
+		for _, migration := range db.schema.Migrations[len(applied):] {
+			if _, err := tx.ExecContext(ctx, migration.SQL); err != nil {
+				return fmt.Errorf("apply migration %04d_%s: %w", migration.Version, migration.Name, err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO migration_history(version, name, sha256, applied_at) VALUES (?, ?, ?, ?)`,
+				migration.Version, migration.Name, migrationDigest(migration), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+				return fmt.Errorf("record migration %04d_%s: %w", migration.Version, migration.Name, err)
+			}
+		}
+		if len(applied) < db.schema.Version() {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", db.schema.Version())); err != nil {
+				return fmt.Errorf("set SQLite schema version: %w", err)
+			}
 		}
 		return nil
 	})
+}
+
+type appliedMigration struct {
+	Version int
+	Name    string
+	SHA256  string
+}
+
+func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]appliedMigration, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT version, name, sha256 FROM migration_history ORDER BY version`)
+	if err != nil {
+		return nil, fmt.Errorf("read SQLite migration history: %w", err)
+	}
+	defer rows.Close()
+	var applied []appliedMigration
+	for rows.Next() {
+		var record appliedMigration
+		if err := rows.Scan(&record.Version, &record.Name, &record.SHA256); err != nil {
+			return nil, fmt.Errorf("read SQLite migration history: %w", err)
+		}
+		applied = append(applied, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read SQLite migration history: %w", err)
+	}
+	return applied, nil
 }
 
 type queryRower interface {

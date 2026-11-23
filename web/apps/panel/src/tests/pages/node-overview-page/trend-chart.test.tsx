@@ -103,9 +103,12 @@ describe('chart details', () => {
     const options = vi.mocked(UPlot).mock.calls[0]![0];
     const formatTimes = options.axes![0]!.values as UPlot.Axis.DynamicValues;
     const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
-    expect(formatTimes(plot, [1000], 0, 0, 0)).toEqual([
+    // A tick inside the plot reads with seconds; one on its left edge goes unlabelled.
+    const inside = { ...plot, valToPos: () => 500, over: { clientWidth: 1000 } } as unknown as UPlot;
+    expect(formatTimes(inside, [1000], 0, 0, 0)).toEqual([
       new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(1000)),
     ]);
+    expect(formatTimes({ ...inside, valToPos: () => 0 } as unknown as UPlot, [1000], 0, 0, 0)).toEqual([null]);
     expect(options.series.slice(1).every(series => series.points?.show)).toBe(true);
     // Both rates are drawn as curves through their samples.
     expect(options.series.slice(1).map(series => series.paths)).toEqual(['monotone spline', 'monotone spline']);

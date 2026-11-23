@@ -4,17 +4,19 @@
 # in a Debian container on the host network. Its binary is shared in
 # .claude/dev/state/bin/linux; its data stays in
 # .claude/dev/state/node-<generation> (ignored), the generation of the panel
-# it enrolls with, such as p22n2; earlier generations stay untouched on disk.
+# it enrolls with, such as p1a2b3cn4d5e6f; earlier generations stay untouched
+# on disk.
 # Start the panel first. The first start of a generation adds or re-enrolls
 # dev-node with that panel and prints the console password once.
 set -eu
 cd "$(dirname "$0")/../.."
 state=.claude/dev/state
 
-schema() { sed -n 's/^[[:space:]]*CurrentSchemaVersion = \([0-9][0-9]*\)$/\1/p' "$1"; }
-panel_schema=$(schema internal/sing-box-panel/store/store.go)
-node_schema=$(schema internal/sing-box-node/store/store.go)
-[ -n "$panel_schema" ] && [ -n "$node_schema" ] || { echo "storage schema versions not found" >&2; exit 1; }
+# The generation names the two storage baselines by a short digest of each
+# baseline migration: later migrations upgrade a generation's data in place.
+baseline() { shasum -a 256 "$1" | cut -c1-6; }
+panel_schema=$(baseline internal/sing-box-panel/store/migrations/0001_baseline.sql)
+node_schema=$(baseline internal/sing-box-node/store/migrations/0001_baseline.sql)
 generation=p${panel_schema}n${node_schema}
 instance=$state/node-$generation
 

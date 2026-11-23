@@ -12,6 +12,8 @@ export interface TrendChartData {
 
 /** How far back the live charts reach from their newest sample. */
 const LIVE_WINDOW = 120_000;
+/** The shortest span a live chart shows, so its first samples are not stretched across the width. */
+const LIVE_MINIMUM_SPAN = 10_000;
 
 /**
  * The longest step a live line spans: two and a half times the stream's
@@ -25,11 +27,16 @@ function gapLimit(times: number[]): number {
   return Math.max(3000, 2.5 * (spacing[Math.floor(spacing.length / 2)] ?? 0));
 }
 
-/** The live tail's last two minutes as aligned series, broken across collection gaps. */
+/**
+ * The live tail's last two minutes as aligned series, broken across
+ * collection gaps. The span starts at the oldest sample it keeps, so no blank
+ * strip leads the lines, whether the page opened moments ago or the window's
+ * first sample falls a few seconds after its start.
+ */
 function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | null)[]) {
   const to = tail.at(-1)?.at;
-  const from = to === undefined ? undefined : to - LIVE_WINDOW;
-  const recent = tail.filter(point => from === undefined || point.at >= from);
+  const recent = tail.filter(point => to === undefined || point.at >= to - LIVE_WINDOW);
+  const from = to === undefined || recent[0] === undefined ? undefined : Math.min(recent[0].at, to - LIVE_MINIMUM_SPAN);
   const limit = gapLimit(recent.map(point => point.at));
   const times: number[] = [];
   const series = pick.map(() => [] as (number | null)[]);
@@ -119,4 +126,16 @@ function scaleTrafficRates(down: (number | null)[], up: (number | null)[]): stri
     }
   }
   return units[index]!;
+}
+
+/**
+ * Whether a time label centred at position, in pixels from the plot's left
+ * edge, fits between the vertical axis's labels and the chart's right edge.
+ * A label that would not is left out, so the first tick never runs into the
+ * vertical axis's zero.
+ */
+export function timeLabelFits(label: string, position: number, width: number, endPadding: number): boolean {
+  // The axis sets 11px numerals, about six and a half pixels a character.
+  const half = label.length * 3.25 + 2;
+  return position >= half && position <= width + endPadding - half;
 }

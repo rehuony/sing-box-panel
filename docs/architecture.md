@@ -65,7 +65,7 @@ nothing imports.
 | | `atomicfile` | Crash-safe file publication and directory syncs for both services and the tools |
 | | `release`, `selfupdate` | Release-version validation and signatures; fetching, verifying and atomically installing either binary, staging a release for a system service's root update helper, and the helper's staged apply |
 | | `procctl` | Private local control of a running service without an OS service manager; the service lifetime and lease, never background processes |
-| | `database` | SQLite opening, connection pragmas, baseline schema identity and data-directory locks shared by both stores |
+| | `database` | SQLite opening, connection pragmas, schema identity, the migration runner and data-directory locks shared by both stores |
 | | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
@@ -86,7 +86,7 @@ nothing imports.
 | | `runtime` | Managed processes, reference-counted disposable configuration files and the restricted Clash API monitoring client |
 | | `corelogs` | Bounded, private, sanitized native process output |
 | | `host` | Host-wide metrics, the bounded public IP hint and read-only, non-recursive filesystem selection |
-| Panel (`internal/sing-box-panel/`) | `store` | Panel SQLite: the baseline schema, each node's configuration and revisions, the cached core archives, subscription state and operational records |
+| Panel (`internal/sing-box-panel/`) | `store` | Panel SQLite: its migrations, each node's configuration and revisions, the cached core archives, subscription state and operational records |
 | | `auth` | The administrator's email and login sessions |
 | | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
 | | `telemetry` | The panel log and operation outcomes, metrics and runtime history, each node's traffic periods and quota, the dashboard projection |
@@ -328,17 +328,29 @@ persistence, security boundaries and runtime semantics.
 
 ### Persistence and preserved guarantees
 
-`internal/sing-box-panel/store/schema.sql` is the panel's storage baseline,
-schema version 27. It creates each node's editable configuration and canonical
+`internal/sing-box-panel/store/migrations/` holds the panel's storage
+migrations, from `0001_baseline.sql`. The baseline creates each node's editable
+configuration and canonical
 revisions, the cached core archives, subscription state, shared subscription
 node order, each node's runtime history, traffic samples, counter checkpoint
 and durable daily traffic accounting, login sessions, the node registry with
 node public keys, the hashes of unused enrollment tokens, each node's traffic quota and period, tags and its last state report,
 and operational records directly. Each node keeps its
-runtime evidence in its own `node.db`, defined in
-`internal/sing-box-node/store/schema.sql`. Settings live in the selected
+runtime evidence in its own `node.db`, built by
+`internal/sing-box-node/store/migrations/`. Settings live in the selected
 `setting.json`; SQLite keeps only transaction markers for interrupted settings
-updates. Earlier, unknown and newer storage formats are rejected without
+updates.
+
+Each store's migrations are files named `NNNN_name.sql`, numbered from 0001
+without gaps and embedded in the binary. Opening a database applies the ones it
+has not recorded in `migration_history`, in order, inside one transaction, and
+sets `user_version` to the latest; an empty database receives the history table,
+the application ID and every migration. A shipped migration is never edited: the
+history keeps each migration's SHA-256 and a database whose recorded migrations
+differ from the binary's is refused. A schema change adds the next file, rebuilding
+a table with SQLite's create, copy, drop and rename sequence where `ALTER TABLE`
+cannot express it. Databases without a migration history predate the baseline;
+they, unknown formats and databases newer than the binary are rejected without
 conversion.
 
 Authenticated management, CSRF/origin controls, safe source acquisition,

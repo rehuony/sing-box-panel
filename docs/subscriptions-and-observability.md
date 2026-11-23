@@ -824,7 +824,9 @@ the omitted older interval is unknown, not inferred from the preceding state.
 The dashboard shows host summaries, then traffic and active connections in one
 card over one shared range. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
-time axis. Browser suspension or network failures can still leave actual sampling
+time axis. The span starts at the oldest sample it shows, and at least ten
+seconds before the newest, so no blank strip leads the lines; a time label that
+would run into the vertical axis or past the chart's edge is left out. Browser suspension or network failures can still leave actual sampling
 gaps; missing observations are not filled in.
 Historical refreshes never replace these samples with bucket averages. The
 one-hour and 24-hour views show only historical one-minute and five-minute

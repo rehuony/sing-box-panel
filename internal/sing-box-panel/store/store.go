@@ -13,10 +13,6 @@ import (
 const (
 	// ApplicationID identifies the current incompatible storage epoch.
 	ApplicationID = 0x53425034
-
-	// CurrentSchemaVersion is the only schema this package can open; databases
-	// written by earlier versions are rejected.
-	CurrentSchemaVersion = 27
 )
 
 // Store owns the panel database.
@@ -25,8 +21,8 @@ type Store struct {
 	handle *database.DB
 }
 
-// Open opens (or creates) the panel database, initializes the current schema,
-// verifies its identity, and returns a shared connection pool.
+// Open opens (or creates) the panel database, applies the migrations it has
+// not recorded, verifies its identity, and returns a shared connection pool.
 //
 // The parent directory must already exist. Directory creation and ownership are
 // responsibilities of the application composition root.
@@ -40,9 +36,11 @@ func OpenForMigration(ctx context.Context, path string) (*Store, error) {
 }
 
 func open(ctx context.Context, path string, exclusive bool) (*Store, error) {
-	handle, err := database.Open(ctx, path, database.Schema{
-		ApplicationID: ApplicationID, Version: CurrentSchemaVersion, SQL: databaseSchema,
-	}, exclusive)
+	schema, err := Schema()
+	if err != nil {
+		return nil, err
+	}
+	handle, err := database.Open(ctx, path, schema, exclusive)
 	if err != nil {
 		return nil, err
 	}
