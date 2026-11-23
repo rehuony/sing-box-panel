@@ -254,14 +254,15 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                         </td>
                         <td>{t(value.enabled ? 'channels.enabled' : 'channels.disabled')}</td>
                         <td>
-                          <IconAction disabled={busy || !value.enabled} label={t('channels.link')} onClick={() => void channelAction(value.id, 'link')}>
-                            <Link2 aria-hidden='true' />
+                          {/* The most used first: edit, then copy, then the channel's links. */}
+                          <IconAction disabled={busy} label={t('channels.edit')} onClick={() => void open(value.id)}>
+                            <PencilLine aria-hidden='true' />
                           </IconAction>
                           <IconAction disabled={busy} label={t('channels.copy')} onClick={() => void channelAction(value.id, 'duplicate')}>
                             <Copy aria-hidden='true' />
                           </IconAction>
-                          <IconAction disabled={busy} label={t('channels.edit')} onClick={() => void open(value.id)}>
-                            <PencilLine aria-hidden='true' />
+                          <IconAction disabled={busy || !value.enabled} label={t('channels.link')} onClick={() => void channelAction(value.id, 'link')}>
+                            <Link2 aria-hidden='true' />
                           </IconAction>
                         </td>
                       </tr>

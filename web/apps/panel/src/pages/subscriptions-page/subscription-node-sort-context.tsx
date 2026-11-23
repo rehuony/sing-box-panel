@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 
-import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { rectSortingStrategy, SortableContext, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+
+import { showGrabbing } from './drag-slot';
 
 interface Props {
   children: ReactNode;
@@ -20,6 +22,8 @@ export function SubscriptionNodeSortContext({
 }: Props) {
   const { t } = useTranslation();
   const [active, setActive] = useState<string | null>(null);
+  // A drag cut short by leaving the view must not leave the hand closed.
+  useEffect(() => () => showGrabbing(false), []);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
@@ -31,6 +35,7 @@ export function SubscriptionNodeSortContext({
   const name = (id: string | number) => items.find((item) => item.id === id)?.label ?? '';
   function finish() {
     setActive(null);
+    showGrabbing(false);
     onDraggingChange?.(false);
   }
   return (
@@ -48,6 +53,7 @@ export function SubscriptionNodeSortContext({
       }}
       onDragStart={({ active }) => {
         setActive(String(active.id));
+        showGrabbing(true);
         onDraggingChange?.(true);
       }}
       onDragCancel={finish}

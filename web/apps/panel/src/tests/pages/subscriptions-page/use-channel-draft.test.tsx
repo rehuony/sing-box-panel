@@ -126,7 +126,7 @@ describe('channel draft', () => {
     expect(result.current.config.groups).toEqual([group]);
     expect(result.current.config.template).toEqual({ format: 'loon', content: channelTemplateDefaults.loon });
   });
-  it('protects groups an exit uses and reorders whole group records', () => {
+  it('protects groups an exit rule uses, frees the final exit of a disabled group and reorders whole group records', () => {
     const first = { ...newRuleGroup([]), name: 'First' };
     const second = { ...newRuleGroup([]), name: 'Second' };
     const config = {
@@ -135,11 +135,11 @@ describe('channel draft', () => {
     };
     const { result } = mount({ ...channel, config });
     act(() => result.current.updateGroup({ ...first, enabled: false }));
+    expect(result.current.config.default_exit).toEqual({ kind: 'direct' });
     act(() => result.current.requestRemoveGroup(second.id));
-    expect(result.current.config.groups).toEqual([first, second]);
     expect(result.current.removeGroup).toBeNull();
     act(() => result.current.reorder(0, 1));
-    expect(result.current.config.groups).toEqual([second, first]);
+    expect(result.current.config.groups).toEqual([second, { ...first, enabled: false }]);
   });
   it('points exit rules at the new client’s rule set of the same name when the client changes', async () => {
     const sets = [
@@ -160,13 +160,12 @@ describe('channel draft', () => {
   });
 });
 
-it('removes references in the same draft update when disabling a group, while protecting the final exit', () => {
+it('removes references in the same draft update when disabling a group', () => {
   const child = { ...newRuleGroup([]), id: 'child', name: 'Child' };
   const parent = { ...newRuleGroup([{ kind: 'group', id: 'child' }]), id: 'parent', name: 'Parent' };
   const { result } = mount({ ...channel, config: { ...channel.config, groups: [parent, child], default_exit: { kind: 'group', id: 'parent' } } });
-  act(() => result.current.updateGroup({ ...parent, enabled: false }));
-  expect(result.current.config.groups[0].enabled).toBe(true);
   act(() => result.current.updateGroup({ ...child, enabled: false }));
   expect(result.current.config.groups[1].enabled).toBe(false);
   expect(result.current.config.groups[0].members).toEqual([]);
+  expect(result.current.config.default_exit).toEqual({ kind: 'group', id: 'parent' });
 });

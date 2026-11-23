@@ -1,7 +1,6 @@
 import { TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
-import { Separator } from '@shared/components/ui/separator';
 import { toast } from '@shared/components/ui/toast-manager';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
 import {
@@ -15,14 +14,15 @@ import {
 
 import type { SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
+import { nodePath } from '@/utils/node-path';
 import { describeRequestError } from '@/components/error-notice';
 
+import type { IssueGroup, IssueItem } from './issue-list';
+
+import { IssueList } from './issue-list';
 import { SubscriptionContentState } from './subscription-content-state';
 
 type Diagnostic = SubscriptionPreview['result']['diagnostics'][number];
-
-/** The affected nodes an issue entry names before it gives only their count. */
-const NAMED_NODES = 10;
 
 interface Props {
   error?: unknown;
@@ -34,8 +34,7 @@ interface Props {
 export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
   const { t } = useTranslation();
   const issues = preview?.result.diagnostics ?? [];
-  const byCode = new Map<string, Diagnostic[]>();
-  for (const issue of issues) byCode.set(issue.code, [...byCode.get(issue.code) ?? [], issue]);
+  const groups = useIssueGroups(issues, nodes);
   const failure = error ? describeRequestError(error) : '';
   const issueCount = issues.length + (failure ? 1 : 0);
   async function copy() {
@@ -59,24 +58,15 @@ export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
                   <TriangleAlert data-icon='inline-start' className='text-[var(--color-warning-text)]' />
                   {t('channels.previewIssues', { count: issueCount })}
                 </PopoverTrigger>
-                <PopoverContent align='start' className='max-h-[min(32rem,var(--available-height))] w-[min(28rem,calc(100vw-2rem),var(--available-width))] overflow-y-auto overscroll-contain p-4'>
-                  <PopoverTitle>{t('channels.previewIssues', { count: issueCount })}</PopoverTitle>
+                <PopoverContent align='start' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-y-auto overscroll-contain p-0'>
+                  <PopoverTitle className='sr-only'>{t('channels.previewIssues', { count: issueCount })}</PopoverTitle>
                   {failure && (
-                    <div className='grid gap-1'>
-                      <strong>{t('channels.previewFailed')}</strong>
-                      <p className='wrap-anywhere'>{failure}</p>
+                    <div className='grid gap-0.5 border-b px-3 py-2.5'>
+                      <p className='font-medium'>{t('channels.previewFailed')}</p>
+                      <p className='wrap-anywhere text-[var(--color-text-secondary)]'>{failure}</p>
                     </div>
                   )}
-                  {byCode.size > 0 && (
-                    <ul className='grid gap-3'>
-                      {[...byCode].map(([code, group], index) => (
-                        <li key={code} className='min-w-0'>
-                          {index > 0 && <Separator className='mb-3' />}
-                          <PreviewIssue code={code} issues={group} nodes={nodes} />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  {groups.length > 0 && <IssueList groups={groups} />}
                 </PopoverContent>
               </Popover>
             )}
@@ -103,35 +93,38 @@ export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
 }
 
 /**
- * The issues of one code: why the nodes were left out and what to do, said
- * once, with their count and the nodes by their pool names.
+ * The preview's issues grouped by cause, the fixed detail code where the
+ * client knows it, else the code, biggest first. Each names its node: a pool
+ * node by its display name, a fleet node's inbound by the fleet node with the
+ * inbound's tag as its detail; a field path is the detail of a pool node. A
+ * fleet node's issues open its configuration.
  */
-function PreviewIssue({ code, issues, nodes }: {
-  code: string;
-  issues: Diagnostic[];
-  nodes: readonly SubscriptionNode[];
-}) {
+function useIssueGroups(issues: readonly Diagnostic[], nodes: readonly SubscriptionNode[]): IssueGroup[] {
   const { t, i18n } = useTranslation();
-  const known = (key: string) => i18n.exists(`channels.previewReasons.${key}`);
-  const reasons = new Set(issues.map(issue => issue.reason && known(issue.reason) ? issue.reason : code));
-  const shared = reasons.size === 1 ? [...reasons][0] : code;
-  const reason = known(shared) ? shared : 'unknown';
-  const pool = new Map(nodes.map(node => [node.id, node.display_name]));
-  const names = [...new Set(issues.map(issue => (issue.node_id === undefined ? undefined : pool.get(issue.node_id))
-    ?? issue.node_name ?? issue.node_id ?? t('channels.previewNode', { position: issue.item_index + 1 })))];
-  const shown = names.slice(0, NAMED_NODES).join(t('subscriptions.sources.protocolSeparator'));
-  return (
-    <div className='grid gap-2 wrap-anywhere'>
-      <div className='flex items-baseline gap-2'>
-        <strong className='min-w-0 flex-1'>{t(`channels.previewReasons.${reason}`, { format: issues[0].format })}</strong>
-        <span className='flex-none font-[family-name:var(--font-data)] text-xs text-muted-foreground tabular-nums'>{issues.length}</span>
-      </div>
-      <p className='text-muted-foreground'>{t(`channels.previewActions.${reason}`)}</p>
-      <p>
-        {shown}
-        {names.length > NAMED_NODES ? ` ${t('channels.previewMoreNodes', { total: names.length, rest: names.length - NAMED_NODES })}` : ''}
-      </p>
-      <code className='text-xs text-muted-foreground'>{code}</code>
-    </div>
-  );
+  const known = (key: string | undefined) => key !== undefined && i18n.exists(`subscriptions.issues.${key}`);
+  const pool = new Map(nodes.map(node => [node.id, node]));
+  const byCause = new Map<string, IssueItem[]>();
+  issues.forEach((issue, index) => {
+    const cause = known(issue.reason) ? issue.reason! : issue.code;
+    const node = issue.node_id === undefined ? undefined : pool.get(issue.node_id);
+    const origin = issue.origin_node_name ?? issue.origin_node_id;
+    let name = node?.display_name ?? origin ?? issue.node_name;
+    name ??= issue.item_index >= 0 ? t('channels.previewNode', { position: issue.item_index + 1 }) : t('subscriptions.pool.diagnostics.unknownNode');
+    const fleetNode = node?.origin.kind === 'inbound' ? node.origin.node_id : issue.origin_node_id;
+    // A whole configuration's issue points at no field.
+    const path = issue.item_index >= 0 ? issue.field_path : undefined;
+    byCause.set(cause, [...byCause.get(cause) ?? [], {
+      key: `${index}`,
+      name,
+      detail: node || !origin ? path : issue.node_name ?? path,
+      to: fleetNode ? nodePath(fleetNode, 'configuration') : undefined,
+    }]);
+  });
+  return [...byCause]
+    .map(([cause, items]) => ({
+      key: cause,
+      title: known(cause) ? t(`subscriptions.issues.${cause}`) : t('subscriptions.issues.unknown', { code: cause }),
+      items,
+    }))
+    .sort((left, right) => right.items.length - left.items.length);
 }

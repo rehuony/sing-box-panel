@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -6,7 +5,7 @@ import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { CirclePlus, Layers3, Server, TriangleAlert } from 'lucide-react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
 
 import type { NodePublication, SubscriptionDiagnostic, SubscriptionNode } from '@/api/api-client';
 
@@ -22,8 +21,10 @@ import { describeRequestError } from '@/components/error-notice';
 import { StripDivider, StripSearch } from '@/components/title-strip';
 import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
 
+import type { IssueItem } from './issue-list';
 import type { SourceDialogMode } from './subscription-source-dialog';
 
+import { IssueList } from './issue-list';
 import { useSourceRefresh } from './use-source-refresh';
 import { SourceDialogs, SourceRailItem } from './source-rail';
 import { reorderVisibleNodes } from './subscription-node-order';
@@ -39,51 +40,46 @@ const stateCard = 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--r
 
 /**
  * The fleet nodes that publish nothing or leave out some of their inbounds,
- * as a warning in the strip whose popover names each node and why.
+ * as a warning in the strip whose popover groups them by cause, each node
+ * opening its configuration.
  */
 function PoolDiagnostics({ diagnostics, publications }: {
   diagnostics: SubscriptionDiagnostic[];
   publications: NodePublication[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const client = useApiClient();
   const fleet = useQuery(queries.fleetNodes(client));
   const names = new Map<string, string>([
     ...publications.map(item => [item.node_id, item.node_name] as const),
     ...(fleet.data?.items ?? []).map(item => [item.id, item.name] as const),
   ]);
+  const byCode = new Map<string, IssueItem[]>();
+  diagnostics.forEach((item, index) => {
+    byCode.set(item.code, [...byCode.get(item.code) ?? [], {
+      key: `${index}`,
+      name: item.node_id ? names.get(item.node_id) ?? item.node_id : t('subscriptions.pool.diagnostics.unknownNode'),
+      detail: item.item_index >= 0 ? `${item.collection}[${item.item_index}]` : undefined,
+      to: item.node_id ? nodePath(item.node_id, 'configuration') : undefined,
+    }]);
+  });
+  const groups = [...byCode]
+    .map(([code, items]) => ({
+      key: code,
+      title: i18n.exists(`subscriptions.issues.${code}`) ? t(`subscriptions.issues.${code}`) : t('subscriptions.issues.unknown', { code }),
+      items,
+    }))
+    .sort((left, right) => right.items.length - left.items.length);
   const label = t('subscriptions.pool.diagnostics.label', { count: diagnostics.length });
   return (
     <Popover>
-      <PopoverTrigger render={<Button aria-label={label} className='flex-none' size='sm' title={label} variant='flat' />}>
+      <PopoverTrigger render={<Button aria-label={label} className='flex-none' size='sm' variant='flat' />}>
         <TriangleAlert aria-hidden='true' className='text-[var(--color-warning)]' data-icon='inline-start' />
         <span className='font-[family-name:var(--font-data)] tabular-nums'>{diagnostics.length}</span>
       </PopoverTrigger>
-      <PopoverContent align='end' className='max-h-[min(24rem,var(--available-height))] w-80 overflow-y-auto'>
-        <PopoverHeader>
-          <PopoverTitle>{t('subscriptions.pool.diagnostics.title')}</PopoverTitle>
-        </PopoverHeader>
-        <ul className='grid gap-2'>
-          {diagnostics.map((item) => {
-            const name = item.node_id ? names.get(item.node_id) ?? item.node_id : t('subscriptions.pool.diagnostics.unknownNode');
-            const place = item.item_index >= 0 ? `${item.collection}[${item.item_index}]` : '';
-            return (
-              <li className='min-w-0' key={`${item.node_id ?? ''}-${item.collection}-${item.item_index}-${item.code}`}>
-                <p className='flex min-w-0 items-baseline gap-2'>
-                  {item.node_id
-                    ? <Link className='min-w-0 truncate font-medium hover:underline' title={name} to={nodePath(item.node_id, 'configuration')}>{name}</Link>
-                    : <span className='min-w-0 truncate font-medium'>{name}</span>}
-                  {place ? <span className='flex-none font-[family-name:var(--font-data)] text-xs text-muted-foreground'>{place}</span> : null}
-                </p>
-                <p className='text-xs text-muted-foreground'>
-                  {t(`subscriptions.pool.diagnostics.reasons.${item.code}`, {
-                    defaultValue: t('subscriptions.pool.diagnostics.reasons.unknown', { code: item.code }),
-                  })}
-                </p>
-              </li>
-            );
-          })}
-        </ul>
+      <PopoverContent align='end' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-y-auto overscroll-contain p-0'>
+        <PopoverTitle className='sr-only'>{t('subscriptions.pool.diagnostics.title')}</PopoverTitle>
+        <IssueList groups={groups} />
       </PopoverContent>
     </Popover>
   );

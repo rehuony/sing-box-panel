@@ -11,7 +11,7 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
 
-import { groupInUse, incompatibleConfig, newRuleGroup, remapRuleSets, removeGroupReferences } from './channel-policy';
+import { groupInUse, incompatibleConfig, newRuleGroup, releaseFinalExit, remapRuleSets, removeGroupReferences } from './channel-policy';
 
 export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel: SubscriptionChannel) => void) {
   const { t } = useTranslation();
@@ -105,7 +105,7 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
     [groups[index], groups[index + delta]] = [groups[index + delta], groups[index]];
     setConfig({ ...config, groups });
   }
-  /** Says why a group an exit uses can be neither deleted nor disabled; true when it is in use. */
+  /** Says why a group an exit rule uses can be neither deleted nor disabled; true when it is in use. */
   function refuseInUse(id: string): boolean {
     if (!groupInUse(config, id)) return false;
     toast.add({ title: t('channels.groupExitInUse'), type: 'error' });
@@ -114,19 +114,19 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
   function updateGroup(value: ChannelRuleGroup) {
     if (!value.enabled && refuseInUse(value.id)) return;
     setConfig((current) => ({
-      ...current,
+      ...(value.enabled ? current : releaseFinalExit(current, value.id)),
       groups: (value.enabled ? current.groups : removeGroupReferences(current.groups, value.id))
         .map((item) => item.id === value.id ? value : item),
     }));
   }
-  /** Asks to delete a group, unless an exit uses it. */
+  /** Asks to delete a group, unless an exit rule uses it. */
   function requestRemoveGroup(id: string) {
     if (!refuseInUse(id)) setRemoveGroup(id);
   }
   function confirmRemoveGroup() {
     if (removeGroup === null) return;
     setConfig((current) => ({
-      ...current,
+      ...releaseFinalExit(current, removeGroup),
       groups: removeGroupReferences(current.groups.filter((value) => value.id !== removeGroup), removeGroup),
     }));
     if (groupID === removeGroup) setGroupID(null);

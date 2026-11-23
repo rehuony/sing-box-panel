@@ -33,6 +33,7 @@ import type {
 
 import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
+import { StripDivider } from '@/components/title-strip';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
 
@@ -51,12 +52,13 @@ import { defaultGroupHealthCheck, emptyMatch, exitsThrough, groupTypeName, match
 const groupIcons = { 'select': MousePointer2, 'url-test': Gauge, 'fallback': Shuffle };
 
 /**
- * A strategy group in the rail: its strategy's icon, its name and members,
- * its strategy and the exit rules through it; settings and a menu that moves
- * or deletes it take the count's place on hover.
+ * A strategy group in the rail: its strategy's icon, its name, marked when it
+ * is the final exit, and its members, its strategy and the exit rules through
+ * it; settings and a menu that sets or clears the final exit, moves or
+ * deletes it take the count's place on hover.
  */
 function GroupRailItem({
-  busy, current, first, format, group, last, matched, onDelete, onMove, onSelect, onSettings, routes,
+  busy, current, final, first, format, group, last, matched, onDelete, onFinal, onMove, onSelect, onSettings, routes,
 }: {
   group: ChannelRuleGroup;
   format: SubscriptionFormat;
@@ -65,11 +67,15 @@ function GroupRailItem({
   /** The exit rules that leave through it. */
   routes: number;
   current: boolean;
+  /** Whether what no exit rule matches leaves through it. */
+  final: boolean;
   first: boolean;
   last: boolean;
   busy: boolean;
   onSelect: () => void;
   onSettings: () => void;
+  /** Sets or clears it as the final exit. */
+  onFinal: () => void;
   onMove: (delta: number) => void;
   onDelete: () => void;
 }) {
@@ -98,6 +104,10 @@ function GroupRailItem({
                 <DropdownMenuItem disabled={first} onClick={() => onMove(-1)}>{t('common.moveUp')}</DropdownMenuItem>
                 <DropdownMenuItem disabled={last} onClick={() => onMove(1)}>{t('common.moveDown')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={onDelete} variant='destructive'>{t('common.delete')}</DropdownMenuItem>
+                {/* A disabled group cannot become an exit; clearing stays available. */}
+                <DropdownMenuItem disabled={!final && !group.enabled} onClick={onFinal}>
+                  {t(final ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
+                </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -107,10 +117,12 @@ function GroupRailItem({
       disabled={busy}
       end={menuOpen ? null : <RailCount>{group.members.length + matched}</RailCount>}
       icon={<Icon />}
+      marker={final
+        ? <span className='flex-none rounded-[var(--radius-pill)] border border-[var(--color-border-strong)] px-1.5 text-2xs leading-4 text-[var(--color-text-secondary)]'>{t('channels.finalExit')}</span>
+        : null}
       name={name}
       onClick={onSelect}
       sub={sub}
-      title={name}
     />
   );
 }
@@ -178,17 +190,24 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
         {/* The channel keeps room for its name and client; when narrow, the actions take the next line. */}
         <div className='flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
           <div className='flex min-w-[min(100%,12rem)] flex-1 items-center gap-2'>
-            <Button size='icon-sm' variant='flat' aria-label={t('channels.back')} title={t('channels.back')} disabled={busy} onClick={() => confirmNavigation(onBack)}><ArrowLeft /></Button>
+            <IconAction disabled={busy} label={t('channels.back')} onClick={() => confirmNavigation(onBack)} variant='flat'>
+              <ArrowLeft aria-hidden='true' />
+            </IconAction>
             <span className='min-w-0 truncate text-sm font-semibold' title={name}>{name}</span>
             <span className='flex h-5 flex-none items-center rounded-[var(--radius-pill)] border px-2 font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]'>{format}</span>
           </div>
+          {/* Icon actions named by their tooltips, from looking to changing; saving stands apart after a divider. */}
           <div className='ms-auto flex flex-none items-center gap-2'>
-            <Button size='icon-sm' variant='flat' aria-label={t('channels.distribution')} title={t('channels.distribution')} disabled={busy} onClick={() => setOptionsOpen(true)}><Settings2 /></Button>
-            <Button size='icon-sm' variant='flat' aria-label={t('channels.preview')} title={t('channels.preview')} disabled={busy} onClick={() => void showPreview()}><Eye /></Button>
-            <Button className='max-sm:w-(--control-height-sm) max-sm:px-0' size='sm' variant='flat' aria-label={t('channels.save')} disabled={busy || conflict || !dirty} onClick={() => void save()}>
-              <Save data-icon='inline-start' />
-              <span className='max-sm:sr-only'>{t('channels.save')}</span>
-            </Button>
+            <IconAction disabled={busy} label={t('channels.preview')} onClick={() => void showPreview()} variant='flat'>
+              <Eye aria-hidden='true' />
+            </IconAction>
+            <IconAction disabled={busy} label={t('channels.distribution')} onClick={() => setOptionsOpen(true)} variant='flat'>
+              <Settings2 aria-hidden='true' />
+            </IconAction>
+            <StripDivider />
+            <IconAction disabled={busy || conflict || !dirty} label={t('channels.save')} onClick={() => void save()} variant='flat'>
+              <Save aria-hidden='true' />
+            </IconAction>
           </div>
         </div>
       </ToolbarActions>
@@ -216,6 +235,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             <GroupRailItem
               busy={busy}
               current={group?.id === value.id}
+              final={exitsThrough(config.default_exit, value.id)}
               first={index === 0}
               format={format}
               group={value}
@@ -223,6 +243,7 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
               last={index === config.groups.length - 1}
               matched={matchedNodes(value, nodes).length}
               onDelete={() => requestRemoveGroup(value.id)}
+              onFinal={() => setDefaultExit(exitsThrough(config.default_exit, value.id) ? { kind: 'direct' } : { kind: 'group', id: value.id })}
               onMove={delta => reorder(index, delta)}
               onSelect={() => setGroupID(value.id)}
               onSettings={() => setGroupSettings(structuredClone(value))}
@@ -241,7 +262,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                   key={group.id}
                   nodes={nodes}
                   onChange={updateGroup}
-                  onDefaultExitChange={setDefaultExit}
                   onRoutesChange={setRoutes}
                   onTabChange={setGroupTab}
                   ruleSets={ruleSets}
@@ -266,7 +286,6 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
                     config={config}
                     format={format}
                     nodes={nodes}
-                    onDefaultExitChange={setDefaultExit}
                     onRoutesChange={setRoutes}
                     ruleSets={ruleSets}
                   />

@@ -99,6 +99,27 @@ describe('subscription node pool', () => {
     expect(notice).toHaveBeenCalledWith(expect.objectContaining({ type: 'warning', title: expect.stringContaining('read again') }));
   });
 
+  it('groups unpublished fleet nodes by cause, each opening its configuration', async () => {
+    const user = userEvent.setup();
+    mount({ listSubscriptionNodes: vi.fn().mockResolvedValue({ ...pool([inbound('tokyo')]), diagnostics: [
+      { node_id: 'node_edge', collection: 'inbounds', item_index: -1, code: 'applied_revision_unavailable' },
+      { node_id: 'node_edge', collection: 'inbounds', item_index: 2, code: 'unpublishable_inbound' },
+      { node_id: 'node_other', collection: 'inbounds', item_index: 2, code: 'unpublishable_inbound' },
+    ] }) });
+    await user.click(await screen.findByRole('button', { name: 'Fleet nodes not fully published: 3' }));
+    const issues = await screen.findByRole('dialog', { name: 'Not published from the fleet' });
+    // The bigger group opens first, the place its rows share said once in its heading.
+    const unpublishable = within(issues).getByRole('button', { name: /^Inbound not publishable/ });
+    expect(unpublishable).toHaveAttribute('aria-expanded', 'true');
+    expect(unpublishable).toHaveTextContent('inbounds[2]');
+    expect(await within(issues).findByRole('link', { name: 'edge' })).toHaveAttribute('href', '/nodes/node_edge/configuration');
+    expect(within(issues).getByRole('link', { name: 'node_other' })).toBeVisible();
+    await user.click(within(issues).getByRole('button', { name: /^Running configuration unavailable/ }));
+    expect(unpublishable).toHaveAttribute('aria-expanded', 'false');
+    expect(within(issues).queryByRole('link', { name: 'node_other' })).not.toBeInTheDocument();
+    expect(within(issues).getByRole('link', { name: 'edge' })).toBeVisible();
+  });
+
   it('renames a node at the version it was read and says when the name is taken', async () => {
     const user = userEvent.setup();
     const tokyo = inbound('tokyo');

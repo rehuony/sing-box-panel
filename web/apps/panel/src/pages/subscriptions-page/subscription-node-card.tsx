@@ -60,7 +60,7 @@ export function PoolNodeCardContent({ node }: { node: SubscriptionNode }) {
         <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium'>{node.display_name}</h2>
       </header>
       {/* Each row keeps to one line, so the card holds the panes' height. */}
-      <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-center gap-x-3 px-3 whitespace-nowrap'>
+      <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-start gap-x-3 px-3 py-3 whitespace-nowrap'>
         <Row label={t('subscriptions.pool.card.type')} value={node.protocol} />
         <Row label={t('subscriptions.pool.card.server')} value={nodeAddress(node)} />
         <Row label={t('subscriptions.pool.card.transport')} value={node.transport} />

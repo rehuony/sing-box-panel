@@ -39,9 +39,17 @@ export function exitsThrough(exit: ChannelRouteExit, groupID: string): boolean {
   return exit.kind === 'group' && exit.id === groupID;
 }
 
-/** Whether an exit rule or the final exit leaves through the group, which then cannot be deleted or disabled. */
+/**
+ * Whether an exit rule leaves through the group, which then cannot be deleted
+ * or disabled; a final exit through it falls back to DIRECT instead.
+ */
 export function groupInUse(config: SubscriptionChannelConfig, groupID: string): boolean {
-  return exitsThrough(config.default_exit, groupID) || config.routes.some(route => exitsThrough(route.exit, groupID));
+  return config.routes.some(route => exitsThrough(route.exit, groupID));
+}
+
+/** The config without its final exit through the group: what no rule matches then goes DIRECT. */
+export function releaseFinalExit(config: SubscriptionChannelConfig, groupID: string): SubscriptionChannelConfig {
+  return exitsThrough(config.default_exit, groupID) ? { ...config, default_exit: { kind: 'direct' } } : config;
 }
 
 /** Group types as sing-box writes them; mihomo and loon write the stored type itself. */

@@ -7,7 +7,6 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components
 
 import type {
   ChannelRoute,
-  ChannelRouteExit,
   ChannelRuleGroup,
   SubscriptionChannelConfig,
   SubscriptionFormat,
@@ -41,7 +40,6 @@ interface Props {
   onTabChange: (tab: ChannelGroupTab) => void;
   onRoutesChange: (routes: ChannelRoute[]) => void;
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
-  onDefaultExitChange: (exit: ChannelRouteExit) => void;
 }
 
 /**
@@ -50,7 +48,7 @@ interface Props {
  * through it.
  */
 export function ChannelGroupEditor({
-  busy, config, format, group, nodes, onChange, onDefaultExitChange, onRoutesChange, onTabChange, ruleSets, tab,
+  busy, config, format, group, nodes, onChange, onRoutesChange, onTabChange, ruleSets, tab,
 }: Props) {
   const { t } = useTranslation();
   const [addingNodes, setAddingNodes] = useState(false);
@@ -169,7 +167,6 @@ export function ChannelGroupEditor({
             format={format}
             groupID={group.id}
             nodes={nodes}
-            onDefaultExitChange={onDefaultExitChange}
             onRoutesChange={onRoutesChange}
             ruleSets={ruleSets}
           />

@@ -221,7 +221,8 @@ describe('application routes', () => {
     expect(await screen.findByRole('heading', { name: 'Subscriptions' })).toBeInTheDocument();
     for (const name of ['1: Nodes', '3: Logs', '4: Settings']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    // The shell has no top bar; a header inside the page's main content is not a banner landmark.
+    expect(screen.queryAllByRole('banner').filter(element => !element.closest('main'))).toHaveLength(0);
     expect(document.getElementById('main-content')).toHaveFocus();
     expect(scroller.scrollTop).toBe(0);
   });

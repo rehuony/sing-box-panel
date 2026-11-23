@@ -9,7 +9,7 @@ import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNode } from '@/a
 
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
-import { dropSlot } from './drag-slot';
+import { dropSlotCard } from './drag-slot';
 import { groupTypeName } from './channel-policy';
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
 import { PoolNodeCardContent } from './subscription-node-card';
@@ -36,11 +36,10 @@ interface Props {
   onMove: (active: string, over: string) => void;
 }
 
-/** A candidate's face: a pane's height, its title bar over labelled rows in the data face. */
-const candidateFace = 'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden font-[family-name:var(--font-data)] text-compact';
-/** One board of candidates: cells draw their top and start hairlines and the board's border closes the outer edges. */
-const candidateBoard = 'overflow-hidden rounded-[var(--radius-card)] border';
-const candidateGrid = '-ms-px -mt-px grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start';
+/** A candidate's face: a pool node's card, its title bar over labelled rows in the data face. */
+const candidateFace = 'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact';
+/** Candidates as the pool shows its nodes: cards of their own in the panes' grid and gaps. */
+const candidateGrid = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3';
 
 /**
  * A candidate as a pool node shows: a pool node's labelled rows, or for a
@@ -62,7 +61,7 @@ const CandidateContent = memo(({ format, item }: { item: ChannelNodeCard; format
         <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{name}</h2>
         {note ? <span className={cn('flex-none text-xs', disabledReason ? 'text-muted-foreground' : 'text-[var(--color-warning-text)]')}>{note}</span> : null}
       </header>
-      <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-center gap-x-3 px-3 whitespace-nowrap'>
+      <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-start gap-x-3 px-3 py-3 whitespace-nowrap'>
         <ReadoutRow label={t('subscriptions.pool.card.type')}><span className='min-w-0 truncate'>{kind}</span></ReadoutRow>
         {group
           ? (
@@ -98,7 +97,16 @@ function SortableCard({ format, item, onToggle }: { item: ChannelNodeCard; forma
       aria-describedby={item.disabledReason ? reasonId : attributes['aria-describedby']}
       aria-keyshortcuts='F2'
       tabIndex={item.disabled ? -1 : 0}
-      className={cn(candidateFace, 'cursor-pointer touch-pan-y border-s border-t outline-none select-none transition-colors duration-[var(--dur-micro)] ease-out hover:not-data-[disabled=true]:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50 data-[selected=true]:bg-accent', isDragging && dropSlot)}
+      className={cn(
+        candidateFace,
+        'cursor-pointer touch-pan-y outline-none select-none transition-colors duration-[var(--dur-short)] ease-out focus-visible:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50',
+        // A chosen candidate takes the accent's soft fill, a 50% accent hairline and a 25% accent
+        // divider, as a selected pane does.
+        item.selected
+          ? 'border-primary/50 bg-accent [&_header]:border-primary/25'
+          : 'bg-[var(--color-surface-translucent)] hover:not-data-[disabled=true]:border-[var(--color-border-strong)]',
+        isDragging && dropSlotCard,
+      )}
       data-selected={item.selected}
       data-disabled={item.disabled || undefined}
       data-dragging={isDragging || undefined}
@@ -120,7 +128,7 @@ function SortableCard({ format, item, onToggle }: { item: ChannelNodeCard; forma
   );
 }
 
-/** A group's candidates as one board in their order: a click or Space selects one, F2 moves it. */
+/** A group's candidates as cards in their order: a click or Space selects one, F2 moves it. */
 export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingChange }: Props) {
   const { t } = useTranslation();
   const suppressClickRef = useRef(false);
@@ -139,28 +147,26 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
       renderOverlay={(id) => {
         const dragged = items.find((item) => item.id === id);
         return dragged && (
-          <div className={cn(candidateFace, 'cursor-grabbing rounded-[var(--radius-card)] border bg-popover shadow-[var(--shadow-panel)] data-[selected=true]:bg-accent')} data-selected={dragged.selected} aria-hidden='true'>
+          <div className={cn(candidateFace, 'cursor-grabbing bg-popover shadow-[var(--shadow-panel)] data-[selected=true]:bg-accent')} data-selected={dragged.selected} aria-hidden='true'>
             <CandidateContent format={format} item={dragged} />
           </div>
         );
       }}
     >
-      <div className={candidateBoard}>
-        <div data-slot='channel-candidates' className={candidateGrid}
-          onPointerDownCapture={() => {
-            if (!draggingRef.current) suppressClickRef.current = false;
-          }}
-          onKeyDownCapture={event => {
-            if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
-          }}
-          onClickCapture={event => {
-            if (suppressClickRef.current) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-          }}>
-          {items.map((item) => <SortableCard format={format} key={item.id} item={item} onToggle={onToggle} />)}
-        </div>
+      <div data-slot='channel-candidates' className={candidateGrid}
+        onPointerDownCapture={() => {
+          if (!draggingRef.current) suppressClickRef.current = false;
+        }}
+        onKeyDownCapture={event => {
+          if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
+        }}
+        onClickCapture={event => {
+          if (suppressClickRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}>
+        {items.map((item) => <SortableCard format={format} key={item.id} item={item} onToggle={onToggle} />)}
       </div>
     </SubscriptionNodeSortContext>
   );
@@ -168,7 +174,7 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
 
 /**
  * The pool nodes a group's match takes, after its members under a hairline
- * heading with their count: a board like the members', neither selectable
+ * heading with their count: cards like the members', neither selectable
  * nor sortable.
  */
 export function ChannelMatchedCards({ nodes }: { nodes: readonly SubscriptionNode[] }) {
@@ -180,15 +186,13 @@ export function ChannelMatchedCards({ nodes }: { nodes: readonly SubscriptionNod
       <h3 className='flex items-center gap-2 text-xs text-[var(--color-text-secondary)] after:h-px after:flex-1 after:bg-border'>
         {heading}
       </h3>
-      <div className={candidateBoard}>
-        <ul className={candidateGrid}>
-          {nodes.map(node => (
-            <li aria-label={node.display_name} className={cn(candidateFace, 'border-s border-t')} key={node.id}>
-              <PoolNodeCardContent node={node} />
-            </li>
-          ))}
-        </ul>
-      </div>
+      <ul className={candidateGrid}>
+        {nodes.map(node => (
+          <li aria-label={node.display_name} className={cn(candidateFace, 'bg-[var(--color-surface-translucent)]')} key={node.id}>
+            <PoolNodeCardContent node={node} />
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

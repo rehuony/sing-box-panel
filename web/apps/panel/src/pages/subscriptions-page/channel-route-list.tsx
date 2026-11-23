@@ -1,10 +1,10 @@
 import type { SyntheticEvent } from 'react';
 import type { DraggableSyntheticListeners } from '@dnd-kit/core';
 
-import { useState } from 'react';
 import { cn } from '@shared/lib/utils';
 import { CSS } from '@dnd-kit/utilities';
 import { createPortal } from 'react-dom';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
@@ -29,23 +29,25 @@ import { IconAction } from '@/components/icon-action';
 import { SelectField } from '@/components/select-field';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
-import { dropSlot } from './drag-slot';
 import { ruleType } from './rule-text';
 import { RuleEditor } from './rule-editor';
+import { dropSlot, showGrabbing } from './drag-slot';
 import { exitValue, parseExit, useExits } from './channel-exits';
 import { SubscriptionContentState } from './subscription-content-state';
 import { exitsThrough, routeRuleSet, unusableRemote } from './channel-policy';
 
 /**
- * A row's cells: grip, position, what it matches, its exit and its actions;
- * the exit and actions take a second line on a phone.
+ * A row's cells: grip, position, what it matches, its actions and its exit,
+ * which ends the row at its edge; the exit and actions take a second line on
+ * a phone, the actions after the exit.
  */
-// The last column holds two embedded actions, which grow to 44px on a coarse pointer.
-const row = 'grid min-h-13 grid-cols-[1.75rem_2rem_minmax(0,1fr)_9rem_calc(2*var(--control-height-xs)+2px)] items-center gap-x-2 gap-y-1.5 py-1.5 ps-2 pe-3 max-sm:grid-cols-[1.75rem_1.5rem_minmax(0,1fr)_calc(2*var(--control-height-xs)+2px)]';
-const exitCell = 'h-(--control-height-sm) w-36 text-compact max-sm:col-start-3 max-sm:row-start-2 max-sm:w-full';
+// The actions column holds two embedded actions, which grow to 44px on a coarse pointer.
+const row = 'grid min-h-13 grid-cols-[1.75rem_2rem_minmax(0,1fr)_calc(2*var(--control-height-xs)+2px)_9rem] items-center gap-x-2 gap-y-1.5 py-1.5 ps-2 pe-3 max-sm:grid-cols-[1.75rem_1.5rem_minmax(0,1fr)_calc(2*var(--control-height-xs)+2px)]';
+const exitCell = 'h-(--control-height-sm) w-36 text-compact sm:col-start-5 sm:row-start-1 max-sm:col-start-3 max-sm:row-start-2 max-sm:w-full';
+const actionsCell = 'flex justify-end gap-0.5 sm:col-start-4 sm:row-start-1 max-sm:col-start-4 max-sm:row-start-2';
 const secondary = 'text-xs text-[var(--color-text-secondary)]';
 const danger = 'text-xs text-[var(--color-danger-text)]';
-const positionCell = 'text-end font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums';
+const positionCell = 'text-end font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums sm:pe-2';
 
 /**
  * A row's pointer listeners, which start a drag from anywhere on the row but
@@ -162,12 +164,9 @@ function RouteMatch({ format, route, ruleSets }: {
     if (set) detail = <p className={secondary}>{t('channels.routeRuleSet', { count: set.rules.length }) + off}</p>;
     else if (ruleSets) detail = <p className={danger}>{t('channels.routeRuleSetMissing', { client: format })}</p>;
     return (
-      <div className='flex min-w-0 items-start gap-2 max-sm:col-span-2'>
-        <Layers3 aria-hidden='true' className='mt-0.5 size-4 flex-none text-muted-foreground' />
-        <div className='min-w-0'>
-          <p className='text-sm font-medium break-words'>{known?.name ?? (ruleSets ? route.rule_set_id : EM_DASH)}</p>
-          {detail}
-        </div>
+      <div className='min-w-0 max-sm:col-span-2'>
+        <p className='text-sm break-words'>{known?.name ?? (ruleSets ? route.rule_set_id : EM_DASH)}</p>
+        {detail}
       </div>
     );
   }
@@ -175,15 +174,12 @@ function RouteMatch({ format, route, ruleSets }: {
   const kind = ruleType(rule?.kind ?? 'domain');
   const unusable = unusableRemote(rule, format);
   return (
-    <div className='flex min-w-0 items-start gap-2 max-sm:col-span-2' title={rule?.remote?.url}>
-      <span aria-hidden='true' className='size-4 flex-none' />
-      <div className='min-w-0'>
-        <p className='font-[family-name:var(--font-data)] text-compact break-all'>{(rule?.kind === 'remote' ? rule.remote?.name : rule?.value) ?? EM_DASH}</p>
-        <p className={unusable ? danger : secondary}>
-          {t('channels.routeCustom', { kind })}
-          {unusable ? ` · ${t('channels.routeFormatUnusable', { client: format, format: rule!.remote!.format })}` : off}
-        </p>
-      </div>
+    <div className='min-w-0 max-sm:col-span-2' title={rule?.remote?.url}>
+      <p className='font-[family-name:var(--font-data)] text-compact break-all'>{(rule?.kind === 'remote' ? rule.remote?.name : rule?.value) ?? EM_DASH}</p>
+      <p className={unusable ? danger : secondary}>
+        {t('channels.routeCustom', { kind })}
+        {unusable ? ` · ${t('channels.routeFormatUnusable', { client: format, format: rule!.remote!.format })}` : off}
+      </p>
     </div>
   );
 }
@@ -227,7 +223,7 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
               <button
                 {...attributes}
                 aria-label={t('channels.moveRoute', { position })}
-                className='flex size-7 cursor-grab touch-none items-center justify-center rounded-[var(--radius-control)] text-[var(--color-text-faint)] outline-none group-hover/route:text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-default'
+                className='flex size-7 cursor-grab touch-none items-center justify-center rounded-[var(--radius-control)] text-[var(--color-text-faint)] outline-none group-hover/route:text-[var(--color-text-secondary)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-default'
                 data-route-grip=''
                 disabled={busy}
                 onKeyDown={listeners?.onKeyDown as ((event: SyntheticEvent) => void) | undefined}
@@ -249,7 +245,7 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
         onValueChange={value => onExit(parseExit(value))}
         value={exitValue(route.exit)}
       />
-      <span className='invisible flex justify-end gap-0.5 group-focus-within/route:visible group-hover/route:visible max-sm:col-start-4 max-sm:row-start-2 [@media(hover:none)]:visible'>
+      <span className={cn(actionsCell, 'invisible group-focus-within/route:visible group-hover/route:visible [@media(hover:none)]:visible')}>
         {route.rule
           ? (
               <IconAction disabled={busy} label={t('common.edit')} onClick={onEdit} size='icon-xs'>
@@ -285,19 +281,19 @@ function RouteRowOverlay({ choices, format, index, route, ruleSets }: {
       <span className={positionCell}>{index + 1}</span>
       <RouteMatch format={format} route={route} ruleSets={ruleSets} />
       <SelectField className={exitCell} items={choices} onValueChange={() => undefined} value={exitValue(route.exit)} />
-      <span className='max-sm:hidden' />
+      <span className={cn(actionsCell, 'max-sm:hidden')} />
     </div>
   );
 }
 
 /**
  * A channel's exit rules as one block of rows in matching order, sorted by
- * their grips, with the final exit pinned below them. Filtered to the rules
- * that leave through a group, the rows keep their positions in the whole
- * list but do not sort, and the final exit stays with the whole list.
+ * dragging. Filtered to the rules that leave through a group, the rows keep
+ * their positions in the whole list but do not sort. The final exit, which
+ * takes what no rule matches, is set on a group in the rail.
  */
 export function ChannelRouteList({
-  busy, config, format, groupID, nodes, onDefaultExitChange, onRoutesChange, ruleSets,
+  busy, config, format, groupID, nodes, onRoutesChange, ruleSets,
 }: {
   busy: boolean;
   config: SubscriptionChannelConfig;
@@ -308,13 +304,14 @@ export function ChannelRouteList({
   /** Shows only the rules that leave through this group. */
   groupID?: string;
   onRoutesChange: (routes: ChannelRoute[]) => void;
-  onDefaultExitChange: (exit: ChannelRouteExit) => void;
 }) {
   const { t } = useTranslation();
   const { routes } = config;
   const exits = useExits(config.groups, nodes);
   const [editing, setEditing] = useState<ChannelRoute | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
+  // A drag cut short by leaving the view must not leave the hand closed.
+  useEffect(() => () => showGrabbing(false), []);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
@@ -346,14 +343,21 @@ export function ChannelRouteList({
                   },
                 }}
                 collisionDetection={closestCenter}
-                onDragCancel={() => setDragged(null)}
+                onDragCancel={() => {
+                  setDragged(null);
+                  showGrabbing(false);
+                }}
                 onDragEnd={({ active, over }) => {
                   setDragged(null);
+                  showGrabbing(false);
                   const from = position(active.id) - 1;
                   const to = over ? position(over.id) - 1 : -1;
                   if (from >= 0 && to >= 0 && from !== to) onRoutesChange(arrayMove(routes, from, to));
                 }}
-                onDragStart={({ active }) => setDragged(String(active.id))}
+                onDragStart={({ active }) => {
+                  setDragged(String(active.id));
+                  showGrabbing(true);
+                }}
                 sensors={sensors}
               >
                 <SortableContext items={shown.map(({ route }) => route.id)} strategy={verticalListSortingStrategy}>
@@ -395,24 +399,6 @@ export function ChannelRouteList({
             </ScrollArea>
           )
         : <SubscriptionContentState kind='rules' title={t(groupID === undefined ? 'channels.noRoutes' : 'channels.noGroupRoutes')} />}
-      {groupID === undefined
-        ? (
-            <div className={cn(row, 'flex-none border-t bg-[var(--color-surface-raised)]')} role='group' aria-label={t('channels.finalExit')}>
-              <span />
-              <span />
-              <span className='text-sm font-medium max-sm:col-span-2'>{t('channels.finalExit')}</span>
-              <SelectField
-                aria-label={t('channels.finalExit')}
-                className={exitCell}
-                disabled={busy}
-                items={exits.choices(config.default_exit)}
-                onValueChange={value => onDefaultExitChange(parseExit(value))}
-                value={exitValue(config.default_exit)}
-              />
-              <span className='max-sm:hidden' />
-            </div>
-          )
-        : null}
       {editing?.rule
         ? (
             <RuleEditor

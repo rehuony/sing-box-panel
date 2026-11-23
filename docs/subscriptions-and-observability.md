@@ -278,12 +278,12 @@ contains back, channel settings, preview and save. Channel settings contain name
 client and template; node names, membership and order are managed
 directly through nodes and candidate cards. Candidate cards show
 the node name and a compact source/protocol summary; addresses remain available
-on hover. A flag beside the sidebar's delete action toggles the selected group's
-optional final-exit status; its badge shares the counts row without wrapping or
-changing card height. Selecting another group replaces the previous
-choice, and clearing it restores direct fallback. New groups are not automatically
-selected as the final exit. The channel's existing node/reject/group fallback is
-preserved until explicitly changed. Group drafts survive
+on hover. A group's menu in the sidebar sets or clears it as the final exit,
+which the sidebar marks beside the group's name and the exit rules item names;
+the exit rules list holds only exit rules. Selecting another group replaces the
+previous choice, and clearing it, or disabling or deleting that group, restores
+direct fallback. New groups are not automatically selected as the final exit.
+A stored node or reject fallback is preserved until explicitly changed. Group drafts survive
 switching groups and are persisted together by Save changes. Leaving an edited
 channel through Back, a subscription tab or another panel route prompts to keep
 editing or discard the changes. Confirmed departure clears the detail workspace;
@@ -341,7 +341,7 @@ strategy groups after the ordinary nodes, in sidebar order, and supports the sam
 selection, search and reordering interactions. Self references, duplicate references
 and cycles are rejected; disabled groups cannot be selected. Renaming a group
 retains its identity. Deleting or disabling it in the editor removes all incoming
-candidate references; the final exit must be changed first if it uses that group. Duplicate or unknown members are rejected.
+candidate references; exit rules that use it must change their exit first, and a final exit through it falls back to direct. Duplicate or unknown members are rejected.
 Generation emits dependencies before their parents without flattening them.
 Empty child groups are skipped as candidates; an empty first manual
 dependency still makes routes through the parent reject traffic. Manual groups use the first card as their initial exit; no independently saved
@@ -483,10 +483,13 @@ field removes it; invalid content fails validation instead of loading defaults.
 Preview diagnostics and request failures appear behind an issue button beside
 the preview title. Previews without diagnostics have no issue indicator; the code area
 contains only generated configuration. Authenticated preview diagnostics identify
-the node by its pool ID, display name and protocol when available, with an
-input field path, localized explanation and corrective suggestion. Positions
-refer to renderer input, not lines in the generated configuration. Unknown codes
-retain their technical code with a generic explanation. Public diagnostics remain
+the node by its pool ID, display name and protocol when available, or a fleet
+node's inbound by the fleet node and the inbound's tag, with an input field path.
+The issue list groups them by their localized cause, names each node with the
+place it is about, and links a fleet node to its configuration. Positions refer
+to renderer input, not lines in the generated configuration. An unknown code
+titles its group by the code. The node pool's unpublished fleet nodes use the
+same list. Public diagnostics remain
 positional and never include node identities or configuration values.
 
 The node pool, sources, keys, channels and their dialogs show one centered empty

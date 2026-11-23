@@ -42,8 +42,10 @@ export function RailCount({ children }: { children: ReactNode }) {
 
 /**
  * One rail item: an icon, its name in full and what it counts, with an
- * optional second line. Its actions take the count's place while the pointer
- * or focus is on the item, so nothing moves and the name keeps its width.
+ * optional second line. With one, the icon sits in a tile beside both lines
+ * and the count centres on them. Its actions take the count's place while the
+ * pointer or focus is on the item, so nothing moves and the name keeps its
+ * width.
  */
 export function RailItem({ actions, current, details, end, icon, marker, name, sub, ...props }: Omit<ComponentProps<'button'>, 'children'> & {
   name: string;
@@ -61,23 +63,49 @@ export function RailItem({ actions, current, details, end, icon, marker, name, s
   /** The item's details, in a tooltip beside it. */
   details?: ReactNode;
 }) {
+  const endSlot = (
+    <span className={cn('flex h-6 flex-none items-center justify-end', actions && 'w-12 group-focus-within/rail-item:invisible group-hover/rail-item:invisible [@media(hover:none)]:invisible')}>
+      {end}
+    </span>
+  );
   const button = (
     <button
       {...props}
       aria-current={current || undefined}
       className={cn(
-        'flex w-full min-w-0 cursor-pointer flex-col justify-center gap-0.5 rounded-[var(--radius-control)] ps-2.5 pe-1.5 text-left text-sm outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset aria-[current=true]:bg-accent',
-        sub ? 'h-13' : 'h-10',
+        'w-full min-w-0 cursor-pointer rounded-[var(--radius-control)] pe-1.5 text-left text-sm outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset aria-[current=true]:bg-accent',
+        sub ? cn('grid h-13 items-center gap-x-2.5 ps-2', icon ? 'grid-cols-[2rem_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]') : 'flex h-10 items-center gap-2 ps-2.5',
       )}
       type='button'
     >
-      <span className='flex w-full min-w-0 items-center gap-2'>
-        {icon ? <span aria-hidden='true' className='flex flex-none text-muted-foreground [&_svg]:size-4'>{icon}</span> : null}
-        <span className='min-w-0 flex-1 truncate font-medium'>{name}</span>
-        {marker}
-        <span className={cn('flex h-6 flex-none items-center justify-end', actions && 'w-12 group-focus-within/rail-item:invisible group-hover/rail-item:invisible [@media(hover:none)]:invisible')}>{end}</span>
-      </span>
-      {sub ? <span className='truncate ps-6 text-xs text-[var(--color-text-secondary)]'>{sub}</span> : null}
+      {sub
+        ? (
+            <>
+              {icon
+                ? (
+                    <span aria-hidden='true' className='flex size-8 items-center justify-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-4'>
+                      {icon}
+                    </span>
+                  )
+                : null}
+              <span className='flex min-w-0 flex-col gap-0.5'>
+                <span className='flex min-w-0 items-center gap-1.5'>
+                  <span className='min-w-0 truncate font-medium'>{name}</span>
+                  {marker}
+                </span>
+                <span className='truncate text-xs text-[var(--color-text-secondary)]'>{sub}</span>
+              </span>
+              {endSlot}
+            </>
+          )
+        : (
+            <>
+              {icon ? <span aria-hidden='true' className='flex flex-none text-muted-foreground [&_svg]:size-4'>{icon}</span> : null}
+              <span className='min-w-0 flex-1 truncate font-medium'>{name}</span>
+              {marker}
+              {endSlot}
+            </>
+          )}
     </button>
   );
   return (
@@ -93,7 +121,7 @@ export function RailItem({ actions, current, details, end, icon, marker, name, s
       {actions
         ? (
             // Without hover, as on touch screens, the actions stay in the count's place.
-            <span className={cn('invisible absolute end-1.5 flex h-6 items-center group-focus-within/rail-item:visible group-hover/rail-item:visible [@media(hover:none)]:visible', sub ? 'top-1' : 'top-2')}>
+            <span className={cn('invisible absolute end-1.5 flex h-6 items-center group-focus-within/rail-item:visible group-hover/rail-item:visible [@media(hover:none)]:visible', sub ? 'top-3.5' : 'top-2')}>
               {actions}
             </span>
           )

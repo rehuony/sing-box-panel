@@ -25,13 +25,13 @@ describe('subscriptionsPage', () => {
     render(<TestRouter initialEntries={['/subscriptions#subscription-channels']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
     const row = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
     await user.click(within(row).getByRole('button', { name: 'Edit' }));
-    expect(await screen.findByRole('combobox', { name: 'Final exit' })).toBeVisible();
+    expect(await screen.findByRole('region', { name: 'Exit rules' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: /^Proxy/ }));
     await user.click(await screen.findByRole('tab', { name: 'Exit rules' }));
     await user.click(screen.getByRole('button', { name: 'Back' }));
     const reopenedRow = (await screen.findByRole('cell', { name: channel.name })).closest('tr')!;
     await user.click(within(reopenedRow).getByRole('button', { name: 'Edit' }));
-    expect(await screen.findByRole('combobox', { name: 'Final exit' })).toBeVisible();
+    expect(await screen.findByRole('region', { name: 'Exit rules' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: /^Proxy/ }));
     expect(await screen.findByRole('tab', { name: 'Candidate nodes' })).toHaveAttribute('aria-selected', 'true');
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
@@ -145,7 +145,7 @@ describe('subscriptionsPage', () => {
     }, expect.any(AbortSignal));
     expect(await screen.findByRole('button', { name: 'Add strategy group' })).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Node selection' })).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Final exit' })).toHaveTextContent('DIRECT');
+    expect(screen.getByRole('button', { name: /^Exit rules/ })).toHaveTextContent('Final exit DIRECT');
     await user.click(screen.getByRole('button', { name: 'Add strategy group' }));
     expect(screen.getByRole('region', { name: 'Edit strategy group' })).toBeVisible();
     expect(screen.getByRole('button', { name: /^Strategy group 1/ })).toHaveAttribute('aria-current', 'true');

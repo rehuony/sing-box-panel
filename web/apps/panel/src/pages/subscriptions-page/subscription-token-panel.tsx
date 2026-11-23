@@ -1,13 +1,14 @@
-import { CirclePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CirclePause, CirclePlay, CirclePlus, Eye, RefreshCw, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
+import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
@@ -140,12 +141,23 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     <section className='min-h-full min-w-0 flex h-full min-h-0 flex-col' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='flex min-w-0 flex-1 items-center justify-end gap-2'>
-          <Button aria-label={t('subscriptions.keys.create')} title={t('subscriptions.keys.create')} size='icon-sm' variant='flat' disabled={busy} onClick={() => setCreating(true)}><CirclePlus aria-hidden='true' /></Button>
+          {/* Like every tab's add action: its label beside the icon, the icon alone on a phone. */}
+          <Button
+            aria-label={t('subscriptions.keys.create')}
+            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+            disabled={busy}
+            onClick={() => setCreating(true)}
+            size='sm'
+            variant='flat'
+          >
+            <CirclePlus aria-hidden='true' data-icon='inline-start' />
+            <span className='max-sm:sr-only'>{t('subscriptions.keys.create')}</span>
+          </Button>
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
       <div className='relative min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={loading}>
-        <table className='workspace-table w-full min-w-256 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td]:whitespace-nowrap [&_td:first-child]:max-w-60 [&_td:first-child]:truncate [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:px-4 [&_th]:text-center [&_th]:whitespace-nowrap [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[20%] [&_th:nth-child(2)]:w-[22%] [&_th:nth-child(3)]:w-[12%] [&_th:nth-child(4)]:w-[12%] [&_th:nth-child(5)]:w-[34%] [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&>thead]:text-muted-foreground'>
+        <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td]:whitespace-nowrap [&_td:first-child]:max-w-60 [&_td:first-child]:truncate [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:px-4 [&_th]:text-center [&_th]:whitespace-nowrap [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[30%] [&_th:nth-child(2)]:w-[20%] [&_th:nth-child(3)]:w-[15%] [&_th:nth-child(4)]:w-[15%] [&_th:nth-child(5)]:w-[20%] [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&>thead]:text-muted-foreground'>
           <thead>
             <tr>
               <th>{t('subscriptions.common.name')}</th>
@@ -165,13 +177,26 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                 <td>{usage(key)}</td>
                 <td><span className={key.active ? 'text-xs text-[var(--color-success-text)]' : 'text-xs'}>{keyState(key)}</span></td>
                 <td>
-                  <div className='inline-grid w-full max-w-80 grid-cols-4 gap-2'>
-                    <Button variant='outline' size='sm' disabled={busy || loading} onClick={() => void reveal(key)}>{t('subscriptions.keys.view')}</Button>
-                    <Button variant='outline' size='sm' disabled={busy || loading || !!key.revoked_at} onClick={() => void run('toggle', key)}>{t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}</Button>
-                    {(['rotate', 'delete'] as const).map(action => (
-                      <Button key={action} variant={action === 'delete' ? 'destructive' : 'outline'} size='sm' disabled={busy || loading || (action === 'rotate' && !!key.revoked_at)} onClick={() => setConfirmation({ action, key })}>{t(`subscriptions.token.action.${action}.name`)}</Button>
-                    ))}
-                  </div>
+                  <IconAction disabled={busy || loading} label={t('subscriptions.keys.view')} onClick={() => void reveal(key)}>
+                    <Eye aria-hidden='true' />
+                  </IconAction>
+                  <IconAction
+                    disabled={busy || loading || !!key.revoked_at}
+                    label={t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}
+                    onClick={() => void run('toggle', key)}
+                  >
+                    {key.enabled ? <CirclePause aria-hidden='true' /> : <CirclePlay aria-hidden='true' />}
+                  </IconAction>
+                  <IconAction
+                    disabled={busy || loading || !!key.revoked_at}
+                    label={t('subscriptions.token.action.rotate.name')}
+                    onClick={() => setConfirmation({ action: 'rotate', key })}
+                  >
+                    <RefreshCw aria-hidden='true' />
+                  </IconAction>
+                  <IconAction disabled={busy || loading} label={t('subscriptions.token.action.delete.name')} onClick={() => setConfirmation({ action: 'delete', key })}>
+                    <Trash2 aria-hidden='true' />
+                  </IconAction>
                 </td>
               </tr>
             ))}

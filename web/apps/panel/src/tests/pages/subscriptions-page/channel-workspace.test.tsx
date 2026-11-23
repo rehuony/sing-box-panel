@@ -64,6 +64,10 @@ async function chooseExit(user: ReturnType<typeof userEvent.setup>, name: string
   await user.click(screen.getByRole('combobox', { name }));
   await user.click(await screen.findByRole('option', { name: option }));
 }
+async function finalExitAction(user: ReturnType<typeof userEvent.setup>, group: string, action: 'Set as final exit' | 'Clear final exit') {
+  await user.click(screen.getByRole('button', { name: `More for ${group}` }));
+  await user.click(await screen.findByRole('menuitem', { name: action }));
+}
 describe('channel workspace', () => {
   it('shows preview failures only through the title issues popover', async () => {
     const user = userEvent.setup();
@@ -73,9 +77,9 @@ describe('channel workspace', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Subscription preview' });
     expect(within(dialog).queryByText('Preview failed')).not.toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeDisabled();
-    await user.click(within(dialog).getByRole('button', { name: 'Issues (1)' }));
+    await user.click(within(dialog).getByRole('button', { name: '1 issue' }));
     expect(await screen.findByText('Preview failed')).toBeVisible();
-    expect(within(screen.getByRole('dialog', { name: 'Issues (1)' })).getByText('Subscription preview failed')).toBeVisible();
+    expect(within(screen.getByRole('dialog', { name: '1 issue' })).getByText('Subscription preview failed')).toBeVisible();
     await user.keyboard('{Escape}');
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
@@ -100,7 +104,7 @@ describe('channel workspace', () => {
     expect(feedback).toHaveBeenLastCalledWith({ title: 'Clipboard denied', type: 'error' });
   });
 
-  it('groups skipped nodes by code, naming them from the pool, with a fallback for unknown codes', async () => {
+  it('groups skipped nodes by cause, naming them from the pool, with one group open at a time', async () => {
     const user = userEvent.setup();
     const client = mount();
     const preview = await client.previewSubscriptionChannel(channel.id, '');
@@ -112,16 +116,20 @@ describe('channel workspace', () => {
     vi.mocked(client.previewSubscriptionChannel).mockResolvedValue(preview);
     await user.click(screen.getByRole('button', { name: 'Subscription preview' }));
     const dialog = await screen.findByRole('dialog', { name: 'Subscription preview' });
-    expect(within(dialog).queryByText('Tokyo AnyTLS, Tokyo')).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Issues (3)' }));
-    expect(await screen.findByText('Tokyo AnyTLS, Tokyo')).toBeVisible();
-    expect(screen.getAllByText('The loon exporter does not yet support this TLS option.')).toHaveLength(1);
-    expect(screen.getByText(/Review the field below/)).toBeVisible();
-    expect(screen.getByText('Node 4')).toBeVisible();
-    expect(screen.getByText(/This node could not be exported/)).toBeVisible();
-    expect(screen.getByText('future_reason')).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: '3 issues' }));
+    const issues = await screen.findByRole('dialog', { name: '3 issues' });
+    // The bigger group opens first; its rows differ in detail, so each shows its own.
+    const tls = within(issues).getByRole('button', { name: /^TLS option not supported/ });
+    expect(tls).toHaveAttribute('aria-expanded', 'true');
+    expect(within(issues).getByText('Tokyo AnyTLS')).toBeVisible();
+    expect(within(issues).getByText('outbounds[1].tls.fragment')).toBeVisible();
+    expect(within(issues).getByText('Tokyo')).toBeVisible();
+    await user.click(within(issues).getByRole('button', { name: /^Not exported \(future_reason\)/ }));
+    expect(tls).toHaveAttribute('aria-expanded', 'false');
+    expect(within(issues).queryByText('Tokyo AnyTLS')).not.toBeInTheDocument();
+    expect(within(issues).getByText('Node 4')).toBeVisible();
     await user.keyboard('{Escape}');
-    expect(screen.queryByText('Tokyo AnyTLS, Tokyo')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '3 issues' })).not.toBeInTheDocument();
     expect(dialog).toBeVisible();
   });
   it('submits confirmed channel settings through the save action', async () => {
@@ -139,7 +147,7 @@ describe('channel workspace', () => {
       channel.id, expect.objectContaining({ format: 'mihomo' }), channel.updated_at, expect.any(AbortSignal),
     ));
   });
-  it('shows rule set rows over the final exit, flagging a set the client lacks', async () => {
+  it('shows rule set rows, flagging a set the client lacks', async () => {
     const proxy = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Proxy' };
     mount({ ...channel, format: 'mihomo', config: { ...channel.config, groups: [proxy], routes: [
       { id: 'streaming', enabled: true, rule_set_id: 'rule_set_streaming', exit: { kind: 'group', id: proxy.id } },
@@ -151,7 +159,6 @@ describe('channel workspace', () => {
     expect(rows[0]).toHaveTextContent('Rule set · 2 rules');
     expect(within(rows[0]).getByRole('combobox', { name: 'Exit of rule 1' })).toHaveTextContent('Proxy');
     expect(rows[1]).toHaveTextContent('No matching mihomo rule set');
-    expect(screen.getByRole('combobox', { name: 'Final exit' })).toHaveTextContent('DIRECT');
     expect(within(rail()).getByRole('button', { name: /^Exit rules/ })).toHaveTextContent('Final exit DIRECT');
     expect(within(rail()).getByRole('button', { name: /^Proxy/ })).toHaveTextContent('select · 1 rule');
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
@@ -167,12 +174,15 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Add rule set' }));
     expect(await screen.findByRole('menuitem', { name: /^Direct/ })).toHaveAttribute('aria-disabled', 'true');
     await user.keyboard('{Escape}');
-    await chooseExit(user, 'Final exit', 'REJECT');
+    // The final exit is set on the group itself, which the rail then marks.
+    await finalExitAction(user, 'Proxy', 'Set as final exit');
+    expect(within(rail()).getByRole('button', { name: /^Proxy/ })).toHaveTextContent('Final exit');
+    expect(within(rail()).getByRole('button', { name: /^Exit rules/ })).toHaveTextContent('Final exit Proxy');
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
     expect(saved?.routes).toEqual([{ id: expect.any(String), enabled: true, rule_set_id: 'rule_set_direct', exit: { kind: 'group', id: proxy.id } }]);
-    expect(saved?.default_exit).toEqual({ kind: 'reject' });
+    expect(saved?.default_exit).toEqual({ kind: 'group', id: proxy.id });
   });
   it('renames directly from an unselected group and discards cancelled edits', async () => {
     const user = userEvent.setup();
@@ -212,8 +222,7 @@ describe('channel workspace', () => {
     await openGroupSettings(user);
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     expect(within(rail()).getByRole('button', { name: /^Imported group/ })).not.toHaveTextContent('Disabled');
-    await user.click(within(rail()).getByRole('button', { name: /^Exit rules/ }));
-    await chooseExit(user, 'Final exit', 'Imported group');
+    await finalExitAction(user, 'Imported group', 'Set as final exit');
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalled());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
@@ -291,7 +300,6 @@ describe('channel workspace', () => {
     expect(list).not.toHaveTextContent('tokyo.example');
     expect(within(list).getByRole('combobox', { name: 'Exit of rule 2' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /^Move rule/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'Final exit' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add custom rule' })).toBeVisible();
     await user.click(within(rail()).getByRole('button', { name: /^Tokyo/ }));
     expect(screen.getByRole('tab', { name: 'Exit rules' })).toHaveAttribute('aria-selected', 'true');
@@ -324,17 +332,19 @@ describe('channel workspace', () => {
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
-  it('refuses to delete a group an exit uses and removes its references once free', async () => {
+  it('refuses to delete a group an exit rule uses, then removes its references and its final exit', async () => {
     const addToast = vi.spyOn(toast, 'add');
     const user = userEvent.setup();
     const child = { ...newRuleGroup([{ kind: 'node', id: node.id }]), id: 'child', name: 'Child' };
     const parent = { ...newRuleGroup([{ kind: 'group', id: 'child' }]), id: 'parent', name: 'Parent' };
-    const client = mount({ ...channel, config: { ...channel.config, groups: [child, parent], default_exit: { kind: 'group', id: 'child' } } });
+    const routes = [{ id: 'rule-child', enabled: true, rule: { kind: 'domain' as const, value: 'child.example' }, exit: { kind: 'group' as const, id: 'child' } }];
+    const client = mount({ ...channel, config: { ...channel.config, groups: [child, parent], routes, default_exit: { kind: 'group', id: 'child' } } });
+    expect(within(rail()).getByRole('button', { name: /^Child/ })).toHaveTextContent('Final exit');
     await user.click(screen.getByRole('button', { name: 'More for Child' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
-    await chooseExit(user, 'Final exit', 'DIRECT');
+    await chooseExit(user, 'Exit of rule 1', 'DIRECT');
     await user.click(screen.getByRole('button', { name: 'More for Child' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete strategy group' }));
@@ -342,6 +352,7 @@ describe('channel workspace', () => {
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
     expect(saved?.groups).toEqual([{ ...parent, members: [] }]);
+    expect(saved?.default_exit).toEqual({ kind: 'direct' });
     addToast.mockRestore();
   });
   it('keeps channel settings local and exposes no secondary node organization', async () => {
