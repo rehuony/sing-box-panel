@@ -706,6 +706,9 @@ These alternatives are ORed with the case-insensitive original message/code
 use the same match conditions. The Web client finds code alternatives from both
 Chinese and English event names, regardless of the current interface language.
 Omitting `search_codes` preserves the original text-search behavior.
+`node_id` (at most 128 bytes) keeps only the entries recorded for that node; a
+node's overview opens its recent activity in the panel log this way, and the log's
+title strip shows the node with an action that clears the filter.
 
 Runtime-transition metadata includes only recorded public evidence: `pid`,
 `process_started_at`, `generation`, `activation_bundle_id`, and `uncertain_since`
@@ -818,8 +821,8 @@ most 4096 newest transitions, or fewer when necessary to fit the frame limit.
 Any truncation retains a `runtime_24h.next` cursor at the last included transition;
 the omitted older interval is unknown, not inferred from the preceding state.
 
-The dashboard shows host summaries, live transfer rates, transfer history and
-one-hour active connections. Traffic defaults to Live: the last two minutes of
+The dashboard shows host summaries, then traffic and active connections in one
+card over one shared range. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
 time axis. Browser suspension or network failures can still leave actual sampling
 gaps; missing observations are not filled in.
@@ -828,15 +831,19 @@ one-hour and 24-hour views show only historical one-minute and five-minute
 averages, respectively. Live samples remain in memory
 only and start accumulating again after a page reload. Graph gaps remain gaps.
 The 24-hour runtime strip uses 48 equal
-segments and persisted transitions; unknown intervals are not guessed healthy.
+segments and persisted transitions; unknown intervals are not guessed healthy and
+carry the same fine hatch as an unknown meter.
 Traffic charts choose a shared B/s, KB/s, MB/s, GB/s, TB/s or PB/s unit from the
-largest displayed upload/download rate. The heading, axis and details update
+largest displayed upload/download rate. The chart's label, axis and details update
 together when live data or the selected history changes; the vertical range
 rescales with headroom. Historical traffic keeps the full bucket denominator,
 including partial buckets. The connection chart can join its final historical
 bucket at the persistence watermark to subsequent live observations. Explicit
-missing values and live intervals over three seconds break the line; small
-points keep individual live traffic observations visible.
+missing values break the line, and so does a live interval longer than two and
+a half times the stream's usual spacing, never under three seconds, so a
+reconnect or restart shows while a node sampling every few seconds still draws
+a line. Series are monotone cubic curves, which never overshoot their samples;
+small points keep individual live observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;
 Escape or leaving the chart dismisses the details.

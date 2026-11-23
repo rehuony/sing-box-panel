@@ -65,6 +65,21 @@ func TestPanelLogSearchCodesValidationAndMatching(t *testing.T) {
 	}
 }
 
+func TestPanelLogsFilterByNode(t *testing.T) {
+	handler, _ := newCoreHTTPFixture(t)
+	for _, node := range []string{"node-a", "node-b"} {
+		handler.services.Telemetry.RecordOperation(t.Context(), "runtime.start", "Core start", nil, telemetry.OperationLogContext{NodeID: node})
+	}
+	response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?node_id=node-a", "", "")
+	var page store.PanelLogPage
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil || page.Total != 1 || len(page.Items) != 1 {
+		t.Fatalf("node filter: %d %s", response.Code, response.Body.String())
+	}
+	if response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?node_id="+strings.Repeat("a", 129), "", ""); response.Code != http.StatusBadRequest {
+		t.Fatalf("long node ID accepted: %d", response.Code)
+	}
+}
+
 func TestPanelLogSearchCodesAcceptsFullDocumentedRange(t *testing.T) {
 	handler, _ := newCoreHTTPFixture(t)
 	codes := make([]string, store.MaximumPanelLogSearchCodes)

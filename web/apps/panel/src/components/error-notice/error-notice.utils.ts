@@ -14,7 +14,7 @@ export function describeRequestError(error: unknown): string {
   if (error instanceof ApiRequestError) {
     if (error.code === 'configuration_not_saved') return i18n.t('cores.error.configurationNotSaved');
     if (error.code === 'subscription_token_secret_unavailable') return i18n.t('subscriptions.keys.secretUnavailable');
-    return error.message;
+    return describeProblem(error.code, error.message);
   }
   if (error instanceof Error) {
     return error.message;

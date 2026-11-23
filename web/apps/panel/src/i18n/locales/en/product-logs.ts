@@ -8,6 +8,8 @@ export const productLogs = {
   noFiles: 'No log files',
   level: 'Log level',
   unavailable: 'Logs are unavailable. Reconnecting…',
+  regionUnavailable: 'Core logs could not be read',
+  clearNode: 'Clear node filter: {{name}}',
   loading: 'Loading…',
   emptyCore: 'No core output has been captured.',
   empty: 'No matching records.',

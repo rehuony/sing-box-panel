@@ -44,9 +44,9 @@ export function AppearanceColorPicker({ id, value, onChange }: {
         pendingColorRef.current = null;
       }
     }}>
-      <DialogTrigger aria-label={t('panelSettings.customColor')} render={<Button id={id} type='button' variant='outline' className='shrink-0 gap-2 rounded-[var(--radius-control)] px-3' />}>
-        <span className='block size-4 flex-none rounded-full shadow-[inset_0_0_0_1px_var(--border)]' style={{ backgroundColor: value }} aria-hidden='true' />
-        {t('panelSettings.customColor')}
+      <DialogTrigger aria-label={`${t('panelSettings.customColor')} ${value.toUpperCase()}`} render={<Button id={id} size='sm' type='button' variant='outline' className='ms-auto shrink-0 gap-2 px-2.5' />}>
+        <span className='block size-3 flex-none rounded-full shadow-[inset_0_0_0_1px_var(--border)]' style={{ backgroundColor: value }} aria-hidden='true' />
+        <span className='font-[family-name:var(--font-data)] text-xs'>{value.toUpperCase()}</span>
       </DialogTrigger>
       <DialogContent className='w-[min(420px,calc(100vw-32px))] gap-5'>
         <DialogHeader><DialogTitle>{t('panelSettings.customColorTitle')}</DialogTitle></DialogHeader>

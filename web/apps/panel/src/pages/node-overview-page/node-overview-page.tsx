@@ -8,13 +8,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/t
 import { percentOf } from '@/utils/fleet-summary';
 import { ErrorNotice } from '@/components/error-notice';
 import { PanelLogLevel } from '@/components/panel-log-level';
+import { useCurrentNode } from '@/stores/current-node.store';
 import { KeyFigure, KeyFigures } from '@/components/key-figures';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/node-workspace';
 
 import { TrendChart } from './trend-chart';
 import { buildRuntimeSlots } from './runtime-timeline';
-import { liveTrafficChartData, trendChartData } from './trend-chart-data';
+import { liveConnectionsChartData, liveTrafficChartData, trendChartData } from './trend-chart-data';
 
 const emptyTail: import('@/components/node-workspace').LivePoint[] = [];
 
@@ -48,14 +49,18 @@ const legendSwatch = {
   running: 'bg-[var(--color-success)]',
   failed: 'bg-[var(--color-danger)]',
   stopped: 'bg-muted-foreground',
-  unknown: 'bg-[repeating-linear-gradient(135deg,var(--color-surface-raised)_0_4px,var(--color-border-strong)_4px_6px)]',
+  // The unknown state's fine hatch, as in a cell meter, so a gap in the record never reads as a state.
+  unknown: 'bg-[repeating-linear-gradient(135deg,var(--color-border-strong)_0_1px,var(--color-surface-raised)_0_3px)]',
 } as const;
+/** A card's title bar, as on settings cards: its title, then what it says or offers at the end, over a hairline. */
+const titleBar = 'flex h-11 flex-none items-center gap-2 border-b ps-4 pe-2';
+const card = 'relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
 
 export function NodeOverviewPage() {
   const { t } = useTranslation();
   useDashboardSubscription();
   return (
-    <div className='@container flex min-w-0 flex-1 flex-col gap-4'>
+    <div className='@container flex min-w-0 flex-none flex-col gap-4'>
       <h1 className='sr-only'>{t('node.tabs.overview')}</h1>
       <DashboardStatus />
       <DashboardMetrics />
@@ -69,16 +74,10 @@ function DashboardStatus() {
   const { t } = useTranslation();
   const trafficError = useOptionalSharedTelemetry(s => s.trafficError);
   const historyError = useOptionalSharedTelemetry(s => s.dashboardError);
-  const stale = useOptionalSharedTelemetry(s => s.dashboardStale);
-  const snapshot = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
-  const liveStale = useOptionalSharedTelemetry(s => s.liveStale);
-  const updatedAt = useOptionalSharedTelemetry(s => s.snapshot?.collected_at);
   return (
     <>
       {trafficError ? <ErrorNotice error={trafficError} title={t('dashboard.error.metrics')} /> : null}
       {historyError ? <ErrorNotice error={historyError} title={t('dashboard.error.history')} /> : null}
-      {liveStale && updatedAt ? <small className='text-xs text-[var(--color-warning-text)]' role='status'>{t('dashboard.state.liveStale', { time: new Date(updatedAt).toLocaleTimeString() })}</small> : null}
-      {stale && snapshot ? <small className='text-xs text-[var(--color-warning-text)]' role='status'>{t('dashboard.state.historyStale', { time: new Date(snapshot.collected_at).toLocaleTimeString() })}</small> : null}
     </>
   );
 }
@@ -131,79 +130,92 @@ function DashboardMetrics() {
   );
 }
 
+const ranges = ['live', '1h', '24h'] as const;
+
+/** Traffic and connections over one time range, the live one by default. */
 function DashboardCharts() {
   const { t } = useTranslation();
   const current = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
   const metrics = useOptionalSharedTelemetry(s => s.snapshot);
   const tail = useOptionalSharedTelemetry(s => s.liveTail) ?? emptyTail;
-  const [range, setRange] = useState<'live' | '1h' | '24h'>('live');
-  const trafficHistory = current ? range === '1h' ? current.history_1h : current.history_24h : null;
+  const liveStale = useOptionalSharedTelemetry(s => s.liveStale);
+  const historyStale = useOptionalSharedTelemetry(s => s.dashboardStale);
+  const [range, setRange] = useState<typeof ranges[number]>('live');
+  const history = current ? range === '1h' ? current.history_1h : current.history_24h : null;
   const watermark = current?.persisted_through;
   const traffic = useMemo(() => range === 'live'
     ? liveTrafficChartData(tail)
-    : trendChartData(trafficHistory, 'traffic', emptyTail), [range, trafficHistory, tail]);
-  const connections = useMemo(() => trendChartData(current?.history_1h ?? null, 'connections', tail, watermark), [current?.history_1h, tail, watermark]);
+    : trendChartData(history, 'traffic', emptyTail), [range, history, tail]);
+  const connections = useMemo(() => range === 'live'
+    ? liveConnectionsChartData(tail)
+    : trendChartData(history, 'connections', tail, watermark), [range, history, tail, watermark]);
+  const live = range === 'live';
+  const loading = live ? metrics === null : current === null;
+  // When the stream or the history falls behind, the title bar says since when, so nothing below moves.
+  const staleAt = live
+    ? liveStale && metrics ? metrics.collected_at : undefined
+    : historyStale && current ? current.collected_at : undefined;
   return (
-    <div className='grid min-h-min flex-1 grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[850px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] @max-[650px]:flex-none @max-[650px]:grid-cols-1'>
-      <Tabs
-        className='relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] gap-2 px-2 pt-4 pb-1'
-        render={<section />}
-        value={range}
-        onValueChange={(value) => setRange(value as typeof range)}
-      >
-        <header className='mx-3 flex min-h-(--control-height) items-center justify-between gap-2 @max-[850px]:flex-wrap'>
-          <h2 className='m-0 text-sm font-semibold'>
-            {t('dashboard.trend.traffic')}
-            （
-            {traffic.unit}
-            ）
-          </h2>
-          <TabsList aria-label={t('dashboard.range.label')}>
-            {(['live', '1h', '24h'] as const).map((value) => (
-              <TabsTrigger key={value} value={value}>
-                {t(`dashboard.range.option.${value}`)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </header>
-        {(['live', '1h', '24h'] as const).map((value) => (
-          <TabsContent key={value} value={value} className='relative flex min-w-0'>
-            <TrendChart chart={traffic} kind='traffic' live={range === 'live'} />
-            {(range === 'live' ? metrics === null : current === null)
-              ? (
-                  <div className='absolute inset-0 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
-                    <Spinner />
-                    <span>{t(range === 'live' ? 'dashboard.state.liveLoading' : 'dashboard.state.historyLoading')}</span>
-                  </div>
-                )
-              : null}
-          </TabsContent>
-        ))}
-      </Tabs>
-      <section className='relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] gap-2 px-2 pt-4 pb-1'>
-        <header className='mx-3 flex min-h-(--control-height) items-center justify-between gap-2 @max-[850px]:flex-wrap'>
-          <h2 className='m-0 text-sm font-semibold'>
-            {t('dashboard.trend.connections')}
-            （
-            {t('dashboard.metric.countUnit')}
-            ）
-          </h2>
-          <small className='text-xs text-muted-foreground'>{t('dashboard.metric.lastHour')}</small>
-        </header>
-        <TrendChart
-          chart={connections}
-          kind='connections'
-        />
-        {current === null
+    <Tabs
+      className={`${card} flex-none gap-0`}
+      render={<section aria-labelledby='dashboard-trend-title' />}
+      value={range}
+      onValueChange={(value) => setRange(value as typeof range)}
+    >
+      <div className={titleBar}>
+        <h2 className='min-w-0 flex-1 truncate text-sm font-medium' id='dashboard-trend-title'>{t('dashboard.trend.title')}</h2>
+        {staleAt
           ? (
-              <div className='absolute inset-x-2 top-13 bottom-1 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
+              <span className='truncate text-xs text-[var(--color-warning-text)] max-sm:hidden' role='status'>
+                {t(live ? 'dashboard.state.liveStale' : 'dashboard.state.historyStale', { time: new Date(staleAt).toLocaleTimeString() })}
+              </span>
+            )
+          : null}
+        <TabsList aria-label={t('dashboard.range.label')} className='flex-none' variant='pill'>
+          {ranges.map((value) => (
+            <TabsTrigger key={value} value={value}>
+              {t(`dashboard.range.option.${value}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </div>
+      {/* Traffic leads and connections follow below it; only a very wide window has room for them side by side. */}
+      <TabsContent className='relative grid gap-6 px-2 pt-3 pb-2 @min-[100rem]:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] @min-[100rem]:gap-4' value={range}>
+        {/* Each chart grows with the window above a floor that keeps its axes legible. */}
+        <div className='flex h-[max(15rem,30dvh)] min-w-0 flex-col gap-1'>
+          <div className='mx-3 flex h-5 items-center gap-2 text-xs text-muted-foreground'>
+            <h3 className='m-0 flex items-baseline gap-2 text-xs font-medium text-foreground'>
+              {t('dashboard.trend.traffic')}
+              {' '}
+              <span className='font-normal text-muted-foreground tabular-nums'>{traffic.unit}</span>
+            </h3>
+            <span className='ms-auto flex items-center gap-3'>
+              {(['download', 'upload'] as const).map(metric => (
+                <span className='flex items-center gap-1.5' key={metric}>
+                  <i aria-hidden='true' className={`h-0.5 w-3 rounded-full ${metric === 'upload' ? 'bg-chart-2' : 'bg-chart-1'}`} />
+                  {t(`dashboard.trend.${metric}`)}
+                </span>
+              ))}
+            </span>
+          </div>
+          <TrendChart chart={traffic} kind='traffic' live={live} />
+        </div>
+        <div className='flex h-[max(11rem,20dvh)] min-w-0 flex-col gap-1 @min-[100rem]:h-[max(15rem,30dvh)]'>
+          <div className='mx-3 flex h-5 items-center gap-2 text-xs text-muted-foreground'>
+            <h3 className='m-0 text-xs font-medium text-foreground'>{t('dashboard.trend.connections')}</h3>
+          </div>
+          <TrendChart chart={connections} kind='connections' live={live} />
+        </div>
+        {loading
+          ? (
+              <div className='absolute inset-0 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
                 <Spinner />
-                <span>{t('dashboard.state.historyLoading')}</span>
+                <span>{t(live ? 'dashboard.state.liveLoading' : 'dashboard.state.historyLoading')}</span>
               </div>
             )
           : null}
-      </section>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -223,6 +235,8 @@ function DashboardHistory() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const current = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
+  const node = useCurrentNode();
+  const logs = `/logs?node=${encodeURIComponent(node.id)}`;
   const [initialEnd] = useState(() => Date.now());
   const [today, setToday] = useState(() => new Date(initialEnd));
   const end = current ? Date.parse(current.collected_at) : initialEnd;
@@ -244,15 +258,15 @@ function DashboardHistory() {
   return (
     <div className='grid min-h-45 flex-none grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[650px]:grid-cols-1'>
       <section
-        className='@container relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] min-h-45 gap-3 p-5 @max-[850px]:p-4'
+        className={`${card} @container min-h-45`}
         aria-label={t('dashboard.timeline.title')}
         aria-busy={current === null}
       >
-        <header className='flex min-h-8 items-center justify-between gap-2'>
-          <h2 className='m-0 text-sm font-semibold'>{t('dashboard.timeline.title')}</h2>
+        <div className={`${titleBar} pe-4`}>
+          <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{t('dashboard.timeline.title')}</h2>
           <small className='text-xs text-muted-foreground'>{t('dashboard.metric.lastDay')}</small>
-        </header>
-        <div className='grid gap-2'>
+        </div>
+        <div className='grid gap-2 px-4 pt-4'>
           <div className='grid h-6 grid-cols-[repeat(48,minmax(0,1fr))] gap-0.5' role='group' aria-label={t('dashboard.timeline.ariaLabel')}>
             {slots.map((slot) => {
               const from = formatLogTime(new Date(slot.start).toISOString(), locale);
@@ -261,7 +275,7 @@ function DashboardHistory() {
               return (
                 <Tooltip key={slot.id}>
                   <TooltipTrigger
-                    className='min-w-0 rounded-[2px] border-0 bg-muted-foreground p-0 outline-offset-3 hover:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:outline-2 focus-visible:outline-ring data-[state=failed]:bg-[var(--color-danger)] data-[state=running]:bg-[var(--color-success)] data-[state=unknown]:bg-[repeating-linear-gradient(135deg,var(--color-surface-raised)_0_4px,var(--color-border-strong)_4px_6px)]'
+                    className='min-w-0 rounded-[2px] border-0 bg-muted-foreground p-0 outline-offset-3 hover:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:outline-2 focus-visible:outline-ring data-[state=failed]:bg-[var(--color-danger)] data-[state=running]:bg-[var(--color-success)] data-[state=unknown]:bg-[repeating-linear-gradient(135deg,var(--color-border-strong)_0_1px,var(--color-surface-raised)_0_3px)]'
                     data-state={slot.state}
                     aria-label={label}
                     disabled={current === null}
@@ -291,13 +305,13 @@ function DashboardHistory() {
         </div>
         {current === null
           ? (
-              <div className='absolute inset-x-3 top-13 bottom-3 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
+              <div className='absolute inset-x-3 top-12 bottom-3 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
                 <Spinner />
                 <span>{t('dashboard.state.runtimeLoading')}</span>
               </div>
             )
           : null}
-        <div className='flex flex-wrap gap-4'>
+        <div className='flex flex-wrap gap-4 px-4 pt-3 pb-4'>
           {(['running', 'failed', 'stopped', 'unknown'] as const).map((state) => (
             <span className='flex items-center gap-1.5 text-xs text-muted-foreground' key={state}>
               <i aria-hidden className={`size-2.5 rounded-[2px] ${legendSwatch[state]}`} />
@@ -307,15 +321,15 @@ function DashboardHistory() {
         </div>
       </section>
       <section
-        className='@container relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] min-h-45 gap-3 p-5 @max-[850px]:p-4'
+        className={`${card} @container min-h-45`}
         aria-label={t('dashboard.activity.title')}
         aria-busy={current === null}
       >
-        <header className='flex min-h-8 items-center justify-between gap-2'>
-          <h2 className='m-0 text-sm font-semibold'>{t('dashboard.activity.title')}</h2>
-          <Link className='text-xs text-muted-foreground hover:text-foreground' to='/logs'>{t('dashboard.activity.viewAll')}</Link>
-        </header>
-        <div className='relative min-h-22'>
+        <div className={`${titleBar} pe-4`}>
+          <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{t('dashboard.activity.title')}</h2>
+          <Link className='text-xs text-muted-foreground hover:text-foreground' to={logs}>{t('dashboard.activity.viewAll')}</Link>
+        </div>
+        <div className='relative min-h-22 flex-1 px-2 py-1'>
           <ol className='m-0 list-none p-0 [&>li+li]:border-t'>
             {current?.activity.items.map((entry) => {
               const title = logTitle(entry, t);
@@ -323,7 +337,7 @@ function DashboardHistory() {
               return (
                 <li key={entry.id}>
                   <Tooltip>
-                    <TooltipTrigger render={<Link className='grid min-h-11 grid-cols-[54px_minmax(0,1fr)_max-content] items-center gap-3 rounded-[var(--radius-control)] p-2 text-compact transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none @max-[650px]:gap-2 @max-[650px]:px-0' to='/logs' />}>
+                    <TooltipTrigger render={<Link className='grid min-h-11 grid-cols-[54px_minmax(0,1fr)_max-content] items-center gap-3 rounded-[var(--radius-control)] p-2 text-compact transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none @max-[650px]:gap-2 @max-[650px]:px-0' to={logs} />}>
                       <span className='flex justify-center'><PanelLogLevel level={entry.level} /></span>
                       <span className='min-w-0 truncate'>{title}</span>
                       <time className='text-end text-xs whitespace-nowrap text-muted-foreground tabular-nums' dateTime={entry.time} aria-label={fullTime}>
@@ -345,7 +359,7 @@ function DashboardHistory() {
         </div>
         {current === null
           ? (
-              <div className='absolute inset-x-3 top-13 bottom-3 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
+              <div className='absolute inset-x-3 top-12 bottom-3 z-1 grid place-content-center justify-items-center gap-2.5 bg-[color-mix(in_srgb,var(--color-surface)_84%,transparent)] text-xs text-muted-foreground'>
                 <Spinner />
                 <span>{t('dashboard.state.activityLoading')}</span>
               </div>

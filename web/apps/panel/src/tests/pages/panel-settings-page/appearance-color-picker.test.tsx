@@ -19,7 +19,7 @@ async function mount() {
   const onChange = vi.fn();
   const user = userEvent.setup();
   render(<AppearanceColorPicker id='color' value='#6D4ED1' onChange={onChange} />);
-  await user.click(screen.getByRole('button', { name: 'Custom color' }));
+  await user.click(screen.getByRole('button', { name: /^Custom color/ }));
   return { user, onChange };
 }
 
@@ -51,13 +51,13 @@ describe('appearance color picker', () => {
     fireEvent.keyDown(hue, { key: 'ArrowRight', keyCode: 39 });
     expect(screen.getByRole('textbox', { name: 'HEX color' })).not.toHaveValue('#6D4ED1');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    await user.click(screen.getByRole('button', { name: 'Custom color' }));
+    await user.click(screen.getByRole('button', { name: /^Custom color/ }));
     const input = screen.getByRole('textbox', { name: 'HEX color' });
     expect(input).toHaveValue('#6D4ED1');
     fireEvent.change(input, { target: { value: '#123456' } });
     await user.keyboard('{Escape}');
     expect(onChange).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Custom color' }));
+    await user.click(screen.getByRole('button', { name: /^Custom color/ }));
     expect(screen.getByRole('textbox', { name: 'HEX color' })).toHaveValue('#6D4ED1');
   });
 });

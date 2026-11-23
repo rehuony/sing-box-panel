@@ -2,25 +2,45 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { Slider } from '@shared/components/ui/slider';
+import { RotateCcw, Save, Undo2 } from 'lucide-react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { ToggleGroup, ToggleGroupItem } from '@shared/components/ui/toggle-group';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 
 import type { PanelSettingsView } from '@/api/api-client';
 
-import { TitleStrip } from '@/components/title-strip';
+import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
 import { usePanelSettings } from '@/stores/panel-settings.store';
+import { StripDivider, TitleStrip } from '@/components/title-strip';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
-import { SettingsField, SettingsGroup } from '@/components/settings-field';
+import { SettingsCard, SettingsField } from '@/components/settings-field';
 
-import { settingsCategories } from './settings-categories';
 import { PanelBackupSettings } from './panel-backup-settings';
 import { PanelUpdateSettings } from './panel-update-settings';
 import { AppearanceColorPicker } from './appearance-color-picker';
 import { usePanelSettingsDraft } from './use-panel-settings-draft';
+
+/** A whole number with its unit at the end of the field. */
+function UnitInput({ id, unit, value, min, max, invalid, className, onChange }: {
+  id: string;
+  unit: string;
+  value: number;
+  min: number;
+  max: number;
+  invalid?: boolean;
+  className?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <InputGroup className={className}>
+      <InputGroupInput aria-invalid={invalid || undefined} className='tabular-nums' id={id} inputMode='numeric' max={max} min={min} onChange={event => onChange(Number(event.target.value))} required type='number' value={value} />
+      <InputGroupAddon align='inline-end'>{unit}</InputGroupAddon>
+    </InputGroup>
+  );
+}
 
 function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const { t } = useTranslation();
@@ -30,7 +50,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     service,
     github,
     clearGithub,
-    category,
+    changed,
     saving,
     invalidField,
     password,
@@ -38,9 +58,12 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     passwordValid,
     colorValid,
     dirty,
-    setCategory,
     setSaving,
     setPassword,
+    passwordOpen,
+    openPassword,
+    closePassword,
+    revert,
     setGithub,
     setClearGithub,
     restored,
@@ -49,78 +72,90 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     appearance,
     submit,
   } = usePanelSettingsDraft(initial);
+  const input = (id: string) => ({ id, invalid: invalidField === id });
+  const field = (id: string) => ({ ...input(id), changed: changed.has(id) });
+  const days = t('panelSettings.days');
   return (
-    <Tabs className='min-h-0 flex-1 gap-[var(--workspace-content-gap)]' value={category} onValueChange={value => setCategory(String(value))}>
+    <form className='flex min-h-0 flex-1 flex-col gap-[var(--workspace-content-gap)]' noValidate onSubmit={submit}>
       <TitleStrip>
-        <TabsList aria-label={t('panelSettings.title')} className='max-w-full overflow-x-auto [scrollbar-width:none] max-sm:hidden' variant='pill'>
-          {settingsCategories.map(key => <TabsTrigger className='flex-none' value={key} key={key}>{t(`panelSettings.${key}`)}</TabsTrigger>)}
-        </TabsList>
-        <div className='min-w-0 flex-1 sm:hidden'>
-          <Select value={category} onValueChange={value => value && setCategory(value)}>
-            <SelectTrigger aria-label={t('panelSettings.category')} className='w-full text-foreground' variant='flat'><SelectValue>{t(`panelSettings.${category}`)}</SelectValue></SelectTrigger>
-            <SelectContent>{settingsCategories.map(key => <SelectItem key={key} value={key}>{t(`panelSettings.${key}`)}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
+        <h1 className='me-auto min-w-0 truncate text-sm font-medium'>{t('panelSettings.title')}</h1>
+        <span className='text-compact text-[var(--color-text-faint)] tabular-nums' role='status'>
+          {changed.size > 0 ? t('panelSettings.unsaved', { count: changed.size }) : null}
+        </span>
+        {changed.size > 0 && (
+          <IconAction disabled={saving} label={t('panelSettings.revert')} onClick={revert} variant='flat'>
+            <Undo2 aria-hidden='true' />
+          </IconAction>
+        )}
+        <StripDivider />
+        <IconAction disabled={saving || !dirty} label={t(saving ? 'panelSettings.saving' : 'panelSettings.save')} onClick={() => void submit()} variant='flat'>
+          <Save aria-hidden='true' />
+        </IconAction>
       </TitleStrip>
-      <form className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-4 pt-4 pb-2 sm:px-6 sm:pt-6' noValidate onSubmit={submit}>
-        <ScrollArea className='-mr-4 min-w-0 flex-1 sm:-mr-6' viewportClassName='pt-1 pr-5 pb-6 pl-1 sm:pr-7 *:data-[slot=tabs-content]:flex *:data-[slot=tabs-content]:flex-col *:data-[slot=tabs-content]:gap-5'>
-          {invalidField && <ErrorNotice error={t('panelSettings.invalidField')} />}
-          <TabsContent value='service'>
-            <SettingsGroup title={t('panelSettings.access')}>
-              <SettingsField id='listen-host' invalid={invalidField === 'listen-host'} label={t('panelSettings.listenHost')}>
-                <Input id='listen-host' aria-invalid={invalidField === 'listen-host' || undefined} required value={preferences.listen_host} onChange={e => update('listen_host', e.target.value)} />
-              </SettingsField>
-              <SettingsField id='listen-port' invalid={invalidField === 'listen-port'} label={t('panelSettings.listenPort')}>
-                <Input id='listen-port' aria-invalid={invalidField === 'listen-port' || undefined} type='number' min={1} max={65535} required value={preferences.listen_port} onChange={e => update('listen_port', Number(e.target.value))} />
-              </SettingsField>
-              <SettingsField id='origin' invalid={invalidField === 'origin'} label={t('panelSettings.origin')} help={t('panelSettings.originHelp')}>
-                <Input id='origin' aria-invalid={invalidField === 'origin' || undefined} type='url' placeholder='https://panel.example.com' value={preferences.external_origin} onChange={e => update('external_origin', e.target.value)} />
-              </SettingsField>
-              <SettingsField id='base-path' invalid={invalidField === 'base-path'} label={t('panelSettings.basePath')} help={t('panelSettings.basePathHelp')}>
-                <Input id='base-path' aria-invalid={invalidField === 'base-path' || undefined} value={service.base_path} onChange={e => updateService('base_path', e.target.value)} />
-              </SettingsField>
-            </SettingsGroup>
-            <SettingsGroup title={t('panelSettings.authentication')}>
-              <SettingsField id='admin-email' label={t('panelSettings.adminEmail')} invalid={invalidField === 'admin-email'}>
-                <Input id='admin-email' type='text' inputMode='email' autoComplete='username' value={email} aria-invalid={invalidField === 'admin-email' || undefined} onChange={e => setEmail(e.target.value)} />
-              </SettingsField>
-              <SettingsField id='new-password' label={t('panelSettings.password')} help={t('panelSettings.passwordHelp')} invalid={!passwordValid}>
-                <Input id='new-password' type='password' autoComplete='new-password' value={password} placeholder={t('panelSettings.passwordPlaceholder')} aria-invalid={!passwordValid || undefined} aria-describedby={!passwordValid ? 'password-error' : undefined} onChange={e => setPassword(e.target.value)} />
-                {newPasswordError && <ErrorNotice id='password-error' error={t(newPasswordError)} />}
-              </SettingsField>
-            </SettingsGroup>
-          </TabsContent>
-          <TabsContent value='traffic'>
-            <SettingsGroup title={t('panelSettings.traffic')}>
-              <SettingsField id='sample-retention' invalid={invalidField === 'sample-retention'} label={t('panelSettings.sampleRetention')}>
-                <Input id='sample-retention' aria-invalid={invalidField === 'sample-retention' || undefined} type='number' min={1} max={366} required value={service.sample_retention_days} onChange={e => updateService('sample_retention_days', Number(e.target.value))} />
-              </SettingsField>
-            </SettingsGroup>
-          </TabsContent>
-          <TabsContent value='logs'>
-            <SettingsGroup title={t('panelSettings.coreLogs')}>
-              <SettingsField id='core-log-retention' invalid={invalidField === 'core-log-retention'} label={t('panelSettings.coreLogRetention')} help={t('panelSettings.coreLogRetentionHelp')}>
-                <Input id='core-log-retention' aria-invalid={invalidField === 'core-log-retention' || undefined} type='number' min={1} max={3650} required value={service.core_log_retention_days ?? 7} onChange={e => updateService('core_log_retention_days', Number(e.target.value))} />
-              </SettingsField>
-              <SettingsField id='core-log-max-files' invalid={invalidField === 'core-log-max-files'} label={t('panelSettings.coreLogMaxFiles')} help={t('panelSettings.coreLogMaxFilesHelp')}>
-                <Input id='core-log-max-files' aria-invalid={invalidField === 'core-log-max-files' || undefined} type='number' min={0} max={1024} required value={service.core_log_max_files ?? 0} onChange={e => updateService('core_log_max_files', Number(e.target.value))} />
-              </SettingsField>
-              <SettingsField id='core-log-size' invalid={invalidField === 'core-log-size'} label={t('panelSettings.coreLogSize')}>
-                <div className='flex items-center gap-3 *:data-[slot=input]:min-w-0 *:data-[slot=input]:flex-1'>
-                  <Input id='core-log-size' aria-invalid={invalidField === 'core-log-size' || undefined} type='number' min={1} max={1024} required value={service.core_log_max_file_size_mib ?? 32} onChange={e => updateService('core_log_max_file_size_mib', Number(e.target.value))} />
-                  <span>MiB</span>
+      <ScrollArea className='min-h-0 min-w-0 flex-1'>
+        <div className='grid items-start gap-3 @5xl:grid-cols-2'>
+          <div className='flex min-w-0 flex-col gap-3'>
+            <SettingsCard
+              mark={(
+                <span className={initial.restart_required
+                  ? 'me-2 rounded-[var(--radius-pill)] border border-[var(--color-warning-border)] bg-[var(--color-warning-soft)] px-1.5 text-2xs leading-4 whitespace-nowrap text-[var(--color-warning-text)]'
+                  : 'me-2 rounded-[var(--radius-pill)] border border-[var(--color-border-strong)] px-1.5 text-2xs leading-4 whitespace-nowrap text-[var(--color-text-secondary)]'}
+                >
+                  {t(initial.restart_required ? 'panelSettings.restartPending' : 'panelSettings.restartRequired')}
+                </span>
+              )}
+              title={t('panelSettings.access')}
+            >
+              <SettingsField {...field('listen-host')} invalid={invalidField === 'listen-host' || invalidField === 'listen-port'} label={t('panelSettings.listenHost')}>
+                <div className='flex items-center gap-2'>
+                  <Input aria-invalid={invalidField === 'listen-host' || undefined} className='min-w-0 flex-1' id='listen-host' required spellCheck={false} value={preferences.listen_host} onChange={e => update('listen_host', e.target.value)} />
+                  <span aria-hidden='true' className='text-[var(--color-text-faint)]'>:</span>
+                  <Input aria-invalid={invalidField === 'listen-port' || undefined} aria-label={t('panelSettings.listenPort')} className='w-22 flex-none tabular-nums' id='listen-port' max={65535} min={1} required type='number' value={preferences.listen_port} onChange={e => update('listen_port', Number(e.target.value))} />
                 </div>
               </SettingsField>
-            </SettingsGroup>
-            <SettingsGroup title={t('panelSettings.panelLogs')}>
-              <SettingsField id='panel-log-retention' invalid={invalidField === 'panel-log-retention'} label={t('panelSettings.panelLogRetention')} help={t('panelSettings.panelLogRetentionHelp')}>
-                <Input id='panel-log-retention' aria-invalid={invalidField === 'panel-log-retention' || undefined} type='number' min={1} max={3650} required value={service.panel_log_retention_days ?? 90} onChange={e => updateService('panel_log_retention_days', Number(e.target.value))} />
+              <SettingsField {...field('origin')} help={t('panelSettings.originHelp')} label={t('panelSettings.origin')}>
+                <Input aria-invalid={invalidField === 'origin' || undefined} id='origin' placeholder='https://panel.example.com' spellCheck={false} type='url' value={preferences.external_origin} onChange={e => update('external_origin', e.target.value)} />
               </SettingsField>
-            </SettingsGroup>
-          </TabsContent>
-          <TabsContent value='interface'>
-            <SettingsGroup title={t('panelSettings.appearanceGroup')}>
-              <SettingsField id='theme' invalid={invalidField === 'theme'} label={t('panelSettings.theme')}>
+              <SettingsField {...field('base-path')} help={t('panelSettings.basePathHelp')} label={t('panelSettings.basePath')}>
+                <Input aria-invalid={invalidField === 'base-path' || undefined} id='base-path' placeholder='/' spellCheck={false} value={service.base_path} onChange={e => updateService('base_path', e.target.value)} />
+              </SettingsField>
+              <SettingsField {...field('data-dir')} help={t('panelSettings.dataDirHelp')} label={t('panelSettings.dataDir')}>
+                {/* The panel host has no browse API; the Browse control picks paths on a node. */}
+                <Input aria-invalid={invalidField === 'data-dir' || undefined} autoComplete='off' id='data-dir' required spellCheck={false} value={service.data_dir} onChange={e => updateService('data_dir', e.target.value)} />
+              </SettingsField>
+            </SettingsCard>
+
+            <SettingsCard title={t('panelSettings.account')}>
+              <SettingsField {...field('admin-email')} label={t('panelSettings.adminEmail')}>
+                <Input aria-invalid={invalidField === 'admin-email' || undefined} autoComplete='username' id='admin-email' inputMode='email' type='text' value={email} onChange={e => setEmail(e.target.value)} />
+              </SettingsField>
+              <SettingsField {...field('new-password')} help={t('panelSettings.passwordHelp')} invalid={!passwordValid} label={t('panelSettings.password')}>
+                {passwordOpen
+                  ? (
+                      <div className='flex items-center gap-2'>
+                        <Input aria-describedby={!passwordValid ? 'password-error' : undefined} aria-invalid={!passwordValid || undefined} autoComplete='new-password' autoFocus className='min-w-0 flex-1' id='new-password' type='password' value={password} onChange={e => setPassword(e.target.value)} />
+                        <Button onClick={closePassword} size='sm' type='button' variant='ghost'>{t('common.cancel')}</Button>
+                      </div>
+                    )
+                  : (
+                      <div className='flex items-center gap-2'>
+                        <span aria-hidden='true' className='min-w-0 flex-1 truncate font-[family-name:var(--font-data)] text-[var(--color-text-faint)]'>••••••••••••</span>
+                        <Button onClick={openPassword} size='sm' type='button' variant='outline'>{t('panelSettings.changePassword')}</Button>
+                      </div>
+                    )}
+                {newPasswordError && <span className='sr-only' id='password-error'>{t(newPasswordError)}</span>}
+              </SettingsField>
+            </SettingsCard>
+
+            <SettingsCard
+              actions={(
+                <IconAction label={t('panelSettings.reset')} onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })} size='icon-xs'>
+                  <RotateCcw aria-hidden='true' />
+                </IconAction>
+              )}
+              title={t('panelSettings.appearanceGroup')}
+            >
+              <SettingsField {...field('theme')} label={t('panelSettings.theme')}>
                 <Select value={preferences.appearance.theme} onValueChange={value => {
                   if (value) appearance({ theme: value });
                 }}>
@@ -132,29 +167,32 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                   </SelectContent>
                 </Select>
               </SettingsField>
-              <SettingsField id='accent-color' label={t('panelSettings.color')} invalid={!colorValid}>
+              <SettingsField {...field('accent-color')} invalid={!colorValid || invalidField === 'accent-color'} label={t('panelSettings.color')}>
                 <div className='@container flex min-h-10 items-center gap-2'>
-                  <ToggleGroup className='min-w-24 flex-1 justify-between @max-[250px]:min-w-18' spacing={0} aria-label={t('panelSettings.color')} value={[preferences.appearance.color]} onValueChange={values => {
+                  <ToggleGroup aria-label={t('panelSettings.color')} spacing={1} value={[preferences.appearance.color]} onValueChange={values => {
                     if (values[0]) appearance({ color: values[0] });
                   }}>
-                    {THEME_PRESETS.slice(0, 5).map((color, index) => <ToggleGroupItem className='relative h-10 w-8 min-w-6 shrink bg-transparent p-0 aria-pressed:bg-transparent aria-pressed:before:absolute aria-pressed:before:size-7 aria-pressed:before:rounded-[var(--radius-control)] aria-pressed:before:border aria-pressed:before:border-primary aria-pressed:before:content-[""] @max-[250px]:nth-[n+4]:hidden' key={color} value={color} aria-label={t(`panelSettings.colors.${index}`)}><span className='block size-5 rounded-full' style={{ background: color }} /></ToggleGroupItem>)}
+                    {THEME_PRESETS.map((color, index) => (
+                      <ToggleGroupItem
+                        aria-label={t(`panelSettings.colors.${index}`)}
+                        className='size-7 min-w-0 rounded-[var(--radius-control)] border border-transparent bg-transparent p-0 hover:bg-[var(--color-hover)] aria-pressed:border-primary aria-pressed:bg-transparent @max-[18rem]:nth-[n+5]:hidden'
+                        key={color}
+                        value={color}
+                      >
+                        <span className='block size-4.5 rounded-full' style={{ background: color }} />
+                      </ToggleGroupItem>
+                    ))}
                   </ToggleGroup>
                   <AppearanceColorPicker id='accent-color' value={preferences.appearance.color} onChange={color => appearance({ color })} />
                 </div>
               </SettingsField>
-              <SettingsField id='radius' invalid={invalidField === 'radius'} label={t('panelSettings.radius')} help={t('panelSettings.radiusHelp')}>
-                <div className='grid grid-cols-[minmax(24px,1fr)_56px_auto] items-center gap-1.5 min-[361px]:grid-cols-[minmax(40px,1fr)_56px_auto] min-[361px]:gap-2'>
-                  <Slider aria-label={t('panelSettings.radius')} min={0} max={32} step={1} value={[preferences.appearance.radius]} onValueChange={value => appearance({ radius: Array.isArray(value) ? value[0]! : value })} />
-                  <div className='flex h-(--control-height) items-center gap-1 rounded-[var(--radius-control)] border border-input bg-[var(--color-field)] pr-1.5 focus-within:border-[var(--input-focus)]'>
-                    <Input id='radius' className='h-full min-h-0 [appearance:textfield] border-0 bg-transparent py-0 pr-0 pl-1.5 text-right tabular-nums shadow-none outline-none focus-visible:outline-none dark:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none' aria-invalid={invalidField === 'radius' || undefined} type='number' min={0} max={32} step={1} required value={preferences.appearance.radius} onChange={e => appearance({ radius: Math.max(0, Math.min(32, Math.round(Number(e.target.value)))) })} />
-                    <span aria-hidden='true' className='text-sm text-muted-foreground'>px</span>
-                  </div>
-                  <Button type='button' variant='outline' onClick={() => appearance({ color: DEFAULT_APPEARANCE.color, radius: DEFAULT_APPEARANCE.radius })}>{t('panelSettings.reset')}</Button>
+              <SettingsField {...field('radius')} help={t('panelSettings.radiusHelp')} label={t('panelSettings.radius')}>
+                <div className='grid grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-3'>
+                  <Slider aria-label={t('panelSettings.radius')} max={32} min={0} step={1} value={[preferences.appearance.radius]} onValueChange={value => appearance({ radius: Array.isArray(value) ? value[0]! : value })} />
+                  <UnitInput id='radius' invalid={invalidField === 'radius'} max={32} min={0} unit='px' value={preferences.appearance.radius} onChange={value => appearance({ radius: Math.max(0, Math.min(32, Math.round(value))) })} />
                 </div>
               </SettingsField>
-            </SettingsGroup>
-            <SettingsGroup title={t('panelSettings.languageGroup')}>
-              <SettingsField id='language' invalid={invalidField === 'language'} label={t('panelSettings.language')}>
+              <SettingsField {...field('language')} label={t('panelSettings.language')}>
                 <Select value={preferences.language} onValueChange={value => {
                   if (value) update('language', value);
                 }}>
@@ -167,22 +205,46 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                   </SelectContent>
                 </Select>
               </SettingsField>
-            </SettingsGroup>
-          </TabsContent>
-          <TabsContent value='maintenance'>
-            <SettingsGroup title={t('panelSettings.storage')}>
-              <SettingsField id='data-dir' invalid={invalidField === 'data-dir'} label={t('panelSettings.dataDir')} help={t('panelSettings.dataDirHelp')}>
-                {/* The panel host has no browse API; the Browse control picks paths on a node. */}
-                <Input id='data-dir' aria-invalid={invalidField === 'data-dir' || undefined} required autoComplete='off'
-                  spellCheck={false} value={service.data_dir} onChange={e => updateService('data_dir', e.target.value)} />
+            </SettingsCard>
+          </div>
+
+          <div className='flex min-w-0 flex-col gap-3'>
+            <SettingsCard title={t('panelSettings.retention')}>
+              <SettingsField {...field('sample-retention')} label={t('panelSettings.sampleRetention')}>
+                <UnitInput {...input('sample-retention')} max={366} min={1} unit={days} value={service.sample_retention_days} onChange={value => updateService('sample_retention_days', value)} />
               </SettingsField>
-            </SettingsGroup>
-            <SettingsGroup title={t('panelSettings.updates')}>
-              <SettingsField id='github-token' invalid={invalidField === 'github-token'} label={t('panelSettings.github')} help={t('panelSettings.githubHelp')}>
-                <div className='flex items-center gap-3 *:data-[slot=input]:min-w-0 *:data-[slot=input]:flex-1'>
-                  <Input id='github-token' aria-invalid={invalidField === 'github-token' || undefined} aria-description={initial.github_token_configured && !clearGithub ? t('panelSettings.configured') : undefined} className={initial.github_token_configured && !clearGithub ? 'placeholder:text-foreground' : undefined} type='password' autoComplete='new-password' maxLength={8192} disabled={clearGithub} value={github} placeholder={clearGithub ? t('panelSettings.removed') : initial.github_token_configured ? '••••••••••••' : undefined} onChange={e => setGithub(e.target.value)} />
+              <SettingsField {...field('panel-log-retention')} help={t('panelSettings.panelLogRetentionHelp')} label={t('panelSettings.panelLogRetention')}>
+                <UnitInput {...input('panel-log-retention')} max={3650} min={1} unit={days} value={service.panel_log_retention_days ?? 90} onChange={value => updateService('panel_log_retention_days', value)} />
+              </SettingsField>
+              <SettingsField {...field('core-log-retention')} help={t('panelSettings.coreLogRetentionHelp')} label={t('panelSettings.coreLogRetention')}>
+                <UnitInput {...input('core-log-retention')} max={3650} min={1} unit={days} value={service.core_log_retention_days ?? 7} onChange={value => updateService('core_log_retention_days', value)} />
+              </SettingsField>
+              <SettingsField {...field('core-log-max-files')} help={t('panelSettings.coreLogMaxFilesHelp')} label={t('panelSettings.coreLogMaxFiles')}>
+                <UnitInput {...input('core-log-max-files')} max={1024} min={0} unit={t('panelSettings.files')} value={service.core_log_max_files ?? 0} onChange={value => updateService('core_log_max_files', value)} />
+              </SettingsField>
+              <SettingsField {...field('core-log-size')} label={t('panelSettings.coreLogSize')}>
+                <UnitInput {...input('core-log-size')} max={1024} min={1} unit='MiB' value={service.core_log_max_file_size_mib ?? 32} onChange={value => updateService('core_log_max_file_size_mib', value)} />
+              </SettingsField>
+            </SettingsCard>
+
+            <PanelUpdateSettings>
+              <SettingsField {...field('github-token')} help={t('panelSettings.githubHelp')} label={t('panelSettings.github')}>
+                <div className='flex items-center gap-2'>
+                  <Input
+                    aria-description={initial.github_token_configured && !clearGithub ? t('panelSettings.configured') : undefined}
+                    aria-invalid={invalidField === 'github-token' || undefined}
+                    autoComplete='new-password'
+                    className={initial.github_token_configured && !clearGithub ? 'min-w-0 flex-1 placeholder:text-foreground' : 'min-w-0 flex-1'}
+                    disabled={clearGithub}
+                    id='github-token'
+                    maxLength={8192}
+                    placeholder={clearGithub ? t('panelSettings.removed') : initial.github_token_configured ? '••••••••••••' : undefined}
+                    type='password'
+                    value={github}
+                    onChange={e => setGithub(e.target.value)}
+                  />
                   {initial.github_token_configured && (
-                    <Button type='button' variant='ghost' onClick={() => {
+                    <Button size='sm' type='button' variant='ghost' onClick={() => {
                       setClearGithub(!clearGithub);
                       setGithub('');
                     }}>
@@ -191,20 +253,16 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                   )}
                 </div>
               </SettingsField>
-              <SettingsField id='catalog-refresh-interval' invalid={invalidField === 'catalog-refresh-interval'} label={t('panelSettings.catalogRefreshInterval')}>
-                <Input id='catalog-refresh-interval' aria-invalid={invalidField === 'catalog-refresh-interval' || undefined} type='number' min={1} max={720} required value={service.catalog_refresh_interval_hours} onChange={e => updateService('catalog_refresh_interval_hours', Number(e.target.value))} />
+              <SettingsField {...field('catalog-refresh-interval')} label={t('panelSettings.catalogRefreshInterval')}>
+                <UnitInput {...input('catalog-refresh-interval')} max={720} min={1} unit={t('panelSettings.hours')} value={service.catalog_refresh_interval_hours} onChange={value => updateService('catalog_refresh_interval_hours', value)} />
               </SettingsField>
-            </SettingsGroup>
-            <PanelUpdateSettings />
-          </TabsContent>
-          <TabsContent value='backup'><PanelBackupSettings busy={saving} onBusyChange={setSaving} onRestored={restored} /></TabsContent>
-        </ScrollArea>
-        <footer className='mt-2 flex flex-none flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t pt-2'>
-          {initial.restart_required && <p className='mr-auto min-w-0 flex-1 text-sm text-muted-foreground wrap-anywhere max-sm:basis-full' role='status'>{t('panelSettings.restartPending')}</p>}
-          <Button disabled={saving || !dirty} type='submit'>{t(saving ? 'panelSettings.saving' : 'panelSettings.save')}</Button>
-        </footer>
-      </form>
-    </Tabs>
+            </PanelUpdateSettings>
+
+            <PanelBackupSettings busy={saving} onBusyChange={setSaving} onRestored={restored} />
+          </div>
+        </div>
+      </ScrollArea>
+    </form>
   );
 }
 
@@ -213,15 +271,22 @@ export function PanelSettingsPage() {
   const { view, error, reload } = usePanelSettings();
   return (
     <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
-      <h1 className='sr-only'>{t('panelSettings.title')}</h1>
       {error
         ? (
             <>
+              <h1 className='sr-only'>{t('panelSettings.title')}</h1>
               <ErrorNotice error={error} />
               <Button onClick={reload}>{t('panelSettings.retry')}</Button>
             </>
           )
-        : view ? <SettingsEditor initial={view} /> : <LoadingState label={t('common.loading')} fullScreen={false} />}
+        : view
+          ? <SettingsEditor initial={view} />
+          : (
+              <>
+                <h1 className='sr-only'>{t('panelSettings.title')}</h1>
+                <LoadingState fullScreen={false} label={t('common.loading')} />
+              </>
+            )}
     </section>
   );
 }

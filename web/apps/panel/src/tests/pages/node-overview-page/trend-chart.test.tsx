@@ -8,7 +8,8 @@ import { TrendChart } from '@/pages/node-overview-page/trend-chart';
 import { liveTrafficChartData, trendChartData } from '@/pages/node-overview-page/trend-chart-data';
 
 vi.mock('uplot', () => ({
-  default: vi.fn(class {
+  // The curve the charts draw their series with, named so a test can tell it apart.
+  default: Object.assign(vi.fn(class {
     options: UPlot.Options;
     data: UPlot.AlignedData = [[], [], []];
     cursor = { idx: null as number | null, left: -10, top: -10 };
@@ -36,7 +37,7 @@ vi.mock('uplot', () => ({
       this.cursor = { left, top, idx: left < 0 || top < 0 ? null : Math.round(left / 250) };
       this.options.hooks?.setCursor?.forEach(hook => hook?.(this as unknown as UPlot));
     });
-  }),
+  }), { paths: { spline: () => 'monotone spline' } }),
 }));
 
 beforeEach(() => {
@@ -106,6 +107,8 @@ describe('chart details', () => {
       new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(1000)),
     ]);
     expect(options.series.slice(1).every(series => series.points?.show)).toBe(true);
+    // Both rates are drawn as curves through their samples.
+    expect(options.series.slice(1).map(series => series.paths)).toEqual(['monotone spline', 'monotone spline']);
     moveCursor(0, 100, 40);
     const tooltip = screen.getByRole('status');
     await waitFor(() => expect(tooltip).toHaveTextContent('Download1.0 KB/sUpload0.50 KB/s'));

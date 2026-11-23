@@ -21,6 +21,8 @@ they are no longer needed.
 Installation uses the stored catalog and never substitutes a newer or older
 release. Opening version management initializes the catalog if it is missing;
 use the explicit refresh action when a release is absent from an existing cache.
+The Web client stops waiting for a refresh after one minute and shows the timeout
+with Try again in place of the list, as it does for any list it cannot read.
 The selected release must have a complete `MAJOR.MINOR.PATCH` version.
 
 Official packages use the static musl variant for Linux amd64 or arm64.

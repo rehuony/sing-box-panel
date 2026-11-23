@@ -148,9 +148,9 @@ export function AppliedConfigurationsDialog() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} type='button' variant='outline'>
+      <Button onClick={() => setOpen(true)} size='sm' type='button' variant='flat'>
         <History aria-hidden='true' data-icon='inline-start' />
-        {t('configuration.applied.action')}
+        <span className='max-sm:sr-only'>{t('configuration.applied.action')}</span>
       </Button>
       <Dialog onOpenChange={setOpen} open={open}>
         <DialogContent className='flex h-[min(36rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-[36rem]'>

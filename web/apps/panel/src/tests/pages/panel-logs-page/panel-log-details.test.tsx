@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import type { PanelLog } from '@/api/api-client';
 
 import i18n from '@/i18n';
+import { TestRouter } from '@/tests/test-router';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelLogsPage } from '@/pages/panel-logs-page/panel-logs-page';
@@ -15,8 +16,12 @@ const item: PanelLog = {
   id: 'log:one', time: '2026-09-24T01:16:57.123456Z', source: 'panel', level: 'info',
   code: 'runtime.start.completed', message: 'Core start completed', status: '', metadata: {},
 };
-function show(client = createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 1 }) })) {
-  render(<ApiClientProvider client={client}><PanelLogsPage /></ApiClientProvider>);
+function show(client = createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 1 }) }), entry = '/logs') {
+  render(
+    <TestRouter initialEntries={[entry]}>
+      <ApiClientProvider client={client}><PanelLogsPage /></ApiClientProvider>
+    </TestRouter>,
+  );
   return client;
 }
 
@@ -28,6 +33,14 @@ afterEach(async () => {
 });
 
 describe('panel log presentation and details', () => {
+  it('keeps the entries about one node until its filter is cleared', async () => {
+    const user = userEvent.setup();
+    const client = show(undefined, '/logs?node=node_unknown');
+    const lastFilter = () => client.listPanelLogs.mock.lastCall?.[0];
+    await waitFor(() => expect(lastFilter()).toEqual(expect.objectContaining({ nodeID: 'node_unknown' })));
+    await user.click(screen.getByRole('button', { name: 'Clear node filter: node_unknown' }));
+    await waitFor(() => expect(lastFilter()).toEqual(expect.objectContaining({ nodeID: undefined })));
+  });
   it('localizes known events without confusing action completion with runtime state', async () => {
     show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [
       item,

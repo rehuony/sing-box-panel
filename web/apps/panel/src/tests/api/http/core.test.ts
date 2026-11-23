@@ -10,6 +10,19 @@ describe('createHttpApiClient core and configuration domain', () => {
     expect(fetcher).toHaveBeenCalledWith(`/api/v1/nodes/node_a/core/artifacts/core%2Fone/${action}`, expect.objectContaining({ method: 'POST' }));
     expect(fetcher.mock.calls[0][1]?.body).toBeUndefined();
   });
+  it('ends a catalog refresh that does not answer within a minute as timed out', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+      const refresh = expect(createHttpApiClient({ fetcher }).refreshCatalog(false)).rejects.toMatchObject({ code: 'deadline' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await refresh;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('compiles raw configuration for an immutable core artifact', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
       new Response(JSON.stringify({ supported: true, items: [] }), {

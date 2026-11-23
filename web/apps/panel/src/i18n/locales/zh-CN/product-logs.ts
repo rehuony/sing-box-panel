@@ -8,6 +8,8 @@ export const productLogs = {
   noFiles: '暂无日志文件',
   level: '日志等级',
   unavailable: '日志暂不可用，正在重新连接…',
+  regionUnavailable: '无法读取核心日志',
+  clearNode: '清除节点筛选：{{name}}',
   loading: '加载中…',
   emptyCore: '尚未采集到核心日志',
   empty: '暂无匹配记录',

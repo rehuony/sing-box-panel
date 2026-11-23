@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRate, formatUptime } from '@shared/lib/telemetry-format';
+import { formatDuration, formatRate, formatUptime } from '@shared/lib/telemetry-format';
 
 import type { RuntimeStatus } from '@/api/api-client';
 
@@ -33,6 +33,8 @@ describe('runtime evidence helpers', () => {
     expect(formatUptime('invalid', now, labels)).toBe('0s');
     expect(formatUptime('2026-08-30T12:01:00Z', now, labels)).toBe('0s');
     expect(formatUptime(undefined, now, { ...labels, second: '秒' })).toBe('0秒');
+    expect(formatUptime('2026-08-29T09:45:00Z', now, { day: ' 天', hour: ' 小时', minute: ' 分钟', second: ' 秒' })).toBe('1 天 2 小时');
+    expect(formatDuration(26 * 3_600_000, labels, 1)).toBe('1d');
   });
 
   it.each([null, Number.NaN, Number.POSITIVE_INFINITY, -1])('keeps an unavailable rate (%s) distinct from zero', value => {

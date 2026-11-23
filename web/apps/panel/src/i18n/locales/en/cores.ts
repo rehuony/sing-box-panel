@@ -8,7 +8,7 @@ export const cores = {
     description: 'To use this version again, download or import it again.',
     title: 'Remove this version?',
   },
-  empty: { catalog: 'No catalog artifacts match.', installed: 'No installed artifacts match.' },
+  empty: { catalog: 'The catalog has no versions to install', installed: 'No core versions installed', noMatch: 'No matching versions', browseCatalog: 'Browse available versions' },
   error: {
     configurationNotSaved: 'Save a sing-box configuration in Configuration before enabling or checking a core.',
     catalog: 'Catalog is unavailable',

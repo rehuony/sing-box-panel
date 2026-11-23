@@ -46,9 +46,9 @@ export const telemetry = {
     detail: '实时数据暂时中断，正在保留上次观测并重新连接。',
   },
   unit: {
-    day: '天',
-    hour: '小时',
-    minute: '分钟',
-    second: '秒',
+    day: ' 天',
+    hour: ' 小时',
+    minute: ' 分钟',
+    second: ' 秒',
   },
 } as const;

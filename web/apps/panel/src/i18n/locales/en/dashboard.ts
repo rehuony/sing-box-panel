@@ -9,7 +9,6 @@ export const dashboard = {
     label: 'Node figures',
     quota: 'Used {{used}} · quota {{total}}',
     countUnit: 'count',
-    lastHour: 'Last hour',
     lastDay: 'Last 24 hours',
   },
   chart: {
@@ -43,7 +42,7 @@ export const dashboard = {
     activityLoading: 'Loading recent activity…',
   },
   activity: {
-    empty: 'No activity records.',
+    empty: 'No activity records',
 
     title: 'Recent activity',
     viewAll: 'View all',
@@ -64,7 +63,7 @@ export const dashboard = {
     download: 'Download',
     memory: 'Memory',
     metricLabel: 'Trend metric',
-    title: 'History',
+    title: 'Traffic and connections',
     traffic: 'Traffic',
     upload: 'Upload',
   },

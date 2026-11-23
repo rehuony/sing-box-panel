@@ -161,7 +161,7 @@ function Headline({ item, now }: { item: NodeStatus; now: number }) {
   const units = useUnits();
   const { metrics, node } = item;
   if (node.state === 'offline') {
-    const since = node.last_seen_at ? formatDuration(now - Date.parse(node.last_seen_at), units).split(' ')[0] : EM_DASH;
+    const since = node.last_seen_at ? formatDuration(now - Date.parse(node.last_seen_at), units, 1) : EM_DASH;
     const seen = formatShortDateTime(node.last_seen_at, locale, now);
     return (
       <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
@@ -239,7 +239,7 @@ function CoreLine({ item, now }: { item: NodeStatus; now: number }) {
           state,
           version,
           // The pane keeps one line a row, so uptime shows its largest unit; the node's window has the rest.
-          started === undefined ? null : t('fleet.pane.uptime', { value: formatDuration(now - Date.parse(started), units).split(' ')[0] }),
+          started === undefined ? null : t('fleet.pane.uptime', { value: formatDuration(now - Date.parse(started), units, 1) }),
         ]}
       </ReadoutParts>
     </Detail>

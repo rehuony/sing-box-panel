@@ -1,4 +1,6 @@
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '@shared/components/ui/button';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
@@ -7,6 +9,7 @@ import { Empty, EmptyHeader, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { LogLevel, PanelLog } from '@/api/api-client';
 
+import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { SelectField } from '@/components/select-field';
@@ -43,10 +46,20 @@ export function PanelLogsPage() {
   const [limit, setLimit] = useState(10);
   const [page, setPage] = useState(1);
   const enabled = usePageVisible();
+  // A node's overview opens its entries here; the filter stays in the address,
+  // so it can be shared and cleared.
+  const [params, setParams] = useSearchParams();
+  const nodeID = params.get('node') ?? '';
+  const nodeName = useQuery({
+    ...queries.fleetStatus(client),
+    enabled: nodeID !== '',
+    select: status => status.items.find(item => item.node.id === nodeID)?.node.name,
+  }).data ?? nodeID;
   const logs = useQuery({
-    queryKey: ['panelLogs', limit, level, query, page],
+    queryKey: ['panelLogs', limit, level, query, nodeID, page],
     queryFn: ({ signal }) => client.listPanelLogs({ limit, level: level ? level as LogLevel : undefined,
-      search: query || undefined, searchCodes: matchingEventCodes(query), offset: (page - 1) * limit }, signal),
+      search: query || undefined, searchCodes: matchingEventCodes(query), nodeID: nodeID || undefined,
+      offset: (page - 1) * limit }, signal),
     enabled, staleTime: 5000, refetchInterval: enabled ? 5000 : false, placeholderData: keepPreviousData,
   });
   const result = logs.data ?? { items: [], total: 0 };
@@ -57,6 +70,31 @@ export function PanelLogsPage() {
     <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
       <h1 className='sr-only'>{t('nav.logs')}</h1>
       <TitleStrip className='flex-nowrap'>
+        {nodeID
+          ? (
+              <>
+                <Button
+                  aria-label={t('productLogs.clearNode', { name: nodeName })}
+                  className='max-w-48 min-w-0 flex-none bg-accent text-foreground'
+                  onClick={() => {
+                    setParams(current => {
+                      const next = new URLSearchParams(current);
+                      next.delete('node');
+                      return next;
+                    }, { replace: true });
+                    setPage(1);
+                  }}
+                  size='sm'
+                  type='button'
+                  variant='flat'
+                >
+                  <span className='truncate'>{nodeName}</span>
+                  <X aria-hidden='true' data-icon='inline-end' />
+                </Button>
+                <StripDivider />
+              </>
+            )
+          : null}
         <StripSearch
           ref={searchRef}
           label={t('productLogs.searchPanel')}

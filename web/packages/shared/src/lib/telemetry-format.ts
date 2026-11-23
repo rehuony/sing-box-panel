@@ -27,16 +27,22 @@ interface DurationLabels {
   second: string;
 }
 
-/** A span of time in its two largest units, such as "3d 4h"; negative spans count as none. */
-export function formatDuration(milliseconds: number, labels: DurationLabels): string {
+/**
+ * A span of time in its largest units, two by default, such as "3d 4h";
+ * negative spans count as none. A label carries its own leading space where
+ * the language sets units apart from numbers, such as " 小时".
+ */
+export function formatDuration(milliseconds: number, labels: DurationLabels, parts: 1 | 2 = 2): string {
   const seconds = Number.isFinite(milliseconds) && milliseconds > 0 ? Math.floor(milliseconds / 1_000) : 0;
   const days = Math.floor(seconds / 86_400);
   const hours = Math.floor((seconds % 86_400) / 3_600);
   const minutes = Math.floor((seconds % 3_600) / 60);
-  if (days > 0) return `${days}${labels.day} ${hours}${labels.hour}`;
-  if (hours > 0) return `${hours}${labels.hour} ${minutes}${labels.minute}`;
-  if (minutes > 0) return `${minutes}${labels.minute}`;
-  return `${seconds}${labels.second}`;
+  const units: [number, string][] = days > 0
+    ? [[days, labels.day], [hours, labels.hour]]
+    : hours > 0
+      ? [[hours, labels.hour], [minutes, labels.minute]]
+      : minutes > 0 ? [[minutes, labels.minute]] : [[seconds, labels.second]];
+  return units.slice(0, parts).map(([value, label]) => `${value}${label}`).join(' ');
 }
 
 export function formatUptime(

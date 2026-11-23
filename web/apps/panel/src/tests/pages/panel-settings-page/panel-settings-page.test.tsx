@@ -52,7 +52,7 @@ describe('panel settings', () => {
   it('loads and saves server defaults independently of the persisted sidebar choice', async () => {
     window.localStorage.setItem('sing-box-panel.theme', 'dark');
     const user = userEvent.setup();
-    const client = setup(createMockApiClient(), '/settings#panel-interface');
+    const client = setup();
     const theme = await screen.findByRole('combobox', { name: 'Theme' });
     expect(theme).toHaveTextContent('System');
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
@@ -65,8 +65,6 @@ describe('panel settings', () => {
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
     await user.click(screen.getByRole('button', { name: 'Theme: Dark. Switch to Light' }));
     await user.click(screen.getByRole('button', { name: 'Theme: Light. Switch to System' }));
-    await user.click(screen.getByRole('tab', { name: 'Service settings' }));
-    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
     expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveTextContent('Light');
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(8);
     expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#2563EB');
@@ -82,17 +80,20 @@ describe('panel settings', () => {
     expect(window.localStorage.getItem('sing-box-panel.theme')).toBe('system');
   });
 
-  it('resets appearance without replacing the traffic draft', async () => {
+  it('resets appearance without replacing the traffic draft, and reverts every change', async () => {
     const user = userEvent.setup();
     setup();
-    await user.click(await screen.findByRole('tab', { name: 'Traffic usage' }));
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Metric retention (days)' }), { target: { value: '30' } });
-    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
+    fireEvent.change(await screen.findByRole('spinbutton', { name: 'Traffic metrics' }), { target: { value: '30' } });
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Corner radius' }), { target: { value: '24' } });
+    expect(screen.getByText('2 unsaved changes')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Reset defaults' }));
     expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(12);
-    await user.click(screen.getByRole('tab', { name: 'Traffic usage' }));
-    expect(screen.getByRole('spinbutton', { name: 'Metric retention (days)' })).toHaveValue(30);
+    expect(screen.getByRole('spinbutton', { name: 'Traffic metrics' })).toHaveValue(30);
+    expect(screen.getByText('1 unsaved change')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Revert changes' }));
+    expect(screen.getByRole('spinbutton', { name: 'Traffic metrics' })).toHaveValue(90);
+    expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
   });
 
   it('masks a configured GitHub token without submitting the display mask as a replacement', async () => {
@@ -101,9 +102,7 @@ describe('panel settings', () => {
     const view = await client.getPanelSettings();
     vi.mocked(client.getPanelSettings).mockResolvedValue({ ...view, github_token_configured: true });
     setup(client);
-    await screen.findByRole('tab', { name: 'System maintenance' });
-    await user.click(screen.getByRole('tab', { name: 'System maintenance' }));
-    const github = screen.getByLabelText('GitHub Token', { selector: 'input' });
+    const github = await screen.findByLabelText('GitHub Token', { selector: 'input' });
     expect(github.getAttribute('placeholder')).toMatch(/^•+$/);
     expect(github).toHaveValue('');
     expect(github).toHaveAccessibleDescription('Configured; leave blank to retain');
@@ -114,7 +113,7 @@ describe('panel settings', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(github).toBeEnabled();
     expect(github.getAttribute('placeholder')).toMatch(/^•+$/);
-    fireEvent.change(screen.getByLabelText('Version check interval (hours)'), { target: { value: '24' } });
+    fireEvent.change(screen.getByLabelText('Check interval'), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
       github_token: '', clear_github_token: false,
@@ -122,21 +121,19 @@ describe('panel settings', () => {
   });
 
   it('edits the panel data directory as text, since node pickers browse nodes', async () => {
-    const user = userEvent.setup();
     const client = setup();
-    await user.click(await screen.findByRole('tab', { name: 'System maintenance' }));
+    await screen.findByLabelText('Data directory', { selector: 'input' });
     expect(screen.queryByRole('button', { name: 'Browse server path: Data directory' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Data directory', { selector: 'input' }), { target: { value: '/etc/sing-box' } });
     expect(screen.getByLabelText('Data directory', { selector: 'input' })).toHaveValue('/etc/sing-box');
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 
-  it('focuses the invalid field when save returns to its category', async () => {
+  it('focuses the invalid field when saving', async () => {
     const user = userEvent.setup();
     const client = setup();
     const origin = await screen.findByLabelText('Access origin', { selector: 'input' });
     fireEvent.change(origin, { target: { value: 'ftp://invalid.example.com/path' } });
-    await user.click(screen.getByRole('tab', { name: 'Log management' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(screen.getByLabelText('Access origin', { selector: 'input' })).toHaveFocus());
     expect(client.savePanelSettings).not.toHaveBeenCalled();
@@ -155,10 +152,10 @@ describe('panel settings', () => {
     vi.mocked(client.restorePanelBackup).mockResolvedValue({
       settings: { ...view, revision: view.revision + 1 }, reauthentication_required: false,
     });
-    await user.click(await screen.findByRole('tab', { name: 'Backup and restore' }));
+    await screen.findByRole('button', { name: 'Export' });
     const file = new File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' });
     Object.defineProperty(file, 'text', { value: async () => JSON.stringify(backup) });
-    await user.upload(screen.getByLabelText('Choose backup file', { selector: 'input' }), file);
+    await user.upload(screen.getByLabelText('Restore…', { selector: 'input' }), file);
     const dialog = await screen.findByRole('alertdialog');
     expect(dialog).toHaveTextContent('/srv/other-machine');
     expect(dialog).not.toHaveTextContent('backup-secret');
@@ -174,24 +171,18 @@ describe('panel settings', () => {
   it('confirms leaving unsaved settings and retains a saved appearance', async () => {
     const user = userEvent.setup();
     const client = setup();
-    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
-    await user.click(screen.getByRole('button', { name: 'Blue' }));
+    await user.click(await screen.findByRole('button', { name: 'Blue' }));
     const radius = screen.getByRole('spinbutton', { name: 'Corner radius' });
     expect(radius).toHaveValue(12);
     fireEvent.change(radius, { target: { value: '8' } });
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#2563EB'));
     expect(document.documentElement.style.getPropertyValue('--radius-control')).toBe('4px');
-    await user.click(screen.getByRole('tab', { name: 'Service settings' }));
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Interface preferences' }));
-    expect(screen.getByRole('spinbutton', { name: 'Corner radius' })).toHaveValue(8);
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--appearance-color')).toBe('#6D4ED1'));
     expect(client.savePanelSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole('link', { name: 'Open settings' }));
-    await user.click(await screen.findByRole('tab', { name: 'Interface preferences' }));
-    await user.click(screen.getByRole('button', { name: 'Green' }));
+    await user.click(await screen.findByRole('button', { name: 'Green' }));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({
       revision: 0, preferences: expect.objectContaining({ appearance: expect.objectContaining({ color: '#15803D' }) }),
@@ -211,34 +202,36 @@ describe('panel settings', () => {
     const emailInput = await screen.findByLabelText('Email');
     await user.clear(emailInput);
     await user.type(emailInput, email);
-    if (password) await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
+    if (password) {
+      await user.click(screen.getByRole('button', { name: 'Change password' }));
+      await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
+    }
     expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Log management' }));
-    await user.click(screen.getByRole('tab', { name: 'Service settings' }));
     expect(client.savePanelSettings).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(client.savePanelSettings).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ credentials }),
     ));
     expect(screen.getByLabelText('Email')).toHaveValue(email);
-    expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveValue(password);
+    if (password) expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveValue(password);
     expect(client.logout).not.toHaveBeenCalled();
     await user.click(screen.getByRole('link', { name: 'Leave settings' }));
     await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await user.click(screen.getByRole('link', { name: 'Open settings' }));
     expect(await screen.findByLabelText('Email')).toHaveValue('admin@example.com');
-    expect(screen.getByLabelText('Password', { selector: 'input' })).toHaveValue('');
+    expect(screen.queryByLabelText('Password', { selector: 'input' })).not.toBeInTheDocument();
   });
   it.each([
     ['Email', 'invalid', 'admin-email'],
     ['Password', 'short', 'new-password'],
-  ])('locates an invalid %s after saving from another category', async (label, value, id) => {
+  ])('locates an invalid %s when saving', async (label, value, id) => {
     const user = userEvent.setup();
     const client = setup();
+    if (id === 'new-password') await user.click(await screen.findByRole('button', { name: 'Change password' }));
     const input = await screen.findByLabelText(label, { selector: 'input' });
     fireEvent.change(input, { target: { value } });
-    await user.click(screen.getByRole('tab', { name: 'Log management' }));
+    await user.click(screen.getByLabelText('Traffic metrics'));
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(document.getElementById(id)).toHaveFocus());
     expect(client.savePanelSettings).not.toHaveBeenCalled();

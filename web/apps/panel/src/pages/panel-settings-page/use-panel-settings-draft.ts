@@ -1,18 +1,17 @@
 import type { FormEvent } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { useLayoutEffect, useState } from 'react';
 import { toast } from '@shared/components/ui/toast-manager';
-import { useEffect, useLayoutEffect, useState } from 'react';
 
 import type { AppearanceSettings, PanelPreferences, PanelServiceSettings, PanelSettingsView } from '@/api/api-client';
 
 import { useTheme } from '@/theme/theme-context';
-import { useHashTab } from '@/hooks/use-hash-tab';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 
-import { invalidSettingsField, passwordError, settingsCategories } from './settings-categories';
+import { invalidSettingsField, passwordError } from './settings-validation';
 
 export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [initial, setInitial] = useState(incoming);
@@ -26,13 +25,10 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [service, setService] = useState(initial.service);
   const [github, setGithub] = useState('');
   const [clearGithub, setClearGithub] = useState(false);
-  const [category, setCategory] = useHashTab('panel-', settingsCategories, 'service');
   const [saving, setSaving] = useState(false);
   const [invalidField, setInvalidField] = useState<string | null>(null);
-  useEffect(() => {
-    if (invalidField) document.getElementById(invalidField)?.focus();
-  }, [invalidField, category]);
   const [password, setPassword] = useState('');
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [email, setEmail] = useState(initial.admin_email);
   async function restored(view: PanelSettingsView) {
     setInitial(view);
@@ -43,12 +39,34 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     setGithub('');
     setClearGithub(false);
     setPassword('');
+    setPasswordOpen(false);
     setInvalidField(null);
     await accept(view);
   }
   const newPasswordError = passwordError(password);
   const passwordValid = newPasswordError === undefined;
   const colorValid = /^#[\dA-F]{6}$/i.test(preferences.appearance.color);
+  const is = initial.service;
+  // The rows whose value differs from the saved settings, by their field's id.
+  const changed = new Set(Object.entries({
+    'listen-host': preferencesDraft.listen_host !== initialPreferences.listen_host || preferencesDraft.listen_port !== initialPreferences.listen_port,
+    'origin': preferencesDraft.external_origin !== initialPreferences.external_origin,
+    'base-path': service.base_path !== is.base_path,
+    'data-dir': service.data_dir !== is.data_dir,
+    'admin-email': email !== initial.admin_email,
+    'new-password': password !== '',
+    'theme': activeAppearance.theme !== initialAppearance.theme,
+    'accent-color': activeAppearance.color !== initialAppearance.color,
+    'radius': activeAppearance.radius !== initialAppearance.radius,
+    'language': preferencesDraft.language !== initialPreferences.language,
+    'sample-retention': service.sample_retention_days !== is.sample_retention_days,
+    'panel-log-retention': service.panel_log_retention_days !== is.panel_log_retention_days,
+    'core-log-retention': service.core_log_retention_days !== is.core_log_retention_days,
+    'core-log-max-files': service.core_log_max_files !== is.core_log_max_files,
+    'core-log-size': service.core_log_max_file_size_mib !== is.core_log_max_file_size_mib,
+    'github-token': github !== '' || clearGithub,
+    'catalog-refresh-interval': service.catalog_refresh_interval_hours !== is.catalog_refresh_interval_hours,
+  }).filter(([, differs]) => differs).map(([field]) => field));
   const dirty = JSON.stringify(preferencesDraft) !== JSON.stringify(initialPreferences)
     || JSON.stringify(activeAppearance) !== JSON.stringify(initialAppearance)
     || JSON.stringify(service) !== JSON.stringify(initial.service) || github !== '' || clearGithub
@@ -63,15 +81,19 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
       setService(incoming.service);
     }
   }
-  useUnsavedChanges(dirty, () => {
+  /** Puts every field back to the saved settings. */
+  function revert() {
     setEmail(initial.admin_email);
     setPreferencesDraft(initialPreferences);
     setService(initial.service);
     setGithub('');
     setClearGithub(false);
     setPassword('');
+    setPasswordOpen(false);
+    setInvalidField(null);
     preview(null);
-  }, saving, { allowSamePathNavigation: true });
+  }
+  useUnsavedChanges(dirty, revert, saving, { allowSamePathNavigation: true });
 
   useLayoutEffect(() => {
     preview({});
@@ -89,9 +111,10 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     event?.preventDefault();
     if (saving) return;
     const invalid = invalidSettingsField(preferences, service, github, email, password);
-    setInvalidField(invalid?.field ?? null);
+    setInvalidField(invalid);
     if (invalid) {
-      setCategory(invalid.category);
+      document.getElementById(invalid)?.focus();
+      toast.add({ title: t(invalid === 'new-password' ? 'panelSettings.passwordLength' : 'panelSettings.invalidField'), type: 'error' });
       return;
     }
     setSaving(true);
@@ -107,6 +130,7 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
           : undefined,
       });
       setPassword('');
+      setPasswordOpen(false);
       if (saved.reauthentication_required) {
         toast.add({ title: t('panelSettings.credentialsChanged'), type: 'success' });
         return;
@@ -134,7 +158,7 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     service,
     github,
     clearGithub,
-    category,
+    changed,
     saving,
     invalidField,
     password,
@@ -142,9 +166,15 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     passwordValid,
     colorValid,
     dirty,
-    setCategory,
     setSaving,
     setPassword,
+    passwordOpen,
+    openPassword: () => setPasswordOpen(true),
+    closePassword: () => {
+      setPassword('');
+      setPasswordOpen(false);
+    },
+    revert,
     setGithub,
     setClearGithub,
     restored,

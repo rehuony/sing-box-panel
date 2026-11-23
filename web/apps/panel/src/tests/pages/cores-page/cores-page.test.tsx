@@ -46,6 +46,19 @@ describe('inline version library', () => {
     await waitFor(() => expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2));
   });
 
+  it('shows an unreadable installed list in its region, in the interface language, with a retry', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
+      listCoreArtifacts: vi.fn().mockRejectedValueOnce(new ApiRequestError('The node is not connected. Commands are not queued.', { status: 503, code: 'node_offline' })).mockResolvedValue(testArtifacts),
+    });
+    renderCores(client);
+    const region = (await screen.findByRole('heading', { name: 'Installed artifacts are unavailable' })).parentElement!;
+    expect(region).toHaveTextContent('The node is not connected.');
+    expect(screen.queryByText('No core versions installed')).not.toBeInTheDocument();
+    await user.click(within(region).getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(testArtifacts.items[0].exact_version)).toBeVisible();
+  });
+
   it('automatically initializes an empty catalog without blocking installed versions', async () => {
     const user = userEvent.setup();
     let finish!: () => void;
@@ -234,8 +247,8 @@ describe('inline version library', () => {
     renderCores(createMockApiClient({ listCoreArtifacts: vi.fn().mockResolvedValue({ items }) }));
     await screen.findByText('1.13.0');
     await user.click(screen.getByRole('button', { name: 'Next page' }));
-    await user.type(screen.getByRole('textbox', { name: 'Filter artifacts' }), '1.13.0');
-    await user.clear(screen.getByRole('textbox', { name: 'Filter artifacts' }));
+    await user.type(screen.getByRole('searchbox', { name: 'Filter artifacts' }), '1.13.0');
+    await user.clear(screen.getByRole('searchbox', { name: 'Filter artifacts' }));
     expect(screen.getByText('1.13.0')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     await user.click(screen.getByRole('tab', { name: 'Available' }));
@@ -263,7 +276,7 @@ describe('inline version library', () => {
     expect(screen.queryByText('1.14.0')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Previous page' }));
     expect(screen.getByText('1.14.0')).toBeVisible();
-    await user.type(screen.getByRole('textbox', { name: 'Filter artifacts' }), 'missing');
+    await user.type(screen.getByRole('searchbox', { name: 'Filter artifacts' }), 'missing');
     expect(screen.getByRole('spinbutton', { name: 'Current page' })).toHaveValue(1);
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();

@@ -44,6 +44,9 @@ export function TrendChart({
       plotRef.current = null;
       const style = getComputedStyle(document.documentElement);
       const color = (name: string) => style.getPropertyValue(name).trim();
+      // Monotone cubic curves follow the samples without overshooting them,
+      // so a rate never dips below zero between two.
+      const smooth = UPlot.paths.spline?.();
       const width = Math.floor(host!.clientWidth);
       const height = Math.floor(host!.clientHeight);
       if (width < 160 || height < 120) return;
@@ -99,6 +102,7 @@ export function TrendChart({
               // Keep the grid visible through the fill instead of tinting it with an opaque surface color.
               fill: `color-mix(in srgb, ${color('--chart-1')} 8%, transparent)`,
               width: 2,
+              paths: smooth,
               spanGaps: false,
               points: { show: live, size: 3 },
             },
@@ -108,6 +112,7 @@ export function TrendChart({
                     label: t('dashboard.trend.upload'),
                     stroke: color('--chart-2'),
                     width: 1.7,
+                    paths: smooth,
                     spanGaps: false,
                     points: { show: live, size: 3 },
                   },

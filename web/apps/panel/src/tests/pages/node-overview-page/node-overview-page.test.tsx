@@ -7,11 +7,13 @@ import type { TelemetryState } from '@/components/node-workspace';
 import type { DashboardStreamSnapshot, MetricsSnapshot, PanelLog } from '@/api/api-client';
 
 import i18n from '@/i18n';
+import { CurrentNodeContext } from '@/stores/current-node.store';
 import { NodeOverviewPage } from '@/pages/node-overview-page/node-overview-page';
 import { createTelemetryStore, TelemetryContext } from '@/components/node-workspace';
 import {
   testDashboardSnapshot,
   testMetrics,
+  testNode,
   testRuntimeStatus,
 } from '@/tests/api/mock-api-client';
 
@@ -46,9 +48,11 @@ function show({
   const store = createTelemetryStore(telemetry);
   render(
     <MemoryRouter>
-      <TelemetryContext value={store}>
-        <NodeOverviewPage />
-      </TelemetryContext>
+      <CurrentNodeContext value={testNode}>
+        <TelemetryContext value={store}>
+          <NodeOverviewPage />
+        </TelemetryContext>
+      </CurrentNodeContext>
     </MemoryRouter>,
   );
   return store;
@@ -70,23 +74,23 @@ describe('dashboard evidence', () => {
       },
     } });
     expect(screen.getByRole('tab', { name: 'Live' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Traffic B/s' })).toBeVisible();
     act(() => store.setState({ liveTail: [{
       at: Date.parse(testDashboardSnapshot.collected_at) + 2000,
       downloadBytesPerSecond: 1024 ** 2, uploadBytesPerSecond: 0, connections: 10,
     }] }));
-    expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Traffic MB/s' })).toBeVisible();
     act(() => store.setState({ dashboardSnapshot: {
       ...store.getState().dashboardSnapshot!,
       persisted_through: new Date(Date.parse(testDashboardSnapshot.collected_at) + 4000).toISOString(),
     } }));
-    expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Traffic MB/s' })).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: '24h' }));
-    expect(screen.getByRole('heading', { name: 'Traffic（GB/s）' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Traffic GB/s' })).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: '1h' }));
-    expect(screen.getByRole('heading', { name: 'Traffic（B/s）' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Traffic B/s' })).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: 'Live' }));
-    expect(screen.getByRole('heading', { name: 'Traffic（MB/s）' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Traffic MB/s' })).toBeVisible();
   });
 
   it('uses live metrics readiness independently of history readiness', () => {
@@ -95,7 +99,7 @@ describe('dashboard evidence', () => {
     expect(traffic.getByText('Waiting for live samples…')).toBeVisible();
     act(() => store.setState({ snapshot: testMetrics }));
     expect(traffic.queryByText('Waiting for live samples…')).not.toBeInTheDocument();
-    expect(traffic.getByText('No samples in this range')).toBeVisible();
+    expect(within(screen.getByRole('figure', { name: 'Traffic' })).getByText('No samples in this range')).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: '1h' }));
     expect(within(screen.getByRole('tabpanel')).getByText('Loading matching history…')).toBeVisible();
   });
@@ -169,7 +173,7 @@ describe('dashboard evidence', () => {
     expect(within(recovered).getByText('INFO')).toBeVisible();
     expect(recovered.querySelector('time')).toHaveAttribute('datetime', activityEntry.time);
     for (const link of within(activity).getAllByRole('link')) {
-      expect(link).toHaveAttribute('href', '/logs');
+      expect(link).toHaveAttribute('href', `/logs?node=${testNode.id}`);
     }
     expect(within(activity).getByRole('link', { name: /Automatic recovery attempt started/ })).toHaveTextContent('WARN');
 
@@ -271,9 +275,9 @@ describe('dashboard evidence', () => {
     const store = show({ dashboard: null });
     const activity = within(screen.getByRole('region', { name: 'Recent activity' }));
     expect(activity.getByText('Loading recent activity…')).toBeVisible();
-    expect(activity.queryByText('No activity records.')).not.toBeInTheDocument();
+    expect(activity.queryByText('No activity records')).not.toBeInTheDocument();
     act(() => store.setState({ dashboardSnapshot: testDashboardSnapshot }));
-    expect(activity.getByText('No activity records.')).toBeVisible();
+    expect(activity.getByText('No activity records')).toBeVisible();
     expect(activity.queryByText('Loading recent activity…')).not.toBeInTheDocument();
   });
 });

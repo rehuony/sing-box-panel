@@ -21,6 +21,15 @@ describe('live traffic evidence', () => {
     expect(chart.data[1]).toEqual([1, 0.5, null, null, 0, 0.25]);
   });
 
+  it('connects a stream that samples every few seconds and breaks it only at a longer pause', () => {
+    const point = (at: number): LivePoint => ({
+      at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2,
+    });
+    const chart = liveTrafficChartData([point(0), point(5000), point(10000), point(15000), point(60000), point(65000)]);
+    expect(chart.data[0]).toEqual([0, 5000, 10000, 15000, 59999, 60000, 65000]);
+    expect(chart.data[1]).toEqual([1, 1, 1, 1, null, 1, 1]);
+  });
+
   it('does not mix live rates into historical traffic averages', () => {
     const tail = [{
       at: Date.parse(testMetricsHistory.to) + 1000,

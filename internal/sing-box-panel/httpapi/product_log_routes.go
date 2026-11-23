@@ -137,7 +137,7 @@ const coreLogStreamLifetime = time.Minute
 const maximumPanelLogQueryBytes = 64 << 10
 
 func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
-	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "offset")
+	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "node_id", "offset")
 	if !ok {
 		return
 	}
@@ -169,6 +169,10 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, 400, "search_too_long", "Invalid search", "Search may contain at most 256 bytes.")
 		return
 	}
+	if len(query.Get("node_id")) > 128 {
+		writeProblem(w, r, 400, "node_id_invalid", "Invalid node", "The node ID may contain at most 128 bytes.")
+		return
+	}
 	var searchCodes []string
 	if raw, present := query["search_codes"]; present {
 		if len(raw[0]) > store.MaximumPanelLogSearchCodes*(store.MaximumLogCodeBytes+1) {
@@ -181,7 +185,7 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	result, err := handler.services.Telemetry.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search"), SearchCodes: searchCodes})
+	result, err := handler.services.Telemetry.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search"), SearchCodes: searchCodes, NodeID: query.Get("node_id")})
 	if err != nil {
 		writeProblem(w, r, 503, "panel_logs_unavailable", "Panel logs unavailable", "The panel activity could not be read.")
 		return

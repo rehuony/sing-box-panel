@@ -1,12 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@shared/components/ui/badge';
-import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { ExternalLink, RefreshCw, Search, Upload } from 'lucide-react';
+import { ExternalLink, RefreshCw, Upload } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import {
   Dialog,
@@ -22,12 +21,14 @@ import type { CoreArtifact } from '@/api/api-client';
 import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { ApiRequestError } from '@/api/api-client';
+import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
+import { RegionError } from '@/components/region-error';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { ListPagination } from '@/components/list-pagination';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
-import { WorkspaceToolbar, WorkspaceToolbarActions } from '@/components/workspace-toolbar';
+import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 
 import { CoreImportDialog } from './core-import-dialog';
 import { useVersionLibrary } from './use-version-library';
@@ -138,18 +139,21 @@ export function CoresPage() {
     = !library.runtime
       || ['stale', 'inspection_unavailable'].includes(library.runtime.observation_state);
   const listLoading = tab === 'installed' ? library.installedLoading : library.catalogLoading;
+  const listError = tab === 'installed' ? library.error : library.catalogError;
   const refreshLabel = t(tab === 'installed' ? 'cores.refreshInstalled' : 'cores.refreshCatalog');
+  const retry = () => void (tab === 'installed' ? library.refreshInstalled() : library.refreshCatalog(false));
+  const total = tab === 'installed' ? library.artifacts.length : library.catalog?.assets.length ?? 0;
   return (
     <div className='flex min-h-0 min-w-0 flex-1 flex-col'>
       <h1 className='sr-only'>{t('cores.title')}</h1>
       <Tabs
-        className='flex min-h-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'
+        className='flex min-h-80 flex-1 flex-col gap-0 overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'
         render={<section aria-label={t('cores.title')} />}
         value={tab}
         onValueChange={(value) => setTab(value as typeof tab)}
       >
-        <WorkspaceToolbar>
-          <TabsList aria-label={t('cores.title')}>
+        <CardToolbar>
+          <TabsList aria-label={t('cores.title')} className='flex-none' variant='pill'>
             <TabsTrigger value='installed'>
               {t('cores.tabs.installed')}
             </TabsTrigger>
@@ -157,49 +161,35 @@ export function CoresPage() {
               {t('cores.tabs.catalog')}
             </TabsTrigger>
           </TabsList>
-          <WorkspaceToolbarActions className='gap-1 sm:gap-2'>
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              aria-label={refreshLabel}
-              title={refreshLabel}
+          <StripDivider className='max-sm:hidden' />
+          <StripSearch className='max-sm:order-last max-sm:basis-full' label={t('cores.filter.search')} onValueChange={setSearch} value={search} />
+          <StripDivider className='max-sm:hidden' />
+          <div className='flex items-center gap-0.5 max-sm:ms-auto'>
+            <IconAction
               disabled={Boolean(pending) || listLoading}
+              label={refreshLabel}
               onClick={() => void (tab === 'installed'
                 ? library.refreshInstalled()
                 : library.refreshCatalog(true))}
+              variant='flat'
             >
-              <RefreshCw className={listLoading ? 'animate-spin motion-reduce:animate-none' : undefined} />
-            </Button>
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              aria-label={t('cores.import.title')}
-              title={t('cores.import.title')}
+              <RefreshCw aria-hidden='true' className={listLoading ? 'animate-spin motion-reduce:animate-none' : undefined} />
+            </IconAction>
+            <IconAction
               disabled={Boolean(pending) || !canImport}
+              label={t('cores.import.title')}
               onClick={() => setImportOpen(true)}
+              variant='flat'
             >
-              <Upload />
-            </Button>
-            <div className='relative min-w-0 flex-1 sm:w-60 sm:flex-none'>
-              <Search aria-hidden='true' className='pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground' />
-              <Input
-                aria-label={t('cores.filter.search')}
-                className='h-(--control-height-sm) min-h-(--control-height-sm) pl-8'
-                placeholder={t('cores.filter.search')}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </div>
-          </WorkspaceToolbarActions>
-        </WorkspaceToolbar>
-        {library.error != null && (
-          <ErrorNotice error={library.error} title={t('cores.error.installed')} />
-        )}
-        {tab === 'catalog' && library.catalogError != null && (
-          <ErrorNotice error={library.catalogError} title={t('cores.error.catalog')} />
+              <Upload aria-hidden='true' />
+            </IconAction>
+          </div>
+        </CardToolbar>
+        {listError != null && count > 0 && (
+          <ErrorNotice error={listError} title={t(tab === 'installed' ? 'cores.error.installed' : 'cores.error.catalog')} />
         )}
         <TabsContent
-          className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'
+          className='flex min-h-0 flex-1 flex-col'
           value={tab}
           aria-busy={listLoading}
         >
@@ -321,7 +311,16 @@ export function CoresPage() {
             {!count
               ? listLoading
                 ? <LoadingState label={t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')} fullScreen={false} />
-                : <div className='grid min-h-40 flex-1 place-content-center justify-items-center gap-2.5 px-5 py-6 text-center text-sm text-muted-foreground' role='status'>{t(`cores.empty.${tab}`)}</div>
+                : listError != null
+                  ? <RegionError error={listError} onRetry={retry} title={t(tab === 'installed' ? 'cores.error.installed' : 'cores.error.catalog')} />
+                  : (
+                      <div className='grid min-h-40 flex-1 place-content-center justify-items-center gap-3 px-5 py-6 text-center text-sm text-muted-foreground' role='status'>
+                        {t(total > 0 ? 'cores.empty.noMatch' : `cores.empty.${tab}`)}
+                        {total === 0 && tab === 'installed' && (
+                          <Button onClick={() => setTab('catalog')} type='button' variant='outline'>{t('cores.empty.browseCatalog')}</Button>
+                        )}
+                      </div>
+                    )
               : null}
           </ScrollArea>
           <ListPagination

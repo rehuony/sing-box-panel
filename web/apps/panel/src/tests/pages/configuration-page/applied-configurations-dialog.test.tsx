@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
@@ -44,7 +44,8 @@ describe('applied configurations', () => {
     expect(confirmation).toHaveTextContent('The core restarts, which interrupts the proxy on');
     expect(confirmation).toHaveTextContent('so the next start or restart loads the saved text again');
     await user.click(within(confirmation).getByRole('button', { name: 'Roll back' }));
-    expect(await within(confirmation).findByRole('alert')).toHaveTextContent('The core version is no longer installed.');
+    // The refusal reads in the interface's language, by its code.
+    await waitFor(() => expect(within(confirmation).getByRole('alert')).toHaveTextContent('The selected core artifact was not found.'));
     expect(client.activateStartupArtifact).toHaveBeenCalledWith('startup_0', 'limited');
     // The list behind the modal confirmation stays as it was.
     expect(within(list).getAllByRole('listitem', { hidden: true })).toHaveLength(2);

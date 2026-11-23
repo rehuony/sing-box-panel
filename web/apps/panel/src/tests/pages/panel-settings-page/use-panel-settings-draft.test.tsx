@@ -91,15 +91,11 @@ describe('panel settings draft', () => {
     expect(result.current.settings.view).toEqual(initial);
     expect(result.current.draft.saving).toBe(false);
   });
-  it('prevents saves for invalid fields and selects their owning category', async () => {
+  it('prevents saves for invalid fields and marks the field', async () => {
     const { result, client } = await mount();
-    act(() => {
-      result.current.draft.updateService('sample_retention_days', 0);
-      result.current.draft.setCategory('interface');
-    });
+    act(() => result.current.draft.updateService('sample_retention_days', 0));
     await act(() => result.current.draft.submit());
     expect(result.current.draft.invalidField).toBe('sample-retention');
-    expect(result.current.draft.category).toBe('traffic');
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
   it('locks duplicate submission until success and clears sensitive input afterwards', async () => {
@@ -125,16 +121,15 @@ describe('panel settings draft', () => {
     expect(result.current.draft.password).toBe('');
     expect(result.current.draft.saving).toBe(false);
   });
-  it('keeps one draft across categories and accepts restored settings atomically', async () => {
+  it('counts changed rows and accepts restored settings atomically', async () => {
     const { result, initial } = await mount();
     act(() => {
       result.current.draft.updateService('base_path', '/draft');
-      result.current.draft.setCategory('maintenance');
       result.current.draft.setGithub('pending-token');
       result.current.draft.setEmail('draft@example.com');
       result.current.draft.setPassword('draft-password-123');
     });
-    expect(result.current.draft.service.base_path).toBe('/draft');
+    expect([...result.current.draft.changed].sort()).toEqual(['admin-email', 'base-path', 'github-token', 'new-password']);
     const restored = { ...initial, revision: initial.revision + 1, service: { ...initial.service, base_path: '/restored' } };
     await act(() => result.current.draft.restored(restored));
     await waitFor(() => expect(result.current.settings.view).toEqual(restored));
@@ -142,5 +137,6 @@ describe('panel settings draft', () => {
     expect(result.current.draft.email).toBe(restored.admin_email);
     expect(result.current.draft.password).toBe('');
     expect(result.current.draft.github).toBe('');
+    expect(result.current.draft.changed.size).toBe(0);
   });
 });

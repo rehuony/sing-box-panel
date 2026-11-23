@@ -9,7 +9,6 @@ export const dashboard = {
     label: '节点概况',
     quota: '已用 {{used}} · 额度 {{total}}',
     countUnit: '个',
-    lastHour: '最近 1 小时',
     lastDay: '最近 24 小时',
   },
   chart: {
@@ -43,7 +42,7 @@ export const dashboard = {
     activityLoading: '正在加载最近活动…',
   },
   activity: {
-    empty: '暂无活动记录。',
+    empty: '暂无活动记录',
 
     title: '最近活动',
     viewAll: '查看全部',
@@ -64,7 +63,7 @@ export const dashboard = {
     download: '下行',
     memory: '内存',
     metricLabel: '趋势指标',
-    title: '历史趋势',
+    title: '流量与连接',
     traffic: '流量',
     upload: '上行',
   },

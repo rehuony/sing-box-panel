@@ -10,13 +10,14 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 
 import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
-import { ApiRequestError } from '@/api/api-client';
 import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
+import { RegionError } from '@/components/region-error';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
+import { describeRequestError } from '@/components/error-notice';
+import { CardToolbar, StripDivider } from '@/components/title-strip';
 import { useOptionalSharedTelemetry } from '@/components/node-workspace';
-import { describeProblem, describeRequestError } from '@/components/error-notice';
 import { useConfigurationSessionStore } from '@/stores/configuration-session.store';
 
 import { DynamicGeneralEditor } from './dynamic-general-editor';
@@ -25,20 +26,6 @@ import { ConfigurationCopyDialog } from './configuration-copy-dialog';
 import { useCanonicalConfiguration } from './use-canonical-configuration';
 import { AppliedConfigurationsDialog } from './applied-configurations-dialog';
 import { useInstalledConfigurationVersions } from './use-installed-configuration-versions';
-
-/** A region whose data could not be read: what failed, why, and a retry, in place of an empty panel. */
-function RegionError({ error, onRetry, title }: { error: unknown; onRetry: () => void; title: string }) {
-  const { t } = useTranslation();
-  return (
-    <div className='flex h-full min-h-48 flex-col items-center justify-center gap-3 px-4 text-center' role='status'>
-      <h2 className='m-0 text-sm font-medium'>{title}</h2>
-      <p className='m-0 max-w-md text-sm text-muted-foreground wrap-anywhere'>
-        {describeProblem(error instanceof ApiRequestError ? error.code : undefined, describeRequestError(error))}
-      </p>
-      <Button onClick={onRetry} type='button' variant='outline'>{t('shell.error.retry')}</Button>
-    </div>
-  );
-}
 
 const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-editor').then(module => ({ default: module.AdvancedConfigurationEditor })));
 
@@ -141,10 +128,10 @@ export function ConfigurationPage() {
   return (
     <div className='@container flex min-h-0 min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('configuration.title')}</h1>
-      <section className='flex min-h-0 flex-1 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] px-(--configuration-inset) pt-(--configuration-inset) pb-2 [--configuration-inset:24px] @max-[40rem]:[--configuration-inset:16px]' aria-label={t('configuration.title')} aria-busy={loading}>
+      <section className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] [--configuration-inset:24px] @max-[40rem]:[--configuration-inset:16px]' aria-label={t('configuration.title')} aria-busy={loading}>
         <Tabs className='min-h-0 flex-1 gap-0' value={editor} onValueChange={setSelectedEditor}>
-          <div className='flex min-w-0 flex-none items-center justify-between gap-2 border-b pb-4 max-sm:flex-wrap'>
-            <TabsList aria-label={t('configuration.sections')}>
+          <CardToolbar className='px-(--configuration-inset)'>
+            <TabsList aria-label={t('configuration.sections')} className='flex-none' variant='pill'>
               {installed.status === 'ready' && !noInstalledVersions && schema.status === 'unavailable'
                 ? (
                     <Tooltip>
@@ -171,20 +158,21 @@ export function ConfigurationPage() {
                   )}
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
-            <div className='ml-auto flex max-w-full min-w-0 items-center gap-2 max-sm:ml-0 max-sm:flex-wrap'>
+            <div className='ms-auto flex max-w-full min-w-0 items-center gap-1'>
               <AppliedConfigurationsDialog />
               <ConfigurationCopyDialog
                 disabled={locked}
                 draft={canonical.state.content}
                 onReplace={canonical.updateText}
               />
+              <StripDivider />
               <Select
                 disabled={installed.status !== 'ready' || noInstalledVersions}
                 value={schemaVersion || null}
                 onValueChange={value => setSelectedSchemaVersion(value)}
               >
-                <SelectTrigger className='w-auto max-w-full gap-3 *:data-[slot=select-value]:min-w-18 *:data-[slot=select-value]:max-w-40 *:data-[slot=select-value]:flex-none *:data-[slot=select-value]:font-mono' id='configuration-schema-version' aria-labelledby='configuration-schema-version-label'>
-                  <span className='min-w-0 truncate border-r pr-3 text-xs text-[var(--color-text-secondary)]' id='configuration-schema-version-label'>{t('configuration.schema.version')}</span>
+                <SelectTrigger className='w-auto max-w-full gap-2 *:data-[slot=select-value]:min-w-14 *:data-[slot=select-value]:max-w-40 *:data-[slot=select-value]:flex-none *:data-[slot=select-value]:font-[family-name:var(--font-data)]' id='configuration-schema-version' aria-labelledby='configuration-schema-version-label' variant='flat'>
+                  <span className='min-w-0 truncate text-[var(--color-text-faint)]' id='configuration-schema-version-label'>{t('configuration.schema.version')}</span>
                   <SelectValue placeholder={t('configuration.schema.noInstalledOption')} />
                 </SelectTrigger>
                 <SelectContent align='end'>
@@ -196,9 +184,9 @@ export function ConfigurationPage() {
                 </SelectContent>
               </Select>
             </div>
-          </div>
+          </CardToolbar>
           {schema.status === 'error' && (
-            <div className='flex items-center gap-3 border-b px-4 py-2' role='alert'>
+            <div className='flex items-center gap-3 border-b px-(--configuration-inset) py-2' role='alert'>
               <p className='m-0 min-w-0 flex-1 text-xs text-[var(--color-text-secondary)] wrap-anywhere'>
                 {t('configuration.schema.failClosed')}
                 :
@@ -209,10 +197,10 @@ export function ConfigurationPage() {
             </div>
           )}
           {canonical.state.status === 'error'
-            ? <div className='min-h-0 flex-1 overflow-hidden pt-2'><RegionError error={canonical.state.error} onRetry={canonical.reload} title={t('configuration.error.unavailable')} /></div>
+            ? <div className='min-h-0 flex-1 overflow-hidden px-(--configuration-inset) pt-2'><RegionError error={canonical.state.error} onRetry={canonical.reload} title={t('configuration.error.unavailable')} /></div>
             : (
                 <>
-                  <TabsContent className='min-h-0 flex-1 overflow-hidden pt-2 has-[>[data-configuration-general]]:mr-[calc(-1*var(--configuration-inset))] has-[>[data-configuration-general]]:pt-0' value='visual'>
+                  <TabsContent className='min-h-0 flex-1 overflow-hidden px-(--configuration-inset) pt-2 has-[>[data-configuration-general]]:pe-0 has-[>[data-configuration-general]]:pt-0' value='visual'>
                     {installed.status === 'error'
                       ? <RegionError error={installed.error} onRetry={installed.retry} title={t('configuration.error.versionsUnavailable')} />
                       : noInstalledVersions
@@ -236,7 +224,7 @@ export function ConfigurationPage() {
                               )
                             : null}
                   </TabsContent>
-                  <TabsContent className='min-h-0 flex-1 overflow-hidden pt-2' value='advanced'>
+                  <TabsContent className='min-h-0 flex-1 overflow-hidden px-(--configuration-inset) pt-2' value='advanced'>
                     {editor === 'advanced' && (fileReady
                       ? (
                           <Suspense fallback={loadingEditor}>
@@ -251,7 +239,7 @@ export function ConfigurationPage() {
                 </>
               )}
         </Tabs>
-        <footer className='flex flex-none flex-nowrap items-center gap-x-3 gap-y-2 border-t pt-2 *:data-[slot=button]:shrink-0 @max-[40rem]:flex-wrap @max-[40rem]:gap-1.5 @max-[40rem]:*:data-[slot=button]:flex-auto'>
+        <footer className='flex flex-none flex-nowrap items-center gap-x-3 gap-y-2 border-t px-(--configuration-inset) py-2 *:data-[slot=button]:shrink-0 @max-[40rem]:flex-wrap @max-[40rem]:gap-1.5 @max-[40rem]:*:data-[slot=button]:flex-auto'>
           <span className='mr-auto min-w-0 flex-1 truncate text-sm text-muted-foreground @max-[40rem]:basis-full @max-[40rem]:text-xs' role='status' title={messageLine(fileStatus)}>{messageLine(fileStatus)}</span>
           <Button variant='outline' disabled={locked || canonical.dirty || invalid || file?.revision === 0 || schemaVersion === ''} onClick={() => void check()} title={canonical.dirty ? t('configuration.file.saveFirst') : undefined} type='button'>{checking ? t('configuration.file.checking') : t('configuration.file.check')}</Button>
           <Button disabled={locked || (!canonical.dirty && (file?.revision ?? 0) > 0)} onClick={() => void canonical.save()} type='button'>{canonical.saving ? t('configuration.saving') : t('configuration.file.save')}</Button>

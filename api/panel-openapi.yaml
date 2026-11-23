@@ -1677,6 +1677,10 @@ paths:
           in: query
           schema: {type: string, maxLength: 256}
           description: Case-insensitive substring of the original message or event code. Combined with search_codes using OR.
+        - name: node_id
+          in: query
+          schema: {type: string, maxLength: 128}
+          description: Keeps only the entries about this node, such as its runtime transitions and the operations on it.
         - name: search_codes
           in: query
           description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 64 KiB, allowing the full code range even with percent encoding.

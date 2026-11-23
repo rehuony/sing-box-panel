@@ -1,6 +1,5 @@
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
@@ -9,9 +8,12 @@ import { ArrowDownToLine, Eraser, Pause, Play, SearchX, SquareTerminal, Trash2 }
 import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@shared/components/ui/alert-dialog';
 
+import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
+import { RegionError } from '@/components/region-error';
 import { SelectField } from '@/components/select-field';
 import { LoadingState } from '@/components/loading-state';
+import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 
 import type { CoreLevel } from './core-log-lines';
 
@@ -95,31 +97,7 @@ export function NodeLogsPage() {
   return (
     <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
       <h1 className='sr-only'>{t('node.tabs.logs')}</h1>
-      <div className='flex flex-wrap items-center gap-3'>
-        <Input
-          aria-label={t('productLogs.search')}
-          className='w-full sm:w-70'
-          placeholder={t('productLogs.search')}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <SelectField
-          aria-label={t('productLogs.file')}
-          className='min-w-0 flex-1 sm:w-auto sm:flex-none'
-          value={log.file}
-          disabled={mutating}
-          onValueChange={log.selectFile}
-          items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
-        />
-        <SelectField
-          aria-label={t('productLogs.level')}
-          className='min-w-28'
-          value={level}
-          onValueChange={setLevel}
-          items={[{ value: '', label: t('productLogs.allLevels') }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
-        />
-      </div>
-      {log.error != null && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
+      {log.error != null && lines.length > 0 && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
       {deleteError != null && <ErrorNotice error={deleteError} title={t('productLogs.deleteFailed')} />}
       {clearError != null && <ErrorNotice error={clearError} title={t('productLogs.clearFailed')} />}
       <AlertDialog open={Boolean(clearTarget)} onOpenChange={(open) => {
@@ -154,13 +132,35 @@ export function NodeLogsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <div className='relative flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)]'>
-        {lines.length > 0 && (
-          <div className='floating-toolbar' role='group' aria-label={t('productLogs.actions')}>
+      <div className='relative flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+        <CardToolbar>
+          <SelectField
+            aria-label={t('productLogs.file')}
+            className='max-w-56 min-w-0 flex-none'
+            disabled={mutating}
+            items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
+            onValueChange={log.selectFile}
+            value={log.file}
+            variant='flat'
+          />
+          <SelectField
+            active={level !== ''}
+            aria-label={t('productLogs.level')}
+            className='min-w-0 flex-none'
+            items={[{ value: '', label: t('productLogs.allLevels') }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
+            onValueChange={setLevel}
+            value={level}
+            variant='flat'
+          />
+          <StripDivider className='max-sm:hidden' />
+          <StripSearch className='max-sm:order-last max-sm:basis-full' label={t('productLogs.search')} onValueChange={setSearch} value={search} />
+          <StripDivider className='max-sm:hidden' />
+          <div className='flex items-center gap-0.5 max-sm:ms-auto' role='group' aria-label={t('productLogs.actions')}>
             <Tooltip>
               <TooltipTrigger render={(
                 <span
-                  className='inline-flex h-[var(--control-height-xs)] w-6 items-center justify-center rounded-full text-muted-foreground'
+                  className='inline-flex size-(--control-height-sm) items-center justify-center rounded-[var(--radius-control)] text-muted-foreground data-[state=live]:text-[var(--color-success)]'
+                  data-state={state}
                   role='status'
                   aria-label={t(`productLogs.${state}`)}
                   tabIndex={0}
@@ -170,73 +170,50 @@ export function NodeLogsPage() {
               </TooltipTrigger>
               <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={(
-                <Button
-                  size='icon-xs'
-                  variant='ghost'
-                  aria-label={t('productLogs.liveUpdates')}
-                  aria-pressed={canToggle && !log.paused}
-                  disabled={!canToggle || mutating}
-                  onClick={() => log.setPaused(!log.paused)}
-                />
-              )}>
-                {canToggle && !log.paused ? <Pause aria-hidden='true' /> : <Play aria-hidden='true' />}
-              </TooltipTrigger>
-              <TooltipContent>{t(log.paused || !canToggle ? 'productLogs.resume' : 'productLogs.pause')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={(
-                <Button
-                  size='icon-xs'
-                  variant='ghost'
-                  aria-label={t('productLogs.scrollToBottom')}
-                  onClick={() => {
-                    followRef.current = true;
-                    const target = viewportRef.current;
-                    if (target) target.scrollTop = target.scrollHeight;
-                  }}
-                />
-              )}>
-                <ArrowDownToLine aria-hidden='true' />
-              </TooltipTrigger>
-              <TooltipContent>{t('productLogs.scrollToBottom')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={(
-                <Button
-                  size='icon-xs'
-                  variant='ghost'
-                  aria-label={t('productLogs.clear')}
-                  disabled={!log.file || mutating}
-                  onClick={() => {
-                    setClearError(null);
-                    setClearTarget(log.file);
-                  }}
-                />
-              )}>
-                <Eraser aria-hidden='true' />
-              </TooltipTrigger>
-              <TooltipContent>{t('productLogs.clearDescription')}</TooltipContent>
-            </Tooltip>
+            <IconAction
+              aria-pressed={canToggle && !log.paused}
+              disabled={!canToggle || mutating}
+              label={t('productLogs.liveUpdates')}
+              onClick={() => log.setPaused(!log.paused)}
+              variant='flat'
+            >
+              {canToggle && !log.paused ? <Pause aria-hidden='true' /> : <Play aria-hidden='true' />}
+            </IconAction>
+            <IconAction
+              disabled={!lines.length}
+              label={t('productLogs.scrollToBottom')}
+              onClick={() => {
+                followRef.current = true;
+                const target = viewportRef.current;
+                if (target) target.scrollTop = target.scrollHeight;
+              }}
+              variant='flat'
+            >
+              <ArrowDownToLine aria-hidden='true' />
+            </IconAction>
+            <IconAction
+              disabled={!log.file || mutating}
+              label={t('productLogs.clearDescription')}
+              onClick={() => {
+                setClearError(null);
+                setClearTarget(log.file);
+              }}
+              variant='flat'
+            >
+              <Eraser aria-hidden='true' />
+            </IconAction>
             {log.deletable && (
-              <Tooltip>
-                <TooltipTrigger render={(
-                  <Button
-                    size='icon-xs'
-                    variant='ghost'
-                    aria-label={t('productLogs.deleteFile')}
-                    disabled={mutating}
-                    onClick={() => setDeleteTarget(log.file)}
-                  />
-                )}>
-                  <Trash2 aria-hidden='true' />
-                </TooltipTrigger>
-                <TooltipContent>{t('productLogs.deleteFile')}</TooltipContent>
-              </Tooltip>
+              <IconAction
+                disabled={mutating}
+                label={t('productLogs.deleteFile')}
+                onClick={() => setDeleteTarget(log.file)}
+                variant='flat'
+              >
+                <Trash2 aria-hidden='true' />
+              </IconAction>
             )}
           </div>
-        )}
+        </CardToolbar>
         <ScrollArea
           className='flex-1'
           viewportClassName={cn('flex flex-col', lines.length ? 'px-4 pt-3 pb-4' : 'p-12')}
@@ -254,28 +231,30 @@ export function NodeLogsPage() {
           {!lines.length
             ? log.loading
               ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
-              : (
-                  <Empty className='p-0' role='status'>
-                    <EmptyHeader>
-                      <EmptyMedia className='mb-3 size-16 rounded-[var(--radius-window)] border bg-card text-muted-foreground [&_svg]:size-8'>
-                        {!log.files.length
-                          ? <SquareTerminal aria-hidden='true' strokeWidth={1.5} />
-                          : <SearchX aria-hidden='true' strokeWidth={1.5} />}
-                      </EmptyMedia>
-                      <EmptyTitle>
-                        {t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
-                      </EmptyTitle>
-                    </EmptyHeader>
-                    {log.paused && !log.text.trim() && (
-                      <EmptyContent>
-                        <Button size='sm' variant='ghost' disabled={mutating} onClick={() => log.setPaused(false)}>
-                          <Play aria-hidden='true' data-icon='inline-start' />
-                          {t('productLogs.resume')}
-                        </Button>
-                      </EmptyContent>
-                    )}
-                  </Empty>
-                )
+              : log.error != null
+                ? <RegionError error={log.error} onRetry={log.retry} title={t('productLogs.regionUnavailable')} />
+                : (
+                    <Empty className='p-0' role='status'>
+                      <EmptyHeader>
+                        <EmptyMedia className='mb-3 size-16 rounded-[var(--radius-window)] border bg-card text-muted-foreground [&_svg]:size-8'>
+                          {!log.files.length
+                            ? <SquareTerminal aria-hidden='true' strokeWidth={1.5} />
+                            : <SearchX aria-hidden='true' strokeWidth={1.5} />}
+                        </EmptyMedia>
+                        <EmptyTitle>
+                          {t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
+                        </EmptyTitle>
+                      </EmptyHeader>
+                      {log.paused && !log.text.trim() && (
+                        <EmptyContent>
+                          <Button size='sm' variant='ghost' disabled={mutating} onClick={() => log.setPaused(false)}>
+                            <Play aria-hidden='true' data-icon='inline-start' />
+                            {t('productLogs.resume')}
+                          </Button>
+                        </EmptyContent>
+                      )}
+                    </Empty>
+                  )
             : (
                 <pre className='m-0 flex-none font-mono text-compact [tab-size:2] whitespace-pre'>
                   {lines.map((line) => (

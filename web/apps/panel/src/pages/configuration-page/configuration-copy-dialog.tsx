@@ -66,11 +66,12 @@ export function ConfigurationCopyDialog({ disabled, draft, onReplace }: Configur
           setSource(NO_SOURCE);
           setOpen(true);
         }}
+        size='sm'
         type='button'
-        variant='outline'
+        variant='flat'
       >
         <Copy aria-hidden='true' data-icon='inline-start' />
-        {t('configuration.copy.action')}
+        <span className='max-sm:sr-only'>{t('configuration.copy.action')}</span>
       </Button>
       <Dialog onOpenChange={setOpen} open={open}>
         <DialogContent className='flex h-[min(44rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-[min(64rem,calc(100%-2rem))]'>

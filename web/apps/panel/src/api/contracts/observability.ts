@@ -17,6 +17,8 @@ export interface PanelLogFilter {
   limit?: number;
   since?: string;
   until?: string;
+  /** Keeps only the entries about this node. */
+  nodeID?: string;
   offset?: number;
   search?: string;
   level?: LogLevel;

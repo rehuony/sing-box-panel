@@ -488,7 +488,10 @@ describe('application routes', () => {
       await user.clear(emailInput);
       await user.type(emailInput, email);
     }
-    if (nextPassword) await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
+    if (nextPassword) {
+      await user.click(screen.getByRole('button', { name: 'Change password' }));
+      await user.type(screen.getByLabelText('Password', { selector: 'input' }), password);
+    }
     expect(await client.getSession()).not.toBeNull();
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     expect(client.savePanelSettings).toHaveBeenCalledWith(expect.objectContaining({

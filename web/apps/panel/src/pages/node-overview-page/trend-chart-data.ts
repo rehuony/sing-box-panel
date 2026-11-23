@@ -10,26 +10,51 @@ export interface TrendChartData {
   from: number | undefined;
 }
 
-export function liveTrafficChartData(tail: LivePoint[]): TrendChartData {
+/** How far back the live charts reach from their newest sample. */
+const LIVE_WINDOW = 120_000;
+
+/**
+ * The longest step a live line spans: two and a half times the stream's
+ * usual spacing, and never under three seconds, so a node sampling each
+ * second or every few seconds draws a line while a pause, reconnect or
+ * restart still breaks it.
+ */
+function gapLimit(times: number[]): number {
+  const steps = times.slice(1).map((time, index) => time - times[index]!);
+  const spacing = steps.filter(step => step > 0).sort((a, b) => a - b);
+  return Math.max(3000, 2.5 * (spacing[Math.floor(spacing.length / 2)] ?? 0));
+}
+
+/** The live tail's last two minutes as aligned series, broken across collection gaps. */
+function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | null)[]) {
   const to = tail.at(-1)?.at;
-  const from = to === undefined ? undefined : to - 120_000;
+  const from = to === undefined ? undefined : to - LIVE_WINDOW;
+  const recent = tail.filter(point => from === undefined || point.at >= from);
+  const limit = gapLimit(recent.map(point => point.at));
   const times: number[] = [];
-  const down: (number | null)[] = [];
-  const up: (number | null)[] = [];
-  for (const point of tail) {
-    if (from !== undefined && point.at < from) continue;
+  const series = pick.map(() => [] as (number | null)[]);
+  for (const point of recent) {
     const previous = times.at(-1);
-    // Break across collection gaps beyond the supported live interval.
-    if (previous !== undefined && point.at - previous > 3000) {
+    if (previous !== undefined && point.at - previous > limit) {
       times.push(point.at - 1);
-      down.push(null);
-      up.push(null);
+      for (const values of series) values.push(null);
     }
     times.push(point.at);
-    down.push(point.downloadBytesPerSecond);
-    up.push(point.uploadBytesPerSecond);
+    pick.forEach((value, index) => series[index]!.push(value(point)));
   }
+  return { times, series, from, to };
+}
+
+export function liveTrafficChartData(tail: LivePoint[]): TrendChartData {
+  const { times, series: [down = [], up = []], from, to } = liveSeries(tail, [
+    point => point.downloadBytesPerSecond, point => point.uploadBytesPerSecond,
+  ]);
   return { data: [times, down, up], unit: scaleTrafficRates(down, up), from, to };
+}
+
+export function liveConnectionsChartData(tail: LivePoint[]): TrendChartData {
+  const { times, series: [connections = []], from, to } = liveSeries(tail, [point => point.connections]);
+  return { data: [times, connections], unit: null, from, to };
 }
 
 // Historical traffic uses bucket averages only. Connections can still join the
@@ -55,10 +80,11 @@ export function trendChartData(history: MetricsHistory | null, kind: 'traffic' |
     ? null
     : bucket.upload_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000));
   if (live.length) {
+    const limit = gapLimit(live.map(point => point.at));
     for (const point of live) {
       const previous = times.at(-1);
       // Null samples preserve reconnects, restarts and unavailable metrics.
-      if (previous !== undefined && point.at - previous > 3000) {
+      if (previous !== undefined && point.at - previous > limit) {
         times.push(point.at - 1);
         down.push(null);
       }

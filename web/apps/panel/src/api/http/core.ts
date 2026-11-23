@@ -15,6 +15,11 @@ import type {
   StartupArtifactPage,
 } from '../api-client';
 
+import { ApiRequestError } from '../api-client';
+
+/** How long a catalog refresh may run before the view says it timed out; GitHub normally answers within seconds. */
+const CATALOG_REFRESH_TIMEOUT = 60_000;
+
 export function createCoreHttpApi(context: HttpApiContext) {
   const {
     baseUrl, buildQuery, fetcher, nodeUrl, request, writeHeaders, writeJSONHeaders,
@@ -37,10 +42,25 @@ export function createCoreHttpApi(context: HttpApiContext) {
         method: 'GET', signal,
       });
     },
-    refreshCatalog(force = false, signal) {
-      return request<CatalogRefresh>(fetcher, `${baseUrl}/core/catalog/refresh`, {
-        method: 'POST', body: JSON.stringify({ force }), headers: writeJSONHeaders(), signal,
-      });
+    async refreshCatalog(force = false, signal) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CATALOG_REFRESH_TIMEOUT);
+      const forward = () => controller.abort(signal?.reason);
+      if (signal?.aborted) forward();
+      signal?.addEventListener('abort', forward, { once: true });
+      try {
+        return await request<CatalogRefresh>(fetcher, `${baseUrl}/core/catalog/refresh`, {
+          method: 'POST', body: JSON.stringify({ force }), headers: writeJSONHeaders(), signal: controller.signal,
+        });
+      } catch (error) {
+        if (controller.signal.aborted && !signal?.aborted) {
+          throw new ApiRequestError('The catalog refresh timed out.', { status: 504, code: 'deadline' });
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', forward);
+      }
     },
     listCoreArtifacts(filter: CoreArtifactFilter = {}, signal) {
       const query = buildQuery({

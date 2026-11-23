@@ -116,6 +116,12 @@ export function useCoreLogs(active = true) {
       setSelection('');
       setPaused(false);
     },
+    /** Reads the file list and the current file again after a failure. */
+    retry: () => {
+      setError(null);
+      void refetchFiles();
+      setReadVersion(version => version + 1);
+    },
     setPaused: (value: boolean) => {
       if (value) setPausedFile(file);
       setPaused(value);

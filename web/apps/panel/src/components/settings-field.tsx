@@ -1,32 +1,58 @@
 import type { ReactNode } from 'react';
 
-import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@shared/components/ui/field';
+import { useId } from 'react';
+import { cn } from '@shared/lib/utils';
+import { Field, FieldGroup, FieldLabel } from '@shared/components/ui/field';
 
 import { InfoTooltip } from '@/components/info-tooltip';
 
-/** A titled group of field rows that save together. */
-export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * A card of field rows on the canvas: a title bar holding its title, an
+ * optional mark and actions at the end, then rows divided by hairlines on a
+ * narrower label column.
+ */
+export function SettingsCard({ title, mark, actions, footer, danger, children }: {
+  title: string;
+  mark?: ReactNode;
+  actions?: ReactNode;
+  /** The action bar of rows that save together. */
+  footer?: ReactNode;
+  /** Rows of destructive actions, bordered in danger. */
+  danger?: boolean;
+  children: ReactNode;
+}) {
+  const id = useId();
   return (
-    <FieldSet className='min-w-0 gap-3'>
-      <FieldLegend className='mb-0 flex w-full items-center gap-4 text-sm font-semibold text-foreground after:h-px after:flex-1 after:bg-border'>
-        {title}
-      </FieldLegend>
-      <FieldGroup>{children}</FieldGroup>
-    </FieldSet>
+    <section aria-labelledby={id} className={cn('min-w-0 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]', danger && 'border-[var(--color-danger-border)]')}>
+      <div className='flex h-11 items-center gap-2 border-b ps-4 pe-2'>
+        <h2 className='min-w-0 flex-1 truncate text-sm font-medium' id={id}>{title}</h2>
+        {mark}
+        {actions}
+      </div>
+      <FieldGroup className='gap-0 divide-y [--settings-label:9.5rem] *:data-[slot=field]:min-h-14 *:data-[slot=field]:px-4 *:data-[slot=field]:py-2'>
+        {children}
+      </FieldGroup>
+      {footer ? <div className='flex min-h-14 items-center gap-3 border-t px-4 py-2'>{footer}</div> : null}
+    </section>
   );
 }
 
-/** One field row: the label column, then the control filling the rest; stacked in narrow groups. */
-export function SettingsField({ id, label, help, invalid, children }: {
+/**
+ * One field row: the label column, then the control filling the rest;
+ * stacked in narrow groups. A changed row marks its start edge in the accent.
+ */
+export function SettingsField({ id, label, help, invalid, changed, children }: {
   id: string;
   label: string;
   help?: string;
   invalid?: boolean;
+  changed?: boolean;
   children: ReactNode;
 }) {
   return (
     <Field
-      className='grid min-h-11 grid-cols-1 items-center gap-1 @lg/field-group:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)] @lg/field-group:gap-4 has-data-[slot=textarea]:items-start'
+      className='relative grid min-h-11 grid-cols-1 items-center gap-1 @lg/field-group:grid-cols-[var(--settings-label,minmax(8rem,14rem))_minmax(0,1fr)] @lg/field-group:gap-4 has-data-[slot=textarea]:items-start data-[changed=true]:before:absolute data-[changed=true]:before:inset-y-3.5 data-[changed=true]:before:-start-px data-[changed=true]:before:w-0.5 data-[changed=true]:before:rounded-full data-[changed=true]:before:bg-primary'
+      data-changed={changed || undefined}
       data-invalid={invalid}
     >
       <div className='flex min-h-10 items-center gap-1'>
