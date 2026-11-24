@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
 
@@ -41,7 +42,7 @@ func (app *Service) ExportPanelBackup(ctx context.Context) (PanelBackup, error) 
 	if app.settingsPath == "" {
 		return PanelBackup{}, ErrPanelBackupInvalid
 	}
-	lock, err := Lock(ctx, app.settingsPath)
+	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return PanelBackup{}, err
 	}
@@ -68,7 +69,7 @@ func (app *Service) RestorePanelBackup(ctx context.Context, input PanelRestoreRe
 	if err != nil {
 		return result, ErrPanelBackupInvalid
 	}
-	lock, err := Lock(ctx, app.settingsPath)
+	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return result, err
 	}

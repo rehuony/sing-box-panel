@@ -3,16 +3,15 @@ info:
   title: sing-box-node console API
   version: 0.1.0
   description: >-
-    Local console of one node: enrollment with a panel, the state of the
-    node's session with it, and read-only readings of the node's core, host
-    and traffic. The console is disabled unless an operator enables
-    it with sing-box-node console enable, listens only on a loopback address,
-    and answers only requests whose Host names a loopback host (localhost,
-    127.0.0.0/8 or ::1, any port); other hosts receive 421. While disabled in
-    its settings file, a running console answers 503 console_disabled. It
-    cannot edit the node's configuration or control its runtime. API responses
-    are no-store. Paths outside /api serve the console's Web application, its
-    index for any route.
+    Console of one node: enrollment with a panel, the state of the node's
+    session with it, and read-only readings of the node's core, host and
+    traffic. Every running node serves it on the address its settings file
+    names (server.host and server.port, 127.0.0.1:8000 by default). When
+    server.external_origin is set, logins and changes must carry an Origin
+    naming it; otherwise no Origin is checked. 503 means the node settings
+    cannot be read. It cannot edit the node's configuration or control its
+    runtime. API responses are no-store. Paths outside /api serve the
+    console's Web application, its index for any route.
   license:
     name: GPL-3.0-or-later
     identifier: GPL-3.0-or-later
@@ -30,21 +29,21 @@ paths:
           $ref: "#/components/responses/Session"
         "401":
           $ref: "#/components/responses/Problem"
-        "421":
-          $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"
     post:
       operationId: createSession
       description: >-
-        Password login. Requires a same-origin application/json request with a
-        body of at most 4 KiB, and rotates the current browser session.
+        Password login. Requires an application/json request with a body of at
+        most 4 KiB, from the external origin when one is set, and rotates the
+        current browser session.
         Attempts are counted before verification, including successful and
         malformed requests. Fixed one-minute windows permit 5 attempts per
         direct peer and optional fingerprint, and 30 across the process; at
         most 2 logins execute concurrently. Login reads and response writes
         share a 5-second deadline. Limits return 429 with Retry-After. Changing
-        the password with sing-box-node console password ends every session.
+        the password with sing-box-node config set auth.password ends every
+        session.
         Sessions last 12 hours.
       security: []
       parameters:
@@ -73,8 +72,6 @@ paths:
           $ref: "#/components/responses/Problem"
         "403":
           $ref: "#/components/responses/Problem"
-        "421":
-          $ref: "#/components/responses/Problem"
         "429":
           description: Login rate or concurrency limit reached.
           headers:
@@ -97,8 +94,6 @@ paths:
           $ref: "#/components/responses/Problem"
         "403":
           $ref: "#/components/responses/Problem"
-        "421":
-          $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"
   /status:
@@ -111,8 +106,6 @@ paths:
         "200":
           $ref: "#/components/responses/ConsoleStatus"
         "401":
-          $ref: "#/components/responses/Problem"
-        "421":
           $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"
@@ -147,8 +140,6 @@ paths:
           $ref: "#/components/responses/Problem"
         "415":
           $ref: "#/components/responses/Problem"
-        "421":
-          $ref: "#/components/responses/Problem"
         "422":
           $ref: "#/components/responses/Problem"
         "500":
@@ -172,8 +163,6 @@ paths:
           $ref: "#/components/responses/Problem"
         "403":
           $ref: "#/components/responses/Problem"
-        "421":
-          $ref: "#/components/responses/Problem"
         "500":
           $ref: "#/components/responses/Problem"
         "503":
@@ -189,7 +178,7 @@ components:
       name: X-CSRF-Token
       in: header
       required: true
-      description: The session's CSRF token; state-changing requests also need a same-origin Origin header.
+      description: The session's CSRF token; state-changing requests also need an Origin naming the external origin when one is set.
       schema: {type: string, minLength: 1}
   responses:
     Session:

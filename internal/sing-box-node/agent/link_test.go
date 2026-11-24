@@ -23,7 +23,7 @@ func TestLinkStartsOverWhenTheEnrollmentChanges(t *testing.T) {
 		}
 		return settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: nodeID, Key: key}
 	}
-	if err := settings.Save(dataDir, enrollment("first")); err != nil {
+	if err := settings.SaveEnrollment(dataDir, enrollment("first")); err != nil {
 		t.Fatal(err)
 	}
 	link, err := OpenLink(dataDir, buildinfo.Info{})
@@ -80,7 +80,7 @@ func TestLinkStartsOverWhenTheEnrollmentChanges(t *testing.T) {
 	if err != nil || status.State != ConnectionUnenrolled || status.Enrollment != nil {
 		t.Fatalf("unenroll = %+v, %v", status, err)
 	}
-	if _, err := settings.Load(dataDir); !errors.Is(err, settings.ErrNotEnrolled) {
+	if _, err := settings.LoadEnrollment(dataDir); !errors.Is(err, settings.ErrNotEnrolled) {
 		t.Fatalf("the enrollment outlived unenrolling: %v", err)
 	}
 	select {
@@ -103,7 +103,7 @@ func TestRunningNodeSwitchesToAnEnrollmentSavedWhileItRuns(t *testing.T) {
 		}
 		return settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: nodeID, Key: key}
 	}
-	if err := settings.Save(dataDir, enrollment("first")); err != nil {
+	if err := settings.SaveEnrollment(dataDir, enrollment("first")); err != nil {
 		t.Fatal(err)
 	}
 	link, err := OpenLink(dataDir, buildinfo.Info{})
@@ -132,7 +132,7 @@ func TestRunningNodeSwitchesToAnEnrollmentSavedWhileItRuns(t *testing.T) {
 		}
 	}
 	next("first")
-	if err := settings.Save(dataDir, enrollment("second")); err != nil {
+	if err := settings.SaveEnrollment(dataDir, enrollment("second")); err != nil {
 		t.Fatal(err)
 	}
 	next("second")
@@ -143,7 +143,7 @@ func TestRunningNodeSwitchesToAnEnrollmentSavedWhileItRuns(t *testing.T) {
 	if link.reload(func(string, ...any) {}) {
 		t.Fatal("an unchanged enrollment started the session over")
 	}
-	if err := settings.Remove(dataDir); err != nil {
+	if err := settings.RemoveEnrollment(dataDir); err != nil {
 		t.Fatal(err)
 	}
 	if link.reload(func(string, ...any) {}) || !link.Enrolled() {

@@ -47,7 +47,7 @@ var knownDataPaths = []struct{ name, role string }{
 	{"artifact-cache", "verified core archives that nodes install from"},
 	{"imports", "staged core uploads"},
 	{fleet.IdentityFile, "TLS key and certificate for direct node connections"},
-	{"panel-control.sock", "local process control"},
+	{procctl.SocketName, "local process control"},
 	{"panel.db-shm", "database shared memory"},
 	{"panel.db-wal", "database write-ahead log"},
 	{"panel.db", "database (nodes and their configurations, panel logs and product state)"},

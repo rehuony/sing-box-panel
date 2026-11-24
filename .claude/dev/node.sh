@@ -1,13 +1,14 @@
 #!/bin/sh
 # Runs a development node, enrolled with the development panel and with its
-# console on 127.0.0.1:3001. The node runtime needs Linux, so the node runs
+# console on 127.0.0.1:8000. The node runtime needs Linux, so the node runs
 # in a Debian container on the host network. Its binary is shared in
 # .claude/dev/state/bin/linux; its data stays in
 # .claude/dev/state/node-<generation> (ignored), the generation of the panel
 # it enrolls with, such as p1a2b3cn4d5e6f; earlier generations stay untouched
 # on disk.
-# Start the panel first. The first start of a generation adds or re-enrolls
-# dev-node with that panel and prints the console password once.
+# Start the panel first. The first start of a generation creates the node's
+# settings, printing the console password once, and adds or re-enrolls
+# dev-node with that panel.
 set -eu
 cd "$(dirname "$0")/../.."
 state=.claude/dev/state
@@ -24,11 +25,16 @@ image=debian:trixie-slim
 name=sbp-dev-node
 binaries="$PWD/$state/bin/linux:/opt/sbp:ro"
 data="$PWD/$instance:/var/lib/sing-box-node"
+config=/var/lib/sing-box-node/setting.json
 
 [ -f web/apps/node/dist/index.html ] || make build-frontend
 mkdir -p "$state/bin/linux" "$instance"
 GOOS=linux GOARCH="$(go env GOARCH)" CGO_ENABLED=0 go build -o "$state/bin/linux/" ./cmd/sing-box-node
 
+if [ ! -f "$instance/setting.json" ]; then
+  docker run --rm -v "$binaries" -v "$data" "$image" \
+    /opt/sbp/sing-box-node config init --config "$config"
+fi
 if [ ! -f "$instance/enrollment.json" ]; then
   go build -o "$state/bin/" ./cmd/sing-box-panel
   settings=$state/panel-$generation/setting.json
@@ -37,13 +43,9 @@ if [ ! -f "$instance/enrollment.json" ]; then
     "$state/bin/sing-box-panel" node enroll dev-node --config "$settings" -o json)
   code=$(printf '%s' "$issued" | sed -n 's/.*"code": *"\([^"]*\)".*/\1/p')
   docker run --rm --network host -v "$binaries" -v "$data" "$image" \
-    /opt/sbp/sing-box-node enroll --data-dir /var/lib/sing-box-node --code "$code"
-fi
-if [ ! -f "$instance/console.json" ]; then
-  docker run --rm -v "$binaries" -v "$data" "$image" \
-    /opt/sbp/sing-box-node console enable --data-dir /var/lib/sing-box-node
+    /opt/sbp/sing-box-node enroll --config "$config" --code "$code"
 fi
 
 docker rm -f "$name" >/dev/null 2>&1 || true
 exec docker run --rm --name "$name" --network host -v "$binaries" -v "$data" "$image" \
-  /opt/sbp/sing-box-node run --data-dir /var/lib/sing-box-node
+  /opt/sbp/sing-box-node server start --config "$config"

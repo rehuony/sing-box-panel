@@ -60,31 +60,30 @@ func NormalizeOrigin(raw string) (string, error) {
 	return scheme + "://" + authority, nil
 }
 
-// SameOrigin reports whether the request comes from the trusted origin: the
-// configured one when set, else the request's own scheme and host. Forwarded
-// headers are never trusted.
-func SameOrigin(request *http.Request, trusted string) bool {
-	origin := request.Header.Get("Origin")
-	if origin == "" {
-		return false
+// OriginAllowed reports whether a login or write may proceed from the
+// request's origin. Only a configured external origin is enforced, and then
+// the Origin header must name it exactly; forwarded headers never count.
+// Without one, the JSON-only login, the CSRF token and SameSite cookies stop
+// cross-site requests, so a reverse proxy needs no origin setting.
+func OriginAllowed(request *http.Request, externalOrigin string) bool {
+	if externalOrigin == "" {
+		return true
 	}
-	actual, err := NormalizeOrigin(origin)
-	if err != nil {
-		return false
+	actual, err := NormalizeOrigin(request.Header.Get("Origin"))
+	return err == nil && actual == externalOrigin
+}
+
+// SecureCookie reports whether session cookies need Secure: an HTTPS
+// external origin, else the request's own TLS. Forwarded headers never count.
+func SecureCookie(request *http.Request, externalOrigin string) bool {
+	if externalOrigin != "" {
+		return strings.HasPrefix(externalOrigin, "https://")
 	}
-	if trusted != "" {
-		return actual == trusted
-	}
-	scheme := "http"
-	if request.TLS != nil {
-		scheme = "https"
-	}
-	expected, err := NormalizeOrigin(scheme + "://" + request.Host)
-	return err == nil && actual == expected
+	return request.TLS != nil
 }
 
 // ChangesState reports whether a request method may change state and so
-// needs the CSRF token and a same-origin request.
+// needs the CSRF token and an accepted origin.
 func ChangesState(method string) bool {
 	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }

@@ -66,6 +66,12 @@ type Options struct {
 	Console func(ctx context.Context, readings ReadingsSource) error
 	// Update adjusts how the node updates itself when the panel asks.
 	Update UpdateOptions
+	// Control, if set, opens local control of the running node for server
+	// stop and server status; Run fills in its data directory.
+	Control *procctl.Status
+	// Ready, if set, is called once the runtime is reconciled and the
+	// console is serving.
+	Ready func()
 }
 
 func (options Options) logf(format string, args ...any) {
@@ -120,7 +126,7 @@ func Enroll(ctx context.Context, dataDir, rawCode string, build buildinfo.Info) 
 	enrollment := settings.Enrollment{
 		Endpoint: code.Endpoint, Path: code.Path, Pin: code.Pin, PanelID: response.GetPanelId(), NodeID: response.GetNodeId(), Key: privateKey,
 	}
-	if err := settings.Save(dataDir, enrollment); err != nil {
+	if err := settings.SaveEnrollment(dataDir, enrollment); err != nil {
 		return settings.Enrollment{}, fmt.Errorf("the panel enrolled node %s but saving the enrollment failed; issue a new code: %w", enrollment.NodeID, err)
 	}
 	return enrollment, nil
@@ -135,11 +141,40 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 		return settings.ErrNotEnrolled
 	}
 	dataDir := link.dataDir
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return fmt.Errorf("create the node data directory: %w", err)
+	}
 	lease, err := procctl.AcquireLease(dataDir)
+	if errors.Is(err, procctl.ErrLeaseHeld) {
+		return fmt.Errorf("a node already runs with the data directory %s; see sing-box-node server status", dataDir)
+	}
 	if err != nil {
 		return err
 	}
-	defer func() { runErr = errors.Join(runErr, lease.Close()) }()
+	var control *procctl.Control
+	if options.Control != nil {
+		// Stop requests cancel ctx; stop is acknowledged only after every
+		// resource below is closed and the lease is released.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		status := *options.Control
+		status.DataDir = dataDir
+		if control, err = procctl.Listen(status, cancel); err != nil {
+			return errors.Join(err, lease.Close())
+		}
+		stopMarking := context.AfterFunc(ctx, control.Stopping)
+		defer stopMarking()
+	}
+	defer func() {
+		if control != nil {
+			control.StopAccepting()
+		}
+		runErr = errors.Join(runErr, lease.Close())
+		if control != nil {
+			control.Finish(runErr)
+		}
+	}()
 	database, err := store.Open(ctx, filepath.Join(dataDir, "node.db"))
 	if err != nil {
 		return fmt.Errorf("open node database: %w", err)
@@ -185,6 +220,12 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 				stop(fmt.Errorf("console: %w", err))
 			}
 		})
+	}
+	if control != nil {
+		control.Ready(options.Control.Listen)
+	}
+	if options.Ready != nil {
+		options.Ready()
 	}
 
 	slots := make(chan struct{}, maximumCommands)

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
@@ -426,7 +427,7 @@ func TestAccountRemovalChecksProcessesBeforeOwnership(t *testing.T) {
 				}
 				defer lock.Close()
 			case "busy settings":
-				lock, err := settings.TryLock(t.Context(), f.settings)
+				lock, err := settingsfile.TryLock(t.Context(), f.settings)
 				if err != nil {
 					t.Fatal(err)
 				}

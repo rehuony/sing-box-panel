@@ -22,10 +22,6 @@ export const zhCN: NodeTranslation = {
   },
   console: {
     checking: '正在检查控制台会话…',
-    disabled: {
-      description: '此节点的控制台已关闭。使用 sing-box-node console enable 开启。',
-      title: '控制台已关闭',
-    },
     signOut: '退出登录',
     stale: '节点没有响应，显示的是上一次的状态。',
     title: '节点控制台',

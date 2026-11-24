@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
@@ -68,11 +67,7 @@ func (handler *Handler) currentSession(w http.ResponseWriter, request *http.Requ
 }
 
 func (handler *Handler) secureCookie(request *http.Request) bool {
-	// Use the same trusted origin as CSRF validation, never forwarded headers.
-	if origin := handler.settings.Server.ExternalOrigin; origin != "" {
-		return strings.HasPrefix(origin, "https://")
-	}
-	return request.TLS != nil
+	return webauth.SecureCookie(request, handler.settings.Server.ExternalOrigin)
 }
 
 func (handler *Handler) clearSessionCookie(w http.ResponseWriter, request *http.Request) {
@@ -125,7 +120,7 @@ func (handler *Handler) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if webauth.ChangesState(request.Method) &&
-			(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), session.CSRFToken) || !webauth.SameOrigin(request, handler.settings.Server.ExternalOrigin)) {
+			(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), session.CSRFToken) || !webauth.OriginAllowed(request, handler.settings.Server.ExternalOrigin)) {
 			writeProblem(w, request, http.StatusForbidden, "csrf_failed", "Request rejected", "The CSRF token or request origin is invalid.")
 			return
 		}

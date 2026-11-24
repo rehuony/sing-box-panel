@@ -8,10 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"time"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 )
 
 const (
@@ -22,22 +19,11 @@ const (
 	shutdownTimeout   = 5 * time.Second
 )
 
-// Listen opens the console's listener on a loopback address.
+// Listen opens the console's listener on address, a host:port.
 func Listen(address string) (net.Listener, error) {
-	if err := settings.ValidateConsoleListen(address); err != nil {
-		return nil, err
-	}
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", address, err)
-	}
-	var bound netip.Addr
-	if tcp, ok := listener.Addr().(*net.TCPAddr); ok {
-		bound, _ = netip.AddrFromSlice(tcp.IP)
-	}
-	if !bound.Unmap().IsLoopback() {
-		_ = listener.Close()
-		return nil, fmt.Errorf("the console listener %s is not on a loopback address", listener.Addr())
 	}
 	return listener, nil
 }

@@ -146,7 +146,7 @@ too, while the node runs.
 
 **Boundaries.**
 
-- A node accepts no connection from its panel or from other hosts. Its local control surfaces are the sing-box Clash API and, when enabled, its console, both on loopback only.
+- A node accepts no connection from its panel. Its control surfaces are the sing-box Clash API, on loopback only, and its password-protected console on the address its settings name.
 - A node validates every command itself. Filesystem browsing stays read-only and non-recursive; artifacts must match the digest the panel supplies; configurations pass `sing-box check` with the exact selected core before activation.
 - The panel sends a node only that node's configuration, artifacts and grants. Subscription tokens, source contents, administrator credentials and other nodes' data never leave the panel.
 - The panel stores node public keys, never node private keys. A compromised node cannot impersonate another node or read panel data.
@@ -296,12 +296,12 @@ detected public address.
 It cannot edit the node's configuration or control its runtime; the panel does
 that. [`api/node-openapi.yaml`](../api/node-openapi.yaml) is its HTTP contract.
 The console's Web application, `web/apps/node`, is embedded only in the node
-binary and served on the same loopback address.
+binary and served on the same address.
 
-- **Off by default.** `sing-box-node console enable` turns it on and generates a password when there is none; the settings and the password's Argon2id hash sit in `console.json` (mode 0600) in the node's data directory. An enabled console starts with `sing-box-node run`, and a node with an enabled console starts unenrolled and waits to be enrolled from it.
-- **Loopback only.** The console listens only on a loopback IP address, and answers only requests whose `Host` names a loopback host, so a page under another name that resolves to the node cannot reach it. Operators on other machines use an SSH tunnel.
-- **Same protections as the panel.** Login, its rate limits and concurrency bound, same-origin checks and the CSRF token come from the code the panel uses (`internal/webauth`). Sessions live in memory for 12 hours; changing the password ends all of them, and so does restarting the node.
-- **Settings apply at once.** Each request reads the console settings: a new password applies to the next login and a disabled console refuses every request; the listener closes when the node next starts.
+- **Always on.** Every running node serves its console, so `sing-box-node server start` and the node's service start in one step and an unenrolled node waits to be enrolled from it. Its address and the password's Argon2id hash sit in the node's settings file (mode 0600); the first start generates the password and prints it once.
+- **Any address, like the panel.** The console listens on `server.host:server.port`, `127.0.0.1:8000` by default, and on any address an operator sets. Beyond loopback it relies on its password, so put it behind HTTPS, such as a reverse proxy, or reach it through an SSH tunnel.
+- **Same protections as the panel.** Login, its rate limits and concurrency bound, origin checks and the CSRF token come from the code the panel uses (`internal/webauth`). As on the panel, `server.external_origin`, when set, is the only origin logins and changes are accepted from, and an HTTPS one makes the cookie Secure. Sessions live in memory for 12 hours; changing the password ends all of them, and so does restarting the node.
+- **Settings apply at once.** Each request reads the settings file: a new password or external origin applies to the next request; a new address applies when the node restarts.
 - **Enrollment changes end the session.** The node ends its session, saves the new enrollment and connects to the panel it names; a failed exchange leaves the current enrollment in place. Unenrolling removes the enrollment; the panel shows the node offline until an administrator removes it, and the node's runtime keeps its applied configuration either way.
 
 ## Code layout
@@ -339,19 +339,20 @@ internal/
     cli/ server/ testutil/
   sing-box-node/         node service: imports shared packages, never the panel
     agent/               enrollment link, session, handshake, reconnect, command dispatch, state and telemetry reports
-    httpapi/             loopback console API: login, enrollment and the link's status
+    httpapi/             console API: login, enrollment and the link's status
     artifacts/           verified core installs
     runtime/             process supervision, intents, recovery, Clash API monitor
     corelogs/            bounded native process output
     host/                host metrics, public IP, read-only filesystem
     service/             the node's use cases: installs, checks, activation, supervision, recovery, core logs, filesystem
     store/               node SQLite: revisions, bundles, intents, recovery, command results
-    systemd/             the node's unit templates and data-directory state for the shared lifecycle
+    systemd/             the node's unit templates and settings-file state for the shared lifecycle
     settings/ cli/
 
   Infrastructure: knows nothing of sing-box, subscriptions or the fleet
   atomicfile/ buildinfo/ console/ jsonstrict/ release/ selfupdate/
   procctl/               local service control and lease
+  settingsfile/          settings-file reads, writer lock, data directory and dotted fields of both services
   netguard/              which addresses count as public for outbound fetches and reported host addresses
   database/              SQLite opening, pragmas and data-directory locks shared by both stores
   logredact/             log redaction applied by both services

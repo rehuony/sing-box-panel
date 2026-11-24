@@ -14,6 +14,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 )
 
@@ -52,7 +53,7 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	if current.DataDir == "" {
 		return cleanWithoutData(ctx, current)
 	}
-	settingsLock, err := settings.TryLock(ctx, current.SettingsPath)
+	settingsLock, err := settingsfile.TryLock(ctx, current.SettingsPath)
 	if err != nil {
 		return result, err
 	}
@@ -267,7 +268,7 @@ func cleanWithoutData(ctx context.Context, current Report) (CleanupResult, error
 		if entry.Role != "settings write lock" || entry.State == "missing" {
 			continue
 		}
-		lock, err := settings.TryLock(ctx, current.SettingsPath)
+		lock, err := settingsfile.TryLock(ctx, current.SettingsPath)
 		if err != nil {
 			return result, err
 		}

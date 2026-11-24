@@ -28,7 +28,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
-const consoleOrigin = "http://127.0.0.1:3001"
+const consoleOrigin = "http://127.0.0.1:8000"
 
 func loadContract(t *testing.T) *openapi3.T {
 	t.Helper()
@@ -63,25 +63,36 @@ func TestOperationsMatchTheContract(t *testing.T) {
 	}
 }
 
-func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
+func TestConsoleAdmitsOnlyItsOperator(t *testing.T) {
 	ctx := t.Context()
 	dataDir := t.TempDir()
-	setConsole := func(enabled bool, password string) {
+	settingsPath := filepath.Join(t.TempDir(), "setting.json")
+	setPassword := func(password string) {
 		t.Helper()
 		hash, err := webauth.HashPassword(ctx, password)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := settings.SaveConsole(dataDir, settings.Console{Enabled: enabled, Listen: settings.DefaultConsoleListen, PasswordHash: hash}); err != nil {
+		// The external origin makes the console refuse logins and changes
+		// from any other origin.
+		value := settings.Settings{
+			Server: settings.Server{Host: "127.0.0.1", Port: 8000, ExternalOrigin: consoleOrigin}, DataDir: dataDir,
+			Auth: settings.Auth{PasswordHash: hash},
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := settings.Replace(ctx, settingsPath, raw); err != nil {
 			t.Fatal(err)
 		}
 	}
-	setConsole(true, "console-password-one")
+	setPassword("console-password-one")
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := settings.Save(dataDir, settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: "node", Key: key}); err != nil {
+	if err := settings.SaveEnrollment(dataDir, settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: "node", Key: key}); err != nil {
 		t.Fatal(err)
 	}
 	link, err := agent.OpenLink(dataDir, buildinfo.Info{Version: "test"})
@@ -104,7 +115,7 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 			PublicIP: "203.0.113.7",
 		}
 	}
-	handler := NewHandler(Options{DataDir: dataDir, Link: link, Readings: readings, Build: buildinfo.Info{Version: "test"}})
+	handler := NewHandler(Options{SettingsPath: settingsPath, Link: link, Readings: readings, Build: buildinfo.Info{Version: "test"}})
 	router, err := legacy.NewRouter(loadContract(t))
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +125,7 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 	serve := func(method, path, body string, edit func(*http.Request)) *httptest.ResponseRecorder {
 		t.Helper()
 		request := httptest.NewRequest(method, path, strings.NewReader(body))
-		request.Host = "127.0.0.1:3001"
+		request.Host = "127.0.0.1:8000"
 		request.Header.Set("Origin", consoleOrigin)
 		if body != "" {
 			request.Header.Set("Content-Type", "application/json")
@@ -156,8 +167,6 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 		return serve(http.MethodPost, "/api/v1/auth/session", `{"password":"`+password+`"}`, nil)
 	}
 
-	// A page under another name that resolves to the node cannot reach it.
-	expect(serve(http.MethodGet, "/api/v1/status", "", func(request *http.Request) { request.Host = "attacker.example:3001" }), http.StatusMisdirectedRequest, "host_not_allowed")
 	expect(serve(http.MethodGet, "/api/v1/status", "", nil), http.StatusUnauthorized, "authentication_required")
 	expect(login("wrong-console-password"), http.StatusUnauthorized, "invalid_credentials")
 	expect(serve(http.MethodPost, "/api/v1/auth/session", `{"password":"console-password-one"}`, func(request *http.Request) {
@@ -190,20 +199,18 @@ func TestConsoleAdmitsOnlyItsOperatorOnALoopbackHost(t *testing.T) {
 		status.Enrollment != nil || status.Connection.State != agent.ConnectionUnenrolled {
 		t.Fatalf("unenroll = %d %s", response.Code, response.Body.String())
 	}
-	if _, err := settings.Load(dataDir); !errors.Is(err, settings.ErrNotEnrolled) {
+	if _, err := settings.LoadEnrollment(dataDir); !errors.Is(err, settings.ErrNotEnrolled) {
 		t.Fatalf("the enrollment outlived unenrolling: %v", err)
 	}
 	expect(serve(http.MethodPost, "/api/v1/enrollment", `{"code":"not-a-code"}`, nil), http.StatusUnprocessableEntity, "enrollment_code_invalid")
 
-	// A new password ends every session; a disabled console admits no one.
-	setConsole(true, "console-password-two")
+	// A new password ends every session.
+	setPassword("console-password-two")
 	expect(serve(http.MethodGet, "/api/v1/status", "", nil), http.StatusUnauthorized, "session_expired")
-	setConsole(false, "console-password-two")
-	expect(login("console-password-two"), http.StatusServiceUnavailable, "console_disabled")
 }
 
-func TestConsoleServesItsApplicationOnlyToLoopbackHosts(t *testing.T) {
-	handler := NewHandler(Options{DataDir: t.TempDir(), Assets: fstest.MapFS{
+func TestConsoleServesItsApplication(t *testing.T) {
+	handler := NewHandler(Options{SettingsPath: filepath.Join(t.TempDir(), "setting.json"), Assets: fstest.MapFS{
 		"index.html":               {Data: []byte("<!doctype html><title>console</title>")},
 		"assets/index-Bbjcgd42.js": {Data: []byte("console.log(1)")},
 		"favicon.svg":              {Data: []byte("<svg/>")},
@@ -216,18 +223,15 @@ func TestConsoleServesItsApplicationOnlyToLoopbackHosts(t *testing.T) {
 		return response
 	}
 	// Any application route is the application's index, which is never cached.
-	if response := get("/status", "127.0.0.1:3001"); response.Code != http.StatusOK ||
+	if response := get("/status", "127.0.0.1:8000"); response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "<title>console</title>") || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("route = %d %q %q", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
 	}
-	if response := get("/assets/index-Bbjcgd42.js", "localhost:3001"); response.Code != http.StatusOK ||
+	if response := get("/assets/index-Bbjcgd42.js", "node.example:8000"); response.Code != http.StatusOK ||
 		response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Fatalf("hashed asset = %d %q", response.Code, response.Header().Get("Cache-Control"))
 	}
-	if response := get("/", "attacker.example:3001"); response.Code != http.StatusMisdirectedRequest {
-		t.Fatalf("rebinding host = %d", response.Code)
-	}
-	if response := get("/api/v1/missing", "127.0.0.1:3001"); response.Code != http.StatusNotFound ||
+	if response := get("/api/v1/missing", "127.0.0.1:8000"); response.Code != http.StatusNotFound ||
 		!strings.Contains(response.Body.String(), "operation_not_found") {
 		t.Fatalf("unknown API = %d %s", response.Code, response.Body.String())
 	}

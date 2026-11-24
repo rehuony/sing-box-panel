@@ -26,8 +26,9 @@ const (
 	helperSettle  = 5 * time.Second
 )
 
-func newUpdateCommand(deps Dependencies, dataDir *string, service systemdService) *cobra.Command {
+func newUpdateCommand(deps Dependencies, settingsPath *string, service systemdService) *cobra.Command {
 	var restart, applyStaged bool
+	var stagedDataDir string
 	command := &cobra.Command{
 		Use:   "update",
 		Short: "Update sing-box-node to its panel's release",
@@ -43,9 +44,16 @@ func newUpdateCommand(deps Dependencies, dataDir *string, service systemdService
 				if restart {
 					return errors.New("--restart does not apply to --apply-staged, which always restarts the service")
 				}
-				return applyStagedRelease(cmd, deps, *dataDir)
+				if stagedDataDir == "" {
+					return errors.New("--apply-staged needs the service's --data-dir")
+				}
+				return applyStagedRelease(cmd, deps, stagedDataDir)
 			}
-			enrollment, err := settings.Load(*dataDir)
+			dataDir, err := settings.LoadDataDir(*settingsPath)
+			if err != nil {
+				return err
+			}
+			enrollment, err := settings.LoadEnrollment(dataDir)
 			if err != nil {
 				return err
 			}
@@ -101,6 +109,7 @@ func newUpdateCommand(deps Dependencies, dataDir *string, service systemdService
 	}
 	command.Flags().BoolVar(&restart, "restart", false, "restart the node's systemd service after installing")
 	command.Flags().BoolVar(&applyStaged, "apply-staged", false, "install the release the system service staged (run by the root update helper)")
+	command.Flags().StringVar(&stagedDataDir, "data-dir", "", "the system service's data directory, for --apply-staged")
 	return command
 }
 

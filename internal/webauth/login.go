@@ -75,11 +75,11 @@ func Unavailable() *Rejection {
 }
 
 // Admit bounds one login before its credentials are checked: it charges the
-// peer's and the fingerprint's budgets, reserves a work slot, requires a
-// same-origin JSON request from trustedOrigin (see SameOrigin), and reads at
-// most maxBody bytes under LoginTimeout. The returned Login is never nil;
-// call its Finish after responding.
-func (limiter *LoginLimiter) Admit(w http.ResponseWriter, request *http.Request, trustedOrigin string, maxBody int64) (*Login, *Rejection) {
+// peer's and the fingerprint's budgets, reserves a work slot, requires a JSON
+// request from an allowed origin (see OriginAllowed), and reads at most
+// maxBody bytes under LoginTimeout. The returned Login is never nil; call its
+// Finish after responding.
+func (limiter *LoginLimiter) Admit(w http.ResponseWriter, request *http.Request, externalOrigin string, maxBody int64) (*Login, *Rejection) {
 	login := &Login{Request: request}
 	controller := http.NewResponseController(w)
 	// A rejected HTTP/1 login must not keep the connection busy draining an
@@ -115,8 +115,8 @@ func (limiter *LoginLimiter) Admit(w http.ResponseWriter, request *http.Request,
 	if allowed, retryAfter := limiter.Fingerprint(fingerprint); !allowed {
 		return login, RateLimited(retryAfter)
 	}
-	if !SameOrigin(request, trustedOrigin) || !jsonContentType(request.Header.Get("Content-Type")) {
-		return login, &Rejection{Status: http.StatusForbidden, Code: "csrf_failed", Title: "Request rejected", Detail: "A same-origin JSON login request is required."}
+	if !OriginAllowed(request, externalOrigin) || !jsonContentType(request.Header.Get("Content-Type")) {
+		return login, &Rejection{Status: http.StatusForbidden, Code: "csrf_failed", Title: "Request rejected", Detail: "A JSON login request from an accepted origin is required."}
 	}
 	invalidBody := &Rejection{Status: http.StatusBadRequest, Code: "invalid_body", Title: "Invalid request", Detail: "The login payload is invalid."}
 	if request.ContentLength > maxBody {

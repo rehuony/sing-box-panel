@@ -12,7 +12,7 @@
       "name": "node",
       "runtimeExecutable": "sh",
       "runtimeArgs": [".claude/dev/node.sh"],
-      "port": 3001,
+      "port": 8000,
       "autoPort": false
     },
     {

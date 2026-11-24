@@ -9,8 +9,9 @@ After=network-online.target
 
 [Service]
 Environment=SING_BOX_SYSTEMD_SCOPE=user
+Environment=SING_BOX_NODE_SUPERVISOR=systemd
 Type=simple
-ExecStart=%h/.local/bin/sing-box-node --data-dir %h/.local/share/sing-box-node run
+ExecStart=%h/.local/bin/sing-box-node server start --config %h/.config/sing-box-node/setting.json
 WorkingDirectory=%h/.local/share/sing-box-node
 Restart=on-failure
 RestartSec=5s

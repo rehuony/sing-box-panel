@@ -65,21 +65,22 @@ nothing imports.
 | | `atomicfile` | Crash-safe file publication and directory syncs for both services and the tools |
 | | `release`, `selfupdate` | Release-version validation and signatures; fetching, verifying and atomically installing either binary, staging a release for a system service's root update helper, and the helper's staged apply |
 | | `procctl` | Private local control of a running service without an OS service manager; the service lifetime and lease, never background processes |
+| | `settingsfile` | What both services' settings files share: bounded reads, the writer lock, data-directory resolution and the dotted field names of the config commands |
 | | `database` | SQLite opening, connection pragmas, schema identity, the migration runner and data-directory locks shared by both stores |
 | | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
 | | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
-| | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files |
+| | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files, and refusing a root start against files that account owns |
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
 | | `netguard` | Which addresses count as public: the only addresses the panel's source and core downloads reach without an operator's permission, and the only ones a node reports as its public address |
-| | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, same-origin and CSRF checks, and security headers |
-| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `run`, `console` and `systemd` |
-| | `settings` | The node's data directory, its enrollment (panel endpoint, trust, IDs and the Ed25519 identity key) and its console settings |
+| | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, origin and CSRF checks, and security headers |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `update`, `server`, `config`, `system` and `systemd` |
+| | `settings` | The node's settings file (console address, external origin, data directory and console password hash) and the enrollment in its data directory (panel endpoint, trust, IDs and the Ed25519 identity key) |
 | | `agent` | Enrollment, the link that holds it with the session's state, the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
-| | `httpapi` | The loopback console API: password login, the link's status, enrollment and unenrollment |
-| | `systemd` | The node's unit templates and its data directory as the state of its systemd installation, which must hold an enrollment or an enabled console before it starts |
+| | `httpapi` | The console API: password login, the link's status, enrollment and unenrollment |
+| | `systemd` | The node's unit templates and its settings file as the state of its systemd installation: data directory and created settings |
 | | `store` | Node SQLite: received configuration revisions, installed cores, checked startup artifacts, activation bundles, runtime intents, observations and history, and command results |
 | | `service` | The node's use cases: core installs, checks and activation, process supervision and recovery, core logs, filesystem selection and the public IP hint |
 | | `artifacts` | Verification and publication of immutable installed core files |
@@ -485,8 +486,8 @@ return 429 with `Retry-After` in seconds. State is memory-only, bounded to 4096
 keys without evicting active entries, expires automatically, and resets on restart.
 
 Forwarded-IP headers are ignored, including behind a reverse proxy: users sharing
-a direct proxy/NAT peer share its budget. `server.external_origin` establishes the
-trusted origin and cookie scheme, not trust in forwarded client IPs. Login JSON
+a direct proxy/NAT peer share its budget. `server.external_origin`, when set,
+establishes the enforced origin and cookie scheme, not trust in forwarded client IPs. Login JSON
 is bounded to 4 KiB; body reads, settings-lock waits and response writes share a
 five-second deadline. The write deadline is armed before admission, covers rejected
 responses too, and remains active through the server's buffered flush. On expiry,
@@ -499,8 +500,8 @@ The admission, limits and deadlines live in `internal/webauth`, and the node
 console applies the same ones to its password login.
 
 Management Bearer authentication is removed. Automation uses the same login endpoint
-with JSON and an `Origin`, retains the Cookie, then supplies `X-CSRF-Token` and
-`Origin` for writes. Login and `GET /api/v1/auth/session` return email, display name,
+with JSON, retains the Cookie, then supplies `X-CSRF-Token` for writes; with
+`server.external_origin` set, login and writes also send an `Origin` naming it. Login and `GET /api/v1/auth/session` return email, display name,
 CSRF token and expiration. Subscription tokens retain their separate purpose.
 
 SQLite stores only a SHA-256 digest of the random session identifier, CSRF token,
@@ -515,7 +516,7 @@ session. Database/service errors return 503 and do not clear the browser Cookie.
 The settings API accepts optional `credentials.email` and `credentials.new_password`
 independently, without current-password verification. Empty passwords preserve the
 current hash; empty email addresses are invalid. Password confirmation is not part of
-the interface. Authenticated writes still require the existing session, Origin and CSRF.
+the interface. Authenticated writes still require the existing session, CSRF token and, when configured, the external origin.
 
 `config set auth.password --stdin` accepts a custom password and atomically
 replaces only its hash in the existing settings file after validating the result,
@@ -534,11 +535,14 @@ from the session endpoint. Only a confirmed 401 clears frontend authentication;
 network/5xx errors preserve it, and writes are never replayed automatically.
 
 The generated listener is `127.0.0.1:3000`. Before exposing the service beyond
-loopback, place it behind a reviewed HTTPS reverse proxy and set
-`server.external_origin` to its normalized public origin. HTTPS automatically
-enables Secure session cookies; origin changes take effect after restart. CSRF origin
-checks use this explicit value and never trust `Forwarded` or
-`X-Forwarded-*` headers. Administrator credentials and subscription tokens are separate trust boundaries.
+loopback, place it behind a reviewed HTTPS reverse proxy. The panel checks the
+`Origin` of logins and writes only when `server.external_origin` is set: it must
+then equal that normalized public origin, and forwarded headers never change the
+check. Without an external origin no `Origin` is checked, so a proxy works without
+origin settings; the JSON-only login, the CSRF token and SameSite=Strict cookies
+still stop cross-site requests. An HTTPS external origin also enables Secure
+session cookies; origin changes take effect after restart. `Forwarded` and
+`X-Forwarded-*` headers are never trusted. Administrator credentials and subscription tokens are separate trust boundaries.
 
 The removed `auth.secure_cookie` setting and `service.secure_cookie` API field are
 rejected, including inside backup settings. Existing files and backups require

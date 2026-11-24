@@ -2,7 +2,7 @@
 
 //go:build linux || darwin
 
-package settings
+package settingsfile
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 )
 
-// Lock serializes panel and CLI writers across atomic file replacements. The
+// Lock serializes a service's and its CLI's writers across atomic file replacements. The
 // lock file is retained so a waiting writer never locks an unlinked inode.
 func Lock(ctx context.Context, path string) (*os.File, error) { return lockFile(ctx, path, true) }
 

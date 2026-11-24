@@ -37,7 +37,7 @@ func TestStopWaitsForCleanupAndReportsItsResult(t *testing.T) {
 				t.Fatal(err)
 			}
 			control.Ready("127.0.0.1:3000")
-			info, err := os.Stat(filepath.Join(dir, socketName))
+			info, err := os.Stat(filepath.Join(dir, SocketName))
 			if err != nil || info.Mode().Perm() != 0o600 {
 				t.Fatalf("socket permissions: %v %v", info, err)
 			}
@@ -87,11 +87,11 @@ func fmtError(err error) string {
 }
 
 func TestControlRejectsSystemdStop(t *testing.T) {
-	t.Setenv("SING_BOX_PANEL_SUPERVISOR", "systemd")
+	t.Setenv("SING_BOX_TEST_SUPERVISOR", "systemd")
 	dir := shortDirectory(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	control, err := Listen(Status{DataDir: dir}, cancel)
+	control, err := Listen(Status{DataDir: dir, ManagedBy: ManagedBy("SING_BOX_TEST_SUPERVISOR")}, cancel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,9 +108,9 @@ func TestControlRejectsSystemdStop(t *testing.T) {
 
 func TestInheritedTerminalInvocationDoesNotImplySystemdOwnership(t *testing.T) {
 	t.Setenv("INVOCATION_ID", "terminal-service-invocation")
-	t.Setenv("SING_BOX_PANEL_SUPERVISOR", "")
+	t.Setenv("SING_BOX_TEST_SUPERVISOR", "")
 	dir := shortDirectory(t)
-	control, err := Listen(Status{DataDir: dir}, func() {})
+	control, err := Listen(Status{DataDir: dir, ManagedBy: ManagedBy("SING_BOX_TEST_SUPERVISOR")}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestInheritedTerminalInvocationDoesNotImplySystemdOwnership(t *testing.T) {
 
 func TestControlReplacesOnlyStaleSockets(t *testing.T) {
 	dir := shortDirectory(t)
-	path := filepath.Join(dir, socketName)
+	path := filepath.Join(dir, SocketName)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +182,6 @@ func TestStopTimeoutDoesNotClaimSuccessOrCancelCleanup(t *testing.T) {
 }
 
 func TestAlreadyAcceptedStopCannotRevertCompletedState(t *testing.T) {
-	t.Setenv("SING_BOX_PANEL_SUPERVISOR", "")
 	control, err := Listen(Status{DataDir: shortDirectory(t)}, func() {})
 	if err != nil {
 		t.Fatal(err)

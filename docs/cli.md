@@ -22,9 +22,11 @@ The node binary has its own tree, described under [Nodes](#nodes):
 
 ```text
 sing-box-node
-├─ version | enroll | run | update
-├─ console status | enable | disable | password
-└─ systemd install | uninstall | status | start | stop | restart | logs
+├─ version | enroll | update
+├─ system df | prune
+├─ server start | stop | status
+├─ systemd install | uninstall | status | start | stop | restart | logs
+└─ config init | show | get | set | verify
 ```
 
 Every command is at most two words deep; each group adds one verb.
@@ -292,25 +294,84 @@ host enrolls; adding the same name again replaces an unused code:
 
 ```sh
 sing-box-node enroll --code sbp1....
-sing-box-node run
+sing-box-node server start
 ```
 
 The code names the panel endpoint and base path, how the node trusts it and a
 one-time token; the panel keeps only a hash of the token. See
-[Nodes](configuration-and-runtime.md#nodes) for how the panel derives them. `sing-box-node
-enroll` generates the node's Ed25519 key and saves it with the enrollment in
-`enrollment.json` (mode 0600) in its data directory, `--data-dir`, which
-defaults to `/var/lib/sing-box-node` for root and
-`$XDG_DATA_HOME/sing-box-node` otherwise. `sing-box-node run` dials the panel,
-authenticates the session with that key, carries out the panel's commands and
-reconnects with backoff until it is stopped. The node keeps `node.db`, its
-installed cores in `artifacts/`, disposable configurations in `runtime/` and
-its core logs in `logs/core/` in the same data directory, and runs the managed
-sing-box with `runtime/` as its working directory. A node shows `online` while it
-holds a session and `offline` otherwise. Removing a node, or enrolling it
-again, ends its current session. Enrolling a node while it runs saves the new
-enrollment, and the running node switches to it within a few seconds; `enroll`
-says so when it finds the node running.
+[Nodes](configuration-and-runtime.md#nodes) for how the panel derives them.
+
+### Node settings and data
+
+`-c, --config PATH` selects the node's settings file: root uses
+`/etc/sing-box-node/setting.json`, other users
+`$XDG_CONFIG_HOME/sing-box-node/setting.json` (default
+`~/.config/sing-box-node/setting.json`). It holds where the console listens,
+the data directory and the console password's Argon2id hash:
+
+| Field | Meaning | Default |
+| --- | --- | --- |
+| `server.host` / `server.port` | Console listen address, any IP address or `localhost` | `127.0.0.1` / `8000` |
+| `server.external_origin` | When set, the only origin the console accepts logins and changes from; HTTPS also makes its cookie Secure | Empty |
+| `data_dir` | Data directory, relative to the settings file when relative | `/var/lib/sing-box-node` for root, `$XDG_DATA_HOME/sing-box-node` otherwise |
+| `auth.password_hash` | Console password hash; set it with `config set auth.password` | Hash of a generated password |
+
+`enroll`, `server start` and `systemd install` create missing settings with a
+generated console password, which they print once. `config` mirrors the
+panel's [settings commands](#panel-settings): `init [--force]`, `show`,
+`get FIELD`, `set FIELD VALUE`, `set FIELD --stdin`, `set --file FILE|-` and
+`verify`, with `--json` in place of `--output json`. `auth.password` is
+write-only and saves only its hash; a new password applies at once and signs
+every console session out. Server and data directory changes apply when the
+node restarts.
+
+```sh
+sing-box-node config set auth.password --stdin
+sing-box-node config set server.host 0.0.0.0
+sing-box-node config set server.external_origin https://node.example.com
+```
+
+`sing-box-node enroll` generates the node's Ed25519 key and saves it with the
+enrollment in `enrollment.json` (mode 0600) in the data directory. A running
+node switches to a new enrollment within a few seconds; otherwise `enroll`
+names the command that starts it, `systemd start` when an installed service
+uses these settings. The node keeps `node.db`, its installed cores in
+`artifacts/`, disposable configurations in `runtime/` and its core logs in
+`logs/core/` in the same data directory, and runs the managed sing-box with
+`runtime/` as its working directory. A node shows `online` while it holds a
+session and `offline` otherwise. Removing a node, or enrolling it again, ends
+its current session.
+
+### Running a node
+
+`server start` runs the node and its [console](panel-node-architecture.md#node-console)
+in the terminal until `Ctrl+C`, `SIGTERM` or `server stop`. The node dials the
+panel, authenticates the session with its key, carries out the panel's
+commands and reconnects with backoff; an unenrolled node waits to be enrolled
+from its console or with `enroll`. Once ready it prints the console URL and the
+settings and data paths. `server status` and `server stop [--timeout]` reach a
+manually started node through its data directory, as the panel's do; a
+systemd-managed node directs `stop` to `systemd stop`. Only one node runs per
+data directory.
+
+Run as root, `server start` refuses settings or a data directory that another
+account owns, such as the system service's, before touching them: it names the
+owning account and the command to use, `sudo sing-box-node systemd start`. The
+service runs as that account, and a root process would leave files it cannot
+use. `sing-box-panel server start` refuses the same way.
+
+The node runs its cores from `artifacts/`, so every directory above it must
+belong to root or to the account running the node and be writable only by its
+owner (or sticky). Otherwise the node does not start, and its error names the
+directory and what is wrong with it.
+
+`system df` lists the settings file, every entry in the data directory with its
+size and the files of a service whose unit names these settings; `--json`
+returns the same report. `system prune` shows that list; `--yes` stops the
+node, uninstalls that service (`--keep-user` keeps the system account), then
+deletes the settings file and the whole data directory. Roots, homes, shared
+system directories, linked data directories and one holding the running
+executable are refused; the executable is kept. This cannot be undone.
 
 `sing-box-node update` updates the node to the release of the panel it is
 enrolled with. It fetches the release from the panel with the node's
@@ -327,44 +388,25 @@ itself, from the node's settings or in a batch; see
 sudo sing-box-node update --restart
 ```
 
-`sing-box-node update --apply-staged` is the entry point of the system
-service's root update helper, which the helper unit runs; see
+`sing-box-node update --apply-staged --data-dir DIR` is the entry point of the
+system service's root update helper, which the helper unit runs; see
 [systemd packaging](systemd.md#update-helper).
-
-A node can instead be enrolled from its local [console](panel-node-architecture.md#node-console),
-which is off by default:
-
-```sh
-sing-box-node console enable                 # listen on 127.0.0.1:3001; prints a generated password once
-sing-box-node console enable --listen [::1]:3001
-sing-box-node console password --stdin       # set the password; without --stdin, generate and print one
-sing-box-node console status [--json]
-sing-box-node console disable
-```
-
-The console settings and the password's Argon2id hash are kept in
-`console.json` (mode 0600) in the node's data directory. `--listen` accepts
-only a loopback IP address and port. An enabled console starts with
-`sing-box-node run`, which then also runs while the node is unenrolled and
-waits to be enrolled from the console; restart a running node after enabling
-the console or changing its address. A new password applies at once and signs
-every console session out, and a disabled console refuses requests at once.
-From another machine, forward the console through an SSH tunnel, such as
-`ssh -L 3001:127.0.0.1:3001 node-host`.
 
 `sing-box-node systemd` manages the node's own service, with the same commands
 and flags as the panel's (`--scope`, `--force`, `--now`, `--keep-user`,
-`--lines`, `--since`) and `--json` in place of `--output json`. The data
-directory is the node's state: system scope uses `/var/lib/sing-box-node` and
-the dedicated `sing-box-node` account, and user scope the selected
-`--data-dir`. `install --now` and `start` need a node that is enrolled or has
-its console enabled. `status` reports the `--data-dir` written in the unit
-file on disk. See the [systemd packaging guide](systemd.md).
+`--lines`, `--since`) and `--json` in place of `--output json`. The settings
+file is the node's state, as for the panel: system scope uses
+`/etc/sing-box-node/setting.json` and `/var/lib/sing-box-node` with the
+dedicated `sing-box-node` account, and user scope the selected `--config`.
+Installing creates missing settings and prints the console password; with
+`--now` the node starts at once and waits to be enrolled. `status` reports the
+settings path written in the unit file and the data directory it selects.
 
 ```sh
 sudo sing-box-node systemd install --scope=system --now
+sudo sing-box-node enroll --code sbp1....
 sudo sing-box-node systemd status
-sudo sing-box-node systemd uninstall --scope=system   # keeps the data directory
+sudo sing-box-node systemd uninstall --scope=system   # keeps the settings and data
 ```
 
 ## Foreground panel control
@@ -404,7 +446,7 @@ unrelated invalid runtime setting cannot prevent stopping the panel. Startup
 requires the complete valid settings. Keep the selected settings path unchanged while running. A `data_dir` edit is
 persisted immediately but relocates storage only during the next explicit start;
 stop/status still find the original instance. The private
-`panel-control.sock` path inside `data_dir` must fit the platform's Unix socket
+`control.sock` path inside `data_dir` must fit the platform's Unix socket
 path limit. A stale socket is replaced only after acquiring the runtime lease;
 regular files and symlinks at that path are never replaced.
 

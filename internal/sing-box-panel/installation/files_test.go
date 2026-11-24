@@ -15,6 +15,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
@@ -573,7 +574,7 @@ func TestInspectLeavesIncompleteOrLinkedWALUntouched(t *testing.T) {
 
 func TestCleanupCoordinatesWithSettingsWriter(t *testing.T) {
 	path, dataDir := fixture(t)
-	lock, err := settings.Lock(t.Context(), path)
+	lock, err := settingsfile.Lock(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,10 +20,6 @@ export const en = {
   },
   console: {
     checking: 'Checking the console session…',
-    disabled: {
-      description: 'The console is disabled on this node. Enable it with sing-box-node console enable.',
-      title: 'Console disabled',
-    },
     signOut: 'Sign out',
     stale: 'The node did not answer; showing the last status.',
     title: 'Node console',

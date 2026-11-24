@@ -506,9 +506,16 @@ created_node="$(jq -n '{name: "smoke-node"}' | authenticated_write POST '/api/v1
 assert_json 'adding a node issues a one-time enrollment code' \
   '.name == "smoke-node" and (.node_id | length > 0) and (.code | length > 0)' <<<"${created_node}"
 node_id="$(jq -er '.node_id' <<<"${created_node}")"
+# A node's settings select its data directory and a free console port.
+node_settings() {
+  "${installed_node}" --config "$1" config init >/dev/null
+  "${installed_node}" --config "$1" config set data_dir "$2" >/dev/null
+  "${installed_node}" --config "$1" config set server.port "$(allocate_port)" >/dev/null
+}
 # The node exists once a host enrolls with the code. It is never started, so it
 # stays offline while the panel keeps its editable configuration.
-"${installed_node}" --data-dir "${smoke_root}/configuration-node-data" enroll --code "$(jq -er '.code' <<<"${created_node}")" >/dev/null
+node_settings "${smoke_root}/configuration-node.json" "${smoke_root}/configuration-node-data"
+"${installed_node}" --config "${smoke_root}/configuration-node.json" enroll --code "$(jq -er '.code' <<<"${created_node}")" >/dev/null
 node_path="/api/v1/nodes/${node_id}"
 file_path="${node_path}/config/file"
 
@@ -607,11 +614,13 @@ for asset_name in SHA256SUMS SHA256SUMS.sig sing-box-node-linux-amd64 sing-box-n
   cp -- "${release_dir}/${asset_name}" "${release_cache}/${asset_name}"
 done
 node_data_dir="${smoke_root}/node-data"
+node_settings_path="${smoke_root}/node-setting.json"
+node_settings "${node_settings_path}" "${node_data_dir}"
 node_enrollment="$(jq -n '{name: "smoke-update"}' | authenticated_write POST '/api/v1/nodes' 201)"
 update_node_path="/api/v1/nodes/$(jq -er '.node_id' <<<"${node_enrollment}")"
-"${installed_node}" --data-dir "${node_data_dir}" enroll --code "$(jq -er '.code' <<<"${node_enrollment}")" >/dev/null
+"${installed_node}" --config "${node_settings_path}" enroll --code "$(jq -er '.code' <<<"${node_enrollment}")" >/dev/null
 start_node() {
-  "${installed_node}" --data-dir "${node_data_dir}" run >"${smoke_root}/node-$1.log" 2>&1 &
+  "${installed_node}" --config "${node_settings_path}" server start >"${smoke_root}/node-$1.log" 2>&1 &
   node_pid=$!
 }
 wait_for_node() {

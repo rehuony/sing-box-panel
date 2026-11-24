@@ -57,7 +57,7 @@ one with `sing-box-panel node add` and run `sing-box-node` as described in
 [Nodes](../docs/cli.md#nodes).
 
 The node console application expects a node whose console listens on
-`127.0.0.1:3001`; `sing-box-node console enable` prints its password. Start the
+`127.0.0.1:8000`; its first start prints the console password. Start the
 application with `pnpm --filter @sing-box-panel/node run dev`. The node runtime
 requires Linux, so on another system run the node in a Linux container that
 shares the host's network.
@@ -81,8 +81,8 @@ Test environments, timeout bounds and coverage ownership are documented in
 
 ## Node console
 
-`apps/node` is the node console's application, served by `sing-box-node run`
-on the console's loopback address. It signs in with the console password and
+`apps/node` is the node console's application, served by `sing-box-node server
+start` on the console's address. It signs in with the console password and
 shows the node, the panel it is enrolled with and the state of its session,
 refreshed every five seconds; the last status stays visible, marked stale,
 when the node stops answering. Its transport types under `src/api/generated/`

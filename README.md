@@ -111,13 +111,13 @@ explicitly:
 /usr/local/bin/sing-box-panel systemd install --scope=system --now
 ```
 
-A node first needs its panel: enroll it with the command the panel shows when
-the node is added (`sing-box-node enroll --code ...`), or enable its local
-console (`sing-box-node console enable`) and enroll it from there. Then install
-its service the same way:
+A node installs its service the same way. It starts at once, prints its
+console password and waits to be enrolled: run the command the panel shows when
+the node is added, or enroll it from its console at `http://127.0.0.1:8000/`:
 
 ```sh
 sudo /usr/local/bin/sing-box-node systemd install --scope=system --now
+sudo /usr/local/bin/sing-box-node enroll --code ...
 ```
 
 A user service requires administrator-enabled lingering if it must continue

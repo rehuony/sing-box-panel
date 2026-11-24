@@ -2,7 +2,7 @@
 
 //go:build !linux && !darwin
 
-package settings
+package settingsfile
 
 import (
 	"context"

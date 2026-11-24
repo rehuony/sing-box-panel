@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
@@ -282,7 +283,7 @@ func TestSetFieldPreservesRecoveryAndCancellation(t *testing.T) {
 	if err := SetField(t.Context(), path, "server.port", "8443"); !errors.Is(err, ErrPending) {
 		t.Fatal("field update bypassed recovery", err)
 	}
-	after, _ := ReadRaw(path)
+	after, _ := settingsfile.Read(path)
 	if !bytes.Equal(before, after) {
 		t.Fatal("blocked field update changed settings")
 	}

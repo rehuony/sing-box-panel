@@ -690,7 +690,7 @@ func TestSystemPruneRemovesUnknownDataAndStaleControlFile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, name := range []string{"panel.db", "unknown.txt", "panel-control.sock"} {
+			for _, name := range []string{"panel.db", "unknown.txt", procctl.SocketName} {
 				if err := os.WriteFile(filepath.Join(dataDir, name), []byte("unrecognized contents"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -715,7 +715,7 @@ func TestSystemPruneRemovesUnknownDataAndStaleControlFile(t *testing.T) {
 				t.Fatalf("full cleanup error=%v stderr=%s", err, stderr)
 			}
 			if format == "text" {
-				if !strings.Contains(stdout, "unknown.txt [removed]") || !strings.Contains(stdout, "panel-control.sock [removed]") {
+				if !strings.Contains(stdout, "unknown.txt [removed]") || !strings.Contains(stdout, procctl.SocketName+" [removed]") {
 					t.Fatalf("missing completed cleanup results:\n%s", stdout)
 				}
 			} else {

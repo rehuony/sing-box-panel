@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package systemd defines the node's systemd service: its audited templates
-// and its data directory, which identifies an installation. The shared
-// systemd package runs the lifecycle.
+// and its settings file, which identifies an installation and selects its
+// data directory. The shared systemd package runs the lifecycle.
 package systemd
 
 import (
@@ -11,8 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
@@ -22,8 +25,8 @@ const (
 	// directory.
 	Name     = "sing-box-node"
 	UnitName = Name + ".service"
-	// SystemDataDir is the data directory of the system service.
-	SystemDataDir = "/var/lib/" + Name
+	// SystemSettingsPath is the settings file of the system service.
+	SystemSettingsPath = settings.SystemPath
 )
 
 // The audited packaging templates. The installer and the release artifacts use
@@ -58,24 +61,20 @@ func updateCompanions() []systemd.Companion {
 	}
 }
 
-// Manager is the node's systemd lifecycle; the node creates no state when
-// it is installed.
-type Manager = systemd.Manager[struct{}]
+// Manager is the node's systemd lifecycle; it reports the settings that
+// installing or starting the service created.
+type Manager = systemd.Manager[settings.Settings]
 
-// ErrNotRunnable reports a node that its service could not run: it is
-// neither enrolled nor has its console enabled.
-var ErrNotRunnable = errors.New("the node is not enrolled and its console is disabled; run sing-box-node enroll --code <code> or sing-box-node console enable first")
-
-// Definition is the node service: its data directory is its state.
-func Definition() systemd.Definition[struct{}] {
-	return systemd.Definition[struct{}]{
+// Definition is the node service: its settings file is its state.
+func Definition() systemd.Definition[settings.Settings] {
+	return systemd.Definition[settings.Settings]{
 		Name: Name, AccountDescription: "Sing-Box Node service account",
 		SystemUnit: systemUnitTemplate, UserUnit: userUnitTemplate, Sysusers: sysusersTemplate, Tmpfiles: tmpfilesTemplate,
-		SystemStatePath: SystemDataDir, StateFlag: "--data-dir", StateLabel: "data directory",
-		Arguments:          func(dataDir string) string { return "--data-dir " + dataDir + " run" },
+		SystemStatePath: SystemSettingsPath, StateFlag: "--config", StateShortFlag: "-c", StateLabel: "settings", StateFile: true,
+		Arguments:          func(settingsPath string) string { return "server start --config " + settingsPath },
 		State:              nodeState{},
 		Companions:         updateCompanions(),
-		CompanionArguments: func(dataDir string) string { return "--data-dir " + dataDir + " update --apply-staged" },
+		CompanionArguments: func(dataDir string) string { return "update --apply-staged --data-dir " + dataDir },
 	}
 }
 
@@ -83,49 +82,108 @@ func New(options systemd.Options) (*Manager, error) {
 	return systemd.New(Definition(), options)
 }
 
-// nodeState is the node's data directory: enrollment, console settings,
-// node.db and installed cores.
+// nodeState is the node's settings file and the data directory it selects:
+// enrollment, node.db, installed cores and core logs.
 type nodeState struct{}
 
-func (nodeState) DataDir(dataDir, _ string, now bool) (string, error) {
-	if now {
-		if err := runnable(dataDir); err != nil {
-			return "", err
+func (nodeState) DataDir(settingsPath, fallback string, now bool) (string, error) {
+	dataDir, err := settings.LoadDataDir(settingsPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if _, statErr := os.Lstat(settingsPath); !errors.Is(statErr, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: settings must be a regular file", systemd.ErrInvalid)
+		}
+		if fallback == "" {
+			fallback = settings.Defaults().DataDir
+		}
+		return fallback, nil
+	case err != nil:
+		return "", fmt.Errorf("%w: %w", systemd.ErrInvalid, err)
+	case now:
+		if _, err := settings.Load(settingsPath); err != nil {
+			return "", fmt.Errorf("%w: %w", systemd.ErrInvalid, err)
 		}
 	}
 	return dataDir, nil
 }
 
-// runnable checks that sing-box-node run can start in dataDir: the node is
-// enrolled, or its console is enabled so it can be enrolled from there.
-func runnable(dataDir string) error {
-	_, err := settings.Load(dataDir)
-	if !errors.Is(err, settings.ErrNotEnrolled) {
-		if err != nil {
-			return fmt.Errorf("%w: %w", systemd.ErrInvalid, err)
+// Validate refuses settings paths that are not regular files before
+// anything is written.
+func (nodeState) Validate(_, settingsPath, _ string) error {
+	directory := filepath.Dir(settingsPath)
+	if info, err := os.Lstat(directory); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%w: settings directory %q must be a physical directory", systemd.ErrInvalid, directory)
 		}
-		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	console, err := settings.LoadConsole(dataDir)
-	if err != nil {
-		return fmt.Errorf("%w: %w", systemd.ErrInvalid, err)
-	}
-	if !console.Enabled {
-		return fmt.Errorf("%w: %w", systemd.ErrInvalid, ErrNotRunnable)
+	for _, path := range []string{settingsPath, settingsPath + ".lock"} {
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect settings path %q: %w", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%w: settings path %q must be a regular file", systemd.ErrInvalid, path)
+		}
 	}
 	return nil
 }
-
-func (nodeState) Validate(string, string, string) error { return nil }
 
 func (nodeState) Location(string) (string, string, bool, error) { return "", "", false, nil }
 
 func (nodeState) Relocate(context.Context, string, string) error { return nil }
 
-func (nodeState) Prepare(context.Context, string, string, bool) (*struct{}, error) { return nil, nil }
+func (nodeState) Prepare(ctx context.Context, settingsPath, dataDir string, now bool) (*settings.Settings, error) {
+	value, created, err := settings.EnsureFile(ctx, settingsPath, dataDir)
+	var initial *settings.Settings
+	if created {
+		initial = &value
+	}
+	if err != nil {
+		return initial, err
+	}
+	configured, err := settings.LoadDataDir(settingsPath)
+	if err != nil || configured != dataDir {
+		return initial, errors.New("settings changed during service preparation; inspect and retry")
+	}
+	if now {
+		if _, err := settings.Load(settingsPath); err != nil {
+			return initial, err
+		}
+	}
+	return initial, nil
+}
 
-func (nodeState) Owned(string) []systemd.OwnedPath { return nil }
+func (nodeState) Owned(settingsPath string) []systemd.OwnedPath {
+	return []systemd.OwnedPath{
+		{Path: filepath.Dir(settingsPath), Mode: 0o700, Directory: true},
+		{Path: settingsPath, Mode: 0o600},
+		{Path: settingsPath + ".lock", Mode: 0o600, Optional: true},
+	}
+}
 
-func (nodeState) Retained(string) ([]string, error) { return nil, nil }
+func (nodeState) Retained(settingsPath string) ([]string, error) {
+	paths := []string{filepath.Dir(settingsPath)}
+	dataDir, err := settings.LoadDataDir(settingsPath)
+	if err == nil {
+		paths = append(paths, dataDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return paths, nil
+}
 
-func (nodeState) Lock(context.Context, string) (io.Closer, error) { return nil, nil }
+func (nodeState) Lock(ctx context.Context, settingsPath string) (io.Closer, error) {
+	if _, err := os.Lstat(filepath.Dir(settingsPath)); err != nil {
+		return nil, nil
+	}
+	lock, err := settingsfile.TryLock(ctx, settingsPath)
+	if err != nil {
+		return nil, err
+	}
+	return lock, nil
+}

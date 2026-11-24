@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package httpapi serves the node's local console: the console's Web
-// application and an API on a loopback address through which whoever knows
-// the console password enrolls the node with a panel, re-enrolls or
-// unenrolls it, and sees its link with the panel. It cannot edit the node's
-// configuration or control its runtime; the panel does that.
+// Package httpapi serves the node's console: the console's Web application
+// and an API through which whoever knows the console password enrolls the
+// node with a panel, re-enrolls or unenrolls it, and sees its link with the
+// panel. It cannot edit the node's configuration or control its runtime; the
+// panel does that.
 package httpapi
 
 import (
@@ -15,9 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"regexp"
 	"runtime"
@@ -42,10 +40,10 @@ const (
 
 // Options supplies the console's collaborators.
 type Options struct {
-	// DataDir holds the console settings, read on every request so a
-	// password change or a disabled console takes effect at once.
-	DataDir string
-	Link    *agent.Link
+	// SettingsPath is the node's settings file, read on every request so a
+	// new password or external origin takes effect at once.
+	SettingsPath string
+	Link         *agent.Link
 	// Readings reads the node's runtime, host and traffic for the status;
 	// nil leaves them null.
 	Readings agent.ReadingsSource
@@ -58,15 +56,15 @@ type Options struct {
 
 // Handler serves the console API.
 type Handler struct {
-	dataDir  string
-	link     *agent.Link
-	readings agent.ReadingsSource
-	build    buildinfo.Info
-	logf     func(format string, args ...any)
-	now      func() time.Time
-	logins   *webauth.LoginLimiter
-	sessions *sessions
-	assets   fs.FS
+	settingsPath string
+	link         *agent.Link
+	readings     agent.ReadingsSource
+	build        buildinfo.Info
+	logf         func(format string, args ...any)
+	now          func() time.Time
+	logins       *webauth.LoginLimiter
+	sessions     *sessions
+	assets       fs.FS
 }
 
 func NewHandler(options Options) *Handler {
@@ -75,7 +73,7 @@ func NewHandler(options Options) *Handler {
 		logf = func(string, ...any) {}
 	}
 	return &Handler{
-		dataDir: options.DataDir, link: options.Link, readings: options.Readings, build: options.Build, logf: logf, now: time.Now,
+		settingsPath: options.SettingsPath, link: options.Link, readings: options.Readings, build: options.Build, logf: logf, now: time.Now,
 		logins: webauth.NewLoginLimiter(time.Now), sessions: newSessions(), assets: options.Assets,
 	}
 }
@@ -86,7 +84,7 @@ type operation struct {
 	method string
 	path   string
 	public bool
-	serve  func(handler *Handler, w http.ResponseWriter, request *http.Request, console settings.Console, session *session)
+	serve  func(handler *Handler, w http.ResponseWriter, request *http.Request, current settings.Settings, session *session)
 }
 
 // operations lists the console API; api/node-openapi.yaml documents it.
@@ -101,12 +99,6 @@ var operations = []operation{
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	webauth.SetSecurityHeaders(w.Header())
-	// A page under another name that resolves to this host must not reach
-	// the console.
-	if !loopbackHost(request.Host) {
-		writeProblem(w, http.StatusMisdirectedRequest, "host_not_allowed", "Host not allowed", "The console answers only requests addressed to a loopback host.")
-		return
-	}
 	var found *operation
 	pathFound := false
 	for index := range operations {
@@ -130,22 +122,18 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		writeProblem(w, http.StatusNotFound, "operation_not_found", "Operation not found", "The API operation does not exist.")
 		return
 	}
-	console, err := settings.LoadConsole(handler.dataDir)
+	configuration, err := settings.Load(handler.settingsPath)
 	if err != nil {
-		writeProblem(w, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication unavailable", "The console settings cannot be read.")
-		return
-	}
-	if !console.Enabled {
-		writeProblem(w, http.StatusServiceUnavailable, "console_disabled", "Console disabled", "The console is disabled; enable it with sing-box-node console enable.")
+		writeProblem(w, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication unavailable", "The node settings cannot be read.")
 		return
 	}
 	var current *session
 	if !found.public {
-		if current = handler.authenticate(w, request, console); current == nil {
+		if current = handler.authenticate(w, request, configuration); current == nil {
 			return
 		}
 	}
-	found.serve(handler, w, request, console, current)
+	found.serve(handler, w, request, configuration, current)
 }
 
 // hashedAsset is a content-hashed bundle file, which never changes.
@@ -177,39 +165,26 @@ func allowedMethods(path string) string {
 	return strings.Join(methods, ", ")
 }
 
-// loopbackHost reports whether a request names a loopback host.
-func loopbackHost(host string) bool {
-	if parsed, _, err := net.SplitHostPort(host); err == nil {
-		host = parsed
-	}
-	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	address, err := netip.ParseAddr(host)
-	return err == nil && address.IsLoopback() && address.Zone() == ""
-}
-
 // credential identifies the console password, so changing it ends every
 // session.
-func credential(console settings.Console) [32]byte {
-	return sha256.Sum256([]byte(console.PasswordHash))
+func credential(configuration settings.Settings) [32]byte {
+	return sha256.Sum256([]byte(configuration.Auth.PasswordHash))
 }
 
-func (handler *Handler) authenticate(w http.ResponseWriter, request *http.Request, console settings.Console) *session {
+func (handler *Handler) authenticate(w http.ResponseWriter, request *http.Request, configuration settings.Settings) *session {
 	cookie, err := request.Cookie(sessionCookie)
 	if err != nil {
 		writeProblem(w, http.StatusUnauthorized, "authentication_required", "Authentication required", "A valid console session is required.")
 		return nil
 	}
-	current, ok := handler.sessions.lookup(cookie.Value, credential(console), handler.now())
+	current, ok := handler.sessions.lookup(cookie.Value, credential(configuration), handler.now())
 	if !ok {
-		clearSessionCookie(w)
+		clearSessionCookie(w, request, configuration)
 		writeProblem(w, http.StatusUnauthorized, "session_expired", "Session expired", "The console session is missing or expired.")
 		return nil
 	}
 	if webauth.ChangesState(request.Method) &&
-		(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), current.csrf) || !webauth.SameOrigin(request, "")) {
+		(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), current.csrf) || !webauth.OriginAllowed(request, configuration.Server.ExternalOrigin)) {
 		writeProblem(w, http.StatusForbidden, "csrf_failed", "Request rejected", "The CSRF token or request origin is invalid.")
 		return nil
 	}
@@ -221,8 +196,8 @@ type sessionView struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-func (handler *Handler) login(w http.ResponseWriter, request *http.Request, console settings.Console, _ *session) {
-	login, rejection := handler.logins.Admit(w, request, "", maxLoginBody)
+func (handler *Handler) login(w http.ResponseWriter, request *http.Request, configuration settings.Settings, _ *session) {
+	login, rejection := handler.logins.Admit(w, request, configuration.Server.ExternalOrigin, maxLoginBody)
 	defer login.Finish()
 	if rejection != nil {
 		writeRejection(w, rejection)
@@ -235,7 +210,7 @@ func (handler *Handler) login(w http.ResponseWriter, request *http.Request, cons
 		writeProblem(w, http.StatusBadRequest, "invalid_login", "Invalid login", "The login payload is invalid.")
 		return
 	}
-	matches, err := webauth.VerifyPassword(login.Request.Context(), input.Password, console.PasswordHash)
+	matches, err := webauth.VerifyPassword(login.Request.Context(), input.Password, configuration.Auth.PasswordHash)
 	switch {
 	case errors.Is(err, webauth.ErrBusy):
 		w.Header().Set("Retry-After", "1")
@@ -252,32 +227,35 @@ func (handler *Handler) login(w http.ResponseWriter, request *http.Request, cons
 	if cookie, err := request.Cookie(sessionCookie); err == nil {
 		previous = cookie.Value
 	}
-	token, created, err := handler.sessions.create(credential(console), handler.now(), previous)
+	token, created, err := handler.sessions.create(credential(configuration), handler.now(), previous)
 	if err != nil {
 		writeRejection(w, webauth.Unavailable())
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-		Secure: request.TLS != nil, Expires: created.expiresAt, MaxAge: int(sessionLifetime.Seconds()),
+		Secure: webauth.SecureCookie(request, configuration.Server.ExternalOrigin), Expires: created.expiresAt, MaxAge: int(sessionLifetime.Seconds()),
 	})
 	writeJSON(w, http.StatusOK, sessionView{CSRFToken: created.csrf, ExpiresAt: created.expiresAt})
 }
 
-func (handler *Handler) currentSession(w http.ResponseWriter, _ *http.Request, _ settings.Console, current *session) {
+func (handler *Handler) currentSession(w http.ResponseWriter, _ *http.Request, _ settings.Settings, current *session) {
 	writeJSON(w, http.StatusOK, sessionView{CSRFToken: current.csrf, ExpiresAt: current.expiresAt})
 }
 
-func (handler *Handler) logout(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
+func (handler *Handler) logout(w http.ResponseWriter, request *http.Request, configuration settings.Settings, _ *session) {
 	if cookie, err := request.Cookie(sessionCookie); err == nil {
 		handler.sessions.remove(cookie.Value)
 	}
-	clearSessionCookie(w)
+	clearSessionCookie(w, request, configuration)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+func clearSessionCookie(w http.ResponseWriter, request *http.Request, configuration settings.Settings) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		Secure: webauth.SecureCookie(request, configuration.Server.ExternalOrigin),
+	})
 }
 
 // statusView is the node and its link with its panel.
@@ -378,11 +356,11 @@ func (handler *Handler) view(ctx context.Context, status agent.Status) statusVie
 	return view
 }
 
-func (handler *Handler) status(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
+func (handler *Handler) status(w http.ResponseWriter, request *http.Request, _ settings.Settings, _ *session) {
 	writeJSON(w, http.StatusOK, handler.view(request.Context(), handler.link.Status()))
 }
 
-func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
+func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ settings.Settings, _ *session) {
 	var input struct {
 		Code string `json:"code"`
 	}
@@ -409,7 +387,7 @@ func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ s
 	writeJSON(w, http.StatusOK, handler.view(request.Context(), status))
 }
 
-func (handler *Handler) unenroll(w http.ResponseWriter, request *http.Request, _ settings.Console, _ *session) {
+func (handler *Handler) unenroll(w http.ResponseWriter, request *http.Request, _ settings.Settings, _ *session) {
 	status, err := handler.link.Unenroll()
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "unenrollment_failed", "Unenrollment failed", err.Error())

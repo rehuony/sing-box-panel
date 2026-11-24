@@ -84,7 +84,7 @@ func copyDataMoveTree(ctx context.Context, source, target string) error {
 		}
 		if filepath.Dir(rel) == "." {
 			switch rel {
-			case "panel.db", "panel.db-wal", "panel.db-shm", "panel-control.sock", procctl.LeaseFileName, dataMoveMarker:
+			case "panel.db", "panel.db-wal", "panel.db-shm", procctl.SocketName, procctl.LeaseFileName, dataMoveMarker:
 				return nil
 			}
 		}
@@ -177,7 +177,7 @@ func verifyDataMoveFiles(ctx context.Context, source, target string) error {
 		}
 		if filepath.Dir(rel) == "." {
 			switch rel {
-			case "panel.db", "panel.db-wal", "panel.db-shm", "panel-control.sock", procctl.LeaseFileName, dataMoveMarker:
+			case "panel.db", "panel.db-wal", "panel.db-shm", procctl.SocketName, procctl.LeaseFileName, dataMoveMarker:
 				return nil
 			}
 		}

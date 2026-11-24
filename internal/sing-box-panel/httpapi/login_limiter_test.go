@@ -185,7 +185,7 @@ func (response *blockedLoginResponse) Write(data []byte) (int, error) {
 }
 
 func TestLoginRejectsUnreadNetworkBodiesPromptly(t *testing.T) {
-	for _, reason := range []string{"rate", "fingerprint", "size", "origin"} {
+	for _, reason := range []string{"rate", "fingerprint", "size", "content-type"} {
 		t.Run(reason, func(t *testing.T) {
 			handler := testHandler(t)
 			if reason == "rate" {
@@ -204,7 +204,7 @@ func TestLoginRejectsUnreadNetworkBodiesPromptly(t *testing.T) {
 			}
 			defer conn.Close()
 			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-			origin := server.URL
+			contentType := "application/json"
 			extra := ""
 			length := 100
 			want := http.StatusTooManyRequests
@@ -215,11 +215,11 @@ func TestLoginRejectsUnreadNetworkBodiesPromptly(t *testing.T) {
 			case "size":
 				length = maxLoginBody + 1
 				want = http.StatusBadRequest
-			case "origin":
-				origin = "https://untrusted.example"
+			case "content-type":
+				contentType = "text/plain"
 				want = http.StatusForbidden
 			}
-			_, err = fmt.Fprintf(conn, "POST /api/v1/auth/session HTTP/1.1\r\nHost: %s\r\nOrigin: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n%s\r\n", server.Listener.Addr(), origin, length, extra)
+			_, err = fmt.Fprintf(conn, "POST /api/v1/auth/session HTTP/1.1\r\nHost: %s\r\nOrigin: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n%s\r\n", server.Listener.Addr(), server.URL, contentType, length, extra)
 			if err != nil {
 				t.Fatal(err)
 			}
