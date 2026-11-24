@@ -209,7 +209,7 @@ func (handler *Handler) authenticate(w http.ResponseWriter, request *http.Reques
 		return nil
 	}
 	if webauth.ChangesState(request.Method) &&
-		(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), current.csrf) || !webauth.SameOrigin(request, "")) {
+		(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), current.csrf) || !webauth.SameOrigin(request)) {
 		writeProblem(w, http.StatusForbidden, "csrf_failed", "Request rejected", "The CSRF token or request origin is invalid.")
 		return nil
 	}
@@ -222,7 +222,7 @@ type sessionView struct {
 }
 
 func (handler *Handler) login(w http.ResponseWriter, request *http.Request, console settings.Console, _ *session) {
-	login, rejection := handler.logins.Admit(w, request, "", maxLoginBody)
+	login, rejection := handler.logins.Admit(w, request, webauth.SameOrigin, maxLoginBody)
 	defer login.Finish()
 	if rejection != nil {
 		writeRejection(w, rejection)

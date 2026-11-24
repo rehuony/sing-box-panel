@@ -108,9 +108,10 @@ older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`
 without validating unrelated runtime fields; see [CLI configuration dependencies](cli.md#global-flags-and-output).
 
-When the panel is served through a reverse proxy, set `server.external_origin`
-to the single public HTTP origin, for example `https://panel.example.com`.
-Session cookies automatically use `Secure` for an HTTPS external origin. Without
+A reverse proxy needs no origin setting. Optionally set `server.external_origin`
+to the single public HTTP origin, for example `https://panel.example.com`; logins
+and writes must then come from exactly that origin, while without it the panel
+checks no `Origin`. Session cookies automatically use `Secure` for an HTTPS external origin. Without
 an external origin, they use the request's actual TLS state; forwarded headers
 are not trusted. The origin contains no path—continue to use `server.base_path`
 for a public path prefix. Origin changes take effect after a server restart.

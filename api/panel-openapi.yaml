@@ -252,14 +252,14 @@ paths:
           $ref: "#/components/responses/Problem"
     post:
       operationId: createSession
-      description: Email/password login. Requires a same-origin application/json request with a body of at most 4 KiB. Rotates the current browser session on success. Attempts are counted before verification, including successful and malformed requests. Fixed one-minute windows permit 5 attempts per direct peer (IPv6 /64) and optional fingerprint, and 30 across the process; at most 2 logins execute concurrently. Login reads, lock waits, and response writes share a 5-second deadline, including rejected responses and buffered output. Deadline expiry may close the connection or reset the stream before a problem response can be delivered. Limits return 429 with Retry-After and are not reset by success.
+      description: Email/password login. Requires an application/json request with a body of at most 4 KiB, sent from the configured external origin when one is set. Rotates the current browser session on success. Attempts are counted before verification, including successful and malformed requests. Fixed one-minute windows permit 5 attempts per direct peer (IPv6 /64) and optional fingerprint, and 30 across the process; at most 2 logins execute concurrently. Login reads, lock waits, and response writes share a 5-second deadline, including rejected responses and buffered output. Deadline expiry may close the connection or reset the stream before a problem response can be delivered. Limits return 429 with Retry-After and are not reset by success.
       security: []
       parameters:
         - name: Origin
           in: header
-          required: true
+          required: false
           schema: {type: string}
-          description: Configured external origin, or the listener origin when no external origin is configured.
+          description: Must name the configured external origin when one is set; not checked otherwise.
         - name: X-Client-Fingerprint
           in: header
           required: false
@@ -1953,7 +1953,7 @@ components:
       name: X-CSRF-Token
       in: header
       required: false
-      description: Required for authenticated writes, together with a same-origin Origin header.
+      description: Required for authenticated writes, together with an Origin header naming the configured external origin when one is set.
       schema:
         type: string
     IfMatch:

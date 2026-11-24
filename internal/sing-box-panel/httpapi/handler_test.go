@@ -404,6 +404,56 @@ func TestCSRFUsesConfiguredExternalOriginWithoutForwardedHeaders(t *testing.T) {
 	}
 }
 
+func TestOriginIsEnforcedOnlyForAConfiguredExternalOrigin(t *testing.T) {
+	// A TLS-terminating proxy forwards plain HTTP while the browser sends its HTTPS origin.
+	const proxied = "https://panel.example"
+	for _, test := range []struct {
+		name, externalOrigin, origin string
+		login, write                 int
+	}{
+		{name: "unset accepts the proxied origin", origin: proxied, login: http.StatusOK, write: http.StatusNoContent},
+		{name: "configured rejects another origin", externalOrigin: proxied, origin: "https://attacker.example", login: http.StatusForbidden, write: http.StatusForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := settings.Defaults()
+			value.DataDir = t.TempDir()
+			value.Auth.Email = testutil.AdminEmail
+			value.Auth.PasswordHash = testutil.PasswordHash
+			value.Server.ExternalOrigin = test.externalOrigin
+			handler := newTestHandler(t, HandlerOptions{Settings: value, Build: buildinfo.Info{Version: "test"}})
+			login := func(origin string) *httptest.ResponseRecorder {
+				request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", strings.NewReader(`{"email":"admin@example.com","password":"test-administrator-password"}`))
+				request.Host = "panel.example"
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Origin", origin)
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				return response
+			}
+			if response := login(test.origin); response.Code != test.login {
+				t.Fatalf("login status=%d, want %d; body=%s", response.Code, test.login, response.Body.String())
+			}
+			session := login(proxied)
+			var payload struct {
+				CSRF string `json:"csrfToken"`
+			}
+			if err := json.Unmarshal(session.Body.Bytes(), &payload); err != nil || session.Code != http.StatusOK {
+				t.Fatalf("login status=%d body=%s", session.Code, session.Body.String())
+			}
+			logout := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/session", nil)
+			logout.Host = "panel.example"
+			logout.Header.Set("Origin", test.origin)
+			logout.Header.Set("X-CSRF-Token", payload.CSRF)
+			logout.AddCookie(session.Result().Cookies()[0])
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, logout)
+			if response.Code != test.write {
+				t.Fatalf("logout status=%d, want %d; body=%s", response.Code, test.write, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestIndexStyleNonceIsUniqueAndMatchesPolicy(t *testing.T) {
 	handler := newTestHandler(t, HandlerOptions{Settings: settings.Defaults(), Assets: fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(`<head><meta name="sing-box-panel-style-nonce" content="__SBP_STYLE_NONCE__" /></head>`)},
