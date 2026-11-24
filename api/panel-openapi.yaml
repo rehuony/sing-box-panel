@@ -1812,7 +1812,7 @@ paths:
       - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getMetricsHistory
-      description: Returns at most 512 buckets across a range no longer than 90 days; missing evidence remains null.
+      description: Returns at most 512 buckets across a range no longer than 90 days; missing evidence remains null, except that a bucket without samples which the node's runtime history shows wholly stopped or failed is complete with zero measurements.
       parameters:
         - $ref: "#/components/parameters/MetricsHistoryFrom"
         - $ref: "#/components/parameters/MetricsHistoryTo"

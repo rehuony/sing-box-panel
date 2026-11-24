@@ -57,7 +57,9 @@ type MetricsHistory struct {
 
 // MetricsHistory returns a bounded, gap-preserving sequence. Missing buckets
 // are emitted explicitly and byte deltas remain null when no proven delta was
-// persisted; missing evidence is never drawn as zero traffic.
+// persisted; missing evidence is never drawn as zero traffic. A bucket without
+// samples that the node's runtime history shows wholly without a running core
+// is known instead: it holds zero traffic, connections and memory.
 func (s *Store) MetricsHistory(ctx context.Context, filter MetricsHistoryFilter) (MetricsHistory, error) {
 	return metricsHistory(ctx, s.db, filter)
 }
@@ -293,7 +295,138 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 	if err := evidenceRows.Err(); err != nil {
 		return MetricsHistory{}, fmt.Errorf("iterate metrics interval evidence: %w", err)
 	}
+	if err := evidenceRows.Close(); err != nil {
+		return MetricsHistory{}, fmt.Errorf("close metrics interval evidence: %w", err)
+	}
+	idle, err := runtimeIdleSpans(ctx, db, prepared.NodeID, prepared.From, prepared.To)
+	if err != nil {
+		return MetricsHistory{}, err
+	}
+	for index := range result.Buckets {
+		bucket := &result.Buckets[index]
+		if bucket.Coverage == CoverageMissing && idle.covers(bucket.From, bucket.To) {
+			zeroIdleBucket(bucket)
+		}
+	}
 	return result, nil
+}
+
+// timeSpans are ordered, disjoint, half-open intervals of time.
+type timeSpans []struct{ from, to time.Time }
+
+// covers reports whether one span holds all of [from, to).
+func (spans timeSpans) covers(from, to time.Time) bool {
+	for _, span := range spans {
+		if !span.from.After(from) && !span.to.Before(to) {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeIdleSpans lists the parts of [from, to) in which the node's runtime
+// history shows no core running: a stopped or failed state that no later
+// uncertainty reaches back over. Before the node's first transition the state
+// is unknown; the latest state lasts until to. This mirrors how the Web
+// dashboard draws the runtime timeline from the same history.
+func runtimeIdleSpans(ctx context.Context, db metricsHistoryQuery, nodeID string, from, to time.Time) (timeSpans, error) {
+	// The state at from is the latest transition before it; an unknown state
+	// recorded after to can still reach back into the range.
+	rows, err := db.QueryContext(ctx, `
+		SELECT state, occurred_at, uncertain_since
+		  FROM runtime_transitions
+		 WHERE node_id = ?
+		   AND occurred_at >= COALESCE(
+		         (SELECT MAX(occurred_at) FROM runtime_transitions WHERE node_id = ? AND occurred_at < ?), ?)
+		   AND (occurred_at < ? OR uncertain_since < ?)
+		 ORDER BY occurred_at ASC, id ASC`,
+		nodeID, nodeID, formatTime(from), formatTime(from), formatTime(to), formatTime(to))
+	if err != nil {
+		return nil, fmt.Errorf("query runtime idle spans: %w", err)
+	}
+	defer rows.Close()
+	type boundary struct {
+		at    time.Time
+		state RuntimeTransitionState
+	}
+	var boundaries []boundary
+	for rows.Next() {
+		var (
+			state          RuntimeTransitionState
+			occurredRaw    string
+			uncertainSince sql.NullString
+		)
+		if err := rows.Scan(&state, &occurredRaw, &uncertainSince); err != nil {
+			return nil, fmt.Errorf("scan runtime idle span: %w", err)
+		}
+		at, err := parseTime(occurredRaw)
+		if err != nil {
+			return nil, fmt.Errorf("parse runtime transition time: %w", err)
+		}
+		if state == RuntimeTransitionUnknown && uncertainSince.Valid {
+			since, err := parseTime(uncertainSince.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse runtime uncertainty time: %w", err)
+			}
+			if since.Before(at) {
+				at = since
+			}
+			// Uncertainty replaces whatever the history said from its start on.
+			for len(boundaries) > 0 && !boundaries[len(boundaries)-1].at.Before(at) {
+				boundaries = boundaries[:len(boundaries)-1]
+			}
+		}
+		boundaries = append(boundaries, boundary{at: at, state: state})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate runtime idle spans: %w", err)
+	}
+	var spans timeSpans
+	for index, current := range boundaries {
+		if current.state != RuntimeTransitionStopped && current.state != RuntimeTransitionFailed {
+			continue
+		}
+		start, end := current.at, to
+		if index+1 < len(boundaries) {
+			end = boundaries[index+1].at
+		}
+		start, end = maxTime(start, from), minTime(end, to)
+		if !start.Before(end) {
+			continue
+		}
+		// A failure after a stop, or the reverse, leaves the core idle throughout.
+		if last := len(spans) - 1; last >= 0 && spans[last].to.Equal(start) {
+			spans[last].to = end
+			continue
+		}
+		spans = append(spans, struct{ from, to time.Time }{start, end})
+	}
+	return spans, nil
+}
+
+// zeroIdleBucket marks a bucket in which no core ran: nothing was moved,
+// connected or held in memory, which is complete evidence of the bucket.
+func zeroIdleBucket(bucket *MetricsHistoryBucket) {
+	upload, download, memoryPeak, connectionsPeak := int64(0), int64(0), int64(0), int64(0)
+	memoryAverage, connectionsAverage := float64(0), float64(0)
+	bucket.UploadBytes, bucket.DownloadBytes = &upload, &download
+	bucket.MemoryBytesAverage, bucket.MemoryBytesPeak = &memoryAverage, &memoryPeak
+	bucket.ActiveConnectionsAverage, bucket.ActiveConnectionsPeak = &connectionsAverage, &connectionsPeak
+	bucket.Coverage = CoverageComplete
+}
+
+func maxTime(left, right time.Time) time.Time {
+	if left.After(right) {
+		return left
+	}
+	return right
+}
+
+func minTime(left, right time.Time) time.Time {
+	if left.Before(right) {
+		return left
+	}
+	return right
 }
 
 func prepareMetricsHistoryFilter(filter MetricsHistoryFilter) (MetricsHistoryFilter, int, error) {

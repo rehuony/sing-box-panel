@@ -822,12 +822,17 @@ Any truncation retains a `runtime_24h.next` cursor at the last included transiti
 the omitted older interval is unknown, not inferred from the preceding state.
 
 The dashboard shows host summaries, then traffic and active connections in one
-card over one shared range. Both default to Live: the last two minutes of
+card over one shared range. That card takes the height the other cards leave,
+so the overview fills the window; below each chart's legible minimum the view
+scrolls instead. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
 time axis. The span starts at the oldest sample it shows, and at least ten
 seconds before the newest, so no blank strip leads the lines; a time label that
-would run into the vertical axis or past the chart's edge is left out. Browser suspension or network failures can still leave actual sampling
-gaps; missing observations are not filled in.
+would run into the vertical axis or past the chart's edge is left out. While
+the node reports its core stopped, each reading is a known zero, so the lines
+rest at 0 instead of breaking. Browser suspension or network failures can still
+leave actual sampling gaps; missing observations are not filled in, and a range
+without any shows empty axes.
 Historical refreshes never replace these samples with bucket averages. The
 one-hour and 24-hour views show only historical one-minute and five-minute
 averages, respectively. Live samples remain in memory
@@ -863,8 +868,8 @@ reads that configuration and never modifies startup bytes.
 
 `reason_code: process_only` and `monitoring_tier: process_only` explain missing
 core counters even while the child is running. This does not disable host CPU,
-memory, load, or disk collection. The dashboard retains unknown values and empty
-chart states without an additional monitoring explanation or configuration link.
+memory, load, or disk collection. The dashboard retains unknown values and chart
+gaps without an additional monitoring explanation or configuration link.
 To enable core sampling, merge a Clash API section into the existing core
 configuration, using an unused loopback port and a private randomly generated
 secret, then save and apply it (or start the stopped core):
@@ -1005,8 +1010,11 @@ GET /api/v1/nodes/{nodeId}/metrics/history?from&to&bucket_seconds&activation_bun
 is optional. A request may cover at most 90 days and produce at most 512
 buckets. Each bucket returns traffic deltas, average and peak memory, average
 and peak active connections, sample count, and `complete`, `partial`, or
-`missing` coverage. Missing buckets are emitted explicitly with nullable
-measurements, never synthetic zero traffic.
+`missing` coverage. A bucket without samples that the node's runtime history
+shows wholly stopped or failed held no running core: it is `complete`, with
+zero traffic, memory and connections. Every other bucket without evidence is
+emitted explicitly as `missing` with nullable measurements, never synthetic
+zero traffic.
 
 Coverage is derived from persisted sampling intervals rather than sample
 count. A bucket is `complete` only when accepted intervals of one node database

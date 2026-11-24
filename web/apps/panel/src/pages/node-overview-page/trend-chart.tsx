@@ -233,7 +233,6 @@ export function TrendChart({
       }}
     >
       <div ref={hostRef} className='absolute inset-0' />
-      {data.slice(1).every(series => Array.from(series as (number | null | undefined)[]).every(value => value == null)) && <span className='pointer-events-none absolute inset-0 grid place-items-center text-compact text-muted-foreground'>{t('dashboard.empty.title')}</span>}
       <output ref={tooltipRef} className={bucket ? 'pointer-events-none absolute top-0 left-0 z-1 grid w-max max-w-[calc(100%-16px)] gap-1.5 rounded-[var(--radius-card)] border bg-popover px-3 py-2.5 text-xs text-foreground shadow-[var(--shadow-popover)]' : 'sr-only'} id={descriptionId}>
         {bucket && focused
           ? metrics.map((metric, index) => {

@@ -135,6 +135,21 @@ describe('useTelemetry', () => {
     expect(result.current.liveTail.map(point => point.uploadBytesPerSecond)).toEqual([200, null, 400]);
   });
 
+  it('records a stopped core as zero traffic and connections rather than a gap', async () => {
+    const stopped: RuntimeStatus = { desired_running: false, target_generation: 1, observation_state: 'stopped' };
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        // The panel can still hold the sample the core left before it stopped.
+        yield { metrics: liveMetrics(0, 200, 1), runtime: stopped };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.liveTail).toHaveLength(1));
+    expect(result.current.liveTail[0])
+      .toMatchObject({ uploadBytesPerSecond: 0, downloadBytesPerSecond: 0, connections: 0 });
+  });
+
   it('hydrates live and dashboard streams without periodic GET requests', async () => {
     const client = createMockApiClient({
       streamMetrics: vi.fn(async function* (signal) {

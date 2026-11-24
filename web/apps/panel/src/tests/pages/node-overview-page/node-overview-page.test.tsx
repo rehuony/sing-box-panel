@@ -99,7 +99,6 @@ describe('dashboard evidence', () => {
     expect(traffic.getByText('Waiting for live samples…')).toBeVisible();
     act(() => store.setState({ snapshot: testMetrics }));
     expect(traffic.queryByText('Waiting for live samples…')).not.toBeInTheDocument();
-    expect(within(screen.getByRole('figure', { name: 'Traffic' })).getByText('No samples in this range')).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: '1h' }));
     expect(within(screen.getByRole('tabpanel')).getByText('Loading matching history…')).toBeVisible();
   });

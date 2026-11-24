@@ -60,7 +60,8 @@ export function NodeOverviewPage() {
   const { t } = useTranslation();
   useDashboardSubscription();
   return (
-    <div className='@container flex min-w-0 flex-none flex-col gap-4'>
+    // The overview fills at least the window; the charts take the room the other cards leave.
+    <div className='@container flex min-w-0 flex-1 flex-col gap-4'>
       <h1 className='sr-only'>{t('node.tabs.overview')}</h1>
       <DashboardStatus />
       <DashboardMetrics />
@@ -157,7 +158,7 @@ function DashboardCharts() {
     : historyStale && current ? current.collected_at : undefined;
   return (
     <Tabs
-      className={`${card} flex-none gap-0`}
+      className={`${card} flex-1 gap-0`}
       render={<section aria-labelledby='dashboard-trend-title' />}
       value={range}
       onValueChange={(value) => setRange(value as typeof range)}
@@ -180,9 +181,9 @@ function DashboardCharts() {
         </TabsList>
       </div>
       {/* Traffic leads and connections follow below it; only a very wide window has room for them side by side. */}
-      <TabsContent className='relative grid gap-6 px-2 pt-3 pb-2 @min-[100rem]:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] @min-[100rem]:gap-4' value={range}>
-        {/* Each chart grows with the window above a floor that keeps its axes legible. */}
-        <div className='flex h-[max(15rem,30dvh)] min-w-0 flex-col gap-1'>
+      <TabsContent className='relative grid flex-1 grid-rows-[3fr_2fr] gap-6 px-2 pt-3 pb-2 @min-[100rem]:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] @min-[100rem]:grid-rows-[1fr] @min-[100rem]:gap-4' value={range}>
+        {/* The charts share the card's height, traffic three parts to two, each above a legible floor. */}
+        <div className='flex min-h-60 min-w-0 flex-col gap-1'>
           <div className='mx-3 flex h-5 items-center gap-2 text-xs text-muted-foreground'>
             <h3 className='m-0 flex items-baseline gap-2 text-xs font-medium text-foreground'>
               {t('dashboard.trend.traffic')}
@@ -200,7 +201,7 @@ function DashboardCharts() {
           </div>
           <TrendChart chart={traffic} kind='traffic' live={live} />
         </div>
-        <div className='flex h-[max(11rem,20dvh)] min-w-0 flex-col gap-1 @min-[100rem]:h-[max(15rem,30dvh)]'>
+        <div className='flex min-h-44 min-w-0 flex-col gap-1 @min-[100rem]:min-h-60'>
           <div className='mx-3 flex h-5 items-center gap-2 text-xs text-muted-foreground'>
             <h3 className='m-0 text-xs font-medium text-foreground'>{t('dashboard.trend.connections')}</h3>
           </div>
