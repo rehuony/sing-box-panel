@@ -128,7 +128,7 @@ func (manager *Manager[T]) prepareInstalledResources(ctx context.Context, scope 
 	if err != nil {
 		return nil, err
 	}
-	if err := preflightInstall(installed, false); err != nil {
+	if err := preflightInstall(installed, false, ""); err != nil {
 		return nil, err
 	}
 	if err := manager.preflightCommands(ctx, scope, true); err != nil {
@@ -188,7 +188,7 @@ func (manager *Manager[T]) prepareDataMove(ctx context.Context, scope Scope, act
 	if err != nil {
 		return err
 	}
-	if err := preflightInstall(oldFiles, false); err != nil {
+	if err := preflightInstall(oldFiles, false, ""); err != nil {
 		return fmt.Errorf("data migration cannot rewrite customized service files; stop the service and reinstall it explicitly: %w", err)
 	}
 	// Validate before stopping; migration itself still proves all processes and

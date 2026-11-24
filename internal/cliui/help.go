@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package cli
+package cliui
 
 import (
 	"github.com/spf13/cobra"
@@ -9,6 +9,40 @@ import (
 
 func init() {
 	cobra.AddTemplateFunc("helpFirstFlagUsages", helpFirstFlagUsages)
+}
+
+// Root prepares a binary's root command: errors are left to WriteError and
+// help uses the shared layout, which its descendants inherit.
+func Root(root *cobra.Command) *cobra.Command {
+	root.SilenceUsage = true
+	root.SilenceErrors = true
+	root.SetUsageTemplate(usageTemplate)
+	return root
+}
+
+// Group is a command that only holds subcommands and prints help.
+func Group(use, short string) *cobra.Command {
+	return &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+}
+
+// Completion generates Bash, Zsh and Fish completion for root.
+func Completion(root *cobra.Command) *cobra.Command {
+	completion := &cobra.Command{Use: "completion", Short: "Generate shell completion scripts", Args: cobra.NoArgs}
+	completion.AddCommand(
+		&cobra.Command{
+			Use: "bash", Short: "Generate Bash completion script", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error { return root.GenBashCompletionV2(cmd.OutOrStdout(), true) },
+		},
+		&cobra.Command{
+			Use: "zsh", Short: "Generate Zsh completion script", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error { return root.GenZshCompletion(cmd.OutOrStdout()) },
+		},
+		&cobra.Command{
+			Use: "fish", Short: "Generate Fish completion script", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error { return root.GenFishCompletion(cmd.OutOrStdout(), true) },
+		},
+	)
+	return completion
 }
 
 // Keep pflag's formatting and alignment while ordering only the display copy.
@@ -28,7 +62,6 @@ func helpFirstFlagUsages(flags *pflag.FlagSet) string {
 
 // usageTemplate combines flags and subcommands in one usage line and lists
 // flag sections before subcommands, retaining Cobra's command usage details.
-// Setting it on the root command also applies it to descendants.
 const usageTemplate = `Usage:{{if or .Runnable .HasAvailableSubCommands}}
   {{.UseLine}}{{if .HasAvailableSubCommands}} [command]{{end}}{{end}}{{if gt (len .Aliases) 0}}
 

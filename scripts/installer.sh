@@ -50,17 +50,26 @@ service; the installed binary's systemd commands do that.
 EOF
 }
 
-installer_log() {
+# installer_label prints a level label, colored on a terminal, padded so
+# every message starts in the same column.
+installer_label() {
   local level="$1" color="$2"
-  shift 2
   if [[ -t 2 && -z "${NO_COLOR:-}" && "${TERM:-}" != dumb ]]; then
-    printf '\033[%sm%-7s\033[0m %s\n' "${color}" "${level}" "$*" >&2
+    printf '\033[%sm%-7s\033[0m ' "${color}" "${level}" >&2
   else
-    printf '%-7s %s\n' "${level}" "$*" >&2
+    printf '%-7s ' "${level}" >&2
   fi
 }
 
+# installer_log prints one message on stderr after its level label.
+installer_log() {
+  installer_label "$1" "$2"
+  shift 2
+  printf '%s\n' "$*" >&2
+}
+
 installer_error() { installer_log ERROR 31 "$*"; }
+installer_warn() { installer_log WARN 33 "$*"; }
 installer_info() { installer_log INFO 36 "$*"; }
 installer_success() { installer_log OK 32 "$*"; }
 
@@ -70,6 +79,17 @@ installer_has_tty() { { : </dev/tty; } 2>/dev/null; }
 
 installer_read_tty() { IFS= read -r "$1" </dev/tty; }
 
+# installer_ask prints a question and reads its answer on the same line.
+# An interrupted read ends the line so later output starts on a new one.
+installer_ask() {
+  local question="$1"
+  installer_label CONFIRM 33
+  printf '%s ' "${question}" >&2
+  installer_read_tty "$2" && return 0
+  printf '\n' >&2
+  return 1
+}
+
 installer_confirm_replacement() {
   local answer
   [[ ! -e "${installer_binary_path}" ]] && return 0
@@ -78,8 +98,7 @@ installer_confirm_replacement() {
     installer_error "${installer_binary_path} already exists; rerun with --yes to replace it"
     return 1
   fi
-  installer_log CONFIRM 33 "Replace ${installer_binary_path}? [y/N]"
-  installer_read_tty answer || return 1
+  installer_ask "Replace ${installer_binary_path}? [y/N]" answer || return 1
   case "${answer}" in
     y | Y | yes | YES) return 0 ;;
     *) installer_info "Installation canceled; existing binary kept."; return 2 ;;
@@ -107,8 +126,7 @@ installer_choose_component() {
     '  1) panel  sing-box-panel, the management service and Web UI' \
     '  2) node   sing-box-node, the agent that runs sing-box on this host' >&2
   while true; do
-    installer_log CONFIRM 33 "Enter 1 or 2 (panel or node), or press Enter to cancel:"
-    if ! installer_read_tty answer; then
+    if ! installer_ask "Enter 1 or 2 (panel or node), or press Enter to cancel:" answer; then
       installer_info "Installation canceled."
       return 2
     fi
@@ -237,15 +255,15 @@ installer_resolve_layout() {
 }
 
 # installer_installed_version prints the version a component's binary
-# reports, or fails when it reports none.
+# reports, or fails when it reports none. Nodes up to v0.5.1 take
+# version --json instead of the --output flag both binaries share now.
 installer_installed_version() {
   local component="$1"
   local binary_path="$2"
   local metadata
 
-  if [[ "${component}" == panel ]]; then
-    metadata="$("${binary_path}" --output json version 2>/dev/null)" || return 1
-  else
+  if ! metadata="$("${binary_path}" --output json version 2>/dev/null)"; then
+    [[ "${component}" == node ]] || return 1
     metadata="$("${binary_path}" version --json 2>/dev/null)" || return 1
   fi
   [[ "${metadata}" =~ \"version\":\"([^\"]+)\" ]] || return 1
@@ -288,7 +306,7 @@ installer_inspect_installation() {
       version="not installed"
     fi
     service="$(installer_service_state "${component}")"
-    printf '  %-6s %-14s %s (%s)\n' "${component}" "${version}" "${installer_binary_path}" "${service}" >&2
+    printf '  %-6s %-15s %s (%s)\n' "${component}" "${version}" "${installer_binary_path}" "${service}" >&2
   done
 }
 
@@ -649,43 +667,49 @@ installer_cleanup() {
   installer_temporary_directory=""
 }
 
+# installer_print_next_steps summarizes the installed binary and the
+# commands that start it, in the aligned layout the binaries print.
 installer_print_next_steps() {
-  local service_was_active="$1"
+  local version="$1"
+  local service_installed="$2"
   local binary="${installer_binary_path}"
   local binary_directory="${binary%/*}"
+  local scope="--scope=${installer_service_scope}"
 
-  installer_success "Installed ${installer_binary_name} successfully."
-  printf '  Binary: %s\n' "${binary}"
-  printf '  Default settings: %s\n' "${installer_settings_path}"
-  printf '  Default data directory: %s\n' "${installer_default_data_dir}"
+  installer_success "Installed ${installer_binary_name} ${version}"
+  printf '\n  %-14s  %s\n' Binary "${binary}"
+  printf '  %-14s  %s (default)\n' Settings "${installer_settings_path}"
+  printf '  %-14s  %s (default)\n' 'Data directory' "${installer_default_data_dir}"
   if [[ "${installer_component}" == panel ]]; then
-    printf '\nStart the panel (creates missing settings and data):\n  '
-    printf '%q server start\n' "${binary}"
-    printf '\nEnable shell completion:\n'
-    printf '  zsh:  eval "$(sing-box-panel completion zsh)"\n'
-    printf '  bash: source <(sing-box-panel completion bash)\n'
-    printf '  fish: sing-box-panel completion fish | source\n'
+    printf '\nStart the panel in this terminal (creates missing settings and data):\n'
+    printf '  %q server start\n' "${binary}"
   else
-    printf '\nStart the node and its console (creates missing settings and prints the console password):\n  '
-    printf '%q server start\n' "${binary}"
-    printf 'Enroll it from the console, or with the command its panel shows after adding it:\n  '
-    printf '%q enroll --code <code>\n' "${binary}"
+    printf '\nStart the node and its console in this terminal (creates missing settings and prints the console password):\n'
+    printf '  %q server start\n' "${binary}"
+    printf '\nEnroll it from the console, or with the command its panel shows after adding it:\n'
+    printf '  %q enroll --code <code>\n' "${binary}"
   fi
-  printf '\nThe installer did not configure or start systemd. To create missing resources, install and start the service:\n  '
-  printf '%q systemd install --scope=%s --now\n' "${binary}" "${installer_service_scope}"
-  if [[ "${service_was_active}" == true ]]; then
-    printf 'The %s service still runs the previous binary; restart it to use this one:\n  ' "${installer_binary_name}"
+  if [[ "${service_installed}" == true ]]; then
+    printf '\nThe %s service still runs the previous binary. Refresh its unit and restart it:\n' "${installer_service_scope}"
   else
-    printf 'After a later binary upgrade, restart an existing service explicitly:\n  '
+    printf '\nTo run it as a systemd service instead (creates missing settings and service directories):\n'
+    printf '  %q systemd install %s --now\n' "${binary}" "${scope}"
+    printf '\nAfter a later binary upgrade, refresh the unit and restart the service:\n'
   fi
-  printf '%q systemd restart --scope=%s\n' "${binary}" "${installer_service_scope}"
+  printf '  %q systemd install %s\n' "${binary}" "${scope}"
+  printf '  %q systemd restart %s\n' "${binary}" "${scope}"
+  printf '\nEnable shell completion:\n'
+  printf '  %-5s %s\n' 'bash:' "source <(${installer_binary_name} completion bash)" \
+    'fish:' "${installer_binary_name} completion fish | source" \
+    'zsh:' "eval \"\$(${installer_binary_name} completion zsh)\""
 
   if [[ "${installer_service_scope}" == "user" ]]; then
+    printf '\n' >&2
     case ":${PATH:-}:" in
     *":${binary_directory}:"*) ;;
-    *) printf '\nAdd %s to PATH if your shell does not already include it.\n' "${binary_directory}" ;;
+    *) installer_warn "${binary_directory} is not on PATH; add it if your shell does not include it." ;;
     esac
-    printf 'A user service needs administrator-enabled lingering to continue after logout.\n'
+    installer_info "A user service keeps running after logout only with lingering enabled by an administrator."
   fi
 }
 
@@ -699,7 +723,7 @@ installer_main() {
   local public_key_path
   local confirmation_status
   local choice_status
-  local service_was_active=false
+  local service_installed=false
 
   if ! installer_parse_args "$@"; then
     installer_usage >&2
@@ -725,9 +749,10 @@ installer_main() {
     return "${choice_status}"
   fi
   installer_resolve_layout "${installer_component}" "${EUID}" "${HOME:-}" "${XDG_CONFIG_HOME:-}" "${XDG_DATA_HOME:-}" || return
-  if [[ "$(installer_service_state "${installer_component}")" == *" service active,"* ]]; then
-    service_was_active=true
-  fi
+  case "$(installer_service_state "${installer_component}")" in
+  "systemd unavailable" | "no "*" service") ;;
+  *) service_installed=true ;;
+  esac
   installer_preflight_binary_destination "${installer_binary_path}" || return
   if installer_confirm_replacement; then
     :
@@ -771,7 +796,7 @@ installer_main() {
   installer_info "Installing binary at ${installer_binary_path}"
   installer_install_binary "${release_binary}" "${installer_binary_path}"
   installer_verify_binary_version "${installer_binary_path}" "${release_version}"
-  installer_print_next_steps "${service_was_active}"
+  installer_print_next_steps "${release_version}" "${service_installed}"
 }
 
 if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then

@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package cli
+package cliui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"strings"
 	"time"
 
-	"github.com/mattn/go-isatty"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 )
 
-type updateProgress struct {
+// Progress reports a self-update's stages and download on one writer: a
+// redrawn percentage bar on a terminal, occasional plain lines otherwise.
+type Progress struct {
 	writer      io.Writer
 	interactive bool
 	downloading bool
@@ -22,20 +25,17 @@ type updateProgress struct {
 	lineWidth   int
 }
 
-func newUpdateProgress(writer io.Writer) *updateProgress {
-	progress := &updateProgress{writer: writer}
-	if terminal, ok := writer.(interface{ Fd() uintptr }); ok && os.Getenv("TERM") != "dumb" {
-		progress.interactive = isatty.IsTerminal(terminal.Fd())
-	}
-	return progress
+func NewProgress(writer io.Writer) *Progress {
+	return &Progress{writer: writer, interactive: Interactive(writer)}
 }
 
-func (progress *updateProgress) report(event selfupdate.Progress) {
+// Report prints one stage or download step.
+func (progress *Progress) Report(event selfupdate.Progress) {
 	if event.Stage == selfupdate.StageDownload {
 		progress.download(event)
 		return
 	}
-	progress.finish()
+	progress.Finish()
 	var message string
 	switch event.Stage {
 	case selfupdate.StageCheckRelease:
@@ -56,7 +56,7 @@ func (progress *updateProgress) report(event selfupdate.Progress) {
 	_, _ = fmt.Fprintln(progress.writer, message)
 }
 
-func (progress *updateProgress) download(event selfupdate.Progress) {
+func (progress *Progress) download(event selfupdate.Progress) {
 	percent := 0
 	bucket := event.Downloaded / (1 << 20)
 	if event.Total > 0 {
@@ -96,14 +96,37 @@ func (progress *updateProgress) download(event selfupdate.Progress) {
 	progress.lastDraw = now
 	progress.lastBucket = bucket
 	if event.Complete {
-		progress.finish()
+		progress.Finish()
 	}
 }
 
-func (progress *updateProgress) finish() {
+// Finish ends a redrawn download line; it is safe to call more than once.
+func (progress *Progress) Finish() {
 	if progress.downloading && progress.interactive {
 		_, _ = fmt.Fprintln(progress.writer)
 	}
 	progress.downloading = false
 	progress.lineWidth = 0
+}
+
+// UpdateError classifies a self-update failure.
+func UpdateError(err error) error {
+	switch {
+	case err == nil, errors.Is(err, context.Canceled):
+		return err
+	case errors.Is(err, fs.ErrPermission), errors.Is(err, selfupdate.ErrExecutableNotWritable):
+		return Fail(ErrorPermission, "update_permission_denied", err)
+	case errors.Is(err, selfupdate.ErrUnsupportedPlatform), errors.Is(err, selfupdate.ErrInvalidVersion):
+		return Fail(ErrorUnavailable, "update_unsupported", err)
+	case errors.Is(err, selfupdate.ErrReleaseUnavailable), errors.Is(err, selfupdate.ErrAssetMissing):
+		return Fail(ErrorUnavailable, "update_release_unavailable", err)
+	case errors.Is(err, selfupdate.ErrVerificationKeyInvalid), errors.Is(err, selfupdate.ErrReleaseInvalid),
+		errors.Is(err, selfupdate.ErrSignatureInvalid), errors.Is(err, selfupdate.ErrChecksumInvalid),
+		errors.Is(err, selfupdate.ErrExecutableInvalid), errors.Is(err, selfupdate.ErrExecutableChanged),
+		errors.Is(err, selfupdate.ErrStagedExecutableInvalid), errors.Is(err, selfupdate.ErrStagedFileInvalid),
+		errors.Is(err, selfupdate.ErrVersionNotNewer):
+		return Fail(ErrorValidation, "update_validation_failed", err)
+	default:
+		return Fail(ErrorDomain, "update_failed", err)
+	}
 }

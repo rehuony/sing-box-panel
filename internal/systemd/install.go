@@ -42,7 +42,7 @@ func (manager *Manager[T]) Install(ctx context.Context, request InstallRequest) 
 	if err != nil {
 		return InstallResult[T]{}, err
 	}
-	if err := preflightInstall(files, request.Force); err != nil {
+	if err := preflightInstall(files, request.Force, manager.managedMark()); err != nil {
 		return InstallResult[T]{}, err
 	}
 	for _, path := range append([]string{statePath}, manager.managedPaths(scope)...) {

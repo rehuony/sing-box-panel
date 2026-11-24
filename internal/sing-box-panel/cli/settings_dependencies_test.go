@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/server"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -110,8 +111,8 @@ func TestCommandsRequiringSettingsRejectUnavailableSettings(t *testing.T) {
 					})
 					root.SetArgs(append([]string{"--config", path}, args...))
 					err := root.ExecuteContext(t.Context())
-					var classified *Error
-					if ExitCode(err) != 3 || !errors.As(err, &classified) || (stdout.Len() != 0 && args[0] != "system") {
+					var classified *cliui.Error
+					if cliui.ExitCode(err) != 3 || !errors.As(err, &classified) || (stdout.Len() != 0 && args[0] != "system") {
 						t.Fatalf("command accepted unavailable settings: err=%v stdout=%q", err, stdout.String())
 					}
 					if service.installRequest.Scope != "" || service.uninstallRequest.Scope != "" || service.controlScope != "" {
@@ -167,7 +168,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 	for _, args := range [][]string{{"config", "verify"}, {"systemd", "install", "--now"}} {
 		service := &fakeSystemdService{}
 		_, _, err := executeSystemCommand(t, service, append([]string{"--config", path}, args...)...)
-		if ExitCode(err) != 3 || !strings.Contains(err.Error(), "sample_retention_days") || service.installRequest.Scope != "" {
+		if cliui.ExitCode(err) != 3 || !strings.Contains(err.Error(), "sample_retention_days") || service.installRequest.Scope != "" {
 			t.Fatalf("runtime validation was skipped: args=%v err=%v", args, err)
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 )
 
@@ -70,7 +71,7 @@ func TestUpdateCommandReportsProgressOnStderr(t *testing.T) {
 		}
 		return selfupdate.Result{Updated: true, PreviousVersion: "v1.2.3", Version: "v1.3.0", ExecutablePath: "/bin/panel"}, nil
 	}, "update")
-	if err != nil || stdout != "updated sing-box-panel from v1.2.3 to v1.3.0 at /bin/panel\n" {
+	if err != nil || stdout != "Updated sing-box-panel from v1.2.3 to v1.3.0 at /bin/panel\n" {
 		t.Fatalf("stdout=%q error=%v", stdout, err)
 	}
 	last := -1
@@ -127,7 +128,7 @@ func TestUpdateCommandClassifiesFailures(t *testing.T) {
 			_, _, err := executeUpdateCommand(t, func(context.Context, string, selfupdate.ProgressFunc) (selfupdate.Result, error) {
 				return selfupdate.Result{}, testCase.err
 			}, "update")
-			if got := ExitCode(err); got != testCase.code {
+			if got := cliui.ExitCode(err); got != testCase.code {
 				t.Fatalf("exit code = %d, error = %v", got, err)
 			}
 		})

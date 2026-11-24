@@ -35,9 +35,9 @@ func CheckRootStart(name string, paths ...string) error {
 		if found, err := user.LookupId(strconv.FormatUint(uint64(stat.Uid), 10)); err == nil {
 			account = found.Username
 		}
-		return fmt.Errorf("%s belongs to the %s account, so %s must run as that account, not as root.\n"+
-			"Start the system service with: sudo %s systemd start\n"+
-			"Check it with:                 sudo %s systemd status",
+		return fmt.Errorf("%s belongs to the %s account, so %s must run as that account, not as root\n"+
+			"Next: sudo %s systemd start\n"+
+			"Inspect: sudo %s systemd status",
 			path, account, name, name, name)
 	}
 	return nil

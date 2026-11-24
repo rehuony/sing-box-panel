@@ -42,7 +42,7 @@ func TestLinkStartsOverWhenTheEnrollmentChanges(t *testing.T) {
 		connected()
 		<-ctx.Done()
 		return ctx.Err()
-	}, func(string, ...any) {})
+	}, func(string, string, ...any) {})
 	waitFor := func(want string, state ConnectionState) Status {
 		t.Helper()
 		select {
@@ -118,8 +118,8 @@ func TestRunningNodeSwitchesToAnEnrollmentSavedWhileItRuns(t *testing.T) {
 		connected()
 		<-ctx.Done()
 		return ctx.Err()
-	}, func(string, ...any) {})
-	go link.watch(ctx, 10*time.Millisecond, func(string, ...any) {})
+	}, func(string, string, ...any) {})
+	go link.watch(ctx, 10*time.Millisecond, func(string, string, ...any) {})
 	next := func(want string) {
 		t.Helper()
 		select {
@@ -140,13 +140,13 @@ func TestRunningNodeSwitchesToAnEnrollmentSavedWhileItRuns(t *testing.T) {
 		t.Fatalf("status after the saved enrollment = %+v", status)
 	}
 	// An unchanged, missing or unreadable file leaves the session alone.
-	if link.reload(func(string, ...any) {}) {
+	if link.reload(func(string, string, ...any) {}) {
 		t.Fatal("an unchanged enrollment started the session over")
 	}
 	if err := settings.RemoveEnrollment(dataDir); err != nil {
 		t.Fatal(err)
 	}
-	if link.reload(func(string, ...any) {}) || !link.Enrolled() {
+	if link.reload(func(string, string, ...any) {}) || !link.Enrolled() {
 		t.Fatal("a removed enrollment file ended the running enrollment")
 	}
 	select {

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/spf13/cobra"
 )
@@ -81,7 +82,7 @@ func TestHelpCompletionAndRemovedCommandsDoNotOpenStorage(t *testing.T) {
 			args := append([]string{"--config", path, name}, suffix...)
 			t.Run(strings.Join(args[2:], " "), func(t *testing.T) {
 				stdout, _, err := execute(t, args...)
-				if ExitCode(err) != 2 || stdout != "" {
+				if cliui.ExitCode(err) != 2 || stdout != "" {
 					t.Fatalf("removed command accepted: stdout=%q error=%v", stdout, err)
 				}
 			})
@@ -94,7 +95,7 @@ func TestHelpCompletionAndRemovedCommandsDoNotOpenStorage(t *testing.T) {
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			stdout, _, err := execute(t, append([]string{"--config", path}, args...)...)
-			if ExitCode(err) != 2 || stdout != "" {
+			if cliui.ExitCode(err) != 2 || stdout != "" {
 				t.Fatalf("removed command accepted: stdout=%q error=%v", stdout, err)
 			}
 		})
@@ -262,7 +263,7 @@ func TestOutputShorthandRejectsInvalidFormat(t *testing.T) {
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			stdout, _, err := execute(t, args...)
-			if ExitCode(err) != 2 || stdout != "" || !strings.Contains(err.Error(), "output must be text, json, or jsonl") {
+			if cliui.ExitCode(err) != 2 || stdout != "" || !strings.Contains(err.Error(), "output must be text, json, or jsonl") {
 				t.Fatalf("invalid output stdout=%q error=%v", stdout, err)
 			}
 		})
@@ -306,7 +307,7 @@ func TestVersionOutputFormats(t *testing.T) {
 			}
 			want := "sing-box-panel " + info.Version + "\n"
 			if format != "text" {
-				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26"}` + "\n"
+				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26","protocol":"1.1"}` + "\n"
 			}
 			if stdout.String() != want {
 				t.Fatalf("stdout = %q, want %q", stdout.String(), want)

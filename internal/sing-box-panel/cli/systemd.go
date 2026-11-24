@@ -3,12 +3,10 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -24,135 +22,24 @@ const ConfigurationFileName = "config.json"
 type systemdService = systemd.Service[settings.Settings]
 
 func newSystemdCommand(state *options, service systemdService) *cobra.Command {
-	root := group("systemd", "Install or manage the sing-box-panel systemd service")
-	root.AddCommand(
-		newSystemInstallCommand(state, service),
-		newSystemUninstallCommand(state, service),
-		newSystemStatusCommand(state, service),
-		newSystemControlCommand(state, service, systemd.ActionStart),
-		newSystemControlCommand(state, service, systemd.ActionStop),
-		newSystemControlCommand(state, service, systemd.ActionRestart),
-		newSystemLogsCommand(state, service),
-	)
-	return root
-}
-
-func newSystemInstallCommand(state *options, service systemdService) *cobra.Command {
-	var rawScope string
-	var force, now bool
-	command := &cobra.Command{
-		Use:   "install",
-		Short: "Install and enable the audited systemd unit",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if service == nil {
-				return systemServiceUnavailable()
-			}
-			scope, err := parseSystemScope(rawScope)
-			if err != nil {
-				return err
-			}
-			settingsPath, err := filepath.Abs(filepath.Clean(state.settingsPath))
-			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "system_settings_path_invalid", Message: err.Error(), Cause: err}
-			}
-			var dataDir string
+	return cliui.Systemd(cliui.SystemdOptions[settings.Settings]{
+		Name: "sing-box-panel", Service: service, SettingsPath: &state.settingsPath, Format: &state.format,
+		DataDir: func(path string, now bool) (string, error) {
 			if now {
-				var value settings.Settings
-				value, err = settings.Load(settingsPath)
-				dataDir = value.DataDir
-			} else {
-				dataDir, err = settings.ConfiguredDataDir(settingsPath)
+				value, err := settings.Load(path)
+				return value.DataDir, err
 			}
-			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					return &Error{Kind: ErrorValidation, Code: "system_settings_invalid", Message: err.Error(), Cause: err}
-				}
-				dataDir = ""
-			}
-			result, err := service.Install(cmd.Context(), systemd.InstallRequest{
-				Scope: scope, StatePath: settingsPath, DataDir: dataDir, Force: force, Now: now,
-			})
-			if result.Initial != nil {
-				if outputErr := writeServerInitialization(cmd, state, *result.Initial); outputErr != nil {
-					return errors.Join(err, outputErr)
-				}
-			}
-			if err != nil {
-				return classifySystemError("system_install_failed", err)
-			}
-			text := fmt.Sprintf("installed and enabled %s %s at %s", result.Scope, result.Unit, result.UnitPath)
-			if result.Started {
-				text += "; service started"
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, text)
+			return settings.ConfiguredDataDir(path)
 		},
-	}
-	addSystemScopeFlag(command, &rawScope)
-	command.Flags().BoolVar(&force, "force", false, "replace conflicting regular managed destinations")
-	command.Flags().BoolVar(&now, "now", false, "start the unit after enabling it")
-	return command
-}
-
-func newSystemUninstallCommand(state *options, service systemdService) *cobra.Command {
-	var rawScope string
-	var force, keepUser bool
-	command := &cobra.Command{
-		Use:   "uninstall",
-		Short: "Uninstall the service and, in system scope, its dedicated account",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if service == nil {
-				return systemServiceUnavailable()
-			}
-			scope, err := parseSystemScope(rawScope)
-			if err != nil {
-				return err
-			}
-			result, err := service.Uninstall(cmd.Context(), systemd.UninstallRequest{Scope: scope, Force: force, KeepUser: keepUser})
-			style := newFileTreeStyle(cmd.OutOrStdout(), state.format)
-			if err != nil {
-				if result.Scope != "" {
-					if writeErr := writeResult(cmd.OutOrStdout(), state.format, result, uninstallText(result, err, style)); writeErr != nil {
-						return errors.Join(err, writeErr)
-					}
-				}
-				return classifySystemError("system_uninstall_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, uninstallText(result, nil, style))
+		Created: func(cmd *cobra.Command, value settings.Settings) error {
+			return writeServerInitialization(cmd, state, value)
 		},
-	}
-	addSystemScopeFlag(command, &rawScope)
-	command.Flags().BoolVar(&force, "force", false, "remove conflicting regular destinations at the exact managed paths")
-	command.Flags().BoolVar(&keepUser, "keep-user", false, "retain the system service account and its file ownership")
-	return command
-}
-
-func uninstallText(result systemd.UninstallResult, uninstallErr error, style fileTreeStyle) string {
-	heading := style.paint("1;32", "Service uninstalled")
-	if uninstallErr != nil {
-		heading = style.paint("1;31", "Uninstall interrupted; confirmed results only")
-	}
-	text := fmt.Sprintf("%s\n  Unit: %s (%s)\n  Service files removed: %d\n  Settings and data: retained", heading, result.Unit, result.Scope, len(result.RemovedPaths))
-	if account := uninstallAccountResult(result); account != nil {
-		text += "\n" + accountCleanupText(*account, style)
-	}
-	if len(result.RemovedPaths) > 0 {
-		entries := make([]fileTreeEntry, 0, len(result.RemovedPaths))
-		for _, path := range result.RemovedPaths {
-			entries = append(entries, fileTreeEntry{path: path, label: "removed"})
-		}
-		text += "\n\n" + fileTreeText(entries, style)
-	}
-	return text
-}
-
-func accountCleanupText(account installation.AccountCleanupResult, style fileTreeStyle) string {
-	text := "  Service user: " + style.label(account.User) + "\n  Service group: " + style.label(account.Group)
-	if account.Note != "" {
-		text += diagnosticText(style.paint("1", "Account note"), []string{account.Note}, style)
-	}
-	return text
+		Status: func(cmd *cobra.Command, status systemd.Status) error {
+			report := buildSystemStatusReport(status, state.settingsPath)
+			style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
+			return cliui.Write(cmd.OutOrStdout(), state.format, report, systemStatusText(report, style))
+		},
+	})
 }
 
 func accountCleanupSummary(account installation.AccountCleanupResult) string {
@@ -167,22 +54,8 @@ func uninstallAccountResult(result systemd.UninstallResult) *installation.Accoun
 	if result.Scope != systemd.ScopeSystem {
 		return nil
 	}
-	state := func(retained, removed bool) string {
-		switch {
-		case retained:
-			return "retained"
-		case removed:
-			return "removed"
-		case result.AccountInspected:
-			return "absent"
-		default:
-			return "unknown"
-		}
-	}
-	return &installation.AccountCleanupResult{
-		User:  state(result.AccountRetained, result.AccountRemoved),
-		Group: state(result.GroupRetained, result.GroupRemoved), Note: result.AccountNote,
-	}
+	user, group := cliui.AccountStates(result)
+	return &installation.AccountCleanupResult{User: user, Group: group, Note: result.AccountNote}
 }
 
 // systemStatusReport joins systemd's view of the unit with two facts read
@@ -238,32 +111,6 @@ const (
 	settingsStateUnknown     = "unknown"
 )
 
-func newSystemStatusCommand(state *options, service systemdService) *cobra.Command {
-	var rawScope string
-	command := &cobra.Command{
-		Use:   "status",
-		Short: "Show systemd state and configuration locations declared by files on disk",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if service == nil {
-				return systemServiceUnavailable()
-			}
-			scope, err := parseSystemScope(rawScope)
-			if err != nil {
-				return err
-			}
-			status, err := service.Status(cmd.Context(), scope)
-			if err != nil {
-				return classifySystemError("system_status_failed", err)
-			}
-			report := buildSystemStatusReport(status, state.settingsPath)
-			return writeResult(cmd.OutOrStdout(), state.format, report, systemStatusText(report))
-		},
-	}
-	addSystemScopeFlag(command, &rawScope)
-	return command
-}
-
 func buildSystemStatusReport(status systemd.Status, cliSettingsPath string) systemStatusReport {
 	report := systemStatusReport{
 		Service:         status,
@@ -301,142 +148,43 @@ func buildSystemStatusReport(status systemd.Status, cliSettingsPath string) syst
 	return report
 }
 
-func systemStatusText(report systemStatusReport) string {
-	service := report.Service
-	var output strings.Builder
-	fmt.Fprintf(&output, "service\t%s %s\t%s\t%s (%s)\t%s\tpid=%d\n",
-		service.Scope, service.Unit, service.LoadState, service.ActiveState, service.SubState, service.UnitFileState, service.MainPID)
-	for _, companion := range service.Companions {
-		fmt.Fprintf(&output, "update helper\t%s\t%s\t%s (%s)\t%s\n",
-			companion.Unit, companion.LoadState, companion.ActiveState, companion.SubState, companion.UnitFileState)
-	}
+func systemStatusText(report systemStatusReport, style cliui.Style) string {
+	fields := cliui.UnitFields(report.Service, style)
 	unitNote := "on disk; systemd reports no daemon reload needed"
 	if report.UnitFile.Stale {
 		unitNote = "on disk; systemd reports daemon reload needed; restart to apply command changes"
 	}
-	fmt.Fprintf(&output, "unit file\t%s (%s)\n", report.UnitFile.Path, unitNote)
+	for i := range fields {
+		if fields[i].Label == "Unit file" {
+			fields[i].Value += " (" + unitNote + ")"
+		}
+	}
+	unitSettings := "unknown (" + report.UnitFile.Source + " does not state one unambiguous --config path)"
 	switch {
 	case report.UnitFile.SettingsPath == "":
-		fmt.Fprintf(&output, "settings in unit file\tunknown (%s does not state one unambiguous --config path)\n", report.UnitFile.Source)
 	case report.UnitFile.MatchesCLISettings != nil && *report.UnitFile.MatchesCLISettings:
-		fmt.Fprintf(&output, "settings in unit file\t%s (%s; same as --config)\n", report.UnitFile.SettingsPath, report.UnitFile.Source)
+		unitSettings = style.Path(report.UnitFile.SettingsPath) + " (" + report.UnitFile.Source + "; same as --config)"
 	default:
-		fmt.Fprintf(&output, "settings in unit file\t%s (%s; differs from --config)\n", report.UnitFile.SettingsPath, report.UnitFile.Source)
+		unitSettings = style.Path(report.UnitFile.SettingsPath) + " (" + report.UnitFile.Source + "; differs from --config)"
 	}
-	fmt.Fprintf(&output, "cli settings\t%s (this command's --config)\n", report.CLISettingsPath)
-	fmt.Fprintf(&output, "live settings\t%s (running process not inspected)\n", report.LiveSettingsState)
-	database := "the service database"
+	dataDir, databasePath, database := "unknown", "unknown", "the service database"
 	switch report.SettingsFile.State {
 	case settingsStateLoaded:
-		fmt.Fprintf(&output, "data dir\t%s (%s)\ndatabase\t%s (%s)\n",
-			report.SettingsFile.DataDir, report.SettingsFile.Source, report.SettingsFile.DatabasePath, report.SettingsFile.Source)
-		database = report.Configuration.DatabasePath
+		dataDir = style.Path(report.SettingsFile.DataDir) + " (" + report.SettingsFile.Source + ")"
+		databasePath = style.Path(report.SettingsFile.DatabasePath) + " (" + report.SettingsFile.Source + ")"
+		database = style.Path(report.Configuration.DatabasePath)
 	case settingsStateUnavailable:
-		fmt.Fprintf(&output, "data dir\tunknown (%s unreadable or invalid)\ndatabase\tunknown\n", report.SettingsFile.Source)
-	default:
-		output.WriteString("data dir\tunknown\ndatabase\tunknown\n")
+		dataDir = "unknown (" + report.SettingsFile.Source + " unreadable or invalid)"
 	}
-	fmt.Fprintf(&output, "configuration\teach node's %s stored in %s table %s of %s",
-		report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table, database)
-	return output.String()
-}
-
-func newSystemControlCommand(state *options, service systemdService, action systemd.Action) *cobra.Command {
-	var rawScope string
-	command := &cobra.Command{
-		Use:   string(action),
-		Short: strings.ToUpper(string(action)[:1]) + string(action)[1:] + " the systemd unit",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if service == nil {
-				return systemServiceUnavailable()
-			}
-			scope, err := parseSystemScope(rawScope)
-			if err != nil {
-				return err
-			}
-			result, err := service.Control(cmd.Context(), scope, action)
-			if result.Initial != nil {
-				if outputErr := writeServerInitialization(cmd, state, *result.Initial); outputErr != nil {
-					return errors.Join(err, outputErr)
-				}
-			}
-			if err != nil {
-				return classifySystemError("system_"+string(action)+"_failed", err)
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, fmt.Sprintf("%s %s %s", result.Action, result.Scope, result.Unit))
-		},
-	}
-	addSystemScopeFlag(command, &rawScope)
-	return command
-}
-
-func newSystemLogsCommand(state *options, service systemdService) *cobra.Command {
-	var rawScope, since string
-	var lines int
-	command := &cobra.Command{
-		Use:   "logs",
-		Short: "Read bounded journal entries for the systemd unit",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if service == nil {
-				return systemServiceUnavailable()
-			}
-			scope, err := parseSystemScope(rawScope)
-			if err != nil {
-				return err
-			}
-			result, err := service.Logs(cmd.Context(), systemd.LogsRequest{Scope: scope, Lines: lines, Since: since})
-			if err != nil {
-				return classifySystemError("system_logs_failed", err)
-			}
-			text := result.Text
-			if text == "" {
-				text = "no journal entries"
-			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, text)
-		},
-	}
-	addSystemScopeFlag(command, &rawScope)
-	command.Flags().IntVar(&lines, "lines", 100, "maximum journal entries to return (1-100000)")
-	command.Flags().StringVar(&since, "since", "", "journalctl time expression passed as one literal argument")
-	return command
-}
-
-func addSystemScopeFlag(command *cobra.Command, target *string) {
-	command.Flags().StringVar(target, "scope", "auto", "systemd scope: auto, system, or user")
-	if err := command.RegisterFlagCompletionFunc("scope", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return []string{"auto", "system", "user"}, cobra.ShellCompDirectiveNoFileComp
-	}); err != nil {
-		panic(fmt.Sprintf("register system scope completion: %v", err))
-	}
-}
-
-func parseSystemScope(raw string) (systemd.Scope, error) {
-	scope, err := systemd.ParseScope(raw)
-	if err != nil {
-		return "", &Error{Kind: ErrorUsage, Code: "invalid_systemd_scope", Message: err.Error(), Cause: err}
-	}
-	return scope, nil
-}
-
-func classifySystemError(code string, err error) error {
-	switch {
-	case errors.Is(err, systemd.ErrUnsupportedOS):
-		return &Error{Kind: ErrorUnavailable, Code: "systemd_unsupported", Message: err.Error(), Cause: err}
-	case errors.Is(err, systemd.ErrPermission):
-		return &Error{Kind: ErrorPermission, Code: "systemd_permission_denied", Message: err.Error(), Cause: err}
-	case errors.Is(err, systemd.ErrNotInstalled):
-		return &Error{Kind: ErrorUnavailable, Code: "systemd_not_installed", Message: err.Error(), Cause: err}
-	case errors.Is(err, systemd.ErrConflict):
-		return &Error{Kind: ErrorConflict, Code: "systemd_file_conflict", Message: err.Error(), Cause: err}
-	case errors.Is(err, systemd.ErrInvalid):
-		return &Error{Kind: ErrorValidation, Code: code, Message: err.Error(), Cause: err}
-	default:
-		return &Error{Kind: ErrorUnavailable, Code: code, Message: err.Error(), Cause: err}
-	}
-}
-
-func systemServiceUnavailable() error {
-	return &Error{Kind: ErrorUnavailable, Code: "systemd_unavailable", Message: "systemd service manager is unavailable"}
+	fields = append(fields,
+		cliui.Field{Label: "Settings in unit file", Value: unitSettings},
+		cliui.Field{Label: "CLI settings", Value: style.Path(report.CLISettingsPath) + " (this command's --config)"},
+		cliui.Field{Label: "Live settings", Value: report.LiveSettingsState + " (running process not inspected)"},
+		cliui.Field{Label: "Data directory", Value: dataDir},
+		cliui.Field{Label: "Database", Value: databasePath},
+		cliui.Field{Label: "Configuration", Value: fmt.Sprintf("each node's %s stored in %s table %s of %s",
+			report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table, database)},
+	)
+	return cliui.Section(cliui.UnitTitle(report.Service, style), cliui.Fields(fields...),
+		cliui.UnitNotes("sing-box-panel", report.Service, style))
 }

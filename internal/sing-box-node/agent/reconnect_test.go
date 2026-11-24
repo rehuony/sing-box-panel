@@ -44,7 +44,7 @@ func TestReconnectBackoffGrowsToTheMaximumAndStartsOverAfterAHeldSession(t *test
 			}
 			ends = append(ends, time.Now())
 			return errors.New("session ended")
-		}, func(string, ...any) {})
+		}, func(string, string, ...any) {})
 		// Each wait lies in [backoff/2, backoff] for the backoff of its attempt.
 		ceilings := []time.Duration{1, 2, 4, 8, 16, 32, 60, 60, 1, 2, 4}
 		if len(starts) != len(ceilings)+1 {
@@ -95,7 +95,7 @@ func TestDuplicateInstancesReplaceEachOtherWithoutAStorm(t *testing.T) {
 		var instances sync.WaitGroup
 		for range 2 {
 			link := linkOf("node")
-			instances.Go(func() { link.supervise(ctx, panel.hold, func(string, ...any) {}) })
+			instances.Go(func() { link.supervise(ctx, panel.hold, func(string, string, ...any) {}) })
 		}
 		time.Sleep(30 * time.Minute)
 		cancel()

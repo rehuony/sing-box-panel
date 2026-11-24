@@ -12,8 +12,23 @@ usage:
 EOF
 }
 
+# build_log prints one message on stderr after its level label, colored on
+# a terminal, padded so every message starts in the same column.
+build_log() {
+  local level="$1" color="$2"
+  shift 2
+  if [[ -t 2 && -z "${NO_COLOR:-}" && "${TERM:-}" != dumb ]]; then
+    printf '\033[%sm%-7s\033[0m %s\n' "${color}" "${level}" "$*" >&2
+  else
+    printf '%-7s %s\n' "${level}" "$*" >&2
+  fi
+}
+
+build_error() { build_log ERROR 31 "$*"; }
+build_success() { build_log OK 32 "$*"; }
+
 usage_error() {
-  echo "$1" >&2
+  build_error "$1"
   usage
   exit 2
 }
@@ -36,26 +51,26 @@ resolve_source_identity() {
   local git_root
 
   if ! git_root="$(git -C "${workspace_root}" rev-parse --show-toplevel 2>/dev/null)"; then
-    echo "release builds require a Git worktree" >&2
+    build_error "release builds require a Git worktree"
     return 1
   fi
   git_root="$(cd -- "${git_root}" && pwd -P)"
   if [[ "${git_root}" != "${workspace_root}" ]]; then
-    echo "release builds must use the repository root containing the build sources" >&2
+    build_error "release builds must use the repository root containing the build sources"
     return 1
   fi
   if ! source_commit="$(git -C "${workspace_root}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)"; then
-    echo "cannot resolve the checked-out Git HEAD" >&2
+    build_error "cannot resolve the checked-out Git HEAD"
     return 1
   fi
   if [[ ! "${source_commit}" =~ ^[0-9a-f]{40}$ && ! "${source_commit}" =~ ^[0-9a-f]{64}$ ]] ||
     [[ "${source_commit}" != *[1-9a-f]* ]]; then
-    echo "Git HEAD is not a canonical non-zero lowercase commit identifier" >&2
+    build_error "Git HEAD is not a canonical non-zero lowercase commit identifier"
     return 1
   fi
   if ! source_date="$(git -C "${workspace_root}" show -s --format=%cI "${source_commit}")" ||
     [[ -z "${source_date}" ]]; then
-    echo "cannot resolve the Git HEAD commit timestamp" >&2
+    build_error "cannot resolve the Git HEAD commit timestamp"
     return 1
   fi
 }
@@ -66,14 +81,14 @@ read_update_public_key() {
   local public_key
 
   if [[ ! -f "${path}" || -L "${path}" ]]; then
-    echo "update public key must be a regular, non-symbolic file" >&2
+    build_error "update public key must be a regular, non-symbolic file"
     return 1
   fi
   file_size="$(wc -c <"${path}" | tr -d '[:space:]')"
   public_key="$(<"${path}")"
   if [[ ! "${public_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
     [[ "${file_size}" != "${#public_key}" && "${file_size}" != "$(( ${#public_key} + 1 ))" ]]; then
-    echo "update public key must contain one standard-Base64 Ed25519 public key" >&2
+    build_error "update public key must contain one standard-Base64 Ed25519 public key"
     return 1
   fi
   printf '%s\n' "${public_key}"
@@ -138,13 +153,13 @@ prepare_source_snapshot() {
 
   if [[ -e "${source_root}/${release_private_key_path}" ||
     -L "${source_root}/${release_private_key_path}" ]]; then
-    echo "the release signing private key must not be committed to Git" >&2
+    build_error "the release signing private key must not be committed to Git"
     return 1
   fi
   if [[ ! -d "${source_root}/web" || -L "${source_root}/web" ]] ||
     [[ ! -f "${source_root}/api/panel-openapi.yaml" || -L "${source_root}/api/panel-openapi.yaml" ]] ||
     [[ ! -f "${source_root}/api/node-openapi.yaml" || -L "${source_root}/api/node-openapi.yaml" ]]; then
-    echo "HEAD does not contain the regular Web and OpenAPI build inputs" >&2
+    build_error "HEAD does not contain the regular Web and OpenAPI build inputs"
     return 1
   fi
 }
@@ -179,17 +194,17 @@ build_web_distribution() {
   local distribution
 
   if ! command -v corepack >/dev/null 2>&1; then
-    echo "corepack is required to build the pinned Web dependencies" >&2
+    build_error "corepack is required to build the pinned Web dependencies"
     return 1
   fi
   expected_pnpm="$(sed -n 's/^[[:space:]]*"packageManager":[[:space:]]*"pnpm@\([^"]*\)".*/\1/p' "${web_root}/package.json")"
   if [[ -z "${expected_pnpm}" ]]; then
-    echo "web/package.json does not pin pnpm" >&2
+    build_error "web/package.json does not pin pnpm"
     return 1
   fi
   actual_pnpm="$(cd -- "${web_root}" && run_pnpm --version)"
   if [[ "${actual_pnpm}" != "${expected_pnpm}" ]]; then
-    echo "Corepack selected pnpm ${actual_pnpm}, expected ${expected_pnpm}" >&2
+    build_error "Corepack selected pnpm ${actual_pnpm}, expected ${expected_pnpm}"
     return 1
   fi
 
@@ -205,7 +220,7 @@ build_web_distribution() {
 
   if [[ ! -s "${web_root}/node_modules/.pnpm/lock.yaml" ]] ||
     ! cmp "${web_root}/pnpm-lock.yaml" "${web_root}/node_modules/.pnpm/lock.yaml"; then
-    echo "pnpm did not recreate node_modules from the frozen lock file" >&2
+    build_error "pnpm did not recreate node_modules from the frozen lock file"
     return 1
   fi
   # Each binary embeds its own application: the panel's and the node console's.
@@ -215,11 +230,11 @@ build_web_distribution() {
       [[ ! -s "${distribution}/favicon.svg" ]] ||
       [[ ! -d "${distribution}/assets" ]] ||
       ! find "${distribution}/assets" -type f -print -quit | grep -q .; then
-      echo "the ${application} Web build did not create dist/index.html, favicon.svg, and assets" >&2
+      build_error "the ${application} Web build did not create dist/index.html, favicon.svg, and assets"
       return 1
     fi
     if find "${distribution}" -type l -print -quit | grep -q .; then
-      echo "the ${application} Web distribution must not contain symbolic links" >&2
+      build_error "the ${application} Web distribution must not contain symbolic links"
       return 1
     fi
   done
@@ -272,7 +287,7 @@ write_checksums() {
     elif command -v shasum >/dev/null 2>&1; then
       shasum -a 256 "${binaries[@]}" >SHA256SUMS
     else
-      echo "sha256sum or shasum is required" >&2
+      build_error "sha256sum or shasum is required"
       return 1
     fi
   )
@@ -288,7 +303,7 @@ check_checksums() {
     elif command -v shasum >/dev/null 2>&1; then
       shasum -a 256 --check SHA256SUMS >/dev/null
     else
-      echo "sha256sum or shasum is required" >&2
+      build_error "sha256sum or shasum is required"
       return 1
     fi
   )
@@ -312,28 +327,28 @@ check_binary_build() {
     $'\tbuild\tGOOS=linux' \
     $'\tbuild\tGOARCH='"${architecture}"; do
     if ! grep -Fqx "${expected}" <<<"${metadata}"; then
-      echo "release binary metadata is missing ${expected}" >&2
+      build_error "release binary metadata is missing ${expected}"
       return 1
     fi
   done
   if grep -Fq $'\tbuild\tvcs' <<<"${metadata}"; then
-    echo "release binary unexpectedly contains automatic VCS metadata" >&2
+    build_error "release binary unexpectedly contains automatic VCS metadata"
     return 1
   fi
   case "${architecture}" in
   amd64) architecture_baseline=$'\tbuild\tGOAMD64=v1' ;;
   arm64) architecture_baseline=$'\tbuild\tGOARM64=v8.0' ;;
   *)
-    echo "unsupported release architecture ${architecture}" >&2
+    build_error "unsupported release architecture ${architecture}"
     return 1
     ;;
   esac
   if ! grep -Fqx "${architecture_baseline}" <<<"${metadata}"; then
-    echo "release binary metadata has the wrong ${architecture} baseline" >&2
+    build_error "release binary metadata has the wrong ${architecture} baseline"
     return 1
   fi
   if [[ -n "${public_key}" ]] && ! LC_ALL=C grep -aFq -- "${public_key}" "${binary}"; then
-    echo "formal release binary does not contain the configured update verification key" >&2
+    build_error "formal release binary does not contain the configured update verification key"
     return 1
   fi
 }
@@ -349,17 +364,17 @@ validate_staging() {
   while IFS= read -r binary; do
     binary="${staging_dir}/${binary}"
     if [[ ! -f "${binary}" || -L "${binary}" || ! -x "${binary}" ]]; then
-      echo "release binary is missing, non-regular, symbolic, or non-executable: ${binary}" >&2
+      build_error "release binary is missing, non-regular, symbolic, or non-executable: ${binary}"
       return 1
     fi
   done < <(release_binaries)
   if [[ ! -f "${staging_dir}/SHA256SUMS" || -L "${staging_dir}/SHA256SUMS" ]]; then
-    echo "release checksum file is missing, non-regular, or symbolic" >&2
+    build_error "release checksum file is missing, non-regular, or symbolic"
     return 1
   fi
   entry_count="$(find "${staging_dir}" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d '[:space:]')"
   if [[ "${entry_count}" != $((2 * ${#release_commands[@]} + 1)) ]]; then
-    echo "release staging contains unexpected outputs" >&2
+    build_error "release staging contains unexpected outputs"
     return 1
   fi
 
@@ -396,20 +411,12 @@ verify_runtime_metadata() {
       probe="${build_root}/${command}-metadata-probe"
       build_binary "${source_root}" "${host_os}" "${host_arch}" "${probe}" "${ldflags}" "${command}"
     fi
-    # The node adds its protocol version after the build identity.
-    if [[ "${command}" == sing-box-panel ]]; then
-      actual="$("${probe}" --output json version)"
-      [[ "${actual}" == "${expected}}" ]] || {
-        echo "release metadata mismatch: got ${actual}, expected ${expected}}" >&2
-        return 1
-      }
-    else
-      actual="$("${probe}" version --json)"
-      [[ "${actual}" == "${expected}",\"protocol\":* ]] || {
-        echo "release metadata mismatch: got ${actual}, expected ${expected},\"protocol\":...}" >&2
-        return 1
-      }
-    fi
+    # Both binaries report one release version and the panel-node protocol.
+    actual="$("${probe}" --output json version)"
+    [[ "${actual}" == "${expected}",\"protocol\":* ]] || {
+      build_error "release metadata mismatch: got ${actual}, expected ${expected},\"protocol\":...}"
+      return 1
+    }
   done
 }
 
@@ -448,23 +455,23 @@ build_distribution() (
   trap cleanup_build EXIT
 
   if [[ -z "${requested_output}" ]]; then
-    echo "release output directory is empty" >&2
+    build_error "release output directory is empty"
     return 2
   fi
   output_parent_input="$(dirname -- "${requested_output}")"
   output_name="$(basename -- "${requested_output}")"
   if [[ "${output_name}" == . || "${output_name}" == .. || "${output_name}" == / ]]; then
-    echo "invalid release output directory ${requested_output}" >&2
+    build_error "invalid release output directory ${requested_output}"
     return 2
   fi
   if [[ ! -d "${output_parent_input}" ]]; then
-    echo "release output parent does not exist: ${output_parent_input}" >&2
+    build_error "release output parent does not exist: ${output_parent_input}"
     return 2
   fi
   output_parent="$(cd -- "${output_parent_input}" && pwd -P)"
   final_output="${output_parent}/${output_name}"
   if [[ -e "${final_output}" || -L "${final_output}" ]]; then
-    echo "release output already exists: ${final_output}" >&2
+    build_error "release output already exists: ${final_output}"
     return 1
   fi
 
@@ -493,7 +500,7 @@ build_distribution() (
   build_web_distribution "${web_root}"
 
   if [[ -e "${final_output}" || -L "${final_output}" ]]; then
-    echo "release output appeared while the build was running: ${final_output}" >&2
+    build_error "release output appeared while the build was running: ${final_output}"
     return 1
   fi
   staging_dir="$(mktemp -d "${output_parent}/.${output_name}.staging.XXXXXX")"
@@ -518,12 +525,12 @@ build_distribution() (
   fi
 
   if [[ -e "${final_output}" || -L "${final_output}" ]]; then
-    echo "refusing to replace release output: ${final_output}" >&2
+    build_error "refusing to replace release output: ${final_output}"
     return 1
   fi
   mv -- "${staging_dir}" "${final_output}"
   staging_dir=""
-  echo "built ${mode} artifacts in ${final_output}"
+  build_success "Built ${mode} artifacts in ${final_output}"
 )
 
 run_verify() (
@@ -554,14 +561,14 @@ run_verify() (
   invalid_status=$?
   set -e
   if [[ ${invalid_status} -eq 0 ]]; then
-    echo "an invalid release version unexpectedly built successfully" >&2
+    build_error "an invalid release version unexpectedly built successfully"
     return 1
   fi
   if [[ -e "${invalid_output}" || -L "${invalid_output}" ]]; then
-    echo "an invalid release version left output behind" >&2
+    build_error "an invalid release version left output behind"
     return 1
   fi
-  echo "formal release build and invalid-version cleanup were verified"
+  build_success "Verified the formal release build and invalid-version cleanup"
 )
 
 if [[ $# -lt 1 ]]; then

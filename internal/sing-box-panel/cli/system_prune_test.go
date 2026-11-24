@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
@@ -85,8 +86,8 @@ func TestPrunePreservesAccountOutcomes(t *testing.T) {
 			if outcome == "interrupted" && len(result.Warnings) == 0 {
 				t.Fatal("retained/unknown identity was silent")
 			}
-			text := cleanupText(result, err, fileTreeStyle{})
-			if !strings.Contains(text, "Service user: ["+wantUser+"]") || !strings.Contains(text, "Service group: ["+wantGroup+"]") {
+			text := cleanupText(result, err, cliui.Style{})
+			if !strings.Contains(text, "  Service user   ["+wantUser+"]") || !strings.Contains(text, "  Service group  ["+wantGroup+"]") {
 				t.Fatalf("text omitted account outcome: %s", text)
 			}
 			raw, marshalErr := json.Marshal(result)
@@ -118,22 +119,26 @@ func TestPruneFailureDiagnosticsAcrossStreams(t *testing.T) {
 			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: service, CleanupHistoryPath: testHistoryPath(t)})
 			root.SetArgs([]string{"system", "prune", "--yes", "-c", config, "-o", format})
 			err := root.ExecuteContext(t.Context())
-			if !errors.Is(err, systemd.ErrConflict) || ExitCode(err) != 4 {
+			if !errors.Is(err, systemd.ErrConflict) || cliui.ExitCode(err) != 4 {
 				t.Fatalf("lost failure classification: %v", err)
 			}
-			if writeErr := WriteError(&stderr, root, err); writeErr != nil {
+			if writeErr := cliui.WriteError(&stderr, root, err); writeErr != nil {
 				t.Fatal(writeErr)
 			}
 			if format == "text" {
 				if strings.Contains(stdout.String(), "NeedDaemonReload") || strings.Count(stderr.String(), "NeedDaemonReload=yes") != 1 ||
-					!strings.Contains(stdout.String(), "Files: 0 removed") ||
+					!strings.Contains(stdout.String(), "Files  0 removed") ||
 					!strings.Contains(stderr.String(), "\n  - Inspect: systemctl cat") ||
 					!strings.Contains(stderr.String(), "`systemctl daemon-reload`") {
 					t.Fatalf("unclear or repeated diagnostics:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 				}
 			} else {
 				var result installation.CleanupResult
-				var problem errorOutput
+				var problem struct {
+					Code     string `json:"code"`
+					Message  string `json:"message"`
+					ExitCode int    `json:"exit_code"`
+				}
 				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || len(result.Remaining) == 0 || len(result.Warnings) == 0 {
 					t.Fatalf("lost structured partial result: %s", stdout.String())
 				}

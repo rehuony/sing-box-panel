@@ -383,7 +383,7 @@ func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ s
 		writeProblem(w, http.StatusInternalServerError, "enrollment_not_saved", "Enrollment not saved", err.Error())
 		return
 	}
-	handler.logf("console: enrolled as node %s with the panel at %s", status.Enrollment.NodeID, status.Enrollment.Endpoint)
+	handler.logf("Console enrolled the node as %s with the panel at %s", status.Enrollment.NodeID, status.Enrollment.Endpoint)
 	writeJSON(w, http.StatusOK, handler.view(request.Context(), status))
 }
 
@@ -393,7 +393,7 @@ func (handler *Handler) unenroll(w http.ResponseWriter, request *http.Request, _
 		writeProblem(w, http.StatusInternalServerError, "unenrollment_failed", "Unenrollment failed", err.Error())
 		return
 	}
-	handler.logf("console: unenrolled the node")
+	handler.logf("Console unenrolled the node")
 	writeJSON(w, http.StatusOK, handler.view(request.Context(), status))
 }
 

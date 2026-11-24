@@ -7,13 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
-	"github.com/mattn/go-isatty"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
@@ -23,7 +21,7 @@ import (
 )
 
 func newSystemCommand(state *options, service systemdService) *cobra.Command {
-	root := group("system", "Inspect or prune the selected instance's files and data")
+	root := cliui.Group("system", "Inspect or prune the selected instance's files and data")
 	root.AddCommand(newSystemDFCommand(state, service), newSystemPruneCommand(state, service))
 	return root
 }
@@ -74,19 +72,19 @@ func newSystemDFCommand(state *options, service systemdService) *cobra.Command {
 	var rawScope string
 	command := &cobra.Command{Use: "df", Short: "List selected instance files, storage paths and cleanup scope", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			scope, err := parseSystemScope(rawScope)
+			scope, err := cliui.ParseScope(rawScope)
 			if err != nil {
 				return err
 			}
 			report, err := inspectInstanceFiles(cmd.Context(), state.settingsPath, scope, service, state.historyPath)
 			if err != nil {
-				_ = writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, newFileTreeStyle(cmd.OutOrStdout(), state.format)))
-				return &Error{Kind: ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
+				_ = cliui.Write(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, cliui.NewStyle(cmd.OutOrStdout(), state.format)))
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, newFileTreeStyle(cmd.OutOrStdout(), state.format)))
+			return cliui.Write(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, cliui.NewStyle(cmd.OutOrStdout(), state.format)))
 		},
 	}
-	addSystemScopeFlag(command, &rawScope)
+	cliui.AddScopeFlag(command, &rawScope)
 	return command
 }
 
@@ -95,22 +93,22 @@ func newSystemPruneCommand(state *options, service systemdService) *cobra.Comman
 	var yes bool
 	command := &cobra.Command{Use: "prune", Short: "Preview cleanup; --yes stops the instance and removes its settings and entire data directory", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			scope, err := parseSystemScope(rawScope)
+			scope, err := cliui.ParseScope(rawScope)
 			if err != nil {
 				return err
 			}
 			report, err := inspectInstanceFiles(cmd.Context(), state.settingsPath, scope, service, state.historyPath)
 			if err != nil {
-				_ = writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, newFileTreeStyle(cmd.OutOrStdout(), state.format)))
-				return &Error{Kind: ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
+				_ = cliui.Write(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, cliui.NewStyle(cmd.OutOrStdout(), state.format)))
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "instance_files_unavailable", Message: err.Error(), Cause: err}
 			}
 			report.Preview = !yes
-			style := newFileTreeStyle(cmd.OutOrStdout(), state.format)
+			style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
 			if !yes {
-				return writeResult(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, style))
+				return cliui.Write(cmd.OutOrStdout(), state.format, report, instanceFilesText(report, style))
 			}
 			result, cleanupErr := pruneInstance(cmd.Context(), report, service)
-			if err := writeResult(cmd.OutOrStdout(), state.format, result, cleanupText(result, cleanupErr, style)); err != nil {
+			if err := cliui.Write(cmd.OutOrStdout(), state.format, result, cleanupText(result, cleanupErr, style)); err != nil {
 				return err
 			}
 			if err := writeCleanupWarnings(cmd.ErrOrStderr(), state.format, result, cleanupErr); err != nil {
@@ -122,7 +120,7 @@ func newSystemPruneCommand(state *options, service systemdService) *cobra.Comman
 			return nil
 		},
 	}
-	addSystemScopeFlag(command, &rawScope)
+	cliui.AddScopeFlag(command, &rawScope)
 	command.Flags().BoolVar(&yes, "yes", false, "permanently remove the selected settings, all data-directory contents and matching managed service")
 	return command
 }
@@ -191,37 +189,24 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 }
 
 func classifyCleanupError(err error) error {
-	return &Error{Kind: ErrorConflict, Code: "instance_cleanup_failed", Message: err.Error(), Cause: err}
+	return &cliui.Error{Kind: cliui.ErrorConflict, Code: "instance_cleanup_failed", Message: err.Error(), Cause: err}
 }
 
-func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
-	var text strings.Builder
-	heading := "Instance files"
+func instanceFilesText(report instanceFilesReport, style cliui.Style) string {
+	heading := style.Title("Instance files")
 	if report.Preview {
-		heading = "Cleanup preview — no changes"
+		heading = style.Warning("Cleanup preview — no changes")
 	}
-	text.WriteString(style.paint("1", heading) + "\n")
-	configPath := style.path(report.SettingsPath)
+	config, executable := style.Path(report.SettingsPath), ""
 	for _, entry := range report.Entries {
-		if entry.Role == "panel settings" && entry.State == "missing" {
-			configPath += " (missing)"
-			break
+		switch {
+		case entry.Role == "panel settings" && entry.State == "missing":
+			config += " (missing)"
+		case entry.Role == "panel executable":
+			executable = style.Path(entry.Path)
 		}
 	}
-	fmt.Fprintf(&text, "Config:     %s\n", configPath)
-	for _, entry := range report.Entries {
-		if entry.Role == "panel executable" {
-			fmt.Fprintf(&text, "Executable: %s\n", style.path(entry.Path))
-			break
-		}
-	}
-	switch report.ServiceState {
-	case "unsupported":
-		text.WriteString(style.paint("2", "Systemd:    unsupported on this platform") + "\n")
-	case "unavailable":
-		text.WriteString(style.paint("2", "Systemd:    inspection unavailable") + "\n")
-	}
-	entries := make([]fileTreeEntry, 0, len(report.Entries)+len(report.Service.Files))
+	entries := make([]cliui.TreeEntry, 0, len(report.Entries)+len(report.Service.Files))
 	for _, entry := range report.Entries {
 		if entry.State == "missing" {
 			continue
@@ -253,7 +238,8 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 		if entry.Cleanup == "retain" {
 			labels = append(labels, "retained")
 		}
-		entries = append(entries, fileTreeEntry{path: entry.Path, label: strings.Join(labels, ", "), directory: entry.State == "directory"})
+		entries = append(entries, cliui.TreeEntry{Path: entry.Path, Label: strings.Join(labels, ", "),
+			Directory: entry.State == "directory", Size: entry.Bytes, Sized: entry.State == "file"})
 	}
 	for _, entry := range report.Service.Files {
 		if entry.State == "missing" {
@@ -270,190 +256,101 @@ func instanceFilesText(report instanceFilesReport, style fileTreeStyle) string {
 		} else if !report.ServiceMatches || !entry.Managed {
 			label += ", outside scope"
 		}
-		entries = append(entries, fileTreeEntry{path: entry.Path, label: label})
+		entries = append(entries, cliui.TreeEntry{Path: entry.Path, Label: label})
 	}
-	text.WriteByte('\n')
-	text.WriteString(fileTreeText(entries, style))
+	var notes []string
 	if !hasCleanupTargets(report) {
-		text.WriteString("\n\nNo removable resources remain for this instance.")
+		notes = append(notes, "No removable resources remain for this instance.")
 	} else if report.Preview {
-		text.WriteString("\n\n" + style.paint("33", "Pass --yes to stop this instance and permanently delete its settings and all data."))
+		notes = append(notes, style.Warning("Pass --yes to stop this instance and permanently delete its settings and all data."))
 	}
 	for _, warning := range report.Warnings {
-		text.WriteString("\nInspection warning: " + warning)
+		notes = append(notes, style.Warning("Warning:")+" "+warning)
 	}
-	return text.String()
+	fields := cliui.Fields(
+		cliui.Field{Label: "Config", Value: config},
+		cliui.Field{Label: "Executable", Value: executable},
+		cliui.Field{Label: "Service", Value: instanceServiceText(report)},
+	)
+	return cliui.Section(heading, fields, style.Tree(entries), cliui.Lines(notes...))
 }
 
-func cleanupText(result installation.CleanupResult, cleanupErr error, style fileTreeStyle) string {
-	heading := "Cleanup results"
-	if cleanupErr != nil {
-		heading = "Cleanup interrupted; confirmed results only"
-		heading = style.paint("31", heading)
-	} else {
-		heading = style.paint("1", heading)
+// instanceServiceText reports the inspected service and whether its unit
+// runs the selected settings.
+func instanceServiceText(report instanceFilesReport) string {
+	switch report.ServiceState {
+	case "unsupported":
+		return "unsupported on this platform"
+	case "unavailable":
+		return "inspection unavailable"
 	}
-	entries := make([]fileTreeEntry, 0, len(result.Removed)+len(result.Retained))
+	if report.ServiceMatches {
+		return string(report.Service.Scope) + ", uses these settings"
+	}
+	for _, file := range report.Service.Files {
+		if file.State != "missing" {
+			return string(report.Service.Scope) + ", uses other settings"
+		}
+	}
+	return "not installed"
+}
+
+func cleanupText(result installation.CleanupResult, cleanupErr error, style cliui.Style) string {
+	heading := style.Success("Cleanup results")
+	if cleanupErr != nil {
+		heading = style.Failure("Cleanup interrupted; confirmed results only")
+	}
+	entries := make([]cliui.TreeEntry, 0, len(result.Removed)+len(result.Retained)+len(result.Remaining))
 	for _, path := range result.Removed {
-		entries = append(entries, fileTreeEntry{path: path, label: "removed"})
+		entries = append(entries, cliui.TreeEntry{Path: path, Label: "removed"})
 	}
 	for _, path := range result.Retained {
-		entries = append(entries, fileTreeEntry{path: path, label: "retained"})
+		entries = append(entries, cliui.TreeEntry{Path: path, Label: "retained"})
 	}
 	for _, path := range result.Remaining {
-		entries = append(entries, fileTreeEntry{path: path, label: "remaining"})
+		entries = append(entries, cliui.TreeEntry{Path: path, Label: "remaining"})
 	}
-	output := fmt.Sprintf("%s\n  Files: %s removed, %s remaining, %s retained", heading,
-		style.paint("32", fmt.Sprint(len(result.Removed))),
-		style.paint("33", fmt.Sprint(len(result.Remaining))),
-		style.paint("36", fmt.Sprint(len(result.Retained))))
-	if result.ServiceAccount != nil {
-		output += "\n" + accountCleanupText(*result.ServiceAccount, style)
-	}
-	if len(entries) > 0 {
-		output += "\n\n" + fileTreeText(entries, style)
+	fields := []cliui.Field{{Label: "Files", Value: fmt.Sprintf("%d removed, %d remaining, %d retained",
+		len(result.Removed), len(result.Remaining), len(result.Retained))}}
+	var notes []string
+	if account := result.ServiceAccount; account != nil {
+		fields = append(fields, cliui.Field{Label: "Service user", Value: style.Label(account.User)},
+			cliui.Field{Label: "Service group", Value: style.Label(account.Group)})
+		if account.Note != "" {
+			notes = append(notes, style.Hint("Note:", account.Note))
+		}
 	}
 	if cleanupErr == nil && len(result.Removed) == 0 {
-		output += "\nNo removable resources remain for this instance."
+		notes = append(notes, "No removable resources remain for this instance.")
 	}
-	return output
+	return cliui.Section(heading, cliui.Fields(fields...), style.Tree(entries), cliui.Lines(notes...))
 }
 
-type fileTreeEntry struct {
-	path      string
-	label     string
-	directory bool
-}
-
-type fileTreeNode struct {
-	path      string
-	labels    []string
-	children  []*fileTreeNode
-	directory bool
-}
-
-// fileTreeText groups only reported paths. Unlabeled ancestors are structural;
-// rendering never inspects the filesystem or expands a symlink's target.
-func fileTreeText(entries []fileTreeEntry, style fileTreeStyle) string {
-	nodes := make(map[string]*fileTreeNode)
-	var roots []*fileTreeNode
-	var ensureNode func(string) *fileTreeNode
-	ensureNode = func(path string) *fileTreeNode {
-		if node, ok := nodes[path]; ok {
-			return node
-		}
-		node := &fileTreeNode{path: path}
-		nodes[path] = node
-		if parent := filepath.Dir(path); parent != path {
-			parentNode := ensureNode(parent)
-			parentNode.children = append(parentNode.children, node)
-		} else {
-			roots = append(roots, node)
-		}
-		return node
+// writeCleanupWarnings reports the warnings of a cleanup that the error and
+// the account summary do not already state.
+func writeCleanupWarnings(writer io.Writer, format cliui.Format, result installation.CleanupResult, cleanupErr error) error {
+	if format != cliui.Text {
+		return nil
 	}
-	for _, entry := range entries {
-		node := ensureNode(filepath.Clean(entry.path))
-		node.labels = append(node.labels, entry.label)
-		node.directory = node.directory || entry.directory
-	}
-	for _, node := range nodes {
-		slices.Sort(node.labels)
-		slices.SortFunc(node.children, func(a, b *fileTreeNode) int { return strings.Compare(a.path, b.path) })
-	}
-	slices.SortFunc(roots, func(a, b *fileTreeNode) int { return strings.Compare(a.path, b.path) })
-	var text strings.Builder
-	var writeNode func(*fileTreeNode, string, string, string)
-	writeNode = func(node *fileTreeNode, name, prefix, branch string) {
-		// Keep the filesystem root visible; compact only the branches below it.
-		for branch != "" && len(node.labels) == 0 && len(node.children) == 1 {
-			node = node.children[0]
-			name = filepath.Join(name, filepath.Base(node.path))
-		}
-		if node.directory || len(node.labels) == 0 {
-			if !strings.HasSuffix(name, string(filepath.Separator)) {
-				name += string(filepath.Separator)
-			}
-			name = style.paint("34", name)
-		}
-		fmt.Fprintf(&text, "%s%s", style.paint("2", prefix+branch), name)
-		for _, label := range node.labels {
-			if label == "" {
-				continue
-			}
-			fmt.Fprintf(&text, " %s", style.label(label))
-		}
-		text.WriteByte('\n')
-		switch branch {
-		case "├── ":
-			prefix += "│   "
-		case "└── ":
-			prefix += "    "
-		}
-		for i, child := range node.children {
-			childBranch := "├── "
-			if i == len(node.children)-1 {
-				childBranch = "└── "
-			}
-			writeNode(child, filepath.Base(child.path), prefix, childBranch)
+	excluded := make(map[string]bool)
+	if cleanupErr != nil {
+		for _, line := range cliui.DiagnosticLines([]string{cleanupErr.Error()}) {
+			excluded[line] = true
 		}
 	}
-	for i, root := range roots {
-		if i > 0 {
-			text.WriteByte('\n')
+	if result.ServiceAccount != nil {
+		excluded[accountCleanupSummary(*result.ServiceAccount)] = true
+	}
+	var warnings []string
+	for _, line := range cliui.DiagnosticLines(result.Warnings) {
+		if !excluded[line] {
+			warnings = append(warnings, line)
 		}
-		writeNode(root, root.path, "", "")
 	}
-	return strings.TrimSuffix(text.String(), "\n")
-}
-
-type fileTreeStyle struct {
-	color bool
-	home  string
-}
-
-func newFileTreeStyle(writer io.Writer, format outputFormat) fileTreeStyle {
-	home, _ := os.UserHomeDir()
-	style := fileTreeStyle{home: home}
-	term := os.Getenv("TERM")
-	if format != outputText || os.Getenv("NO_COLOR") != "" || term == "" || term == "dumb" {
-		return style
+	if len(warnings) == 0 {
+		return nil
 	}
-	if terminal, ok := writer.(interface{ Fd() uintptr }); ok {
-		style.color = isatty.IsTerminal(terminal.Fd())
-	}
-	return style
-}
-
-func (style fileTreeStyle) paint(code, text string) string {
-	if !style.color || text == "" {
-		return text
-	}
-	return "\x1b[" + code + "m" + text + "\x1b[0m"
-}
-
-func (style fileTreeStyle) label(label string) string {
-	parts := strings.Split(label, ", ")
-	for i, part := range parts {
-		code := "2"
-		switch part {
-		case "link", "outside scope", "retained":
-			code = "36"
-		case "removed":
-			code = "32"
-		case "remaining", "unknown":
-			code = "33"
-		}
-		parts[i] = style.paint(code, part)
-	}
-	return style.paint("2", "[") + strings.Join(parts, style.paint("2", ", ")) + style.paint("2", "]")
-}
-
-func (style fileTreeStyle) path(path string) string {
-	home := filepath.Clean(style.home)
-	if filepath.IsAbs(home) && home != string(filepath.Separator) &&
-		(path == home || strings.HasPrefix(path, home+string(filepath.Separator))) {
-		return "~" + strings.TrimPrefix(path, home)
-	}
-	return path
+	style := cliui.NewStyle(writer, format)
+	_, err := fmt.Fprintln(writer, "\n"+style.Diagnostic(style.Warning("Warnings"), warnings))
+	return err
 }

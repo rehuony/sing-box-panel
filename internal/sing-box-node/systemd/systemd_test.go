@@ -4,6 +4,7 @@ package systemd
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,30 +91,49 @@ func (runner *recordingRunner) Run(_ context.Context, name string, args ...strin
 	return systemd.CommandResult{}, nil
 }
 
-func TestSystemInstallCreatesSettingsStartsTheNodeAndGivesItsAccountTheFiles(t *testing.T) {
+// systemFixture is a system-scope node installation below a temporary root.
+type systemFixture struct {
+	manager                           *Manager
+	runner                            *recordingRunner
+	layout                            systemd.Layout
+	executable, settingsPath, dataDir string
+}
+
+func newSystemFixture(t *testing.T) systemFixture {
+	t.Helper()
 	root := t.TempDir()
-	executable := filepath.Join(root, "bin", Name)
-	settingsPath := filepath.Join(root, "etc", Name, "setting.json")
-	dataDir := filepath.Join(root, "data")
-	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+	fixture := systemFixture{
+		executable:   filepath.Join(root, "bin", Name),
+		settingsPath: filepath.Join(root, "etc", Name, "setting.json"),
+		dataDir:      filepath.Join(root, "data"),
+	}
+	if err := os.MkdirAll(filepath.Dir(fixture.executable), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(executable, []byte("test binary"), 0o755); err != nil {
+	if err := os.WriteFile(fixture.executable, []byte("test binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	layout := systemd.Layout{
+	fixture.layout = systemd.Layout{
 		SystemUnitPath: filepath.Join(root, "system", UnitName), SystemSysusersPath: filepath.Join(root, "sysusers", Name+".conf"),
-		SystemTmpfilesPath: filepath.Join(root, "tmpfiles", Name+".conf"), SystemExecutablePath: executable,
-		SystemStatePath: settingsPath, SystemDataDir: dataDir, UserUnitPath: filepath.Join(root, "user", UnitName),
+		SystemTmpfilesPath: filepath.Join(root, "tmpfiles", Name+".conf"), SystemExecutablePath: fixture.executable,
+		SystemStatePath: fixture.settingsPath, SystemDataDir: fixture.dataDir, UserUnitPath: filepath.Join(root, "user", UnitName),
 	}
-	runner := &recordingRunner{unitPath: layout.SystemUnitPath}
+	fixture.runner = &recordingRunner{unitPath: fixture.layout.SystemUnitPath}
 	manager, err := New(systemd.Options{
-		GOOS: "linux", EUID: func() int { return 0 }, Executable: func() (string, error) { return executable, nil },
-		Runner: runner, Layout: layout, LookPath: func(name string) (string, error) { return name, nil }, ProcRoot: t.TempDir(),
+		GOOS: "linux", EUID: func() int { return 0 }, Executable: func() (string, error) { return fixture.executable, nil },
+		Runner: fixture.runner, Layout: fixture.layout, LookPath: func(name string) (string, error) { return name, nil }, ProcRoot: t.TempDir(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture.manager = manager
+	return fixture
+}
+
+func TestSystemInstallCreatesSettingsStartsTheNodeAndGivesItsAccountTheFiles(t *testing.T) {
+	fixture := newSystemFixture(t)
+	manager, runner, layout := fixture.manager, fixture.runner, fixture.layout
+	executable, settingsPath, dataDir := fixture.executable, fixture.settingsPath, fixture.dataDir
 	request := systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: settingsPath, Now: true}
 
 	// The console is always on, so a new node starts at once and waits to be
@@ -150,6 +170,36 @@ func TestSystemInstallCreatesSettingsStartsTheNodeAndGivesItsAccountTheFiles(t *
 	status, err := manager.Status(t.Context(), systemd.ScopeSystem)
 	if err != nil || status.UnitFileStatePath != settingsPath {
 		t.Fatalf("status = %+v, %v", status, err)
+	}
+}
+
+// A unit an earlier release installed starts the node with arguments this
+// release no longer accepts; starting it is refused with the command that
+// rewrites it, and installing replaces it without --force.
+func TestUnitOfAnEarlierReleaseIsRefusedUntilInstallationRewritesIt(t *testing.T) {
+	fixture := newSystemFixture(t)
+	earlier := "# Managed by sing-box-node system install.\n[Service]\nExecStart=\"" + fixture.executable + "\" --data-dir \"" + fixture.dataDir + "\" run\n"
+	if err := os.MkdirAll(filepath.Dir(fixture.layout.SystemUnitPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.layout.SystemUnitPath, []byte(earlier), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := fixture.manager.Status(t.Context(), systemd.ScopeSystem); err != nil || !status.UnitOutdated {
+		t.Fatalf("status = %+v, %v", status, err)
+	}
+	_, err := fixture.manager.Control(t.Context(), systemd.ScopeSystem, systemd.ActionStart)
+	if !errors.Is(err, systemd.ErrConflict) || !strings.Contains(err.Error(), "Next: sudo sing-box-node systemd install --scope=system") {
+		t.Fatalf("start of an outdated unit = %v", err)
+	}
+	if slices.ContainsFunc(fixture.runner.calls, func(call []string) bool { return slices.Contains(call, "start") }) {
+		t.Fatalf("an outdated unit was started: %v", fixture.runner.calls)
+	}
+	if _, err := fixture.manager.Install(t.Context(), systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: fixture.settingsPath}); err != nil {
+		t.Fatalf("install over the earlier unit: %v", err)
+	}
+	if status, err := fixture.manager.Status(t.Context(), systemd.ScopeSystem); err != nil || status.UnitOutdated || status.UnitFileStatePath != fixture.settingsPath {
+		t.Fatalf("status after install = %+v, %v", status, err)
 	}
 }
 

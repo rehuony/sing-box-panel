@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/cli"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/server"
@@ -46,11 +47,11 @@ func run() int {
 		},
 	})
 	if err := root.ExecuteContext(ctx); err != nil {
-		_ = cli.WriteError(os.Stderr, root, err)
+		_ = cliui.WriteError(os.Stderr, root, err)
 		if code := signalExit.Load(); code != 0 {
 			return int(code)
 		}
-		return cli.ExitCode(err)
+		return cliui.ExitCode(err)
 	}
 	if code := signalExit.Load(); code != 0 {
 		return int(code)

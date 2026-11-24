@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package cli
+package cliui
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestExitCodeClassifiesCobraUsage(t *testing.T) {
@@ -18,7 +20,9 @@ func TestExitCodeClassifiesCobraUsage(t *testing.T) {
 }
 
 func TestWriteErrorUsesMachineOutput(t *testing.T) {
-	root := NewRootCommand(Dependencies{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
+	root := &cobra.Command{Use: "test"}
+	var format Format
+	AddOutputFlag(root.PersistentFlags(), &format)
 	if err := root.PersistentFlags().Set("output", "json"); err != nil {
 		t.Fatal(err)
 	}
@@ -50,13 +54,13 @@ func TestTextDiagnosticsPreserveAndDeduplicateMessages(t *testing.T) {
 		!strings.Contains(output.String(), "\n  - Next:") || strings.Contains(output.String(), "\x1b") {
 		t.Fatalf("unreadable or repeated error: %q", output.String())
 	}
-	plain := diagnosticText("Error", diagnosticLines([]string{message}), fileTreeStyle{})
-	colored := diagnosticText("\x1b[1;31mError\x1b[0m", diagnosticLines([]string{message}), fileTreeStyle{color: true})
+	plain := (Style{}).Diagnostic("Error", DiagnosticLines([]string{message}))
+	colored := (Style{Color: true}).Diagnostic("\x1b[1;31mError\x1b[0m", DiagnosticLines([]string{message}))
 	if regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, "") != plain {
 		t.Fatal("styling changed diagnostic content")
 	}
 	long := "An operation failed while inspecting a service configuration with a long description and multiple details that must stay legible on a normal terminal."
-	wrapped := diagnosticText("Error", []string{long}, fileTreeStyle{})
+	wrapped := (Style{}).Diagnostic("Error", []string{long})
 	if !strings.Contains(wrapped, "\n    ") || !strings.Contains(wrapped, "normal terminal.") {
 		t.Fatalf("lost continuation indentation or content: %q", wrapped)
 	}

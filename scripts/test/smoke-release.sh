@@ -237,7 +237,7 @@ assert_json 'node release version, commit and date match the frozen source' \
   --arg commit "${source_commit}" \
   --arg date "${source_date}" \
   '.version == $version and .commit == $commit and .date == $date' \
-  <<<"$("${node_binary}" version --json)"
+  <<<"$("${node_binary}" --output json version)"
 go version -m "${node_binary}" | grep -Fqx $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-node' || {
   printf 'node release binary metadata names another command\n' >&2
   exit 1

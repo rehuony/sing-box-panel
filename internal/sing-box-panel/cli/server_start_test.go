@@ -65,16 +65,18 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 				t.Fatal("redirected guidance contains terminal escapes")
 			}
 			if test.format == "text" {
-				settingsPath := "~/config/sing-box-panel/setting.json"
+				// Redirected output keeps absolute paths: under systemd the
+				// service account's home is its data directory.
+				settingsPath := filepath.Join(directory, "config", "sing-box-panel", "setting.json")
 				if test.explicit {
-					settingsPath = "~/custom/setting.json"
+					settingsPath = filepath.Join(directory, "custom", "setting.json")
 				}
 				want := "\nsing-box-panel settings created\n\n" +
 					"  Panel URL         http://127.0.0.1:3000/\n" +
 					"  Email             " + configuration.Auth.Email + "\n" +
-					"  Initial Password  " + password + "\n" +
+					"  Initial password  " + password + "\n" +
 					"  Settings          " + settingsPath + "\n" +
-					"  Data Dir          ~/data/sing-box-panel\n\n  Save this password now; only its hash is stored.\n\n"
+					"  Data directory    " + filepath.Join(directory, "data", "sing-box-panel") + "\n\n  Save this password now; only its hash is stored.\n\n"
 				if stderr.String() != want {
 					t.Errorf("initialization banner mismatch:\nwant %q\n got %q", want, stderr.String())
 				}

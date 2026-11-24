@@ -141,8 +141,8 @@ panel. The explicit `init` step is optional. Existing files are validated withou
 replacement; broken or unreadable settings still fail. The same behavior applies
 without `--config`, using the default path for the current user.
 
-First-run guidance lists `Panel URL`, `Email`, `Initial Password`,
-`Settings`, and `Data Dir`. Open the URL and sign in with the
+First-run guidance lists `Panel URL`, `Email`, `Initial password`,
+`Settings`, and `Data directory`. Open the URL and sign in with the
 printed email and password. The password is displayed only when settings are
 created; `auth.password_hash` stores its hash. Existing token-based settings using
 `auth.token` are rejected: initialize current-format settings and migrate the
@@ -264,11 +264,15 @@ system service.
 
 ## Update the panel and nodes
 
-A release build updates itself to a newer signed release. The panel settings'
+A release build updates itself to a newer signed release; the panel and the
+node are released together under one version. The panel settings'
 maintenance category shows the panel's version and the newest stable release
 and updates the panel; a node's settings tab updates that node to the panel's
-own release, and nodes never contact GitHub. Restarting a node restarts its
-core, so its proxy is briefly interrupted. From a shell, `sing-box-panel update`
-and `sing-box-node update` do the same; see the [CLI reference](cli.md). A
-system service hands each update to its root update helper, described in the
-[systemd packaging guide](systemd.md#update-helper).
+own release, and enrolled nodes never contact GitHub. Restarting a node restarts
+its core, so its proxy is briefly interrupted. From a shell, `sing-box-panel
+update` and `sing-box-node update` do the same; a node that is not enrolled
+updates from the latest stable GitHub release instead. See the
+[CLI reference](cli.md). A system service hands each update to its root update
+helper, described in the [systemd packaging guide](systemd.md#update-helper).
+After replacing a binary by hand or with the installer, refresh its service
+with `systemd install` before restarting it.

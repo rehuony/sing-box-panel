@@ -6,11 +6,13 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -34,7 +36,7 @@ type Dependencies struct {
 type options struct {
 	settingsPath string
 	historyPath  string
-	format       outputFormat
+	format       cliui.Format
 }
 
 func NewRootCommand(deps Dependencies) *cobra.Command {
@@ -51,62 +53,25 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 			service = manager
 		}
 	}
-	root := &cobra.Command{
-		Use:           "sing-box-panel",
-		Short:         "Manage panel configuration and services",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		Args:          cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	root := cliui.Root(cliui.Group("sing-box-panel", "Manage panel configuration and services"))
 	root.SetIn(deps.Stdin)
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
-	root.SetUsageTemplate(usageTemplate)
 	root.PersistentFlags().StringVarP(&state.settingsPath, "config", "c", settings.DefaultPath(), "settings file path")
-	root.PersistentFlags().VarP(newOutputValue(&state.format), "output", "o", "output format: text, json, or jsonl")
+	cliui.AddOutputFlag(root.PersistentFlags(), &state.format)
 	root.AddCommand(
 		newInitCommand(state),
-		newVersionCommand(state, deps.Build),
+		cliui.Version("sing-box-panel", deps.Build, fmt.Sprintf("%d.%d", nodeapi.ProtocolMajor, nodeapi.ProtocolMinor), &state.format),
 		newUpdateCommand(state, deps.Build, deps.Update),
 		newServerCommand(state, deps.RunServer),
 		newConfigCommand(state),
 		newNodeCommand(state),
 		newSystemCommand(state, service),
 		newSystemdCommand(state, service),
-		newCompletionCommand(root),
+		cliui.Completion(root),
 	)
 	return root
 }
-
-type outputValue struct{ target *outputFormat }
-
-func newOutputValue(target *outputFormat) *outputValue {
-	*target = outputText
-	return &outputValue{target: target}
-}
-
-func (value *outputValue) String() string {
-	if value == nil || value.target == nil {
-		return string(outputText)
-	}
-	return string(*value.target)
-}
-
-func (value *outputValue) Set(raw string) error {
-	format := outputFormat(strings.ToLower(strings.TrimSpace(raw)))
-	switch format {
-	case outputText, outputJSON, outputJSONL:
-		*value.target = format
-		return nil
-	default:
-		return &Error{Kind: ErrorUsage, Code: "invalid_output", Message: "output must be text, json, or jsonl"}
-	}
-}
-
-func (value *outputValue) Type() string { return "format" }
 
 func newInitCommand(state *options) *cobra.Command {
 	var force bool
@@ -126,44 +91,32 @@ func newInitCommand(state *options) *cobra.Command {
 				}
 			}()
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "initialization_failed", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "initialization_failed", Message: err.Error(), Cause: err}
 			}
 			value, err = installation.PrepareDataLocation(cmd.Context(), state.settingsPath)
 			if err != nil {
-				return &Error{Kind: ErrorDomain, Code: "data_migration_failed", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorDomain, Code: "data_migration_failed", Message: err.Error(), Cause: err}
 			}
 			database, err := store.Open(cmd.Context(), filepath.Join(value.DataDir, "panel.db"))
 			if err != nil {
-				return &Error{Kind: ErrorDomain, Code: "database_initialization_failed", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorDomain, Code: "database_initialization_failed", Message: err.Error(), Cause: err}
 			}
 			info, err := database.SchemaInfo(cmd.Context())
 			closeErr := database.Close()
 			if err != nil {
-				return &Error{Kind: ErrorDomain, Code: "database_verification_failed", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorDomain, Code: "database_verification_failed", Message: err.Error(), Cause: err}
 			}
 			if closeErr != nil {
-				return &Error{Kind: ErrorDomain, Code: "database_close_failed", Message: closeErr.Error(), Cause: closeErr}
+				return &cliui.Error{Kind: cliui.ErrorDomain, Code: "database_close_failed", Message: closeErr.Error(), Cause: closeErr}
 			}
 			if err := settings.EstablishDataLocation(cmd.Context(), state.settingsPath, value.DataDir); err != nil {
 				return err
 			}
 			result := map[string]any{"settings_path": state.settingsPath, "data_dir": value.DataDir, "schema_version": info.Version, "login_email": value.Auth.Email, "login_password": initial.InitialPassword}
 			outputAttempted = true
-			return writeResult(cmd.OutOrStdout(), state.format, result, initializationText(cmd.OutOrStdout(), state.format, initial))
+			return cliui.Write(cmd.OutOrStdout(), state.format, result, initializationText(cmd.OutOrStdout(), state.format, initial))
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing settings file")
 	return cmd
-}
-
-func newVersionCommand(state *options, info buildinfo.Info) *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "Print sing-box-panel build information",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			text := "sing-box-panel " + info.DisplayVersion()
-			return writeResult(cmd.OutOrStdout(), state.format, info, text)
-		},
-	}
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package cli
+package cliui
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ErrorKind selects a failure's exit code.
 type ErrorKind int
 
 const (
@@ -24,6 +25,8 @@ const (
 	ErrorUnavailable
 )
 
+// Error is a classified command failure: Code names it in output and Kind
+// selects the exit code.
 type Error struct {
 	Kind    ErrorKind
 	Code    string
@@ -42,6 +45,14 @@ func (err *Error) Error() string {
 }
 
 func (err *Error) Unwrap() error { return err.Cause }
+
+// Fail classifies cause as kind with code, keeping its message.
+func Fail(kind ErrorKind, code string, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &Error{Kind: kind, Code: code, Message: cause.Error(), Cause: cause}
+}
 
 func ExitCode(err error) int {
 	if err == nil {
@@ -65,7 +76,7 @@ func ExitCode(err error) int {
 			return 6
 		}
 	}
-	if isCobraUsageError(err) {
+	if isUsageError(err) {
 		return 2
 	}
 	return 1
@@ -77,9 +88,9 @@ type errorOutput struct {
 	ExitCode int    `json:"exit_code"`
 }
 
-// WriteError renders one terminal error to stderr according to the parsed
-// root output flag. Causes are deliberately not serialized because they may
-// contain filesystem or upstream details unsuitable for machine consumers.
+// WriteError renders one terminal error to writer in the format root's
+// --output flag selected. Causes are deliberately not serialized because they
+// may contain filesystem or upstream details unsuitable for machine consumers.
 func WriteError(writer io.Writer, root *cobra.Command, err error) error {
 	if err == nil {
 		return nil
@@ -90,27 +101,27 @@ func WriteError(writer io.Writer, root *cobra.Command, err error) error {
 		output.Code = classified.Code
 	} else if errors.Is(err, context.Canceled) {
 		output.Code = "canceled"
-	} else if isCobraUsageError(err) {
+	} else if isUsageError(err) {
 		output.Code = "usage_error"
 	}
-	format := outputText
+	format := Text
 	if root != nil {
 		if flag := root.Flag("output"); flag != nil {
-			format = outputFormat(flag.Value.String())
+			format = Format(flag.Value.String())
 		}
 	}
-	if format == outputJSON || format == outputJSONL {
+	if format == JSON || format == JSONL {
 		encoder := json.NewEncoder(writer)
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(output)
 	}
-	style := newFileTreeStyle(writer, outputText)
-	heading := style.paint("1;31", "Error ["+output.Code+"]")
-	_, writeErr := fmt.Fprintln(writer, diagnosticText(heading, diagnosticLines([]string{output.Message}), style))
+	style := NewStyle(writer, Text)
+	heading := style.Failure("Error [" + output.Code + "]")
+	_, writeErr := fmt.Fprintln(writer, "\n"+style.Diagnostic(heading, DiagnosticLines([]string{output.Message})))
 	return writeErr
 }
 
-func isCobraUsageError(err error) bool {
+func isUsageError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -118,7 +129,9 @@ func isCobraUsageError(err error) bool {
 	for _, prefix := range []string{
 		"unknown command ",
 		"unknown flag: ",
+		"unknown shorthand flag: ",
 		"flag needs an argument: ",
+		"invalid argument ",
 		"requires at least ",
 		"requires at most ",
 		"requires exactly ",

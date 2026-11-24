@@ -239,9 +239,9 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- agent.Run(ctx, link, agent.Options{
-			Logf: func(format string, args ...any) {
+			Log: func(_, message string) {
 				select {
-				case logs <- format:
+				case logs <- message:
 				default:
 				}
 			},
@@ -282,7 +282,7 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 	for {
 		select {
 		case line := <-logs:
-			if strings.HasPrefix(line, "session with panel") {
+			if strings.HasPrefix(line, "Session with panel") {
 				reenrollAndUnenroll(t, service, link, connected)
 				return
 			}

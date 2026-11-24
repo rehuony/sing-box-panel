@@ -76,7 +76,7 @@ func initialPasswordFromOutput(t *testing.T, output, hash string) string {
 	if json.Unmarshal([]byte(output), &event) == nil {
 		password, _ = event["login_password"].(string)
 	} else {
-		match := regexp.MustCompile(`(?m)^  (?:Initial )?Password +([^\r\n]+)$`).FindStringSubmatch(output)
+		match := regexp.MustCompile(`(?m)^  (?:Initial p|P)assword +([^\r\n]+)$`).FindStringSubmatch(output)
 		if len(match) == 2 {
 			password = match[1]
 		}
