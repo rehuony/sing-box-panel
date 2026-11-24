@@ -81,7 +81,7 @@ type Link struct {
 // a link without one.
 func OpenLink(dataDir string, build buildinfo.Info) (*Link, error) {
 	link := &Link{dataDir: dataDir, build: build, now: time.Now, changed: make(chan struct{})}
-	enrollment, err := settings.Load(dataDir)
+	enrollment, err := settings.LoadEnrollment(dataDir)
 	switch {
 	case errors.Is(err, settings.ErrNotEnrolled):
 		link.setLocked(nil)
@@ -136,7 +136,7 @@ func (link *Link) Enroll(ctx context.Context, code string) (Status, error) {
 func (link *Link) Unenroll() (Status, error) {
 	link.changing.Lock()
 	defer link.changing.Unlock()
-	if err := settings.Remove(link.dataDir); err != nil {
+	if err := settings.RemoveEnrollment(link.dataDir); err != nil {
 		return link.Status(), err
 	}
 	link.replace(nil)
@@ -276,7 +276,7 @@ func (link *Link) watch(ctx context.Context, interval time.Duration, logf func(s
 func (link *Link) reload(logf func(string, ...any)) bool {
 	link.changing.Lock()
 	defer link.changing.Unlock()
-	saved, err := settings.Load(link.dataDir)
+	saved, err := settings.LoadEnrollment(link.dataDir)
 	if err != nil {
 		return false
 	}

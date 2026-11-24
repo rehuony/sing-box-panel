@@ -15,6 +15,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -35,7 +36,7 @@ func PrepareDataLocation(ctx context.Context, path string) (settings.Settings, e
 	if err != nil {
 		return settings.Settings{}, err
 	}
-	lock, err := settings.Lock(ctx, path)
+	lock, err := settingsfile.Lock(ctx, path)
 	if err != nil {
 		return settings.Settings{}, err
 	}

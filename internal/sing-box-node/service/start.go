@@ -21,7 +21,12 @@ type Runtime struct {
 // Start restores the enabled core link, starts process supervision and core
 // log retention, and reconciles the runtime with its recorded state. Close stops everything Start and StartRecovery started.
 func (node *Node) Start(ctx context.Context) (*Runtime, error) {
-	installed, err := artifacts.New(artifacts.Options{Root: filepath.Join(node.dataDir, "artifacts")})
+	root := filepath.Join(node.dataDir, "artifacts")
+	installed, err := artifacts.New(artifacts.Options{Root: root})
+	if unsafe := (*artifacts.UnsafePathError)(nil); errors.As(err, &unsafe) {
+		return nil, fmt.Errorf("open core artifact store: %w. Every directory above %s must belong to root or to the account "+
+			"that runs the node and be writable only by its owner, so no other account can replace the cores the node runs", unsafe, root)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open core artifact store: %w", err)
 	}

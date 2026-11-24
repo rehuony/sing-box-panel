@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
@@ -16,7 +15,7 @@ import (
 type sessionContextKey struct{}
 
 func (handler *Handler) login(w http.ResponseWriter, request *http.Request) {
-	login, rejection := handler.logins.Admit(w, request, handler.originAllowed, maxLoginBody)
+	login, rejection := handler.logins.Admit(w, request, handler.settings.Server.ExternalOrigin, maxLoginBody)
 	defer login.Finish()
 	if rejection != nil {
 		writeRejection(w, request, rejection)
@@ -67,21 +66,8 @@ func (handler *Handler) currentSession(w http.ResponseWriter, request *http.Requ
 	writeJSON(w, http.StatusOK, value)
 }
 
-// originAllowed reports whether a login or write may proceed from the
-// request's origin. Only a configured external origin is enforced; without
-// one, the JSON-only login, the CSRF token and the SameSite cookie still stop
-// cross-site requests, so a reverse proxy needs no origin setting.
-func (handler *Handler) originAllowed(request *http.Request) bool {
-	origin := handler.settings.Server.ExternalOrigin
-	return origin == "" || webauth.FromOrigin(request, origin)
-}
-
 func (handler *Handler) secureCookie(request *http.Request) bool {
-	// Use the same trusted origin as CSRF validation, never forwarded headers.
-	if origin := handler.settings.Server.ExternalOrigin; origin != "" {
-		return strings.HasPrefix(origin, "https://")
-	}
-	return request.TLS != nil
+	return webauth.SecureCookie(request, handler.settings.Server.ExternalOrigin)
 }
 
 func (handler *Handler) clearSessionCookie(w http.ResponseWriter, request *http.Request) {
@@ -134,7 +120,7 @@ func (handler *Handler) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if webauth.ChangesState(request.Method) &&
-			(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), session.CSRFToken) || !handler.originAllowed(request)) {
+			(!webauth.TokenEqual(request.Header.Get("X-CSRF-Token"), session.CSRFToken) || !webauth.OriginAllowed(request, handler.settings.Server.ExternalOrigin)) {
 			writeProblem(w, request, http.StatusForbidden, "csrf_failed", "Request rejected", "The CSRF token or request origin is invalid.")
 			return
 		}

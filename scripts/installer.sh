@@ -212,10 +212,7 @@ installer_resolve_layout() {
   installer_binary_name="sing-box-${component}"
   if [[ "${effective_uid}" == "0" ]]; then
     installer_binary_path="/usr/local/bin/${installer_binary_name}"
-    installer_settings_path=""
-    if [[ "${component}" == panel ]]; then
-      installer_settings_path="/etc/sing-box-panel/setting.json"
-    fi
+    installer_settings_path="/etc/${installer_binary_name}/setting.json"
     installer_default_data_dir="/var/lib/${installer_binary_name}"
     installer_service_scope="system"
     return 0
@@ -234,10 +231,7 @@ installer_resolve_layout() {
   fi
 
   installer_binary_path="${home_directory}/.local/bin/${installer_binary_name}"
-  installer_settings_path=""
-  if [[ "${component}" == panel ]]; then
-    installer_settings_path="${config_home}/sing-box-panel/setting.json"
-  fi
+  installer_settings_path="${config_home}/${installer_binary_name}/setting.json"
   installer_default_data_dir="${data_home}/${installer_binary_name}"
   installer_service_scope="user"
 }
@@ -662,9 +656,7 @@ installer_print_next_steps() {
 
   installer_success "Installed ${installer_binary_name} successfully."
   printf '  Binary: %s\n' "${binary}"
-  if [[ "${installer_component}" == panel ]]; then
-    printf '  Default settings: %s\n' "${installer_settings_path}"
-  fi
+  printf '  Default settings: %s\n' "${installer_settings_path}"
   printf '  Default data directory: %s\n' "${installer_default_data_dir}"
   if [[ "${installer_component}" == panel ]]; then
     printf '\nStart the panel (creates missing settings and data):\n  '
@@ -674,10 +666,10 @@ installer_print_next_steps() {
     printf '  bash: source <(sing-box-panel completion bash)\n'
     printf '  fish: sing-box-panel completion fish | source\n'
   else
-    printf '\nEnroll the node with the command its panel shows after adding it:\n  '
+    printf '\nStart the node and its console (creates missing settings and prints the console password):\n  '
+    printf '%q server start\n' "${binary}"
+    printf 'Enroll it from the console, or with the command its panel shows after adding it:\n  '
     printf '%q enroll --code <code>\n' "${binary}"
-    printf 'Or enable its local console and enroll it from there:\n  '
-    printf '%q console enable\n' "${binary}"
   fi
   printf '\nThe installer did not configure or start systemd. To create missing resources, install and start the service:\n  '
   printf '%q systemd install --scope=%s --now\n' "${binary}" "${installer_service_scope}"

@@ -13,6 +13,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -77,7 +78,7 @@ func (app *Service) Current(ctx context.Context) (Settings, int64, error) {
 		}
 		return value, 0, nil
 	}
-	lock, err := Lock(ctx, app.settingsPath)
+	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return Settings{}, 0, err
 	}
@@ -134,7 +135,7 @@ func (app *Service) Recover(ctx context.Context) error {
 	if _, err := Parse(app.settingsPath, journal.After); err != nil {
 		return errors.New("invalid next settings in recovery journal")
 	}
-	current, err := ReadRaw(app.settingsPath)
+	current, err := settingsfile.Read(app.settingsPath)
 	if err != nil {
 		return err
 	}
@@ -188,7 +189,7 @@ func (app *Service) commitSettingsFile(ctx context.Context, before, after []byte
 		return err
 	}
 	err = app.database.CommitPanelSettingsFile(ctx, app.settingsPath, id, credentialsChanged, func() error {
-		current, err := ReadRaw(app.settingsPath)
+		current, err := settingsfile.Read(app.settingsPath)
 		if err != nil {
 			return err
 		}
@@ -210,7 +211,7 @@ func (app *Service) RecoverPanelSettingsFile(ctx context.Context) error {
 	if app.settingsPath == "" {
 		return errors.New("panel settings file path is required")
 	}
-	lock, err := Lock(ctx, app.settingsPath)
+	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return err
 	}

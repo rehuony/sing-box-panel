@@ -178,7 +178,7 @@ func stopInstanceForCleanup(ctx context.Context, report instanceFilesReport, ser
 		return uninstalled, nil
 	}
 	for _, entry := range report.Entries {
-		if entry.Path == filepath.Join(report.DataDir, "panel-control.sock") && entry.State != "socket" && entry.State != "missing" {
+		if entry.Path == filepath.Join(report.DataDir, procctl.SocketName) && entry.State != "socket" && entry.State != "missing" {
 			// A leftover non-socket cannot answer stop requests. Clean still must
 			// acquire the runtime lease, so a live owner cannot be bypassed.
 			return uninstalled, nil

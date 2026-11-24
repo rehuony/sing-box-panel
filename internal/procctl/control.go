@@ -18,7 +18,8 @@ import (
 	"time"
 )
 
-const socketName = "panel-control.sock"
+// SocketName is the control socket in the service's data directory.
+const SocketName = "control.sock"
 
 // Status describes the live process, never a persisted PID file.
 type Status struct {
@@ -30,6 +31,16 @@ type Status struct {
 	DataDir      string    `json:"data_dir"`
 	Listen       string    `json:"listen,omitempty"`
 	ManagedBy    string    `json:"managed_by,omitempty"`
+}
+
+// ManagedBy names who supervises this process: "systemd" when the service's
+// own unit set marker to systemd, else "terminal". A marker per service keeps
+// an environment inherited from another service from counting.
+func ManagedBy(marker string) string {
+	if os.Getenv(marker) == "systemd" {
+		return "systemd"
+	}
+	return "terminal"
 }
 
 type response struct {
@@ -51,10 +62,10 @@ type Control struct {
 // Listen must be called while holding the exclusive data-directory lease.
 // Only that owner may remove a socket left behind by an earlier crash.
 func Listen(status Status, cancel context.CancelFunc) (*Control, error) {
-	path := filepath.Join(status.DataDir, socketName)
+	path := filepath.Join(status.DataDir, SocketName)
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
-			return nil, fmt.Errorf("panel control path is not a socket: %s", path)
+			return nil, fmt.Errorf("control path is not a socket: %s", path)
 		}
 		if err := os.Remove(path); err != nil {
 			return nil, err
@@ -64,7 +75,7 @@ func Listen(status Status, cancel context.CancelFunc) (*Control, error) {
 	}
 	listener, err := net.Listen("unix", path)
 	if err != nil {
-		return nil, fmt.Errorf("listen for panel control (use a shorter data directory if the Unix socket path is too long): %w", err)
+		return nil, fmt.Errorf("listen for process control (use a shorter data directory if the Unix socket path is too long): %w", err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = listener.Close()
@@ -73,9 +84,8 @@ func Listen(status Status, cancel context.CancelFunc) (*Control, error) {
 	status.State = "starting"
 	status.PID = os.Getpid()
 	status.StartedAt = time.Now().UTC()
-	status.ManagedBy = "terminal"
-	if os.Getenv("SING_BOX_PANEL_SUPERVISOR") == "systemd" {
-		status.ManagedBy = "systemd"
+	if status.ManagedBy == "" {
+		status.ManagedBy = "terminal"
 	}
 	control := &Control{listener: listener, cancel: cancel, done: make(chan struct{}), status: status}
 	mux := http.NewServeMux()
@@ -116,7 +126,7 @@ func (control *Control) serveStop(writer http.ResponseWriter, request *http.Requ
 	status := control.status
 	if status.ManagedBy == "systemd" {
 		control.mu.Unlock()
-		writeResponse(writer, response{Status: status, Error: "panel is managed by systemd; use systemd stop"})
+		writeResponse(writer, response{Status: status, Error: "the service is managed by systemd; use systemd stop"})
 		return
 	}
 	if control.status.State != "stopped" {
@@ -164,7 +174,7 @@ func request(ctx context.Context, dataDir, method, path string) (Status, error) 
 	if err := ctx.Err(); err != nil {
 		return Status{}, err
 	}
-	socketPath := filepath.Join(dataDir, socketName)
+	socketPath := filepath.Join(dataDir, SocketName)
 	info, err := os.Lstat(socketPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return Status{State: "stopped", DataDir: dataDir}, nil
@@ -173,14 +183,14 @@ func request(ctx context.Context, dataDir, method, path string) (Status, error) 
 		return Status{}, err
 	}
 	if info.Mode()&os.ModeSocket == 0 {
-		return Status{}, errors.New("panel control path is not a socket")
+		return Status{}, errors.New("control path is not a socket")
 	}
 	dialer := &net.Dialer{}
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return dialer.DialContext(ctx, "unix", socketPath)
 	}}
 	defer transport.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, method, "http://panel"+path, nil)
+	req, err := http.NewRequestWithContext(ctx, method, "http://service"+path, nil)
 	if err != nil {
 		return Status{}, err
 	}
@@ -189,15 +199,15 @@ func request(ctx context.Context, dataDir, method, path string) (Status, error) 
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 			return Status{State: "stopped", DataDir: dataDir}, nil
 		}
-		return Status{}, fmt.Errorf("contact panel process: %w", err)
+		return Status{}, fmt.Errorf("contact the service process: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Status{}, fmt.Errorf("panel control returned HTTP %d", resp.StatusCode)
+		return Status{}, fmt.Errorf("process control returned HTTP %d", resp.StatusCode)
 	}
 	var value response
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 65536)).Decode(&value); err != nil {
-		return Status{}, fmt.Errorf("read panel control response: %w", err)
+		return Status{}, fmt.Errorf("read the process control response: %w", err)
 	}
 	if value.Error != "" {
 		return value.Status, errors.New(value.Error)

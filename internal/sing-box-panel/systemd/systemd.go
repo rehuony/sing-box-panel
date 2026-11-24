@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
@@ -255,7 +256,7 @@ func (panelState) Lock(ctx context.Context, settingsPath string) (io.Closer, err
 	if _, err := os.Lstat(filepath.Dir(settingsPath)); err != nil {
 		return nil, nil
 	}
-	lock, err := settings.TryLock(ctx, settingsPath)
+	lock, err := settingsfile.TryLock(ctx, settingsPath)
 	if err != nil {
 		return nil, err
 	}

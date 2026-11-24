@@ -182,10 +182,4 @@ describe('node console', () => {
     expect(screen.getByRole('region', { name: 'edge-tokyo' })).toHaveTextContent('Not enrolled');
     expect(unenrolls()).toHaveLength(1);
   });
-
-  it('explains a disabled console', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => respond(503, { code: 'console_disabled', status: 503 })));
-    render(<App />);
-    expect(await screen.findByRole('heading', { name: 'Console disabled' })).toBeInTheDocument();
-  });
 });

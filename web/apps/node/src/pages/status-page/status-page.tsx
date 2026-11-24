@@ -57,7 +57,7 @@ function commandsFor(status: ConsoleStatus | null): (keyof typeof helpKeys)[] {
 }
 
 function signedOutBy(error: unknown): boolean {
-  return error instanceof ConsoleRequestError && (error.status === 401 || error.code === 'console_disabled');
+  return error instanceof ConsoleRequestError && error.status === 401;
 }
 
 function enrollError(error: unknown): 'failed' | 'invalid' | 'rejected' | 'unreachable' {

@@ -13,6 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/console"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -36,6 +37,14 @@ func newServerStartCommand(state *options, run func(context.Context, string) err
 			}
 			if err := cmd.Context().Err(); err != nil {
 				return err
+			}
+			// Refuse before creating or opening anything a service account owns.
+			guarded := []string{state.settingsPath}
+			if dataDir, err := settings.LoadDataDir(state.settingsPath); err == nil {
+				guarded = append(guarded, dataDir)
+			}
+			if err := systemd.CheckRootStart("sing-box-panel", guarded...); err != nil {
+				return &Error{Kind: ErrorPermission, Code: "root_start_refused", Message: err.Error(), Cause: err}
 			}
 			configuration, created, err := settings.LoadOrInitialize(cmd.Context(), state.settingsPath)
 			if created {

@@ -65,21 +65,22 @@ nothing imports.
 | | `atomicfile` | Crash-safe file publication and directory syncs for both services and the tools |
 | | `release`, `selfupdate` | Release-version validation and signatures; fetching, verifying and atomically installing either binary, staging a release for a system service's root update helper, and the helper's staged apply |
 | | `procctl` | Private local control of a running service without an OS service manager; the service lifetime and lease, never background processes |
+| | `settingsfile` | What both services' settings files share: bounded reads, the writer lock, data-directory resolution and the dotted field names of the config commands |
 | | `database` | SQLite opening, connection pragmas, schema identity, the migration runner and data-directory locks shared by both stores |
 | | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
 | | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
-| | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files |
+| | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files, and refusing a root start against files that account owns |
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
 | | `netguard` | Which addresses count as public: the only addresses the panel's source and core downloads reach without an operator's permission, and the only ones a node reports as its public address |
 | | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, origin and CSRF checks, and security headers |
-| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `run`, `console` and `systemd` |
-| | `settings` | The node's data directory, its enrollment (panel endpoint, trust, IDs and the Ed25519 identity key) and its console settings |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `update`, `server`, `config`, `system` and `systemd` |
+| | `settings` | The node's settings file (console address, external origin, data directory and console password hash) and the enrollment in its data directory (panel endpoint, trust, IDs and the Ed25519 identity key) |
 | | `agent` | Enrollment, the link that holds it with the session's state, the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
-| | `httpapi` | The loopback console API: password login, the link's status, enrollment and unenrollment |
-| | `systemd` | The node's unit templates and its data directory as the state of its systemd installation, which must hold an enrollment or an enabled console before it starts |
+| | `httpapi` | The console API: password login, the link's status, enrollment and unenrollment |
+| | `systemd` | The node's unit templates and its settings file as the state of its systemd installation: data directory and created settings |
 | | `store` | Node SQLite: received configuration revisions, installed cores, checked startup artifacts, activation bundles, runtime intents, observations and history, and command results |
 | | `service` | The node's use cases: core installs, checks and activation, process supervision and recovery, core logs, filesystem selection and the public IP hint |
 | | `artifacts` | Verification and publication of immutable installed core files |

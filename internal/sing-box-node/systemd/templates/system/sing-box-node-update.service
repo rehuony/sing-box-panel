@@ -7,7 +7,7 @@ Documentation=https://github.com/rehuony/sing-box-panel
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/sing-box-node --data-dir /var/lib/sing-box-node update --apply-staged
+ExecStart=/usr/local/bin/sing-box-node update --apply-staged --data-dir /var/lib/sing-box-node
 TimeoutStartSec=5min
 UMask=0022
 

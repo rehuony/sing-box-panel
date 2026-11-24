@@ -55,6 +55,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	}
 	control, err := procctl.Listen(procctl.Status{
 		Version: build.Version, SettingsPath: settingsPath, DataDir: configuration.DataDir,
+		ManagedBy: procctl.ManagedBy("SING_BOX_PANEL_SUPERVISOR"),
 	}, cancel)
 	if err != nil {
 		return errors.Join(err, runtimeLease.Close())

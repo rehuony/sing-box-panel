@@ -9,11 +9,12 @@ After=network-online.target
 
 [Service]
 Environment=SING_BOX_SYSTEMD_SCOPE=system
+Environment=SING_BOX_NODE_SUPERVISOR=systemd
 Environment=SING_BOX_NODE_HOST_PROC=/run/sing-box-node/host-proc
 Type=simple
 User=sing-box-node
 Group=sing-box-node
-ExecStart=/usr/local/bin/sing-box-node --data-dir /var/lib/sing-box-node run
+ExecStart=/usr/local/bin/sing-box-node server start --config /etc/sing-box-node/setting.json
 WorkingDirectory=/var/lib/sing-box-node
 Restart=on-failure
 RestartSec=5s
@@ -31,7 +32,7 @@ AmbientCapabilities=CAP_DAC_READ_SEARCH
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/sing-box-node
+ReadWritePaths=/var/lib/sing-box-node /etc/sing-box-node
 ProtectHome=true
 ProtectHostname=true
 ProtectClock=true

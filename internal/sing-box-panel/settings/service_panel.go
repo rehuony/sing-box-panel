@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
@@ -139,7 +140,7 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 	if app.settingsPath == "" {
 		return PanelSettingsSaveResult{}, errors.New("panel settings file path is required")
 	}
-	lock, err := Lock(ctx, app.settingsPath)
+	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return PanelSettingsSaveResult{}, err
 	}

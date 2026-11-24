@@ -527,7 +527,7 @@ data_dir/
   node-tls.pem            # key and self-signed certificate for direct node connections (0600)
   artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
-  panel-control.sock      # private process control
+  control.sock            # private process control
   process.lock            # process ownership
 ```
 

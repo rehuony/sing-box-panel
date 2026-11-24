@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 )
 
 // DataLocation records the last established storage location, not a second
@@ -92,7 +93,7 @@ func ActiveDataDir(path, configured string) (string, error) {
 // EstablishDataLocation records successful initialization without altering a
 // pending move or selecting a different database.
 func EstablishDataLocation(ctx context.Context, path, dataDir string) error {
-	lock, err := Lock(ctx, path)
+	lock, err := settingsfile.Lock(ctx, path)
 	if err != nil {
 		return err
 	}

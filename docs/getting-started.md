@@ -191,13 +191,17 @@ appears once it enrolls. Run it on the node's Linux host, then start the node:
 
 ```sh
 ./bin/sing-box-node enroll --code <code>
-./bin/sing-box-node run
+./bin/sing-box-node server start
 ```
+
+The first command creates the node's settings and prints its console password
+once. The node also serves its console, at `http://127.0.0.1:8000/` by
+default, where an operator can enroll it instead of using `enroll`.
 
 The node dials the panel, so the code must name an address the node can reach:
 the generated loopback listener serves a node on the same host, and a node on
 another host needs `nodes.endpoint` or `server.external_origin`. See
-[Nodes](cli.md#nodes) for the node's data directory and states, and
+[Nodes](cli.md#nodes) for the node's settings, data directory and states, and
 [Panel and node architecture](panel-node-architecture.md) for enrollment and
 trust.
 
@@ -246,7 +250,9 @@ as it exists now. Each value names its on-disk source; the settings of the
 running process are not inspected and are reported as unknown, and a unit file
 edited since systemd loaded it is flagged as stale.
 `--scope=auto` selects `system` for root and `user` otherwise. Each node host
-installs its own service with `sing-box-node systemd install`. The node's system
+installs its own service with `sing-box-node systemd install --now`, which
+starts the node at once; enroll it afterwards with `sudo sing-box-node enroll`
+or from its console. The node's system
 unit grants `CAP_DAC_READ_SEARCH` so sing-box can read root-owned certificates
 without changing their ownership or permissions; the panel's units and the
 node's user unit grant no capabilities. The node's user unit does not confine

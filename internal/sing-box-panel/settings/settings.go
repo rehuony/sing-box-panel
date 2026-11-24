@@ -19,12 +19,13 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 // MaximumBytes limits settings documents read from disk or supplied by the CLI.
-const MaximumBytes = 1 << 20
+const MaximumBytes = settingsfile.MaximumBytes
 
 // Settings is the shared file contract for panel configuration. Sing-box
 // documents, subscriptions and runtime evidence belong in SQLite.
@@ -205,10 +206,10 @@ func parse(path string, data []byte) (Settings, error) {
 		return Settings{}, err
 	}
 	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Logs: defaultLogs()}
-	if err := decodeSettings(path, data, &value); err != nil {
+	if err := settingsfile.Decode(path, data, &value); err != nil {
 		return Settings{}, err
 	}
-	value.DataDir, err = resolveDataDir(path, value.DataDir)
+	value.DataDir, err = settingsfile.ResolveDataDir(path, value.DataDir)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -359,7 +360,7 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return Settings{}, err
 	}
-	lock, err := Lock(ctx, path)
+	lock, err := settingsfile.Lock(ctx, path)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -431,7 +432,7 @@ func initialize(ctx context.Context, path string, overwrite, createDataDirectory
 	if err := atomicWrite(path, data, overwrite); err != nil {
 		// A directory sync can fail after publication. Report the failure, but
 		// retain the one-time credential if the selected file contains it.
-		if saved, readErr := ReadRaw(path); readErr == nil && bytes.Equal(saved, data) {
+		if saved, readErr := settingsfile.Read(path); readErr == nil && bytes.Equal(saved, data) {
 			value.InitialPassword = token
 			return value, err
 		}
@@ -462,7 +463,7 @@ func Parse(path string, data []byte) (Settings, error) { return parse(path, data
 // LoadForStartup lets the server locate its database before recovering a pending
 // settings transaction. Other callers should use Load.
 func LoadForStartup(path string) (Settings, error) {
-	data, err := ReadRaw(path)
+	data, err := settingsfile.Read(path)
 	if err != nil {
 		return Settings{}, err
 	}

@@ -4,7 +4,6 @@ package systemd
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
-	"github.com/rehuony/sing-box-panel/internal/webauth"
 )
 
 func TestUnitsGiveOnlyTheSystemServiceReadAccessAndHostCounters(t *testing.T) {
@@ -23,13 +21,14 @@ func TestUnitsGiveOnlyTheSystemServiceReadAccessAndHostCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	system, err := manager.Render(systemd.ScopeSystem, "/usr/local/bin/sing-box-node", SystemDataDir, SystemDataDir)
+	system, err := manager.Render(systemd.ScopeSystem, "/usr/local/bin/sing-box-node", SystemSettingsPath, "/var/lib/sing-box-node")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, directive := range []string{
-		`ExecStart="/usr/local/bin/sing-box-node" --data-dir "/var/lib/sing-box-node" run`,
-		`ReadWritePaths="/var/lib/sing-box-node"`,
+		`ExecStart="/usr/local/bin/sing-box-node" server start --config "/etc/sing-box-node/setting.json"`,
+		`ReadWritePaths="/var/lib/sing-box-node" "/etc/sing-box-node"`,
+		"Environment=SING_BOX_NODE_SUPERVISOR=systemd",
 		"User=sing-box-node",
 		"CapabilityBoundingSet=CAP_DAC_READ_SEARCH",
 		"AmbientCapabilities=CAP_DAC_READ_SEARCH",
@@ -43,7 +42,7 @@ func TestUnitsGiveOnlyTheSystemServiceReadAccessAndHostCounters(t *testing.T) {
 			t.Errorf("system unit lacks %q", directive)
 		}
 	}
-	user, err := manager.Render(systemd.ScopeUser, "/home/operator/.local/bin/sing-box-node", "/home/operator/.local/share/sing-box-node", "/home/operator/.local/share/sing-box-node")
+	user, err := manager.Render(systemd.ScopeUser, "/home/operator/.local/bin/sing-box-node", "/home/operator/.config/sing-box-node/setting.json", "/home/operator/.local/share/sing-box-node")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +90,10 @@ func (runner *recordingRunner) Run(_ context.Context, name string, args ...strin
 	return systemd.CommandResult{}, nil
 }
 
-func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testing.T) {
+func TestSystemInstallCreatesSettingsStartsTheNodeAndGivesItsAccountTheFiles(t *testing.T) {
 	root := t.TempDir()
 	executable := filepath.Join(root, "bin", Name)
+	settingsPath := filepath.Join(root, "etc", Name, "setting.json")
 	dataDir := filepath.Join(root, "data")
 	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testin
 	layout := systemd.Layout{
 		SystemUnitPath: filepath.Join(root, "system", UnitName), SystemSysusersPath: filepath.Join(root, "sysusers", Name+".conf"),
 		SystemTmpfilesPath: filepath.Join(root, "tmpfiles", Name+".conf"), SystemExecutablePath: executable,
-		SystemStatePath: dataDir, SystemDataDir: dataDir, UserUnitPath: filepath.Join(root, "user", UnitName),
+		SystemStatePath: settingsPath, SystemDataDir: dataDir, UserUnitPath: filepath.Join(root, "user", UnitName),
 	}
 	runner := &recordingRunner{unitPath: layout.SystemUnitPath}
 	manager, err := New(systemd.Options{
@@ -114,30 +114,20 @@ func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: dataDir, Now: true}
+	request := systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: settingsPath, Now: true}
 
-	// A node that is neither enrolled nor has its console enabled would only
-	// fail and restart.
-	if _, err := manager.Install(t.Context(), request); !errors.Is(err, ErrNotRunnable) || len(runner.calls) != 0 {
-		t.Fatalf("install of an unrunnable node = %v after %v", err, runner.calls)
-	}
-	if _, err := os.Stat(layout.SystemUnitPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("unit written for an unrunnable node: %v", err)
-	}
-
-	hash, err := webauth.HashPassword(t.Context(), "console-password-one")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := settings.SaveConsole(dataDir, settings.Console{Enabled: true, Listen: settings.DefaultConsoleListen, PasswordHash: hash}); err != nil {
-		t.Fatal(err)
-	}
+	// The console is always on, so a new node starts at once and waits to be
+	// enrolled; installing creates its settings with a console password.
 	result, err := manager.Install(t.Context(), request)
-	if err != nil || !result.Started || result.DataDir != dataDir {
+	if err != nil || !result.Started || result.DataDir != dataDir || result.Initial == nil || result.Initial.InitialPassword == "" {
 		t.Fatalf("install = %+v, %v", result, err)
+	}
+	if configured, err := settings.LoadDataDir(settingsPath); err != nil || configured != dataDir {
+		t.Fatalf("settings data_dir = %q, %v", configured, err)
 	}
 	want := [][]string{
 		{"chown", "--recursive", "--no-dereference", "sing-box-node:sing-box-node", dataDir},
+		{"chown", "sing-box-node:sing-box-node", settingsPath},
 		{"systemctl", "--no-ask-password", "enable", "--now", UnitName},
 		{"systemctl", "--no-ask-password", "enable", "--now", UpdatePathUnit},
 	}
@@ -145,7 +135,7 @@ func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testin
 	// the installed executable.
 	for unit, line := range map[string]string{
 		UpdatePathUnit:    "PathExists=" + filepath.Join(dataDir, "updates", "request"),
-		UpdateServiceUnit: `ExecStart="` + executable + `" --data-dir "` + dataDir + `" update --apply-staged`,
+		UpdateServiceUnit: `ExecStart="` + executable + `" update --apply-staged --data-dir "` + dataDir + `"`,
 	} {
 		content, err := os.ReadFile(filepath.Join(filepath.Dir(layout.SystemUnitPath), unit))
 		if err != nil || !slices.Contains(strings.Split(string(content), "\n"), line) {
@@ -158,7 +148,7 @@ func TestSystemInstallStartsOnlyARunnableNodeAndGivesItsAccountTheData(t *testin
 		}
 	}
 	status, err := manager.Status(t.Context(), systemd.ScopeSystem)
-	if err != nil || status.UnitFileStatePath != dataDir {
+	if err != nil || status.UnitFileStatePath != settingsPath {
 		t.Fatalf("status = %+v, %v", status, err)
 	}
 }
@@ -177,7 +167,7 @@ func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
 			t.Run(string(scope)+"/"+suffix, func(t *testing.T) {
 				dir := t.TempDir()
 				data := filepath.Join(dir, suffix)
-				unit, err := manager.Render(scope, "/usr/bin/true", data, data)
+				unit, err := manager.Render(scope, "/usr/bin/true", filepath.Join(data, "setting.json"), data)
 				if err != nil {
 					t.Fatal(err)
 				}

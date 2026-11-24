@@ -11,22 +11,21 @@ container test described below verifies real account creation and removal.
 Each binary exposes its own templates through its `systemd` command group:
 `sing-box-panel systemd` and `sing-box-node systemd`, with the same `install`,
 `uninstall`, `status`, `start`, `stop`, `restart` and `logs` commands. Both
-run one shared lifecycle, `internal/systemd`; what differs is each service's
-state. The panel's state is its settings file, named by `--config` in the unit's
-`ExecStart`, and the settings select its data directory. The node's state is its
-data directory itself, named by `--data-dir`, which holds its enrollment,
-console settings, `node.db` and installed cores. Those commands are Linux-only
+run one shared lifecycle, `internal/systemd`. Each service's state is its
+settings file, named by `--config` in the unit's `ExecStart`, and the settings
+select its data directory: the panel's database, or the node's enrollment,
+`node.db` and installed cores. Those commands are Linux-only
 and never invoke a shell. Every systemd scope is reported in command output;
 `--scope=auto` resolves to `system` for root and to `user` otherwise.
 
 Every service unit sets `SING_BOX_SYSTEMD_SCOPE` to its scope, `system` or
 `user`, so the service knows how it is supervised when it updates itself.
-The panel's units invoke `server start` in the foreground and set
-`SING_BOX_PANEL_SUPERVISOR=systemd` to identify the panel's service owner.
-Manual terminal runs do not set that marker. They remain stoppable through
+Both services' units invoke `server start --config PATH` in the foreground and
+set a marker of their own, `SING_BOX_PANEL_SUPERVISOR=systemd` or
+`SING_BOX_NODE_SUPERVISOR=systemd`, to identify the service owner. Manual
+terminal runs do not set that marker. They remain stoppable through
 `server stop` even when the terminal inherited a generic systemd invocation
-environment; the service itself is stopped through `systemd stop`. The node's
-units invoke `sing-box-node --data-dir DIR run`.
+environment; the service itself is stopped through `systemd stop`.
 
 ```sh
 # Dedicated system services, initially using the default data directories.
@@ -43,8 +42,9 @@ The built-in systemd installer writes to `/etc/systemd/system`,
 `/etc/sysusers.d`, and `/etc/tmpfiles.d`; distro packages should continue to
 use the `/usr/lib` destinations below. System scope requires root and fixes the
 executable and state: `/usr/local/bin/sing-box-panel` with settings
-`/etc/sing-box-panel/setting.json`, and `/usr/local/bin/sing-box-node` with data
-in `/var/lib/sing-box-node`. Panel data defaults to `/var/lib/sing-box-panel`;
+`/etc/sing-box-panel/setting.json`, and `/usr/local/bin/sing-box-node` with
+settings `/etc/sing-box-node/setting.json`. Data defaults to
+`/var/lib/sing-box-panel` and `/var/lib/sing-box-node`;
 a configured dedicated directory is rendered into the unit, the [update
 helper](#update-helper)'s units and the tmpfiles rule. It creates
 the dedicated account/directories, assigns ownership of the
@@ -52,13 +52,16 @@ state and data paths, reloads systemd, enables the unit, and enables and starts
 the update helper's path unit. User scope
 writes only the current user's XDG systemd unit.
 
-A node service started with `--now`, or started later, needs a node that can
-run: one that is enrolled, or whose [console](panel-node-architecture.md#node-console)
-is enabled so it can be enrolled from there. Installation checks this before
-writing anything. Commands an administrator runs as root against a node's data
-directory, such as `sudo sing-box-node enroll` or `sudo sing-box-node console
-enable`, keep the files they write owned by the data directory's owner, so the
-`sing-box-node` account can still read them.
+Installing either service creates missing settings and prints the generated
+password once, so `install --now` starts it at once. A node starts unenrolled
+and waits to be enrolled from its [console](panel-node-architecture.md#node-console)
+or with `sudo sing-box-node enroll`. Commands an administrator runs as root
+against a service's files, such as `sudo sing-box-node enroll` or
+`sudo sing-box-node config set`, keep the files they write owned by the file's
+or data directory's owner, so the service account can still read them.
+`server start` run as root refuses settings or data owned by another account,
+such as the service account, and names `systemd start` instead: the service runs
+as that account, and a root process would leave files it cannot use.
 
 Before writing files, installation checks required commands, manager access,
 permissions, paths, pending migrations and conflicting service files. It creates
@@ -182,9 +185,9 @@ Unresolvable or unsafe data locations must be repaired, or use `--keep-user`.
 
 `systemd status` reports systemd's fragment path, state, and
 `NeedDaemonReload`, plus on-disk facts labeled as such: the state path in the
-single effective `[Service] ExecStart` line of the unit file on disk (the
-panel's `--config`, the node's `--data-dir`) and, for the panel, the data
-directory, database, and configuration storage declared by that settings file
+single effective `[Service] ExecStart` line of the unit file on disk (its
+`--config`) and the data directory that settings file selects, plus, for the
+panel, the database and configuration storage declared by that settings file
 as it exists now. The panel CLI's own `--config` path is listed separately. In
 system scope it also reports the update helper's two units. Nonempty drop-ins,
 including global `service.d/` ones that some container hosts add to every
@@ -273,7 +276,7 @@ installation therefore keeps two companion units beside its service unit, which
 `systemd install`, `uninstall` and `status` cover with it:
 
 - `NAME-update.path` watches `updates/request` in the service's data directory. Installation enables and starts it whether or not the service starts; uninstallation disables and stops it before the service, so no update starts while the service is removed.
-- `NAME-update.service` is a root oneshot that the path unit starts. It runs `sing-box-node --data-dir DIR update --apply-staged` or `sing-box-panel update --apply-staged --data-dir DIR`, with the data directory written into the unit at installation, never read from the service's settings.
+- `NAME-update.service` is a root oneshot that the path unit starts. It runs `sing-box-node update --apply-staged --data-dir DIR` or `sing-box-panel update --apply-staged --data-dir DIR`, with the data directory written into the unit at installation, never read from the service's settings.
 
 The service downloads and verifies a release itself, stages it in
 `updates/VERSION/` (the binary for its platform, `SHA256SUMS` and

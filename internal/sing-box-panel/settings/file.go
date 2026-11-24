@@ -8,9 +8,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 )
 
 // Read returns the selected settings file unchanged, including invalid JSON.
@@ -18,29 +19,12 @@ func Read(path string) ([]byte, error) {
 	if err := CheckPending(path); err != nil {
 		return nil, err
 	}
-	data, err := ReadRaw(path)
+	data, err := settingsfile.Read(path)
 	if err != nil {
 		return nil, err
 	}
 	if err := CheckPending(path); err != nil {
 		return nil, err
-	}
-	return data, nil
-}
-
-// ReadRaw is reserved for startup recovery while a file transaction is pending.
-func ReadRaw(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("read settings %q: %w", path, err)
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, MaximumBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read settings %q: %w", path, err)
-	}
-	if len(data) > MaximumBytes {
-		return nil, fmt.Errorf("settings %q exceeds %d bytes", path, MaximumBytes)
 	}
 	return data, nil
 }
@@ -58,7 +42,7 @@ func ReplaceContext(ctx context.Context, path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	lock, err := Lock(ctx, path)
+	lock, err := settingsfile.Lock(ctx, path)
 	if err != nil {
 		return err
 	}

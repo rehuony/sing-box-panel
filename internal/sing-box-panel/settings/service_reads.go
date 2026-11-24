@@ -4,6 +4,8 @@ package settings
 
 import (
 	"context"
+
+	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 )
 
 // WithCredentials runs action with the administrator credentials while holding
@@ -13,7 +15,7 @@ func (app *Service) WithCredentials(ctx context.Context, action func(email, pass
 	if app.settingsPath == "" {
 		return action(app.settings.Auth.Email, app.settings.Auth.PasswordHash)
 	}
-	lock, err := Lock(ctx, app.settingsPath)
+	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return err
 	}

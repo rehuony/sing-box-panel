@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import type { FieldControl, GlyphFieldHandle } from '@shared/components/glyph-field';
 
+import { Unplug } from 'lucide-react';
 import { flushSync } from 'react-dom';
-import { Power, Unplug } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Toaster } from '@shared/components/ui/toast';
@@ -15,14 +15,13 @@ import type { ConsoleStatus, Session } from '@/api/generated';
 
 import { LoginPage } from '@/pages/login-page';
 import { StatusPage } from '@/pages/status-page';
+import { getSession } from '@/api/console-client';
 import { ConsoleFrame } from '@/components/console-frame';
-import { ConsoleRequestError, getSession } from '@/api/console-client';
 
 type ConsoleState
   = | { kind: 'checking' }
     | { kind: 'signed-out' }
     | { kind: 'signed-in'; session: Session; status: ConsoleStatus | null }
-    | { kind: 'disabled' }
     | { kind: 'unavailable' };
 
 function prefersReducedMotion(): boolean {
@@ -48,10 +47,8 @@ export function App() {
     try {
       const session = await getSession();
       setState(session === null ? { kind: 'signed-out' } : { kind: 'signed-in', session, status: null });
-    } catch (error) {
-      setState(error instanceof ConsoleRequestError && error.code === 'console_disabled'
-        ? { kind: 'disabled' }
-        : { kind: 'unavailable' });
+    } catch {
+      setState({ kind: 'unavailable' });
     }
   }, []);
 
@@ -102,12 +99,12 @@ export function App() {
           <Empty className='max-w-sm flex-none rounded-[var(--radius-card)] border border-solid bg-card p-8 shadow-[var(--shadow-card)]' ref={field.anchor}>
             <EmptyHeader>
               <EmptyMedia className='mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6'>
-                {state.kind === 'disabled' ? <Power aria-hidden='true' strokeWidth={1.5} /> : <Unplug aria-hidden='true' strokeWidth={1.5} />}
+                <Unplug aria-hidden='true' strokeWidth={1.5} />
               </EmptyMedia>
               <EmptyTitle>
-                <h1>{t(`console.${state.kind}.title`)}</h1>
+                <h1>{t('console.unavailable.title')}</h1>
               </EmptyTitle>
-              <EmptyDescription>{t(`console.${state.kind}.description`)}</EmptyDescription>
+              <EmptyDescription>{t('console.unavailable.description')}</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
               <Button variant='outline' onClick={() => void check()}>{t('common.retry')}</Button>

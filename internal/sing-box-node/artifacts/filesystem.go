@@ -5,9 +5,12 @@ package artifacts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 )
 
 func ensureStoreDirectory(path string, mode os.FileMode) error {
@@ -42,6 +45,43 @@ func verifyStoreDirectory(path string, mode os.FileMode) error {
 	return nil
 }
 
+// UnsafePathError names a directory above the artifact store that another
+// account could change, which would let that account replace the cores the
+// node runs.
+type UnsafePathError struct {
+	Path   string
+	Reason string
+}
+
+func (unsafe *UnsafePathError) Error() string { return unsafe.Path + " " + unsafe.Reason }
+
+func unsafePath(path, reason string) error {
+	return errors.Join(ErrCorruptStore, &UnsafePathError{Path: path, Reason: reason})
+}
+
+// trustedDirectory checks one directory above the store: root or the
+// effective user owns it, and only its owner can change it unless it is
+// sticky. A symbolic link is checked by its owner only.
+func trustedDirectory(path string, info os.FileInfo, effectiveUID uint64) error {
+	owner, ownerOK := fileOwner(info)
+	if !ownerOK {
+		return ErrCorruptStore
+	}
+	if owner != 0 && owner != effectiveUID {
+		return unsafePath(path, fmt.Sprintf("belongs to %s, neither root nor %s, which runs the node", accountName(owner), accountName(effectiveUID)))
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if !info.IsDir() {
+		return unsafePath(path, "is not a directory")
+	}
+	if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
+		return unsafePath(path, fmt.Sprintf("can be changed by other accounts (mode %04o without the sticky bit)", info.Mode().Perm()))
+	}
+	return nil
+}
+
 func verifyTrustedAncestors(path string) error {
 	effectiveUID, ok := effectiveUserID()
 	if !ok {
@@ -49,15 +89,14 @@ func verifyTrustedAncestors(path string) error {
 	}
 	for current := path; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
-		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil {
 			return errors.Join(ErrCorruptStore, err)
 		}
-		owner, ownerOK := fileOwner(info)
-		if !ownerOK || (owner != 0 && owner != effectiveUID) {
-			return ErrCorruptStore
+		if info.Mode()&os.ModeSymlink != 0 {
+			return unsafePath(current, "is a symbolic link")
 		}
-		if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
-			return ErrCorruptStore
+		if err := trustedDirectory(current, info, effectiveUID); err != nil {
+			return err
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -76,14 +115,8 @@ func verifyTrustedLexicalPath(path string) error {
 		if err != nil {
 			return errors.Join(ErrCorruptStore, err)
 		}
-		owner, ownerOK := fileOwner(info)
-		if !ownerOK || (owner != 0 && owner != effectiveUID) {
-			return ErrCorruptStore
-		}
-		if info.Mode()&os.ModeSymlink == 0 {
-			if !info.IsDir() || (info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0) {
-				return ErrCorruptStore
-			}
+		if err := trustedDirectory(current, info, effectiveUID); err != nil {
+			return err
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -175,4 +208,13 @@ func copyBounded(ctx context.Context, destination io.Writer, source io.Reader, m
 			return total, io.ErrNoProgress
 		}
 	}
+}
+
+// accountName names uid by its account, or by its number when it has none.
+func accountName(uid uint64) string {
+	id := strconv.FormatUint(uid, 10)
+	if found, err := user.LookupId(id); err == nil {
+		return "the " + found.Username + " account"
+	}
+	return "uid " + id
 }

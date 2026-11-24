@@ -105,13 +105,14 @@ test_architectures_and_layouts() {
   expect_failure installer_resolve_layout panel 1000 relative-home "" ""
   expect_failure installer_resolve_layout panel 1000 /home/panel relative-config /srv/data
 
-  # The node keeps its state in its data directory and has no settings file.
+  # The node has a settings file of its own, laid out like the panel's.
   installer_resolve_layout node 0 /ignored /ignored /ignored
   assert_equal "/usr/local/bin/sing-box-node" "${installer_binary_path}" "root node binary"
-  assert_equal "" "${installer_settings_path}" "root node settings"
+  assert_equal "/etc/sing-box-node/setting.json" "${installer_settings_path}" "root node settings"
   assert_equal "/var/lib/sing-box-node" "${installer_default_data_dir}" "root node data"
   installer_resolve_layout node 1000 /home/node "" /srv/data
   assert_equal "/home/node/.local/bin/sing-box-node" "${installer_binary_path}" "user node binary"
+  assert_equal "/home/node/.config/sing-box-node/setting.json" "${installer_settings_path}" "user node settings"
   assert_equal "/srv/data/sing-box-node" "${installer_default_data_dir}" "user node data"
   pass
 }
@@ -281,8 +282,7 @@ test_binary_only_installation() (
   installer_resolve_layout() {
     installer_binary_name="sing-box-$1"
     installer_binary_path="${fixture_dir}/bin/sing-box-$1"
-    installer_settings_path=""
-    [[ "$1" == panel ]] && installer_settings_path="${fixture_dir}/config/setting.json"
+    installer_settings_path="${fixture_dir}/config/setting.json"
     installer_default_data_dir="${fixture_dir}/data"
     installer_service_scope=user
   }
@@ -303,10 +303,9 @@ test_binary_only_installation() (
   # The installed panel is reported before the node is installed beside it.
   output="$(installer_main --component node --version v1.2.3 2>&1)" || fail "node install failed"
   [[ -x "${fixture_dir}/bin/sing-box-node" ]] || fail "node binary not installed"
-  for expected in 'panel  v1.2.3' 'node   not installed' 'enroll --code <code>' 'console enable' 'systemd install --scope=user --now'; do
+  for expected in 'panel  v1.2.3' 'node   not installed' 'server start' 'enroll --code <code>' 'systemd install --scope=user --now' "${fixture_dir}/config/setting.json"; do
     [[ "${output}" == *"${expected}"* ]] || fail "node summary omitted ${expected}"
   done
-  [[ "${output}" != *"Default settings"* ]] || fail "node summary named a settings file"
 
   # Without a terminal the installer needs --component and changes nothing.
   installer_has_tty() { return 1; }

@@ -6,17 +6,16 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-node/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
-	nodeweb "github.com/rehuony/sing-box-panel/web/apps/node"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
@@ -41,33 +40,41 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	}
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
-	dataDir := root.PersistentFlags().String("data-dir", settings.DefaultDataDir(), "node data directory")
+	settingsPath := root.PersistentFlags().StringP("config", "c", settings.DefaultPath(), "node settings file")
 	service := deps.Systemd
 	if service == nil {
 		service = defaultSystemd()
 	}
-	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, dataDir), newRunCommand(deps, dataDir),
-		newUpdateCommand(deps, dataDir, service), newConsoleCommand(dataDir), newSystemdCommand(dataDir, service))
+	root.AddCommand(newVersionCommand(deps.Build), newEnrollCommand(deps, settingsPath, service), newUpdateCommand(deps, settingsPath, service),
+		newServerCommand(deps, settingsPath), newConfigCommand(settingsPath), newSystemCommand(settingsPath, service),
+		newSystemdCommand(settingsPath, service))
 	return root
 }
 
-func newEnrollCommand(deps Dependencies, dataDir *string) *cobra.Command {
+func newEnrollCommand(deps Dependencies, settingsPath *string, service systemdService) *cobra.Command {
 	var code string
 	command := &cobra.Command{
 		Use:   "enroll",
 		Short: "Enroll this node with a panel using a one-time code",
-		Args:  cobra.NoArgs,
+		Long: "Enroll this node with a panel using a one-time code. A running node switches to the new panel within a few seconds.\n\n" +
+			"Missing settings are created first, with a generated console password.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			enrollment, err := agent.Enroll(cmd.Context(), *dataDir, code, deps.Build)
+			value, created, err := settings.LoadOrInitialize(cmd.Context(), *settingsPath)
+			if created {
+				if outputErr := writeInitialization(cmd.ErrOrStderr(), value); outputErr != nil {
+					return errors.Join(err, outputErr)
+				}
+			}
 			if err != nil {
 				return err
 			}
-			next := "Start the node with: sing-box-node run"
-			// A running node notices the saved enrollment within seconds.
-			if running, err := procctl.LeaseHeld(*dataDir); err == nil && running {
-				next = "The running node switches to it within a few seconds."
+			enrollment, err := agent.Enroll(cmd.Context(), value.DataDir, code, deps.Build)
+			if err != nil {
+				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enrolled as node %s with the panel at %s%s. %s\n", enrollment.NodeID, enrollment.Endpoint, enrollment.Path, next)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Enrolled as node %s with the panel at %s%s. %s\n",
+				enrollment.NodeID, enrollment.Endpoint, enrollment.Path, startHint(cmd.Context(), value, service))
 			return err
 		},
 	}
@@ -76,41 +83,23 @@ func newEnrollCommand(deps Dependencies, dataDir *string) *cobra.Command {
 	return command
 }
 
-func newRunCommand(deps Dependencies, dataDir *string) *cobra.Command {
-	return &cobra.Command{
-		Use:   "run",
-		Short: "Run the node and keep its session with the enrolled panel until stopped",
-		Long: "Run the node and keep its session with the enrolled panel until stopped.\n\n" +
-			"With the console enabled the node also serves it on its loopback address, and an unenrolled node waits to be enrolled from it.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			logger := log.New(cmd.ErrOrStderr(), "", log.LstdFlags)
-			link, err := agent.OpenLink(*dataDir, deps.Build)
-			if err != nil {
-				return err
-			}
-			console, err := settings.LoadConsole(*dataDir)
-			if err != nil {
-				return err
-			}
-			options := agent.Options{Logf: logger.Printf}
-			if console.Enabled {
-				listener, err := httpapi.Listen(console.Listen)
-				if err != nil {
-					return fmt.Errorf("console: %w", err)
-				}
-				defer listener.Close()
-				options.Console = func(ctx context.Context, readings agent.ReadingsSource) error {
-					handler := httpapi.NewHandler(httpapi.Options{
-						DataDir: *dataDir, Link: link, Readings: readings, Build: deps.Build, Assets: nodeweb.Assets(), Logf: logger.Printf,
-					})
-					logger.Printf("console listening on http://%s", listener.Addr())
-					return httpapi.Serve(ctx, listener, handler)
-				}
-			}
-			return agent.Run(cmd.Context(), link, options)
-		},
+// startHint says how the enrolled node starts using its enrollment: a
+// running node switches by itself, an installed service starts through
+// systemd, and anything else starts in the terminal.
+func startHint(ctx context.Context, value settings.Settings, service systemdService) string {
+	if running, err := procctl.LeaseHeld(value.DataDir); err == nil && running {
+		return "The running node switches to it within a few seconds."
 	}
+	if service != nil {
+		if status, err := service.Status(ctx, systemd.ScopeAuto); err == nil && status.UnitFileStatePath == value.Path() {
+			prefix := ""
+			if status.Scope == systemd.ScopeSystem {
+				prefix = "sudo "
+			}
+			return "Start its service with: " + prefix + "sing-box-node systemd start"
+		}
+	}
+	return "Start the node with: sing-box-node server start"
 }
 
 type versionResult struct {

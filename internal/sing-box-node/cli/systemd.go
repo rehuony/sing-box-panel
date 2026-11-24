@@ -4,26 +4,29 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	nodeSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-node/systemd"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
 )
 
 // systemdService is the node's systemd lifecycle.
-type systemdService = systemd.Service[struct{}]
+type systemdService = systemd.Service[settings.Settings]
 
-func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
+func newSystemdCommand(settingsPath *string, service systemdService) *cobra.Command {
 	var asJSON bool
 	root := &cobra.Command{
 		Use:   "systemd",
 		Short: "Install or manage the sing-box-node systemd service",
 		Long: "Install or manage the sing-box-node systemd service.\n\n" +
-			"System scope runs the node as the dedicated sing-box-node account with its data in /var/lib/sing-box-node; " +
-			"user scope runs it as the current user with the selected --data-dir.",
+			"System scope runs the node as the dedicated sing-box-node account with its settings in /etc/sing-box-node and its data in " +
+			"/var/lib/sing-box-node; user scope runs it as the current user with the selected --config.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
@@ -53,15 +56,31 @@ func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			directory, err := filepath.Abs(*dataDir)
+			path, err := filepath.Abs(filepath.Clean(*settingsPath))
 			if err != nil {
 				return err
 			}
-			result, err := service.Install(cmd.Context(), systemd.InstallRequest{Scope: scope, StatePath: directory, Force: force, Now: now})
+			dataDir, err := settings.LoadDataDir(path)
+			if now && err == nil {
+				_, err = settings.Load(path)
+			}
+			if errors.Is(err, os.ErrNotExist) {
+				dataDir, err = "", nil
+			}
 			if err != nil {
 				return err
 			}
-			text := fmt.Sprintf("Installed and enabled the %s %s at %s with data in %s", result.Scope, result.Unit, result.UnitPath, result.DataDir)
+			result, err := service.Install(cmd.Context(), systemd.InstallRequest{Scope: scope, StatePath: path, DataDir: dataDir, Force: force, Now: now})
+			if result.Initial != nil {
+				if outputErr := writeInitialization(cmd.ErrOrStderr(), *result.Initial); outputErr != nil {
+					return errors.Join(err, outputErr)
+				}
+			}
+			if err != nil {
+				return err
+			}
+			text := fmt.Sprintf("Installed and enabled the %s %s at %s with settings in %s and data in %s",
+				result.Scope, result.Unit, result.UnitPath, result.StatePath, result.DataDir)
 			if result.Started {
 				text += "; the service started"
 			} else {
@@ -71,7 +90,7 @@ func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
 		},
 	}
 	install.Flags().BoolVar(&force, "force", false, "replace conflicting regular managed destinations")
-	install.Flags().BoolVar(&now, "now", false, "start the unit after enabling it; the node must be enrolled or have its console enabled")
+	install.Flags().BoolVar(&now, "now", false, "start the unit after enabling it")
 
 	uninstall := &cobra.Command{
 		Use:   "uninstall",
@@ -100,7 +119,7 @@ func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
 
 	status := &cobra.Command{
 		Use:   "status",
-		Short: "Show the unit's systemd state and the data directory its unit file names",
+		Short: "Show the unit's systemd state and the settings its unit file names",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if service == nil {
@@ -114,12 +133,14 @@ func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			directory := result.UnitFileStatePath
-			if directory == "" {
-				directory = "unknown (the unit file does not state one unambiguous --data-dir)"
+			configured, dataDir := result.UnitFileStatePath, "unknown"
+			if configured == "" {
+				configured = "unknown (the unit file does not state one unambiguous --config)"
+			} else if directory, err := settings.LoadDataDir(configured); err == nil {
+				dataDir = directory
 			}
-			text := fmt.Sprintf("Service:   %s %s, %s (%s), %s, pid %d\nUnit file: %s\nData dir:  %s",
-				result.Scope, result.Unit, result.ActiveState, result.SubState, result.UnitFileState, result.MainPID, result.UnitPath, directory)
+			text := fmt.Sprintf("Service:   %s %s, %s (%s), %s, pid %d\nUnit file: %s\nSettings:  %s\nData dir:  %s",
+				result.Scope, result.Unit, result.ActiveState, result.SubState, result.UnitFileState, result.MainPID, result.UnitPath, configured, dataDir)
 			if result.NeedDaemonReload {
 				text += "\nsystemd reports a daemon reload is needed; restart the service to apply unit changes"
 			}
@@ -189,7 +210,7 @@ func newSystemdCommand(dataDir *string, service systemdService) *cobra.Command {
 }
 
 func uninstallText(result systemd.UninstallResult, heading string) string {
-	text := fmt.Sprintf("%s\n  Unit: %s (%s)\n  Service files removed: %d\n  Data: retained", heading, result.Unit, result.Scope, len(result.RemovedPaths))
+	text := fmt.Sprintf("%s\n  Unit: %s (%s)\n  Service files removed: %d\n  Settings and data: retained", heading, result.Unit, result.Scope, len(result.RemovedPaths))
 	if result.Scope == systemd.ScopeSystem {
 		state := func(retained, removed bool) string {
 			switch {

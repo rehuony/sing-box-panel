@@ -4,11 +4,11 @@ import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 
 // During development, the console API of a node running on this host answers
-// /api; the proxy keeps the browser's loopback Host the console requires.
+// /api.
 export default defineConfig({
   server: {
     fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../../packages/shared/src', import.meta.url)), fileURLToPath(new URL('../../node_modules', import.meta.url))] },
-    proxy: { '/api': { target: 'http://127.0.0.1:3001' } },
+    proxy: { '/api': { target: 'http://127.0.0.1:8000' } },
   },
   base: './',
   publicDir: '../../packages/shared/public',
