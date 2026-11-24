@@ -7,6 +7,7 @@ export const configuration = {
     description: '{{name}} 的已应用配置，最新的在前；正在运行的一份已标出。',
     done: '{{name}} 已回滚',
     empty: '此节点还没有已应用配置。',
+    loadFailed: '无法读取已应用配置',
     loadMore: '加载更多',
     loading: '正在载入已应用配置…',
     loadingMore: '正在加载…',
@@ -227,7 +228,6 @@ export const configuration = {
   schema: {
     version: '配置版本',
     unsupported: '{{version}} 暂无可视化编辑规则。可使用 JSON 编辑，或选择受支持的配置版本。',
-    manageVersions: '前往版本管理',
     noInstalledOption: '暂无版本',
     noInstalledTitle: '尚未安装核心版本',
     error: {

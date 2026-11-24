@@ -64,7 +64,6 @@ export const fleet = {
   },
   loading: '正在加载节点…',
   noMatch: {
-    clear: '清除筛选',
     title: '没有匹配的节点',
   },
   search: '搜索节点',

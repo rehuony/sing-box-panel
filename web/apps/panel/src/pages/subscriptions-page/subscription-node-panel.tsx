@@ -14,6 +14,7 @@ import { nodePath } from '@/utils/node-path';
 import { ApiRequestError } from '@/api/api-client';
 import { compareText } from '@/utils/compare-text';
 import { useApiClient } from '@/api/api-client-context';
+import { RegionError } from '@/components/region-state';
 import { SelectField } from '@/components/select-field';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
@@ -178,12 +179,6 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
     if (next !== order) saveOrder.mutate(next);
   }
 
-  function clearFilters() {
-    setOrigin(ALL_ORIGINS);
-    setProtocol(ALL_PROTOCOLS);
-    setSearch('');
-  }
-
   const diagnostics = list.data?.diagnostics ?? [];
   let content;
   if (list.isPending) {
@@ -191,28 +186,19 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
   } else if (list.data === undefined) {
     content = (
       <div className={stateCard}>
-        <SubscriptionContentState kind='preview' title={t('subscriptions.pool.loadFailed')}>
-          <Button onClick={() => void list.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
-        </SubscriptionContentState>
+        <RegionError className='flex-1' error={list.error} reload={() => void list.refetch()} title={t('subscriptions.pool.loadFailed')} />
       </div>
     );
   } else if (ordered.length === 0) {
     content = (
       <div className={stateCard}>
-        <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')}>
-          <Button onClick={() => setSourceDialog({ kind: 'create' })} variant='outline'>
-            <CirclePlus aria-hidden='true' data-icon='inline-start' />
-            {t('subscriptions.sources.add')}
-          </Button>
-        </SubscriptionContentState>
+        <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')} />
       </div>
     );
   } else if (shown.length === 0) {
     content = (
       <div className={stateCard}>
-        <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')}>
-          <Button onClick={clearFilters} variant='outline'>{t('subscriptions.pool.clearFilters')}</Button>
-        </SubscriptionContentState>
+        <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')} />
       </div>
     );
   } else {

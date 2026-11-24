@@ -15,7 +15,6 @@ interface FleetViewState {
   anchor: string | null;
   /** The home screen's filters, which the command line sets too. */
   state: FleetStateFilter;
-  clearFilters: () => void;
   /** Clears the selection and leaves selection mode. */
   clearSelection: () => void;
   /** The nodes the home screen shows, in its order, which select all and ranges follow. */
@@ -43,7 +42,6 @@ const cleared = { anchor: null, selected: new Set<string>(), selecting: false };
 
 export const useFleetView = create<FleetViewState>()(set => ({
   anchor: null,
-  clearFilters: () => set({ search: '', state: 'all', tag: null }),
   clearSelection: () => set(cleared),
   reset: () => set({ ...cleared, search: '', state: 'all', tag: null, visible: [] }),
   search: '',

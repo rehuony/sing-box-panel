@@ -46,17 +46,22 @@ describe('inline version library', () => {
     await waitFor(() => expect(client.getRuntimeStatus).toHaveBeenCalledTimes(2));
   });
 
-  it('shows an unreadable installed list in its region, in the interface language, with a retry', async () => {
-    const user = userEvent.setup();
-    const client = createMockApiClient({
-      listCoreArtifacts: vi.fn().mockRejectedValueOnce(new ApiRequestError('The node is not connected. Commands are not queued.', { status: 503, code: 'node_offline' })).mockResolvedValue(testArtifacts),
-    });
-    renderCores(client);
-    const region = (await screen.findByRole('heading', { name: 'Installed artifacts are unavailable' })).parentElement!;
-    expect(region).toHaveTextContent('The node is not connected.');
-    expect(screen.queryByText('No core versions installed')).not.toBeInTheDocument();
-    await user.click(within(region).getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText(testArtifacts.items[0].exact_version)).toBeVisible();
+  it('shows an unreadable installed list in its region, in the interface language, and reads it again on its own', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const client = createMockApiClient({
+        listCoreArtifacts: vi.fn().mockRejectedValueOnce(new ApiRequestError('The node is not connected. Commands are not queued.', { status: 503, code: 'node_offline' })).mockResolvedValue(testArtifacts),
+      });
+      renderCores(client);
+      const region = (await screen.findByText('Installed artifacts are unavailable')).closest<HTMLElement>('[role="status"]')!;
+      expect(region).toHaveTextContent('The node is not connected.');
+      expect(within(region).queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.queryByText('No core versions installed')).not.toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      expect(await screen.findByText(testArtifacts.items[0].exact_version)).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('automatically initializes an empty catalog without blocking installed versions', async () => {

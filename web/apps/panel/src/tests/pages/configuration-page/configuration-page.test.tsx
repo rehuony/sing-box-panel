@@ -99,18 +99,17 @@ describe('configurationPage', () => {
     expect(JSON.parse(client.saveConfigurationFile.mock.calls[0][0].content)).toEqual({ log: { level: 'debug' } });
   });
 
-  it('guides users to version management without blocking Advanced JSON when no core is installed', async () => {
+  it('says no core is installed without blocking Advanced JSON', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({
       listCoreArtifacts: vi.fn().mockResolvedValue({ items: [] }),
       getConfigurationFile: vi.fn().mockResolvedValue({ revision: 0, content: '{}', syntax_valid: true }),
     });
     renderPage(client);
-    expect(await screen.findByRole('heading', { name: 'No core versions installed' })).toBeVisible();
+    expect(await screen.findByText('No core versions installed')).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toHaveTextContent('None');
-    expect(screen.getByRole('link', { name: 'Go to version management' })).toHaveAttribute('href', '/nodes/node_edge/cores#cores-catalog');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));

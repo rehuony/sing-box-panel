@@ -115,7 +115,7 @@ Line heights sit on the 4px grid; running text outside a type utility inherits a
 | Large | `--control-height-lg` | 44px | Large actions |
 | Embedded | `--control-height-xs` | 28px | Icon actions inside a field, a card or a floating tool cluster |
 
-On a coarse pointer every control height resolves to 44px. Controls in one row share one height.
+On a coarse pointer every control height resolves to 44px. Controls in one row share one height. R below is the saved radius, an integer from 0 to 32, default 12.
 
 | Element | Token | Formula | Default |
 | --- | --- | --- | --- |
@@ -123,8 +123,6 @@ On a coarse pointer every control height resolves to 44px. Controls in one row s
 | Fields, actions, cards, popovers, menus, toasts | `--radius-card` | R | 12px |
 | Floating layers: dialogs, alert dialogs | `--radius-window` | min(32, 7R/6) | 14px |
 | Badges, status pills, avatars | `--radius-pill` | 999px | 999px |
-
-R is the saved radius, an integer from 0 to 32, default 12.
 
 | Shell parameter | Token | Value |
 | --- | --- | --- |
@@ -195,7 +193,7 @@ Layers: sticky content `--z-sticky` 200, modal `--z-modal` 400, popover above a 
 | Notification | Compact toast with a status colour | Success, warning, danger, info | Dismisses after 3 seconds, pausing on hover and focus; a repeated failure reuses one toast |
 | Issue list | A warning action with the count; its popover, 22.5rem wide and scrolling without padding, groups the issues by cause, biggest first: a 40px heading on an opaque band (the hover wash over the popover) with a chevron, the cause in 14px medium, the detail its rows share in the data face and the count; while open, its rows hang from a guide line under the chevron | The pool's unpublished fleet nodes; a channel preview's issues | One group open at a time, the biggest on opening; the open heading stays pinned while its rows scroll under it; a row is the node's name, with its own detail only where its group's differ, opening the node's configuration with an arrow on hover; no hint text, error codes or show-more actions |
 | Loading region | Accent spinner over a muted label; a region that cannot be read shows what failed, why in the interface's language, and Try again | — | Short delayed fade-in inside the pending region only; a failure that keeps older data on screen goes to a toast instead |
-| Help | Information icon beside a label, tooltip; an action's own tooltip says what it does | — | Opens after 200ms on hover, at once on click or tap; outside the Tab order. Explanations live only here: empty states show a title and the next step, fields carry no helper text; a pane or card that is one link or action carries no native title, which would follow the pointer across all of it |
+| Help | Information icon beside a label, tooltip; an action's own tooltip says what it does | — | Opens after 200ms on hover, at once on click or tap; outside the Tab order. Explanations live only here: empty and error states show an icon and a title, an error its reason too, and no action, fields carry no helper text; a pane or card that is one link or action carries no native title, which would follow the pointer across all of it |
 
 ## 7. Layout
 
@@ -234,7 +232,7 @@ Overrides of the global guide:
 | Problems the user must fix stay inline where they occur | A refused sign-in marks its prompt and the line at fault inline and reports why in the shared toast | The sign-in prompt keeps one shape at the window's centre, and its messages appear where every other message of the product does |
 | Cards are not nested inside cards | A group's candidate nodes are cards on the channel card | A candidate is the pool's node card, so a node reads as one object wherever it appears |
 | Unavailable values show as "—", not 0 or blank | A title strip leaves out a reading it lacks instead of marking it; a known zero still reads 0 | The strip is the view's one line of status: a dash there reads as noise, and a dash that turns into a value changes the line's width, so everything after it moves |
-| An empty region says in one line what is missing | The overview's trend charts draw a stopped core as 0 and leave a gap in the record as empty axes, without a caption | Most empty ranges were a stopped core, whose zero is the real value; the caption covered the axes and read as a fault, while the runtime timeline below already says when the record has gaps |
+| An empty region says in one line what is missing and offers the next step | A data region's empty and error states show an icon and a title, an error its reason too, and no action: adding, refreshing and clearing filters stay in the toolbar, and an unreadable region reads again on its own every ten seconds while the page is in view. The overview's trend charts draw a stopped core as 0 and leave a gap in the record as empty axes, without a caption | The toolbar already holds every such action, so a copy in the region repeated it and pulled the eye from what the region says, and a region that recovers on its own needs no retry. Most empty chart ranges were a stopped core, whose zero is the real value; the caption covered the axes and read as a fault, while the runtime timeline below already says when the record has gaps |
 
 ## 9. Tokens in code
 

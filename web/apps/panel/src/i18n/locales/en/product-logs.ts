@@ -17,7 +17,6 @@ export const productLogs = {
   paused: 'Paused',
   connecting: 'Connecting',
   archive: 'Archive',
-  resume: 'Resume live output',
   pause: 'Pause live output',
   actions: 'Log actions',
   liveUpdates: 'Live updates',

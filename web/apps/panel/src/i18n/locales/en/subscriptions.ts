@@ -31,7 +31,6 @@ export const subscriptions = {
     loadFailed: 'Could not load the node pool',
     empty: 'The node pool is empty',
     noMatch: 'No nodes match the filters',
-    clearFilters: 'Clear filters',
     originFilter: 'Origin',
     allOrigins: 'All nodes',
     fleetOrigin: 'Fleet nodes',

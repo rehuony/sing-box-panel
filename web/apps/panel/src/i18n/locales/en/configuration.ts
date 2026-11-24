@@ -7,6 +7,7 @@ export const configuration = {
     description: 'The applied configurations of {{name}}, newest first; the one running now is marked.',
     done: '{{name}} rolled back',
     empty: 'This node has no applied configurations yet.',
+    loadFailed: 'Applied configurations unavailable',
     loadMore: 'Load more',
     loading: 'Loading applied configurations…',
     loadingMore: 'Loading…',
@@ -227,7 +228,6 @@ export const configuration = {
   schema: {
     version: 'Configuration version',
     unsupported: 'No visual editor schema for {{version}}. Edit JSON or select a supported configuration version.',
-    manageVersions: 'Go to version management',
     noInstalledOption: 'None',
     noInstalledTitle: 'No core versions installed',
     error: {

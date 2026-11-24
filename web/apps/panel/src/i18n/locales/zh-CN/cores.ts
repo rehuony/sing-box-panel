@@ -8,7 +8,7 @@ export const cores = {
     description: '移除后，如需使用此版本，请重新下载或导入。',
     title: '移除此版本？',
   },
-  empty: { catalog: '目录中暂无可安装版本', installed: '尚未安装核心版本', noMatch: '没有匹配的版本', browseCatalog: '浏览可安装版本' },
+  empty: { catalog: '目录中暂无可安装版本', installed: '尚未安装核心版本', noMatch: '没有匹配的版本' },
   error: {
     configurationNotSaved: '请先在配置管理中保存 sing-box 配置，再启用或校验核心。',
     catalog: '核心目录不可用',

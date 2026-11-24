@@ -1,17 +1,17 @@
-import { X } from 'lucide-react';
+import { ScrollText, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '@shared/components/ui/button';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Empty, EmptyHeader, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { LogLevel, PanelLog } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
+import { RegionState } from '@/components/region-state';
 import { SelectField } from '@/components/select-field';
 import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
@@ -156,7 +156,7 @@ export function PanelLogsPage() {
           </table>
           {!result.items.length && (loading
             ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
-            : <Empty role='status'><EmptyHeader><EmptyTitle>{t('productLogs.empty')}</EmptyTitle></EmptyHeader></Empty>)}
+            : <RegionState icon={ScrollText} title={t('productLogs.empty')} />)}
         </ScrollArea>
         <ListPagination
           className='border-t px-2 pb-2'

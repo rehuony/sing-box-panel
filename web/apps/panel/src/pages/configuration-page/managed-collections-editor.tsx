@@ -48,6 +48,8 @@ import {
 import type { JsonObject } from '@/api/api-client';
 import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
+import { RegionState } from '@/components/region-state';
+
 import type { CanonicalDraft } from './use-canonical-configuration';
 
 import { SchemaDialogLayout } from './rjsf-shadcn-theme';
@@ -382,10 +384,7 @@ export function ManagedCollectionsEditor({
       )}
       {activeSchema === undefined || itemSchema === null
         ? (
-            <div className='flex min-h-48 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground' role='status'>
-              <CircleAlert aria-hidden='true' />
-              {t('configuration.schema.noManagedFields')}
-            </div>
+            <RegionState icon={CircleAlert} title={t('configuration.schema.noManagedFields')} />
           )
         : (
             <ConfigurationList

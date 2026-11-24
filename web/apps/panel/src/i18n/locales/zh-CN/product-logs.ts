@@ -17,7 +17,6 @@ export const productLogs = {
   paused: '暂停输出',
   connecting: '连接中',
   archive: '历史日志',
-  resume: '恢复实时输出',
   pause: '暂停实时输出',
   actions: '日志操作',
   liveUpdates: '实时更新',

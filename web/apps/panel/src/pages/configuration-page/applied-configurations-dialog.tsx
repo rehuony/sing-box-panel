@@ -27,6 +27,7 @@ import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { describeRequestError } from '@/components/error-notice';
+import { RegionError, RegionState } from '@/components/region-state';
 import { useOptionalSharedTelemetry } from '@/components/node-workspace';
 
 /** A revision as its first characters, enough to tell revisions apart in a list. */
@@ -93,14 +94,9 @@ export function AppliedConfigurationsDialog() {
   if (applied.isPending) {
     body = <LoadingState label={t('configuration.applied.loading')} fullScreen={false} />;
   } else if (applied.isError && items.length === 0) {
-    body = (
-      <div className='m-auto flex flex-col items-center gap-3 text-center' role='status'>
-        <p className='text-sm text-[var(--color-danger-text)]'>{describeRequestError(applied.error)}</p>
-        <Button onClick={() => void applied.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
-      </div>
-    );
+    body = <RegionError error={applied.error} reload={() => void applied.refetch()} title={t('configuration.applied.loadFailed')} />;
   } else if (items.length === 0) {
-    body = <p className='m-auto text-sm text-muted-foreground' role='status'>{t('configuration.applied.empty')}</p>;
+    body = <RegionState icon={History} title={t('configuration.applied.empty')} />;
   } else {
     body = (
       <ScrollArea className='min-h-0 flex-1 rounded-[var(--radius-control)] border'>
