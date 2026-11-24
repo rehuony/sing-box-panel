@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
@@ -129,9 +131,9 @@ func TestSystemdUninstallAccountOutput(t *testing.T) {
 				return
 			}
 			for _, want := range map[string][]string{
-				"removed":         {"Service user: [removed]", "Service group: [removed]"},
-				"retained":        {"Service user: [retained]", "Service group: [retained]", "--keep-user"},
-				"partial failure": {"Uninstall interrupted", "Service user: [removed]", "Service group: [retained]"},
+				"removed":         {"  Service user       [removed]", "  Service group      [removed]"},
+				"retained":        {"  Service user       [retained]", "  Service group      [retained]", "--keep-user"},
+				"partial failure": {"Uninstall interrupted", "  Service user       [removed]", "  Service group      [retained]"},
 			}[scenario] {
 				if !strings.Contains(stdout, want) {
 					t.Fatalf("output missing %q: %s", want, stdout)
@@ -183,12 +185,15 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	if report.Configuration.Name != "config.json" || report.Configuration.Table != "node_configurations" || report.Configuration.DatabasePath != "" {
 		t.Fatalf("configuration location=%+v", report.Configuration)
 	}
+	// Aligned fields: compare with runs of spaces collapsed.
+	spaces := regexp.MustCompile(" +")
 	text, _, err := executeSystemCommand(t, service, "--config", settingsPath, "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
+	text = spaces.ReplaceAllString(text, " ")
 	for _, want := range []string{
-		"settings in unit file\tunknown", "live settings\tunknown", "on disk; systemd reports no daemon reload needed",
+		"Settings in unit file unknown", "Live settings unknown", "on disk; systemd reports no daemon reload needed",
 		"each node's config.json stored in sqlite table node_configurations of the service database",
 	} {
 		if !strings.Contains(text, want) {
@@ -215,8 +220,9 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	text = spaces.ReplaceAllString(text, " ")
 	for _, want := range []string{
-		"pid=321", unit.UnitPath, "(unit file on disk; same as --config)", "live settings\tunknown",
+		"PID 321", unit.UnitPath, "(unit file on disk; same as --config)", "Live settings unknown",
 		loaded.DataDir + " (settings file on disk)",
 		"each node's config.json stored in sqlite table node_configurations of " + filepath.Join(loaded.DataDir, "panel.db"),
 	} {
@@ -272,7 +278,7 @@ func TestSystemdControlAndLogsPreserveOutputContracts(t *testing.T) {
 		Scope: systemd.ScopeSystem, Unit: panelSystemd.UnitName, Action: systemd.ActionRestart,
 	}}
 	stdout, stderr, err := executeSystemCommand(t, service, "systemd", "restart", "--scope=system")
-	if err != nil || stderr != "" || !strings.Contains(stdout, "restart system") {
+	if err != nil || stderr != "" || !strings.Contains(stdout, "Restarted system sing-box-panel.service") {
 		t.Fatalf("restart stdout=%q stderr=%q error=%v", stdout, stderr, err)
 	}
 	if service.controlScope != systemd.ScopeSystem || service.controlAction != systemd.ActionRestart {
@@ -292,27 +298,27 @@ func TestSystemdControlAndLogsPreserveOutputContracts(t *testing.T) {
 func TestSystemdErrorsHaveStableExitClasses(t *testing.T) {
 	service := &fakeSystemdService{err: systemd.ErrNotInstalled}
 	_, _, err := executeSystemCommand(t, service, "systemd", "status", "--scope=user")
-	if ExitCode(err) != 6 {
-		t.Fatalf("not installed exit=%d error=%v", ExitCode(err), err)
+	if cliui.ExitCode(err) != 6 {
+		t.Fatalf("not installed exit=%d error=%v", cliui.ExitCode(err), err)
 	}
 
 	settingsPath := commandSettingsFixture(t)
 	service.err = systemd.ErrPermission
 	_, _, err = executeSystemCommand(t, service, "--config", settingsPath, "systemd", "install", "--scope=system")
-	if ExitCode(err) != 5 {
-		t.Fatalf("permission exit=%d error=%v", ExitCode(err), err)
+	if cliui.ExitCode(err) != 5 {
+		t.Fatalf("permission exit=%d error=%v", cliui.ExitCode(err), err)
 	}
 
 	service.err = errors.New("system bus unavailable")
 	_, _, err = executeSystemCommand(t, service, "systemd", "start", "--scope=system")
-	if ExitCode(err) != 6 {
-		t.Fatalf("systemctl failure exit=%d error=%v", ExitCode(err), err)
+	if cliui.ExitCode(err) != 6 {
+		t.Fatalf("systemctl failure exit=%d error=%v", cliui.ExitCode(err), err)
 	}
 
 	service.err = nil
 	_, _, err = executeSystemCommand(t, service, "systemd", "logs", "--scope=container")
-	if ExitCode(err) != 2 {
-		t.Fatalf("invalid scope exit=%d error=%v", ExitCode(err), err)
+	if cliui.ExitCode(err) != 2 {
+		t.Fatalf("invalid scope exit=%d error=%v", cliui.ExitCode(err), err)
 	}
 }
 

@@ -10,16 +10,16 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/spf13/cobra"
 )
 
 func newNodeCommand(state *options) *cobra.Command {
-	command := group("node", "Manage the nodes this panel controls")
+	command := cliui.Group("node", "Manage the nodes this panel controls")
 	command.AddCommand(
 		&cobra.Command{
 			Use:   "add NAME",
@@ -31,8 +31,9 @@ func newNodeCommand(state *options) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					text := enrollmentText("Issued a code for new node", enrollment) + "\nThe node appears in the node list once it enrolls."
-					return writeResult(cmd.OutOrStdout(), state.format, enrollment, text)
+					style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
+					text := enrollmentText("Issued an enrollment code for new node "+enrollment.Name, enrollment, style, "The node appears in the node list once it enrolls.")
+					return cliui.Write(cmd.OutOrStdout(), state.format, enrollment, text)
 				})
 			},
 		},
@@ -46,7 +47,7 @@ func newNodeCommand(state *options) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return writeResult(cmd.OutOrStdout(), state.format, list, nodeTable(list))
+					return cliui.Write(cmd.OutOrStdout(), state.format, list, nodeTable(list, cliui.NewStyle(cmd.OutOrStdout(), state.format)))
 				})
 			},
 		},
@@ -64,7 +65,9 @@ func newNodeCommand(state *options) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return writeResult(cmd.OutOrStdout(), state.format, enrollment, enrollmentText("Issued a new code for node", enrollment))
+					style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
+					text := enrollmentText("Issued a new enrollment code for node "+enrollment.Name, enrollment, style, "Using it replaces the node's key and ends its current session.")
+					return cliui.Write(cmd.OutOrStdout(), state.format, enrollment, text)
 				})
 			},
 		},
@@ -82,7 +85,7 @@ func newNodeCommand(state *options) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return writeResult(cmd.OutOrStdout(), state.format, renamed, fmt.Sprintf("Renamed node %s to %s", renamed.ID, renamed.Name))
+					return cliui.Write(cmd.OutOrStdout(), state.format, renamed, fmt.Sprintf("Renamed node %s to %s", renamed.ID, renamed.Name))
 				})
 			},
 		},
@@ -99,7 +102,7 @@ func newNodeCommand(state *options) *cobra.Command {
 					if err := nodes.DeleteNode(cmd.Context(), node.ID); err != nil {
 						return err
 					}
-					return writeResult(cmd.OutOrStdout(), state.format, node, fmt.Sprintf("Removed node %s (%s)", node.Name, node.ID))
+					return cliui.Write(cmd.OutOrStdout(), state.format, node, fmt.Sprintf("Removed node %s (%s)", node.Name, node.ID))
 				})
 			},
 		},
@@ -112,11 +115,11 @@ func newNodeCommand(state *options) *cobra.Command {
 func withFleet(cmd *cobra.Command, state *options, action func(*fleet.Service) error) error {
 	value, err := settings.Load(state.settingsPath)
 	if err != nil {
-		return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
+		return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
 	}
 	database, err := store.Open(cmd.Context(), filepath.Join(value.DataDir, "panel.db"))
 	if err != nil {
-		return &Error{Kind: ErrorUnavailable, Code: "database_unavailable", Message: err.Error(), Cause: err}
+		return &cliui.Error{Kind: cliui.ErrorUnavailable, Code: "database_unavailable", Message: err.Error(), Cause: err}
 	}
 	defer database.Close()
 	services := app.New(database, value, app.Options{})
@@ -125,29 +128,31 @@ func withFleet(cmd *cobra.Command, state *options, action func(*fleet.Service) e
 	case err == nil:
 		return nil
 	case errors.Is(err, store.ErrNodeNotFound):
-		return &Error{Kind: ErrorValidation, Code: "node_not_found", Message: "no node has this ID or name", Cause: err}
+		return &cliui.Error{Kind: cliui.ErrorValidation, Code: "node_not_found", Message: "no node has this ID or name", Cause: err}
 	case errors.Is(err, store.ErrNodeNameConflict):
-		return &Error{Kind: ErrorConflict, Code: "node_name_conflict", Message: err.Error(), Cause: err}
+		return &cliui.Error{Kind: cliui.ErrorConflict, Code: "node_name_conflict", Message: err.Error(), Cause: err}
 	case errors.Is(err, fleet.ErrNameInvalid), errors.Is(err, fleet.ErrEndpointRequired):
-		return &Error{Kind: ErrorValidation, Code: "node_invalid", Message: err.Error(), Cause: err}
+		return &cliui.Error{Kind: cliui.ErrorValidation, Code: "node_invalid", Message: err.Error(), Cause: err}
 	}
 	return err
 }
 
-func enrollmentText(action string, enrollment fleet.Enrollment) string {
-	return fmt.Sprintf("%s %s (%s). Before %s, run on the node:\n  %s",
-		action, enrollment.Name, enrollment.NodeID, enrollment.ExpiresAt.Local().Format(time.DateTime), enrollment.Command)
+func enrollmentText(title string, enrollment fleet.Enrollment, style cliui.Style, note string) string {
+	return cliui.Section(style.Success(title), cliui.Fields(
+		cliui.Field{Label: "Node ID", Value: enrollment.NodeID},
+		cliui.Field{Label: "Expires", Value: enrollment.ExpiresAt.Local().Format(time.DateTime)},
+	), "Run on the node before the code expires:\n  "+style.Accent(enrollment.Command), note)
 }
 
-func nodeTable(nodes []fleet.Node) string {
+func nodeTable(nodes []fleet.Node, style cliui.Style) string {
 	if len(nodes) == 0 {
-		return "No nodes. Add one with: sing-box-panel node add NAME"
+		return "No nodes\n\n" + cliui.Indent(style.Next("sing-box-panel node add NAME"))
 	}
 	var text strings.Builder
 	table := tabwriter.NewWriter(&text, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(table, "NAME\tSTATE\tID\tLAST SEEN")
 	for _, node := range nodes {
-		lastSeen := "—"
+		lastSeen := cliui.Unavailable
 		if node.LastSeenAt != nil {
 			lastSeen = node.LastSeenAt.Local().Format(time.DateTime)
 		}

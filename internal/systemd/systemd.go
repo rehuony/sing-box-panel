@@ -321,6 +321,10 @@ type Status struct {
 	MainPID           int    `json:"main_pid"`
 	NeedDaemonReload  bool   `json:"need_daemon_reload"`
 	UnitFileStatePath string `json:"unit_file_state_path,omitempty"`
+	// UnitOutdated reports a managed unit file whose command line this
+	// release does not write, such as one an earlier release installed; the
+	// service may not start until installation rewrites it.
+	UnitOutdated bool `json:"unit_outdated"`
 	// Companions are systemd's view of the companion units of a system
 	// installation.
 	Companions []UnitState `json:"companions,omitempty"`

@@ -200,7 +200,7 @@ type session func(ctx context.Context, enrollment settings.Enrollment, connected
 // supervise holds sessions of the current enrollment until ctx ends,
 // reconnecting with backoff and starting over whenever the enrollment
 // changes. Without an enrollment it waits for one.
-func (link *Link) supervise(ctx context.Context, hold session, logf func(string, ...any)) {
+func (link *Link) supervise(ctx context.Context, hold session, logf func(level, format string, args ...any)) {
 	for {
 		enrollment, generation, changed := link.current()
 		if enrollment == nil {
@@ -228,7 +228,7 @@ func (link *Link) supervise(ctx context.Context, hold session, logf func(string,
 }
 
 // reconnect holds sessions of one enrollment until ctx ends.
-func (link *Link) reconnect(ctx context.Context, generation uint64, enrollment settings.Enrollment, hold session, logf func(string, ...any)) {
+func (link *Link) reconnect(ctx context.Context, generation uint64, enrollment settings.Enrollment, hold session, logf func(level, format string, args ...any)) {
 	backoff := minimumBackoff
 	for {
 		link.report(generation, ConnectionConnecting, "", nil)
@@ -243,7 +243,7 @@ func (link *Link) reconnect(ctx context.Context, generation uint64, enrollment s
 		wait := backoff/2 + mathrand.N(backoff/2+1)
 		retryAt := link.now().Add(wait)
 		link.report(generation, ConnectionDisconnected, describe(err), &retryAt)
-		logf("session with panel %s ended: %s; reconnecting in %s", enrollment.Endpoint, describe(err), wait.Round(time.Second))
+		logf("warn", "Session with panel %s ended: %s; reconnecting in %s", enrollment.Endpoint, describe(err), wait.Round(time.Second))
 		select {
 		case <-ctx.Done():
 			return
@@ -258,7 +258,7 @@ func (link *Link) reconnect(ctx context.Context, generation uint64, enrollment s
 // does: an operator who enrolls the node with sing-box-node enroll while it
 // runs switches it to the new panel. A missing or unreadable file keeps the
 // current enrollment.
-func (link *Link) watch(ctx context.Context, interval time.Duration, logf func(string, ...any)) {
+func (link *Link) watch(ctx context.Context, interval time.Duration, logf func(level, format string, args ...any)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -273,7 +273,7 @@ func (link *Link) watch(ctx context.Context, interval time.Duration, logf func(s
 
 // reload switches to the enrollment saved in the data directory if it
 // differs from the current one.
-func (link *Link) reload(logf func(string, ...any)) bool {
+func (link *Link) reload(logf func(level, format string, args ...any)) bool {
 	link.changing.Lock()
 	defer link.changing.Unlock()
 	saved, err := settings.LoadEnrollment(link.dataDir)
@@ -285,7 +285,7 @@ func (link *Link) reload(logf func(string, ...any)) bool {
 		return false
 	}
 	link.replace(&saved)
-	logf("the saved enrollment changed; switching to node %s of the panel at %s%s", saved.NodeID, saved.Endpoint, saved.Path)
+	logf("info", "The saved enrollment changed; switching to node %s of the panel at %s%s", saved.NodeID, saved.Endpoint, saved.Path)
 	return true
 }
 

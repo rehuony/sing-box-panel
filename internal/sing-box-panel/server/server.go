@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/console"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
@@ -98,7 +98,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if configuration.DataDir != openedDataDir {
 		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
-	output := console.FromContext(ctx)
+	output := cliui.ConsoleFrom(ctx)
 	services = app.New(database, configuration, app.Options{Build: build, Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) }})
 	records := services.Telemetry
 	defer func() {
@@ -190,7 +190,16 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		serveResult <- httpServer.Serve(webListener)
 	}()
 	control.Ready(listener.Addr().String())
-	output.Ready("http://"+listener.Addr().String()+configuration.Server.BasePath+"/", settingsPath, configuration.DataDir)
+	panelURL := "http://" + listener.Addr().String() + configuration.Server.BasePath + "/"
+	style := output.Style()
+	output.Ready("sing-box-panel is running", []cliui.Field{
+		{Label: "Panel URL", Value: style.Accent(panelURL)},
+		{Label: "Settings", Value: style.Path(settingsPath)},
+		{Label: "Data directory", Value: style.Path(configuration.DataDir)},
+	}, "Press Ctrl+C to stop. View logs in the panel.", map[string]string{
+		"event": "server_ready", "panel_url": panelURL, "settings_path": settingsPath,
+		"data_dir": configuration.DataDir, "panel_logs": filepath.Join(configuration.DataDir, "panel.db"),
+	})
 
 	select {
 	case err := <-serveResult:

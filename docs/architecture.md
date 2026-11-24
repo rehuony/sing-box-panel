@@ -61,7 +61,8 @@ nothing imports.
 
 | Tree | Package | Responsibility |
 | --- | --- | --- |
-| Shared (`internal/`) | `buildinfo`, `console`, `jsonstrict` | Build identity and its display, terminal output, strict JSON decoding and canonical objects |
+| Shared (`internal/`) | `buildinfo`, `jsonstrict` | Build identity and its display, strict JSON decoding and canonical objects |
+| | `cliui` | What both binaries' command lines share: output formats, classified errors and exit codes, colors, aligned fields, file trees, diagnostics, update progress, foreground server output, help layout and the `version`, `completion`, `server stop|status` and `systemd` commands, the last over the `systemd` lifecycle |
 | | `atomicfile` | Crash-safe file publication and directory syncs for both services and the tools |
 | | `release`, `selfupdate` | Release-version validation and signatures; fetching, verifying and atomically installing either binary, staging a release for a system service's root update helper, and the helper's staged apply |
 | | `procctl` | Private local control of a running service without an OS service manager; the service lifetime and lease, never background processes |
@@ -76,7 +77,7 @@ nothing imports.
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
 | | `netguard` | Which addresses count as public: the only addresses the panel's source and core downloads reach without an operator's permission, and the only ones a node reports as its public address |
 | | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, origin and CSRF checks, and security headers |
-| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `update`, `server`, `config`, `system` and `systemd` |
+| Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `update`, `server`, `config`, `system`, `systemd` and `completion` |
 | | `settings` | The node's settings file (console address, external origin, data directory and console password hash) and the enrollment in its data directory (panel endpoint, trust, IDs and the Ed25519 identity key) |
 | | `agent` | Enrollment, the link that holds it with the session's state, the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
 | | `httpapi` | The console API: password login, the link's status, enrollment and unenrollment |

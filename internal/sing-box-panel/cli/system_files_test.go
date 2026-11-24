@@ -14,76 +14,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
-
-func TestFileTreeText(t *testing.T) {
-	tests := []struct {
-		name    string
-		entries []fileTreeEntry
-		want    string
-	}{
-		{
-			name: "shared parents and compressed paths",
-			entries: []fileTreeEntry{
-				{path: "/srv/panel/runtime/current.json", label: "file"},
-				{path: "/srv/panel/imports/z.zip", label: "file"},
-				{path: "/srv/panel/imports/nested/a.zip", label: "file"},
-				{path: "/srv/panel/imports", label: "dir", directory: true},
-				{path: "/srv/panel/panel.db", label: "file"},
-			},
-			want: "/\n" +
-				"└── srv/panel/\n" +
-				"    ├── imports/ [dir]\n" +
-				"    │   ├── nested/a.zip [file]\n" +
-				"    │   └── z.zip [file]\n" +
-				"    ├── panel.db [file]\n" +
-				"    └── runtime/current.json [file]",
-		},
-		{
-			name: "separate groups under one filesystem root",
-			entries: []fileTreeEntry{
-				{path: "/var/lib/panel/panel.db", label: "file"},
-				{path: "/opt/panel/bin/panel", label: "file"},
-				{path: "/etc/panel/setting.json", label: "file"},
-			},
-			want: "/\n" +
-				"├── etc/panel/setting.json [file]\n" +
-				"├── opt/panel/bin/panel [file]\n" +
-				"└── var/lib/panel/panel.db [file]",
-		},
-		{
-			name: "explicit root and overlapping reports",
-			entries: []fileTreeEntry{
-				{path: "/", label: "dir"},
-				{path: "/a", label: "service: unmanaged"},
-				{path: "/a", label: "file"},
-			},
-			want: "/ [dir]\n└── a [file] [service: unmanaged]",
-		},
-		{
-			name:    "relative fixture paths",
-			entries: []fileTreeEntry{{path: "fixture.service", label: "service: managed"}},
-			want:    "./\n└── fixture.service [service: managed]",
-		},
-		{name: "empty"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := fileTreeText(test.entries, fileTreeStyle{}); got != test.want {
-				t.Fatalf("tree:\n%s\nwant:\n%s", got, test.want)
-			}
-			reversed := slices.Clone(test.entries)
-			slices.Reverse(reversed)
-			if got := fileTreeText(reversed, fileTreeStyle{}); got != test.want {
-				t.Fatalf("tree depends on input order:\n%s", got)
-			}
-		})
-	}
-}
 
 func TestInstanceFilesTextShowsExistingContentsWithoutCleanupLabels(t *testing.T) {
 	report := instanceFilesReport{
@@ -117,26 +53,28 @@ func TestInstanceFilesTextShowsExistingContentsWithoutCleanupLabels(t *testing.T
 		t.Fatal(err)
 	}
 	want := `Instance files
-Config:     /srv/config/custom.json
-Executable: /opt/bin/panel
 
-/
-├── etc/systemd/
-│   ├── other.service [service, system, outside scope]
-│   └── panel.service [service, system]
-├── opt/bin/panel [executable, retained]
-└── srv/
-    ├── config/custom.json [settings]
-    └── panel/ [data]
-        ├── empty/ [empty]
-        ├── imports/
-        │   └── link [link]
-        ├── notes
-        └── panel.db`
-	if got := instanceFilesText(report, fileTreeStyle{}); got != want {
+  Config      /srv/config/custom.json
+  Executable  /opt/bin/panel
+  Service     system, uses these settings
+
+  /
+  ├── etc/systemd/
+  │   ├── other.service [service, system, outside scope]
+  │   └── panel.service [service, system]
+  ├── opt/bin/panel [executable, retained, 0 B]
+  └── srv/
+      ├── config/custom.json [settings, 0 B]
+      └── panel/ [data, 0 B]
+          ├── empty/ [empty]
+          ├── imports/
+          │   └── link [link]
+          ├── notes [0 B]
+          └── panel.db [0 B]`
+	if got := instanceFilesText(report, cliui.Style{}); got != want {
 		t.Fatalf("output:\n%s\nwant:\n%s", got, want)
 	}
-	colored := instanceFilesText(report, fileTreeStyle{color: true})
+	colored := instanceFilesText(report, cliui.Style{Color: true})
 	ansi := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	if got := ansi.ReplaceAllString(colored, ""); got != want {
 		t.Fatalf("color changed the report content:\n%s", got)
@@ -152,32 +90,32 @@ Executable: /opt/bin/panel
 	}
 	slices.Reverse(report.Entries)
 	slices.Reverse(report.Service.Files)
-	if got := instanceFilesText(report, fileTreeStyle{}); got != want {
+	if got := instanceFilesText(report, cliui.Style{}); got != want {
 		t.Fatalf("report order changed the tree:\n%s", got)
 	}
 	report.Preview = true
 	warning := "Pass --yes to stop this instance and permanently delete its settings and all data."
-	wantPreview := strings.Replace(want, "Instance files", "Cleanup preview — no changes", 1) + "\n\n" + warning
-	if got := instanceFilesText(report, fileTreeStyle{}); got != wantPreview {
+	wantPreview := strings.Replace(want, "Instance files", "Cleanup preview — no changes", 1) + "\n\n  " + warning
+	if got := instanceFilesText(report, cliui.Style{}); got != wantPreview {
 		t.Fatalf("preview warning is not after the complete tree:\n%s", got)
 	}
-	colored = instanceFilesText(report, fileTreeStyle{color: true})
-	if ansi.ReplaceAllString(colored, "") != wantPreview || strings.Count(colored, "\x1b[33m") != 1 {
+	colored = instanceFilesText(report, cliui.Style{Color: true})
+	if ansi.ReplaceAllString(colored, "") != wantPreview || strings.Count(colored, "\x1b[1;33m") != 2 {
 		t.Fatalf("preview warning color changed content or position: %q", colored)
 	}
 	report.Preview = false
 	report.ServiceMatches = false
-	if got := instanceFilesText(report, fileTreeStyle{}); !strings.Contains(got, "panel.service [service, system, outside scope]") {
+	if got := instanceFilesText(report, cliui.Style{}); !strings.Contains(got, "panel.service [service, system, outside scope]") {
 		t.Fatalf("unrelated service would be uninstalled:\n%s", got)
 	}
 	report.DatabaseIdentity = "unknown"
-	if got := instanceFilesText(report, fileTreeStyle{}); strings.Contains(got, "blocked") || strings.Contains(got, "Policies") {
+	if got := instanceFilesText(report, cliui.Style{}); strings.Contains(got, "blocked") || strings.Contains(got, "Policies") {
 		t.Fatalf("obsolete identity restriction or footer:\n%s", got)
 	}
 	report.SettingsPath = "/srv/panel/custom.json"
 	for _, preview := range []bool{false, true} {
 		report.Preview = preview
-		if got := instanceFilesText(report, fileTreeStyle{home: "/srv"}); !strings.Contains(got, "Config:     ~/panel/custom.json\nExecutable: /opt/bin/panel\n") {
+		if got := instanceFilesText(report, cliui.Style{Home: "/srv"}); !strings.Contains(got, "  Config      ~/panel/custom.json\n  Executable  /opt/bin/panel\n") {
 			t.Fatalf("overlapping config/data or home abbreviation changed:\n%s", got)
 		}
 	}
@@ -188,29 +126,29 @@ func TestCleanupTextReportsOnlyConfirmedResults(t *testing.T) {
 		Removed:  []string{"/srv/panel/panel.db", "/srv/panel/imports"},
 		Retained: []string{"/srv/panel/notes", "/srv/panel"},
 	}
-	wantTree := "/\n└── srv/panel [retained]\n    ├── imports [removed]\n    ├── notes [retained]\n    └── panel.db [removed]"
+	wantTree := "  /\n  └── srv/panel [retained]\n      ├── imports [removed]\n      ├── notes [retained]\n      └── panel.db [removed]"
 	for _, cleanupErr := range []error{nil, errors.New("fixture failure")} {
 		heading := "Cleanup results"
 		if cleanupErr != nil {
 			heading = "Cleanup interrupted; confirmed results only"
 		}
-		want := heading + "\n  Files: 2 removed, 0 remaining, 2 retained\n\n" + wantTree
-		if got := cleanupText(result, cleanupErr, fileTreeStyle{}); got != want {
+		want := heading + "\n\n  Files  2 removed, 0 remaining, 2 retained\n\n" + wantTree
+		if got := cleanupText(result, cleanupErr, cliui.Style{}); got != want {
 			t.Fatalf("cleanup output=%s", got)
 		}
-		if got := cleanupText(installation.CleanupResult{}, cleanupErr, fileTreeStyle{}); !strings.HasPrefix(got, heading) {
+		if got := cleanupText(installation.CleanupResult{}, cleanupErr, cliui.Style{}); !strings.HasPrefix(got, heading) {
 			t.Fatalf("empty cleanup output=%s", got)
 		}
-		colored := cleanupText(result, cleanupErr, fileTreeStyle{color: true})
+		colored := cleanupText(result, cleanupErr, cliui.Style{Color: true})
 		if got := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, ""); got != want {
 			t.Fatalf("color changed cleanup results:\n%s", got)
 		}
 		if !strings.Contains(colored, "\x1b[32mremoved") || !strings.Contains(colored, "\x1b[36mretained") {
 			t.Fatalf("missing cleanup result colors: %q", colored)
 		}
-		for _, format := range []outputFormat{outputJSON, outputJSONL} {
+		for _, format := range []cliui.Format{cliui.JSON, cliui.JSONL} {
 			var stdout bytes.Buffer
-			if err := writeResult(&stdout, format, result, colored); err != nil {
+			if err := cliui.Write(&stdout, format, result, colored); err != nil {
 				t.Fatal(err)
 			}
 			var decoded installation.CleanupResult
@@ -219,84 +157,6 @@ func TestCleanupTextReportsOnlyConfirmedResults(t *testing.T) {
 			}
 
 		}
-	}
-}
-
-func TestFileTreeHomeAbbreviation(t *testing.T) {
-	for _, test := range []struct{ home, path, want string }{
-		{"/home/alice", "/home/alice", "~"},
-		{"/home/alice/", "/home/alice/data", "~/data"},
-		{"/home/alice", "/home/alice-other/data", "/home/alice-other/data"},
-		{"/home/alice", "/home/alice2/data", "/home/alice2/data"},
-		{"/home/alice", "/home", "/home"},
-		{"/", "/etc/panel", "/etc/panel"},
-		{"", "/etc/panel", "/etc/panel"},
-		{"relative", "relative/panel", "relative/panel"},
-	} {
-		if got := (fileTreeStyle{home: test.home}).path(test.path); got != test.want {
-			t.Fatalf("home=%q path=%q got=%q want=%q", test.home, test.path, got, test.want)
-		}
-	}
-	entries := []fileTreeEntry{
-		{path: "/home/alice/config/setting.json", label: "remove"},
-		{path: "/home/alice/data/panel.db", label: "removed"},
-	}
-	want := "/\n└── home/alice/\n    ├── config/setting.json [remove]\n    └── data/panel.db [removed]"
-	if got := fileTreeText(entries, fileTreeStyle{home: "/home/alice"}); got != want {
-		t.Fatalf("home paths were not grouped under the filesystem root:\n%s", got)
-	}
-}
-
-type fileTreeFDWriter struct {
-	bytes.Buffer
-	fdCalls int
-}
-
-func (writer *fileTreeFDWriter) Fd() uintptr {
-	writer.fdCalls++
-	return ^uintptr(0) // Invalid descriptor: capability checks must fail closed.
-}
-
-func TestFileTreeStyleDisablesColor(t *testing.T) {
-	for _, test := range []struct {
-		name, term, noColor string
-		format              outputFormat
-		checkTerminal       bool
-	}{
-		{"terminal check", "xterm-256color", "", outputText, true},
-		{"no color", "xterm-256color", "1", outputText, false},
-		{"no color any value", "xterm", "0", outputText, false},
-		{"dumb", "dumb", "", outputText, false},
-		{"unknown terminal", "", "", outputText, false},
-		{"json", "xterm", "", outputJSON, false},
-		{"jsonl", "xterm", "", outputJSONL, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("TERM", test.term)
-			t.Setenv("NO_COLOR", test.noColor)
-			writer := &fileTreeFDWriter{}
-			style := newFileTreeStyle(writer, test.format)
-			if style.color || (writer.fdCalls > 0) != test.checkTerminal {
-				t.Fatalf("color=%v terminal checks=%d", style.color, writer.fdCalls)
-			}
-			if got := style.label("removed"); got != "[removed]" {
-				t.Fatalf("disabled color produced ANSI: %q", got)
-			}
-		})
-	}
-	t.Setenv("TERM", "xterm-256color")
-	t.Setenv("NO_COLOR", "")
-	if style := newFileTreeStyle(&bytes.Buffer{}, outputText); style.color {
-		t.Fatal("buffer output enabled color")
-	}
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
-	defer writer.Close()
-	if style := newFileTreeStyle(writer, outputText); style.color {
-		t.Fatal("pipe output enabled color")
 	}
 }
 
@@ -332,8 +192,8 @@ func TestSystemPruneReportsPartialResultsAndPreservesFailure(t *testing.T) {
 			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: service})
 			root.SetArgs([]string{"system", "prune", "-c", path, "--yes", "-o", format})
 			err := root.ExecuteContext(ctx)
-			var cliErr *Error
-			if !errors.Is(err, context.Canceled) || !errors.As(err, &cliErr) || cliErr.Code != "instance_cleanup_failed" || cliErr.Kind != ErrorConflict {
+			var cliErr *cliui.Error
+			if !errors.Is(err, context.Canceled) || !errors.As(err, &cliErr) || cliErr.Code != "instance_cleanup_failed" || cliErr.Kind != cliui.ErrorConflict {
 				t.Fatalf("cleanup failure changed: %v", err)
 			}
 			if format == "text" {
@@ -412,8 +272,8 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 					}
 					return
 				}
-				style := newFileTreeStyle(&bytes.Buffer{}, outputText)
-				summary := "Config:     " + style.path(path) + "\nExecutable: " + style.path(executable) + "\n"
+				style := cliui.NewStyle(&bytes.Buffer{}, cliui.Text)
+				summary := "  Config      " + style.Path(path) + "\n  Executable  " + style.Path(executable) + "\n"
 				if !strings.Contains(stdout, summary) {
 					t.Fatalf("selected paths missing:\n%s", stdout)
 				}
@@ -436,7 +296,7 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 				if strings.Contains(stdout, "Pass --yes") != report.Preview {
 					t.Fatalf("incorrect preview warning:\n%s", stdout)
 				}
-				if report.Preview && strings.Index(stdout, "\n\nPass --yes") < strings.LastIndex(stdout, "└──") {
+				if report.Preview && strings.Index(stdout, "\n\n  Pass --yes") < strings.LastIndex(stdout, "└──") {
 					t.Fatalf("preview warning is not after the complete tree:\n%s", stdout)
 				}
 			})
@@ -450,14 +310,14 @@ func TestSystemDFAndPruneShowServiceFiles(t *testing.T) {
 		files := []systemd.FileStatus{
 			{Path: "/home/test/.config/systemd/user/sing-box-panel.service", State: "managed", Managed: true},
 		}
-		wantTree := "├── home/test/.config/systemd/user/sing-box-panel.service [service, user]"
+		wantTree := "  ├── home/test/.config/systemd/user/sing-box-panel.service [service, user]"
 		if scope == systemd.ScopeSystem {
 			files = []systemd.FileStatus{
 				{Path: "/etc/systemd/system/sing-box-panel.service", State: "managed", Managed: true},
 				{Path: "/etc/sysusers.d/sing-box-panel.conf", State: "managed", Managed: true},
 				{Path: "/etc/tmpfiles.d/sing-box-panel.conf", State: "managed", Managed: true},
 			}
-			wantTree = "├── etc/\n│   ├── systemd/system/sing-box-panel.service [service, system]\n│   ├── sysusers.d/sing-box-panel.conf [service, system]\n│   └── tmpfiles.d/sing-box-panel.conf [service, system]"
+			wantTree = "  ├── etc/\n  │   ├── systemd/system/sing-box-panel.service [service, system]\n  │   ├── sysusers.d/sing-box-panel.conf [service, system]\n  │   └── tmpfiles.d/sing-box-panel.conf [service, system]"
 		}
 		files = append(files, systemd.FileStatus{Path: "/absent-services/missing.service", State: "missing"})
 		for _, matches := range []bool{true, false} {
@@ -561,11 +421,11 @@ func TestSystemDFAndPreviewShowEmptyData(t *testing.T) {
 			if strings.Contains(stdout, "Data:") || strings.Contains(stdout, "No data directory.") {
 				t.Fatalf("obsolete data summary is still displayed:\n%s", stdout)
 			}
-			if !strings.Contains(stdout, "Systemd:    unsupported on this platform") || strings.Contains(stdout, "[service") || strings.Contains(stdout, "not installed") {
+			if !strings.Contains(stdout, "  Service     unsupported on this platform") || strings.Contains(stdout, "[service") || strings.Contains(stdout, "not installed") {
 				t.Fatalf("unsupported systemd state was misrepresented:\n%s", stdout)
 			}
 			if command == "prune" {
-				warning := strings.Index(stdout, "\n\nPass --yes")
+				warning := strings.Index(stdout, "\n\n  Pass --yes")
 				if warning < strings.LastIndex(stdout, "└──") {
 					t.Fatalf("cleanup warning is not after the tree:\n%s", stdout)
 				}
@@ -612,13 +472,13 @@ func TestSystemDFAndPreviewAfterPruneWithoutSettings(t *testing.T) {
 						t.Fatalf("%s after prune: err=%v stderr=%s", command, err, stderr)
 					}
 					if format == "text" {
-						style := newFileTreeStyle(&bytes.Buffer{}, outputText)
-						for _, want := range []string{"Config:     " + style.path(path) + " (missing)\n", "[executable, retained]"} {
+						style := cliui.NewStyle(&bytes.Buffer{}, cliui.Text)
+						for _, want := range []string{"  Config      " + style.Path(path) + " (missing)\n", "[executable, retained, "} {
 							if !strings.Contains(stdout, want) {
 								t.Fatalf("missing %q from output:\n%s", want, stdout)
 							}
 						}
-						if strings.Contains(stdout, "Settings:") || strings.Count(stdout, "Config:") != 1 {
+						if strings.Contains(stdout, "Settings:") || strings.Count(stdout, "  Config  ") != 1 {
 							t.Fatalf("configuration summary duplicated:\n%s", stdout)
 						}
 						if strings.Contains(stdout, "Data:") || strings.Contains(stdout, "unknown (settings missing)") || strings.Contains(stdout, "No data directory.") {
@@ -669,8 +529,8 @@ func TestSystemDFWithoutSettingsStillInspectsServices(t *testing.T) {
 	if err != nil || !strings.Contains(stdout, "Pass --yes") {
 		t.Fatalf("preview suggested cleanup without settings: err=%v output=%s", err, stdout)
 	}
-	style := newFileTreeStyle(&bytes.Buffer{}, outputText)
-	if !strings.Contains(stdout, "Config:     "+style.path(path)+" (missing)\n") || strings.Contains(stdout, "Settings:") {
+	style := cliui.NewStyle(&bytes.Buffer{}, cliui.Text)
+	if !strings.Contains(stdout, "  Config      "+style.Path(path)+" (missing)\n") || strings.Contains(stdout, "Settings:") {
 		t.Fatalf("preview did not consolidate the configuration summary:\n%s", stdout)
 	}
 	_, _, err = executeSystemCommand(t, service, "system", "prune", "-c", path, "--yes")

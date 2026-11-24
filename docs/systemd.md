@@ -67,7 +67,12 @@ Before writing files, installation checks required commands, manager access,
 permissions, paths, pending migrations and conflicting service files. It creates
 missing settings (0600, administrator email and hashed random password) and directories (0700), without overwriting
 existing configuration or initializing the database. The server creates storage
-when it starts. Existing differing unit files still require `--force`.
+when it starts. Installation rewrites the files it manages, which carry the
+ownership marker below, including files an earlier release wrote with other
+arguments; rerunning it after replacing the binary refreshes the unit.
+Customize a service with drop-ins, which installation keeps: an edited
+generated file is replaced. A file at a managed path without the marker belongs
+to someone else and requires `--force`.
 Configuration sidecars must be regular files when present; conflicts are rejected
 before resource creation or account preparation. Existing data directories need
 write access to the directory itself, not to an otherwise shared parent.
@@ -261,7 +266,7 @@ keep their existing ownership and permissions. Refresh an installed unit with
 the binary that ships it, then restart the service:
 
 ```sh
-sudo /usr/local/bin/sing-box-node systemd install --scope=system --force
+sudo /usr/local/bin/sing-box-node systemd install --scope=system
 sudo /usr/local/bin/sing-box-node systemd restart --scope=system
 systemctl show sing-box-node -p User -p Group -p CapabilityBoundingSet -p AmbientCapabilities
 ```
@@ -345,9 +350,15 @@ node runs with its user's full file access: it, its cores and anything they run
 can read and write wherever that user can. Use the system service where the
 node must be confined to its data directory.
 
-After upgrading an older installation, rerun `systemd install` to refresh the
-unit and ownership before saving preferences through the Web UI. Use `--force`
-when replacing an older generated template after reviewing changes.
+A unit's command line is written by the release that installed it. When a
+binary is replaced, by the installer or by hand, rerun `systemd install` to
+refresh the unit and ownership, then restart the service. Until then
+`systemd status` warns that the unit was written by another release when its
+command line differs from the one this release writes, and `systemd start` and
+`restart` refuse it with the command that rewrites it, rather than letting
+systemd restart a process that rejects its arguments. An update through the
+root update helper keeps the unit, so a release that changes the command line
+fails to stay active there and the helper restores the previous binary.
 
 After editing the panel's `data_dir`, an explicit `systemd restart` coordinates a stopped
 relocation and refreshes generated working-directory, sandbox and tmpfiles paths.
@@ -357,9 +368,9 @@ and configuration directories under private temporary roots receive narrow bind
 mounts; other sandbox restrictions stay enabled. Custom data roots also clear
 the default `StateDirectory` declaration so it does not recreate the old root.
 Automatic rewriting requires exact generated files and no drop-in overrides.
-For customized units, stop the service and explicitly run `systemd install`
-(with `--force` only when replacing those customizations is intended), then start
-it. Installation also performs a pending move, refusing any active owner.
+For customized units, stop the service and explicitly run `systemd install`,
+which replaces an edited generated unit (`--force` is needed only for a file
+without the ownership marker), then start it. Installation also performs a pending move, refusing any active owner.
 
 ## Account lifecycle verification
 

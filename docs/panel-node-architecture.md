@@ -31,9 +31,9 @@ managed through the same path.
           │ HTTPS /api/v1                       │ HTTPS /sub/{token}/{channel}
           ▼                                     ▼
  ┌──────────────────────────── panel ────────────────────────────┐
- │ httpapi · fleet · nodeconfig · corecache · subscription ·       │
- │ telemetry · panel store (SQLite)                                │
- └───────────────▲──────────────────────▲──────────────────────────┘
+ │ httpapi · fleet · nodeconfig · corecache · subscription ·     │
+ │ telemetry · panel store (SQLite)                              │
+ └───────────────▲──────────────────────▲────────────────────────┘
    gRPC over TLS │ one session per node │  nodes dial out; panel never dials in
           ┌──────┴──────┐        ┌──────┴──────┐
           │   node A    │        │   node B    │   …
@@ -350,7 +350,7 @@ internal/
     settings/ cli/
 
   Infrastructure: knows nothing of sing-box, subscriptions or the fleet
-  atomicfile/ buildinfo/ console/ jsonstrict/ release/ selfupdate/
+  atomicfile/ buildinfo/ jsonstrict/ release/ selfupdate/
   procctl/               local service control and lease
   settingsfile/          settings-file reads, writer lock, data directory and dotted fields of both services
   netguard/              which addresses count as public for outbound fetches and reported host addresses
@@ -358,6 +358,7 @@ internal/
   logredact/             log redaction applied by both services
   webauth/               password hashing, login limits, origin and CSRF checks of both management APIs
   systemd/               one service's systemd lifecycle: units, dedicated account, status, control
+  cliui/                 what both command lines share: output, errors, help, server output and the systemd commands
   pathguard/             symlink-safe containment and shared-directory checks for service directories
 
   Shared domain: both services use these and never import a service
@@ -384,7 +385,7 @@ imports and may use any package.
 - The installer takes `--component panel|node`, or asks which when neither is given, reports what is already installed, and installs only that binary.
 - Each service has its own systemd unit and dedicated account, installed by its own binary's `systemd` commands over one shared lifecycle. The node unit carries the privileges sing-box needs; the panel unit drops them because it no longer runs sing-box.
 - A node reports its build version in each session; the panel records it and returns it with the node in the management API, with whether it differs from the panel's release.
-- Both binaries embed the release key and update themselves only to a signed release newer than the running version. The panel updates from the latest stable GitHub release, from its settings or with `sing-box-panel update`; nodes update to the panel's own release, from the panel or with `sing-box-node update`, and never contact GitHub.
+- Both binaries embed the release key and update themselves only to a signed release newer than the running version. The panel updates from the latest stable GitHub release, from its settings or with `sing-box-panel update`; an enrolled node updates to the panel's own release, from the panel or with `sing-box-node update`, and never contacts GitHub, so both run one version; a node without a panel updates from the latest stable GitHub release with `sing-box-node update`.
 - How a binary is replaced depends on how it runs. A process that may write its executable, a user service or one in the foreground, verifies and installs the release itself; a user service then restarts its unit, and a foreground process keeps running the old version until it is restarted. A system service runs as its dedicated account with a read-only system, so it stages the verified release in `updates/VERSION/` of its data directory and writes `updates/request` naming the version. Its root update helper, the `NAME-update.path` and `NAME-update.service` units, copies the staged files beside the executable before reading them, verifies them with the installed binary's key, refuses anything older than or equal to the installed version, installs, restarts the service and, when it does not stay active, restores the previous binary and restarts again. The helper writes `updates/result` before each restart, and a refused release without one; the service reads it when it starts or, while it runs, within seconds, and reports it. See the [systemd packaging guide](systemd.md#update-helper).
 
 ## Preserved guarantees

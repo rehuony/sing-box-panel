@@ -8,13 +8,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 	"github.com/spf13/cobra"
 )
 
 func newConfigCommand(state *options) *cobra.Command {
-	root := group("config", "Initialize, read, edit, or verify panel settings")
+	root := cliui.Group("config", "Initialize, read, edit, or verify panel settings")
 	root.Long = `Manage the panel settings file selected by --config.
 
 The Web UI, CLI, and manual edits share this same file. These commands do not
@@ -42,11 +43,11 @@ are preserved. Directories, symlinks, and pending recovery cannot be overwritten
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			value, err := settings.InitializeFile(cmd.Context(), state.settingsPath, force)
 			if err != nil {
-				failure := &Error{Kind: ErrorValidation, Code: "settings_initialization_failed", Message: err.Error(), Cause: err}
+				failure := &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_initialization_failed", Message: err.Error(), Cause: err}
 				return errors.Join(failure, writeServerInitialization(cmd, state, value))
 			}
 			text := initializationText(cmd.OutOrStdout(), state.format, value)
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
+			return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{
 				"initialized": true, "settings_path": value.Path(), "login_email": value.Auth.Email, "login_password": value.InitialPassword,
 			}, text)
 		},
@@ -74,7 +75,7 @@ contains auth.password_hash instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			value, err := settings.GetField(cmd.Context(), state.settingsPath, args[0])
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "settings_read_failed", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_read_failed", Message: err.Error(), Cause: err}
 			}
 			var compact bytes.Buffer
 			if err := json.Compact(&compact, value); err != nil {
@@ -86,7 +87,7 @@ contains auth.password_hash instead.`,
 					return err
 				}
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{
+			return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{
 				"settings_path": state.settingsPath, "field": args[0], "value": value,
 			}, text)
 		},
@@ -104,13 +105,13 @@ func newConfigShowCommand(state *options) *cobra.Command {
 			}
 			data, err := settings.Read(state.settingsPath)
 			if err != nil {
-				return &Error{Kind: ErrorValidation, Code: "settings_read_failed", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_read_failed", Message: err.Error(), Cause: err}
 			}
-			if state.format == outputText {
+			if state.format == cliui.Text {
 				_, err := cmd.OutOrStdout().Write(data)
 				return err
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"settings_path": state.settingsPath, "content": string(data)}, "")
+			return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{"settings_path": state.settingsPath, "content": string(data)}, "")
 		},
 	}
 }
@@ -156,7 +157,7 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 			} else if (stdin && len(args) == 1) || (!stdin && len(args) == 2) {
 				return nil
 			}
-			return &Error{Kind: ErrorUsage, Code: "settings_set_usage", Message: "use set FIELD VALUE, set FIELD --stdin, or set --file FILE"}
+			return &cliui.Error{Kind: cliui.ErrorUsage, Code: "settings_set_usage", Message: "use set FIELD VALUE, set FIELD --stdin, or set --file FILE"}
 		},
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -167,7 +168,7 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 			if filePath != "" {
 				data, err := readInputFile(cmd.InOrStdin(), filePath, settings.MaximumBytes, "settings")
 				if err != nil {
-					return &Error{Kind: ErrorValidation, Code: "settings_input_failed", Message: err.Error(), Cause: err}
+					return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_input_failed", Message: err.Error(), Cause: err}
 				}
 				if err := cmd.Context().Err(); err != nil {
 					return err
@@ -186,7 +187,7 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 					}
 					defer clear(data)
 					if err != nil {
-						return &Error{Kind: ErrorValidation, Code: "settings_input_failed", Message: err.Error(), Cause: err}
+						return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_input_failed", Message: err.Error(), Cause: err}
 					}
 					value = string(data)
 				} else {
@@ -195,10 +196,10 @@ Credentials and panel preferences use this same file at operation boundaries.`,
 				saveErr = settings.SetField(cmd.Context(), state.settingsPath, args[0], value)
 			}
 			if saveErr != nil {
-				return &Error{Kind: ErrorValidation, Code: "settings_save_failed", Message: saveErr.Error(), Cause: saveErr}
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_save_failed", Message: saveErr.Error(), Cause: saveErr}
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"settings_path": state.settingsPath, "saved": true},
-				fmt.Sprintf("saved %s; restart the panel to reload startup fields", state.settingsPath))
+			return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{"settings_path": state.settingsPath, "saved": true},
+				fmt.Sprintf("Saved %s; restart the panel to reload startup fields", state.settingsPath))
 		},
 	}
 	command.Flags().StringVar(&filePath, "file", "", "replace from a complete panel settings document, or - for stdin")
@@ -220,9 +221,9 @@ startup. It does not check the saved sing-box configuration.`,
 				return err
 			}
 			if _, err := settings.Load(state.settingsPath); err != nil {
-				return &Error{Kind: ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "settings_invalid", Message: err.Error(), Cause: err}
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"valid": true, "settings_path": state.settingsPath}, "panel settings are valid")
+			return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{"valid": true, "settings_path": state.settingsPath}, "Panel settings are valid")
 		},
 	}
 }

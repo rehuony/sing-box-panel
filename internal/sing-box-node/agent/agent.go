@@ -55,8 +55,9 @@ const (
 
 // Options supplies the agent's collaborators.
 type Options struct {
-	// Logf reports session changes; nil discards them.
-	Logf func(format string, args ...any)
+	// Log reports session changes and the node's events at a level such as
+	// info, warn or error; nil discards them.
+	Log func(level, message string)
 	// Connected, if set, is called after each authenticated Welcome.
 	Connected func()
 	// Console, if set, serves the local console beside the node's sessions
@@ -74,9 +75,9 @@ type Options struct {
 	Ready func()
 }
 
-func (options Options) logf(format string, args ...any) {
-	if options.Logf != nil {
-		options.Logf(format, args...)
+func (options Options) logf(level, format string, args ...any) {
+	if options.Log != nil {
+		options.Log(level, fmt.Sprintf(format, args...))
 	}
 }
 
@@ -181,7 +182,11 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	}
 	defer func() { runErr = errors.Join(runErr, database.Close()) }()
 	node, err := service.New(database, service.Options{DataDir: dataDir, Events: func(event service.Event) {
-		options.logf("%s %s: %s %v", event.Level, event.Code, event.Message, event.Metadata)
+		if len(event.Metadata) == 0 {
+			options.logf(event.Level, "%s", event.Message)
+			return
+		}
+		options.logf(event.Level, "%s %v", event.Message, event.Metadata)
 	}})
 	if err != nil {
 		return err
@@ -247,7 +252,7 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 		}
 		identity := sessionIdentity{enrollment: enrollment, instanceID: instanceID, build: link.build}
 		return holdSession(attempt, ctx, client, identity, commands, sampler, dataDir, &inFlight, func() {
-			options.logf("connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
+			options.logf("info", "Connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
 			connected()
 			if options.Connected != nil {
 				options.Connected()

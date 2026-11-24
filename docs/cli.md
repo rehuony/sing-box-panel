@@ -26,8 +26,13 @@ sing-box-node
 ├─ system df | prune
 ├─ server start | stop | status
 ├─ systemd install | uninstall | status | start | stop | restart | logs
-└─ config init | show | get | set | verify
+├─ config init | show | get | set | verify
+└─ completion bash | zsh | fish
 ```
+
+Both binaries share their global flags, output formats, text layout, error
+codes and exit codes, and the `server stop|status`, `systemd` and `version`
+commands behave the same in each.
 
 Every command is at most two words deep; each group adds one verb.
 `server start` runs the panel in the current terminal. Background
@@ -122,8 +127,8 @@ require explicit attention; start/restart does not install a missing unit.
 unless `--force` is supplied. No command silently repairs a damaged file.
 
 When `server start` creates settings, it prints `sing-box-panel settings created`
-to stderr, followed by aligned `Panel URL`, `Email`, `Initial Password`, `Settings`,
-and `Data Dir` rows. This reports initialization, not HTTP readiness.
+to stderr, followed by aligned `Panel URL`, `Email`, `Initial password`, `Settings`,
+and `Data directory` rows. This reports initialization, not HTTP readiness.
 `init` and `config init` use the same aligned text summary on stdout, including
 the reminder to save the password because only its hash is stored. Systemd creation
 uses the startup summary on stderr. If settings creation succeeds but later storage
@@ -131,7 +136,7 @@ initialization or service activation fails, stderr still carries the one-time
 credentials; the failure does not claim service readiness.
 It does not repeat the summary when the file already exists. Once the server is
 ready, it prints `sing-box-panel is running` with aligned `Panel URL`, `Settings`,
-and `Data Dir` rows, followed by the stop shortcut and Web logs guidance.
+and `Data directory` rows, followed by the stop shortcut and Web logs guidance.
 Color is limited to text on a terminal
 and respects `NO_COLOR` and `TERM`. In JSON/JSONL mode, stderr receives one event
 with `event: "settings_initialized"`, `settings_path`, `data_dir`,
@@ -140,7 +145,27 @@ First-run output contains the newly generated password in both terminal and redi
 output, including JSON/JSONL.
 
 Results are written to stdout. Progress, warnings, and terminal errors are
-written to stderr, allowing scripts to redirect them independently. Text errors
+written to stderr, allowing scripts to redirect them independently.
+
+Text output has one layout in both binaries:
+
+- A result opens with a title line in sentence case: green when it succeeded,
+  red when it failed or was interrupted, yellow for a preview or a state that
+  needs attention, plain otherwise. A one-line result is that line alone.
+- Below a blank line come its fields, indented two spaces with every value
+  aligned two spaces past the longest label; an unknown value shows `—`.
+  File trees and notes follow, each after another blank line and indented the
+  same way.
+- A note that names the command to run next starts with a highlighted
+  `Next:`; recovery guidance in errors uses `Next:`, `Inspect:` and
+  `Expected:` the same way.
+- Notices written into a stream, such as the settings created on first start
+  and the server's ready banner, have a blank line before and after them.
+  Foreground server logs print the time, the level (cyan for info, yellow
+  for warnings, red for errors) and the message.
+- Color is limited to text on a terminal and respects `NO_COLOR` and `TERM`.
+  Paths inside the current user's home show as `~/...` only on a terminal;
+  redirected output, such as a service's journal, keeps absolute paths. Text errors
 use an `Error [code]` heading with indented, wrapped details. Repeated diagnostic
 lines appear once; inspection commands and recovery guidance are highlighted
 when color is enabled. JSON and
@@ -148,11 +173,12 @@ JSONL errors contain `code`, `message`, and `exit_code`; underlying causes are
 not serialized because they may expose filesystem or upstream details.
 
 `version` prints only the program name and version, such as `sing-box-panel
-v1.2.3`. Release, prerelease, and Go module pseudo-versions are shown unchanged,
+v1.2.3`; the panel and the node of one release report the same version. Release, prerelease, and Go module pseudo-versions are shown unchanged,
 including a `+dirty` suffix when present. A build without a usable version
 number displays `sing-box-panel unknown`. Use `version --output=json` or
 `--output=jsonl` for the full, unchanged `version`, `commit`, and `date` metadata,
-including any original placeholder values.
+including any original placeholder values, and the `protocol` version of the
+panel-node protocol.
 
 Local `make build` uses Go's module and VCS metadata without injecting a build
 timestamp. A pseudo-version's timestamp identifies the source commit, not the
@@ -320,7 +346,7 @@ the data directory and the console password's Argon2id hash:
 generated console password, which they print once. `config` mirrors the
 panel's [settings commands](#panel-settings): `init [--force]`, `show`,
 `get FIELD`, `set FIELD VALUE`, `set FIELD --stdin`, `set --file FILE|-` and
-`verify`, with `--json` in place of `--output json`. `auth.password` is
+`verify`, with the same output formats. `auth.password` is
 write-only and saves only its hash; a new password applies at once and signs
 every console session out. Server and data directory changes apply when the
 node restarts.
@@ -365,20 +391,27 @@ belong to root or to the account running the node and be writable only by its
 owner (or sticky). Otherwise the node does not start, and its error names the
 directory and what is wrong with it.
 
-`system df` lists the settings file, every entry in the data directory with its
-size and the files of a service whose unit names these settings; `--json`
-returns the same report. `system prune` shows that list; `--yes` stops the
-node, uninstalls that service (`--keep-user` keeps the system account), then
+`system df` lists, in the panel's [file tree layout](#instance-files-and-cleanup),
+the executable, the settings file, every entry in the data directory with its
+size and the files of a service whose unit names these settings; its `Service`
+row says whether that service is installed, uses other settings or cannot be
+inspected. `--output json` returns the same report. `system prune` shows that
+tree as a preview; `--yes` stops the node, uninstalls that service (`--keep-user` keeps the system account), then
 deletes the settings file and the whole data directory. Roots, homes, shared
 system directories, linked data directories and one holding the running
 executable are refused; the executable is kept. This cannot be undone.
 
-`sing-box-node update` updates the node to the release of the panel it is
-enrolled with. It fetches the release from the panel with the node's
-enrollment, verifies it with the release key built into the binary (the
-signature, the binary's checksum, build identity and platform, and a version
-newer than its own), and replaces the binary, which needs write access to it,
-such as with `sudo` for `/usr/local/bin`. The running node keeps its version
+The panel and the node are released together under one version.
+`sing-box-node update` updates an enrolled node to the release of its panel, so
+both run that version: it fetches the release from the panel with the node's
+enrollment. A node that is not enrolled updates to the latest published stable
+release on GitHub instead, as `sing-box-panel update` does. Either way it
+verifies the release with the key built into the binary (the signature, the
+binary's checksum, build identity and platform, and a version newer than its
+own), and replaces the binary, which needs write access to it, such as with
+`sudo` for `/usr/local/bin`. Text output reports progress on stderr like the
+panel's update; `--output json` returns the result with its `source`, `panel`
+or `github`. The running node keeps its version
 until its service restarts; `--restart` restarts it at once, which restarts its
 core and briefly interrupts its proxy. The panel can also update an online node
 itself, from the node's settings or in a batch; see
@@ -394,7 +427,7 @@ system service's root update helper, which the helper unit runs; see
 
 `sing-box-node systemd` manages the node's own service, with the same commands
 and flags as the panel's (`--scope`, `--force`, `--now`, `--keep-user`,
-`--lines`, `--since`) and `--json` in place of `--output json`. The settings
+`--lines`, `--since`) and output. The settings
 file is the node's state, as for the panel: system scope uses
 `/etc/sing-box-node/setting.json` and `/var/lib/sing-box-node` with the
 dedicated `sing-box-node` account, and user scope the selected `--config`.
@@ -501,9 +534,11 @@ delete authority or influences initialization, migration or configuration choice
 Continue selecting custom instances with the same `--config` path. Reinstallation
 uses normal initialization rules rather than restoring historical configuration.
 
-Text output starts with aligned `Config` and `Executable` paths:
-the selected settings file (including a custom `-c` path) and the full path of
-the running binary reported by inspection. There is no Data summary row, whether
+Text output starts with the `Instance files` title, or `Cleanup preview — no
+changes` for the `prune` preview, and aligned `Config`, `Executable` and
+`Service` rows: the selected settings file (including a custom `-c` path), the
+full path of the running binary reported by inspection, and whether a service
+uses these settings. There is no Data summary row, whether
 the data directory exists, is missing, or cannot be determined. Existing data
 contents still appear in the tree, and JSON/JSONL retain the `data_dir` field.
 `Config` includes the filename and adds `(missing)` when the file is absent;
@@ -517,9 +552,11 @@ It shows no expected-but-missing data files
 and marks retained resources explicitly. Directories end in `/`; `empty` comes
 from actually reading the directory, never inferred from missing report children.
 Symlinks (including dangling links) show `link`. Link targets are never traversed.
+A file's labels end with its size; a reported directory's labels end with the
+total size of the files reported beneath it.
 A missing data directory has no tree entry or separate status message. Parent
 grouping nodes are structural, not separately inspected entries. Summary paths
-inside the current user's home may use `~`; similar prefixes remain unchanged.
+inside the current user's home use `~` on a terminal; similar prefixes remain unchanged.
 Tree paths retain their actual directory names beneath the filesystem root.
 
 Existing service files appear in the same tree, labeled with their resolved
@@ -528,8 +565,9 @@ files even when the unit is missing, matching enablement links, exact unit drop-
 contents and the existing system runtime directory. Related custom content is
 retained; inventory does not expand deletion authority.
 Missing service files are hidden; files not both managed and matched to the
-selected settings are labeled `outside scope`. Unsupported platforms say that
-systemd is unsupported, rather than implying no service is installed.
+selected settings are labeled `outside scope`. On unsupported platforms the
+`Service` row says that systemd is unsupported, rather than implying no service
+is installed.
 
 The tree uses color only for terminal text output: blue directories, dim tree
 branches, cyan links or retained results, green completed removals, and red
@@ -635,7 +673,10 @@ describes the file on disk, not the command line systemd will run until
 `daemon-reload` and a restart. `cli_settings_path` is the `--config` value of
 the current command, reported separately; `unit_file.matches_cli_settings`
 compares the two when both are known. `live_settings_state` is always
-`unknown`.
+`unknown`. `service.unit_outdated` is true when the managed unit file runs a
+command line this release does not write, as a unit an earlier release
+installed may; text output then warns and names `systemd install`, which
+rewrites it, and `systemd start` and `restart` refuse such a unit.
 
 `settings_file` (`source: "settings file on disk"`) reads the file at
 `unit_file.settings_path` as it exists now. `state: loaded` means its location

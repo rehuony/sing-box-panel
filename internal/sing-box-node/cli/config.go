@@ -10,29 +10,20 @@ import (
 	"io"
 	"os"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
 	"github.com/spf13/cobra"
 )
 
-func newConfigCommand(settingsPath *string) *cobra.Command {
-	var asJSON bool
-	root := &cobra.Command{
-		Use:   "config",
-		Short: "Initialize, read, edit or verify the node settings",
-		Long: "Manage the node settings file selected by --config: where the console listens, the data directory and the " +
-			"console password's hash. These commands open no database.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
-	}
-	root.PersistentFlags().BoolVar(&asJSON, "json", false, "print the result as JSON")
+func newConfigCommand(state *options) *cobra.Command {
+	root := cliui.Group("config", "Initialize, read, edit or verify the node settings")
+	root.Long = "Manage the node settings file selected by --config: where the console listens, the data directory and the " +
+		"console password's hash. These commands open no database."
+	settingsPath := &state.settingsPath
 	write := func(cmd *cobra.Command, value any, text string) error {
-		if asJSON {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(value)
-		}
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), text)
-		return err
+		return cliui.Write(cmd.OutOrStdout(), state.format, value, text)
 	}
 
 	var force bool
@@ -45,12 +36,13 @@ func newConfigCommand(settingsPath *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			value, err := settings.Initialize(cmd.Context(), *settingsPath, force)
 			if err != nil {
-				return errors.Join(err, writeInitialization(cmd.ErrOrStderr(), value))
+				return errors.Join(cliui.Fail(cliui.ErrorValidation, "settings_initialization_failed", err),
+					writeInitialization(cmd.ErrOrStderr(), state.format, value))
 			}
-			if asJSON {
+			if state.format != cliui.Text {
 				return write(cmd, map[string]any{"initialized": true, "settings_path": value.Path(), "console_password": value.InitialPassword}, "")
 			}
-			return writeInitialization(cmd.OutOrStdout(), value)
+			return writeInitialization(cmd.OutOrStdout(), state.format, value)
 		},
 	}
 	initialize.Flags().BoolVar(&force, "force", false, "replace an existing settings file and generate a new console password")
@@ -62,9 +54,9 @@ func newConfigCommand(settingsPath *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			data, err := settingsfile.Read(*settingsPath)
 			if err != nil {
-				return err
+				return cliui.Fail(cliui.ErrorValidation, "settings_read_failed", err)
 			}
-			if asJSON {
+			if state.format != cliui.Text {
 				return write(cmd, map[string]any{"settings_path": *settingsPath, "content": string(data)}, "")
 			}
 			_, err = cmd.OutOrStdout().Write(data)
@@ -81,7 +73,7 @@ func newConfigCommand(settingsPath *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			value, err := settings.GetField(cmd.Context(), *settingsPath, args[0])
 			if err != nil {
-				return err
+				return cliui.Fail(cliui.ErrorValidation, "settings_read_failed", err)
 			}
 			var compact bytes.Buffer
 			if err := json.Compact(&compact, value); err != nil {
@@ -120,16 +112,16 @@ func newConfigCommand(settingsPath *string) *cobra.Command {
 			} else if (stdin && len(args) == 1) || (!stdin && len(args) == 2) {
 				return nil
 			}
-			return errors.New("use set FIELD VALUE, set FIELD --stdin, or set --file FILE")
+			return &cliui.Error{Kind: cliui.ErrorUsage, Code: "settings_set_usage", Message: "use set FIELD VALUE, set FIELD --stdin, or set --file FILE"}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath != "" {
 				data, err := readInput(cmd.InOrStdin(), filePath)
 				if err != nil {
-					return err
+					return cliui.Fail(cliui.ErrorValidation, "settings_input_failed", err)
 				}
 				if err := settings.Replace(cmd.Context(), *settingsPath, data); err != nil {
-					return err
+					return cliui.Fail(cliui.ErrorValidation, "settings_save_failed", err)
 				}
 			} else {
 				value := ""
@@ -144,18 +136,18 @@ func newConfigCommand(settingsPath *string) *cobra.Command {
 					}
 					defer clear(data)
 					if err != nil {
-						return err
+						return cliui.Fail(cliui.ErrorValidation, "settings_input_failed", err)
 					}
 					value = string(data)
 				} else {
 					value = args[1]
 				}
 				if err := settings.SetField(cmd.Context(), *settingsPath, args[0], value); err != nil {
-					return err
+					return cliui.Fail(cliui.ErrorValidation, "settings_save_failed", err)
 				}
 			}
 			return write(cmd, map[string]any{"settings_path": *settingsPath, "saved": true},
-				fmt.Sprintf("Saved %s. Restart the node to apply server and data_dir changes.", *settingsPath))
+				fmt.Sprintf("Saved %s; restart the node to reload startup fields", *settingsPath))
 		},
 	}
 	set.Flags().StringVar(&filePath, "file", "", "replace the file with a complete settings document, or - for standard input")
@@ -167,9 +159,9 @@ func newConfigCommand(settingsPath *string) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, err := settings.Load(*settingsPath); err != nil {
-				return err
+				return cliui.Fail(cliui.ErrorValidation, "settings_invalid", err)
 			}
-			return write(cmd, map[string]any{"valid": true, "settings_path": *settingsPath}, "The node settings are valid.")
+			return write(cmd, map[string]any{"valid": true, "settings_path": *settingsPath}, "Node settings are valid")
 		},
 	}
 	root.AddCommand(initialize, show, get, set, verify)

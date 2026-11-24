@@ -601,7 +601,7 @@ jobs:
             --arg version "${RELEASE_VERSION}" \
             '.commit == $commit and .date == $date and .version == $version' \
             <<<"${runtime_metadata}" >/dev/null
-          node_metadata="$("${downloaded_dir}/sing-box-node-linux-amd64" version --json)"
+          node_metadata="$("${downloaded_dir}/sing-box-node-linux-amd64" --output json version)"
           jq -e \
             --arg commit "${SOURCE_SHA}" \
             --arg date "${source_date}" \

@@ -31,23 +31,28 @@ The installer chooses the component's layout from the effective user:
 - another user installs the binary under `~/.local/bin` and uses the current
   XDG configuration and data homes.
 
-The node has no settings file; its data directory holds its enrollment and
-console settings.
+The node's settings are at `/etc/sing-box-node/setting.json` for root and
+under the XDG configuration home otherwise; its data directory holds its
+enrollment.
 
 Installation only writes the binary. Settings and data are neither read nor
 validated nor initialized, so malformed leftovers do not block replacement. An
 existing binary requires interactive confirmation; use `--yes` for unattended
-replacement. Declining exits without download or replacement. `server start` initializes missing settings and storage later.
+replacement. Questions are answered on the line that asks them. Declining
+exits without download or replacement. `server start` initializes missing settings and storage later.
 `systemd install --now` also creates missing settings and service directories;
 there is no prerequisite `init` or foreground start. Formatted logs use color on a
-terminal unless `NO_COLOR` is set. The final summary lists installation and default
-settings/data paths; for the panel it adds Bash, Zsh and Fish completion
-commands, and for a node the enrollment and console commands. When the
-component's service was running, it says that the service still runs the
-previous binary. The installer does not
-modify shell profiles or configure, start, stop, or restart systemd; it prints
-the appropriate explicit `systemd install` and `systemd restart` commands after
-installation. Run its network-independent contract tests locally with:
+terminal unless `NO_COLOR` is set: one aligned level label per message (`ERROR`
+red, `WARN` and `CONFIRM` yellow, `INFO` cyan, `OK` green). curl runs silently,
+so no download progress of its own appears. The final summary aligns the binary
+and default settings and data paths like the binaries' own output, then lists
+the start command, for a node the enrollment command, the `systemd install`
+commands and the Bash, Fish and Zsh completion commands. When the component's
+service is installed, it says that the service still runs the previous binary
+and gives the `systemd install` command that refreshes its unit, which an
+earlier release may have written with other arguments, before `systemd restart`.
+The installer does not modify shell profiles or configure, start, stop, or
+restart systemd. Run its network-independent contract tests locally with:
 
 ```sh
 bash scripts/test/installer-test.sh

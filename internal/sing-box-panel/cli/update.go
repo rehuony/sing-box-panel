@@ -4,13 +4,12 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"path/filepath"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	panelSystemd "github.com/rehuony/sing-box-panel/internal/sing-box-panel/systemd"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
@@ -37,35 +36,32 @@ service, restoring the previous binary if the service does not stay active.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if applyStaged != (dataDir != "") {
-				return &Error{Kind: ErrorUsage, Code: "invalid_arguments", Message: "--apply-staged and --data-dir go together"}
+				return &cliui.Error{Kind: cliui.ErrorUsage, Code: "invalid_arguments", Message: "--apply-staged and --data-dir go together"}
 			}
 			if applyStaged {
 				return applyStagedRelease(cmd, state, build, dataDir)
 			}
 			if update == nil {
-				return &Error{Kind: ErrorUnavailable, Code: "update_unavailable", Message: "self-update is unavailable"}
+				return &cliui.Error{Kind: cliui.ErrorUnavailable, Code: "update_unavailable", Message: "self-update is unavailable"}
 			}
 			var report selfupdate.ProgressFunc
-			var progress *updateProgress
-			if state.format == outputText {
-				progress = newUpdateProgress(cmd.ErrOrStderr())
-				report = progress.report
+			var progress *cliui.Progress
+			if state.format == cliui.Text {
+				progress = cliui.NewProgress(cmd.ErrOrStderr())
+				report = progress.Report
 			}
 			result, err := update(cmd.Context(), build.Version, report)
 			if progress != nil {
-				progress.finish()
+				progress.Finish()
 			}
 			if err != nil {
-				return classifyUpdateError(err)
+				return cliui.UpdateError(err)
 			}
 			text := fmt.Sprintf("sing-box-panel %s is already up to date", result.PreviousVersion)
 			if result.Updated {
-				text = fmt.Sprintf(
-					"updated sing-box-panel from %s to %s at %s",
-					result.PreviousVersion, result.Version, result.ExecutablePath,
-				)
+				text = fmt.Sprintf("Updated sing-box-panel from %s to %s at %s", result.PreviousVersion, result.Version, result.ExecutablePath)
 			}
-			return writeResult(cmd.OutOrStdout(), state.format, result, text)
+			return cliui.Write(cmd.OutOrStdout(), state.format, result, text)
 		},
 	}
 	command.Flags().BoolVar(&applyStaged, "apply-staged", false, "install the release the system service staged (run by the root update helper)")
@@ -96,28 +92,11 @@ func applyStagedRelease(cmd *cobra.Command, state *options, build buildinfo.Info
 	})
 	switch {
 	case attempt == nil && err == nil:
-		return writeResult(cmd.OutOrStdout(), state.format, map[string]any{"applied": false}, "no update is staged")
+		return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{"applied": false}, "No update is staged")
 	case attempt != nil && attempt.Succeeded:
-		return writeResult(cmd.OutOrStdout(), state.format, attempt, "installed sing-box-panel "+attempt.Version+" and restarted "+panelSystemd.UnitName)
+		return cliui.Write(cmd.OutOrStdout(), state.format, attempt, "Installed sing-box-panel "+attempt.Version+" and restarted "+panelSystemd.UnitName)
 	case attempt != nil:
-		return &Error{Kind: ErrorDomain, Code: "update_" + attempt.Code, Message: "the staged update to " + attempt.Version + " failed: " + err.Error(), Cause: err}
+		return &cliui.Error{Kind: cliui.ErrorDomain, Code: "update_" + attempt.Code, Message: "the staged update to " + attempt.Version + " failed: " + err.Error(), Cause: err}
 	}
-	return classifyUpdateError(err)
-}
-
-func classifyUpdateError(err error) error {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return err
-	case errors.Is(err, fs.ErrPermission):
-		return &Error{Kind: ErrorPermission, Code: "update_permission_denied", Message: err.Error(), Cause: err}
-	case errors.Is(err, selfupdate.ErrUnsupportedPlatform), errors.Is(err, selfupdate.ErrInvalidVersion):
-		return &Error{Kind: ErrorUnavailable, Code: "update_unsupported", Message: err.Error(), Cause: err}
-	case errors.Is(err, selfupdate.ErrReleaseUnavailable), errors.Is(err, selfupdate.ErrAssetMissing):
-		return &Error{Kind: ErrorUnavailable, Code: "update_release_unavailable", Message: err.Error(), Cause: err}
-	case errors.Is(err, selfupdate.ErrVerificationKeyInvalid), errors.Is(err, selfupdate.ErrReleaseInvalid), errors.Is(err, selfupdate.ErrSignatureInvalid), errors.Is(err, selfupdate.ErrChecksumInvalid), errors.Is(err, selfupdate.ErrExecutableInvalid), errors.Is(err, selfupdate.ErrExecutableChanged), errors.Is(err, selfupdate.ErrStagedExecutableInvalid), errors.Is(err, selfupdate.ErrStagedFileInvalid), errors.Is(err, selfupdate.ErrVersionNotNewer):
-		return &Error{Kind: ErrorValidation, Code: "update_validation_failed", Message: err.Error(), Cause: err}
-	default:
-		return &Error{Kind: ErrorDomain, Code: "update_failed", Message: err.Error(), Cause: err}
-	}
+	return cliui.UpdateError(err)
 }

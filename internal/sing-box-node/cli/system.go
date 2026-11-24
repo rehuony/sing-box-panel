@@ -4,7 +4,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
@@ -40,33 +40,26 @@ type instanceReport struct {
 	Executable   string          `json:"executable"`
 	DataDir      string          `json:"data_dir"`
 	Service      *systemd.Status `json:"service,omitempty"`
+	// ServiceState is how the service was found: inspected (its unit names
+	// these settings), other_settings, unknown_settings (its unit file or a
+	// drop-in hides them), not_installed, unsupported or unavailable.
+	ServiceState string          `json:"service_state"`
 	Entries      []instanceEntry `json:"entries"`
 }
 
-func newSystemCommand(settingsPath *string, service systemdService) *cobra.Command {
-	var asJSON bool
-	root := &cobra.Command{
-		Use:   "system",
-		Short: "Inspect or remove this node's files",
-		Args:  cobra.NoArgs,
-		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
-	}
-	root.PersistentFlags().BoolVar(&asJSON, "json", false, "print the result as JSON")
-
+func newSystemCommand(state *options, service systemdService) *cobra.Command {
+	root := cliui.Group("system", "Inspect or remove this node's files")
 	df := &cobra.Command{
 		Use:   "df",
 		Short: "Show the settings, data and service files of the selected node and their sizes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			report, err := inspectInstance(cmd.Context(), *settingsPath, service)
+			report, err := inspectInstance(cmd.Context(), state.settingsPath, service)
 			if err != nil {
-				return err
+				return cliui.Fail(cliui.ErrorValidation, "instance_files_unavailable", err)
 			}
-			if asJSON {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
-			}
-			_, err = fmt.Fprint(cmd.OutOrStdout(), report.text())
-			return err
+			style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
+			return cliui.Write(cmd.OutOrStdout(), state.format, report, report.text(false, style))
 		},
 	}
 
@@ -79,32 +72,19 @@ func newSystemCommand(settingsPath *string, service systemdService) *cobra.Comma
 			"cores and logs. The executable is kept. This cannot be undone.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			report, err := inspectInstance(cmd.Context(), *settingsPath, service)
+			report, err := inspectInstance(cmd.Context(), state.settingsPath, service)
 			if err != nil {
-				return err
+				return cliui.Fail(cliui.ErrorValidation, "instance_files_unavailable", err)
 			}
+			style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
 			if !yes {
-				if asJSON {
-					return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
-				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\nPass --yes to stop the node and permanently delete its service, settings and data.\n", report.text())
-				return err
+				return cliui.Write(cmd.OutOrStdout(), state.format, report, report.text(true, style))
 			}
 			removed, err := pruneInstance(cmd.Context(), report, service, keepUser)
-			if asJSON {
-				if outputErr := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"removed": removed}); outputErr != nil {
-					return errors.Join(err, outputErr)
-				}
-			} else {
-				text := fmt.Sprintf("Removed %d paths:\n", len(removed))
-				for _, path := range removed {
-					text += "  " + path + "\n"
-				}
-				if _, outputErr := fmt.Fprint(cmd.OutOrStdout(), text); outputErr != nil {
-					return errors.Join(err, outputErr)
-				}
+			if outputErr := cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{"removed": removed}, pruneText(removed, err, style)); outputErr != nil {
+				return errors.Join(err, outputErr)
 			}
-			return err
+			return cliui.Fail(cliui.ErrorConflict, "instance_cleanup_failed", err)
 		},
 	}
 	prune.Flags().BoolVar(&yes, "yes", false, "stop the node and permanently delete its service, settings and data")
@@ -122,6 +102,9 @@ func inspectInstance(ctx context.Context, settingsPath string, service systemdSe
 	report := instanceReport{SettingsPath: path}
 	if executable, err := os.Executable(); err == nil {
 		report.Executable = executable
+		if entry, ok := inspectEntry(executable, "executable"); ok {
+			report.Entries = append(report.Entries, entry)
+		}
 	}
 	for _, file := range []struct{ path, role string }{{path, "settings"}, {path + ".lock", "settings lock"}} {
 		if entry, ok := inspectEntry(file.path, file.role); ok {
@@ -148,8 +131,21 @@ func inspectInstance(ctx context.Context, settingsPath string, service systemdSe
 			}
 		}
 	}
+	report.ServiceState = "unavailable"
 	if service != nil {
-		if status, err := service.Status(ctx, systemd.ScopeAuto); err == nil && status.UnitFileStatePath == path {
+		status, err := service.Status(ctx, systemd.ScopeAuto)
+		switch {
+		case errors.Is(err, systemd.ErrUnsupportedOS):
+			report.ServiceState = "unsupported"
+		case errors.Is(err, systemd.ErrNotInstalled):
+			report.ServiceState = "not_installed"
+		case err != nil:
+		case status.UnitFileStatePath == "":
+			report.ServiceState = "unknown_settings"
+		case status.UnitFileStatePath != path:
+			report.ServiceState = "other_settings"
+		default:
+			report.ServiceState = "inspected"
 			report.Service = &status
 			if files, err := service.Files(ctx, status.Scope); err == nil {
 				for _, file := range files.Files {
@@ -190,44 +186,76 @@ func inspectEntry(path, role string) (instanceEntry, bool) {
 	return entry, true
 }
 
-func (report instanceReport) text() string {
-	var output strings.Builder
-	fmt.Fprintf(&output, "Config      %s\n", report.SettingsPath)
-	fmt.Fprintf(&output, "Executable  %s (kept)\n", report.Executable)
+// text lists the selected node's files as a tree, or, for a preview of
+// prune, what prune would delete.
+func (report instanceReport) text(preview bool, style cliui.Style) string {
+	heading := style.Title("Instance files")
+	if preview {
+		heading = style.Warning("Cleanup preview — no changes")
+	}
+	service := map[string]string{
+		"other_settings": "installed for other settings", "unknown_settings": "installed; its settings are unknown (check drop-ins)",
+		"not_installed": "not installed",
+		"unsupported":   "unsupported on this platform", "unavailable": "inspection unavailable",
+	}[report.ServiceState]
 	if report.Service != nil {
-		fmt.Fprintf(&output, "Service     %s %s, %s\n", report.Service.Scope, report.Service.Unit, report.Service.ActiveState)
+		service = string(report.Service.Scope) + ", uses these settings, " + report.Service.ActiveState
 	}
-	if len(report.Entries) == 0 {
-		output.WriteString("\nNo files remain for these settings.\n")
-		return output.String()
-	}
-	output.WriteString("\n")
+	entries := make([]cliui.TreeEntry, 0, len(report.Entries))
+	removable := false
 	for _, entry := range report.Entries {
-		size := ""
-		if entry.State == "file" || entry.State == "directory" {
-			size = formatBytes(entry.Bytes)
+		var labels []string
+		switch entry.State {
+		case "link", "socket":
+			labels = append(labels, entry.State)
 		}
-		name := entry.Path
-		if entry.State == "directory" {
-			name += "/"
+		switch entry.Role {
+		case "executable":
+			labels = append(labels, "executable", "retained")
+		case "settings", "data directory":
+			labels = append(labels, map[string]string{"settings": "settings", "data directory": "data"}[entry.Role])
+		case "service":
+			labels = append(labels, "service", string(report.Service.Scope))
+			if entry.State == "enablement link" {
+				labels = append(labels, "enablement link")
+			}
 		}
-		fmt.Fprintf(&output, "  %-15s %9s  %s\n", entry.Role, size, name)
+		removable = removable || entry.Role != "executable"
+		entries = append(entries, cliui.TreeEntry{Path: entry.Path, Label: strings.Join(labels, ", "),
+			Directory: entry.State == "directory", Size: entry.Bytes, Sized: entry.State == "file" || entry.State == "directory"})
 	}
-	return output.String()
+	note := ""
+	switch {
+	case !removable:
+		note = "No files remain for these settings."
+	case preview:
+		note = style.Warning("Pass --yes to stop the node and permanently delete its service, settings and data.")
+	}
+	fields := cliui.Fields(
+		cliui.Field{Label: "Config", Value: style.Path(report.SettingsPath)},
+		cliui.Field{Label: "Executable", Value: style.Path(report.Executable)},
+		cliui.Field{Label: "Service", Value: service},
+	)
+	return cliui.Section(heading, fields, style.Tree(entries), note)
 }
 
-func formatBytes(bytes int64) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d B", bytes)
+// pruneText lists what prune removed, which is everything it confirmed even
+// when it failed.
+func pruneText(removed []string, err error, style cliui.Style) string {
+	heading := style.Success("Cleanup results")
+	if err != nil {
+		heading = style.Failure("Cleanup interrupted; confirmed results only")
 	}
-	value := float64(bytes)
-	for _, suffix := range []string{"KiB", "MiB", "GiB"} {
-		value /= 1024
-		if value < 1024 {
-			return fmt.Sprintf("%.1f %s", value, suffix)
-		}
+	entries := make([]cliui.TreeEntry, 0, len(removed))
+	for _, path := range removed {
+		entries = append(entries, cliui.TreeEntry{Path: path, Label: "removed"})
 	}
-	return fmt.Sprintf("%.1f TiB", value/1024)
+	note := ""
+	if err == nil && len(removed) == 0 {
+		note = "No files remain for these settings."
+	}
+	return cliui.Section(heading, cliui.Fields(cliui.Field{Label: "Files", Value: fmt.Sprintf("%d removed", len(removed))}),
+		style.Tree(entries), note)
 }
 
 // pruneInstance stops the node, uninstalls its service and deletes its

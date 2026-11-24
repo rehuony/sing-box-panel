@@ -3,7 +3,9 @@
 package systemd
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,15 +23,10 @@ func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDi
 	if template == nil {
 		return nil, fmt.Errorf("%w: %s has no %s unit", ErrInvalid, definition.Name, scope)
 	}
-	executable, err := quoteExecArgument(executablePath)
+	command, err := manager.execStart(executablePath, statePath)
 	if err != nil {
 		return nil, err
 	}
-	state, err := quoteExecArgument(statePath)
-	if err != nil {
-		return nil, err
-	}
-	command := executable + " " + definition.Arguments(state)
 	result, err := replaceDirective(template, "ExecStart=", "ExecStart="+command)
 	if err != nil {
 		return nil, err
@@ -74,6 +71,59 @@ func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDi
 		return bindTemporaryPaths(result, writable)
 	}
 	return result, nil
+}
+
+// execStart is the command line the unit runs: executable with the state at
+// statePath.
+func (manager *Manager[T]) execStart(executablePath, statePath string) (string, error) {
+	executable, err := quoteExecArgument(executablePath)
+	if err != nil {
+		return "", err
+	}
+	state, err := quoteExecArgument(statePath)
+	if err != nil {
+		return "", err
+	}
+	return executable + " " + manager.definition.Arguments(state), nil
+}
+
+// unitOutdated reports whether the managed unit in scope runs a command
+// line this release does not write for the same executable and state, as
+// a unit installed by an earlier release with other arguments does: the
+// executable it starts may not accept them. A missing or foreign unit, or
+// one whose command line cannot be read, is not reported.
+func (manager *Manager[T]) unitOutdated(scope Scope) bool {
+	unit, err := os.ReadFile(manager.unitPath(scope))
+	if err != nil || !bytes.Contains(unit, []byte(manager.managedMark())) {
+		return false
+	}
+	command, ok := effectiveExecStart(string(unit))
+	if !ok {
+		return false
+	}
+	words, ok := splitExecLine(command)
+	if !ok || len(words) == 0 {
+		return false
+	}
+	executable, ok := resolveExecWord(words[0])
+	if !ok || !filepath.IsAbs(executable) {
+		return false
+	}
+	statePath, ok := manager.parseUnitFileStatePath(unit)
+	if !ok {
+		return true
+	}
+	expected, err := manager.execStart(executable, statePath)
+	return err == nil && expected != command
+}
+
+// refreshCommand is how an operator rewrites the unit in scope with the
+// installed release.
+func (manager *Manager[T]) refreshCommand(scope Scope) string {
+	if scope == ScopeSystem {
+		return "sudo " + manager.definition.Name + " systemd install --scope=system"
+	}
+	return manager.definition.Name + " systemd install --scope=user"
 }
 
 // RenderCompanion returns a companion unit of a system installation that

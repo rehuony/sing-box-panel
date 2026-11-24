@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
-	"github.com/rehuony/sing-box-panel/internal/console"
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -69,7 +69,7 @@ func TestServerStopsWithOpenLogStream(t *testing.T) {
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(console.WithOutput(t.Context(), io.Discard, false))
+	ctx, cancel := context.WithCancel(cliui.WithConsole(t.Context(), io.Discard, false))
 	done := make(chan struct{})
 	var runErr error
 	go func() {

@@ -172,7 +172,10 @@ type managedFile struct {
 	data []byte
 }
 
-func preflightInstall(files []managedFile, force bool) error {
+// preflightInstall refuses destinations that differ from files unless force
+// is set or, with mark, the destination carries mark: a file the installer
+// wrote, possibly for another release, is replaced by a new installation.
+func preflightInstall(files []managedFile, force bool, mark string) error {
 	for _, file := range files {
 		info, err := os.Lstat(file.path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -188,7 +191,7 @@ func preflightInstall(files []managedFile, force bool) error {
 		if err != nil {
 			return fmt.Errorf("read managed destination %q: %w", file.path, err)
 		}
-		if !bytes.Equal(existing, file.data) && !force {
+		if !bytes.Equal(existing, file.data) && !force && (mark == "" || !bytes.Contains(existing, []byte(mark))) {
 			return fmt.Errorf("%w: %q; pass --force to replace it", ErrConflict, file.path)
 		}
 	}

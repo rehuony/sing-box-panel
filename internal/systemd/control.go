@@ -41,8 +41,12 @@ func (status Status) ValidateStatePath(expected, label string) error {
 // companion units.
 func (manager *Manager[T]) Status(ctx context.Context, requested Scope) (Status, error) {
 	status, err := manager.unitStatus(ctx, requested)
-	if err != nil || status.Scope != ScopeSystem {
+	if err != nil {
 		return status, err
+	}
+	status.UnitOutdated = status.UnitPath == manager.unitPath(status.Scope) && manager.unitOutdated(status.Scope)
+	if status.Scope != ScopeSystem {
+		return status, nil
 	}
 	for _, companion := range manager.definition.Companions {
 		state, err := manager.companionStatus(ctx, companion.Name)
@@ -219,6 +223,12 @@ func (manager *Manager[T]) Control(ctx context.Context, requested Scope, action 
 	case ActionStart, ActionStop, ActionRestart:
 	default:
 		return ControlResult[T]{}, fmt.Errorf("%w: unsupported control action %q", ErrInvalid, action)
+	}
+	// A unit an earlier release wrote may start this executable with
+	// arguments it no longer accepts, and systemd would restart it in a loop.
+	if action != ActionStop && manager.unitOutdated(scope) {
+		return ControlResult[T]{}, fmt.Errorf("%w: %s was written by another release and its command line does not match this one\nNext: %s",
+			ErrConflict, manager.unitPath(scope), manager.refreshCommand(scope))
 	}
 	if err := manager.prepareDataMove(ctx, scope, action); err != nil {
 		return ControlResult[T]{}, err

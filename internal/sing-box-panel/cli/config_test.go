@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
@@ -102,7 +103,7 @@ func TestPanelConfigFileOperationsDoNotOpenStorage(t *testing.T) {
 				if err != nil {
 					t.Fatalf("verify probed storage: %v", err)
 				}
-				if format == "text" && out != "panel settings are valid\n" || format != "text" && !strings.Contains(out, `"valid":true`) {
+				if format == "text" && out != "Panel settings are valid\n" || format != "text" && !strings.Contains(out, `"valid":true`) {
 					t.Fatal(out)
 				}
 				shown, err := runPanelConfig(t, t.Context(), path, nil, "show")
@@ -136,7 +137,7 @@ func TestPanelConfigSetValidatesBeforeReplacing(t *testing.T) {
 	}
 	for _, invalid := range []string{"{", "{}", "null", string(original) + "{}", strings.Replace(string(original), `"port":3000`, `"port":0`, 1), strings.Replace(string(original), `"port":3000`, `"port":3000,"port":3001`, 1), strings.Replace(string(original), `"port":3000`, `"port":3000,"unknown":true`, 1), strings.Repeat(" ", settings.MaximumBytes+1)} {
 		out, err := runPanelConfig(t, t.Context(), path, strings.NewReader(invalid), "set", "--file", "-")
-		if ExitCode(err) != 3 || out != "" {
+		if cliui.ExitCode(err) != 3 || out != "" {
 			t.Fatalf("invalid set: output=%q, error=%v", out, err)
 		}
 		after, err := os.ReadFile(path)
@@ -171,11 +172,11 @@ func TestPanelConfigSetValidatesBeforeReplacing(t *testing.T) {
 func TestPanelConfigReadErrorsAndSetUsage(t *testing.T) {
 	for name, path := range unavailableSettingsFixtures(t) {
 		if name != "malformed" && name != "invalid" {
-			if out, err := runPanelConfig(t, t.Context(), path, nil, "show"); ExitCode(err) != 3 || out != "" {
+			if out, err := runPanelConfig(t, t.Context(), path, nil, "show"); cliui.ExitCode(err) != 3 || out != "" {
 				t.Fatalf("%s show = %q, %v", name, out, err)
 			}
 		}
-		if out, err := runPanelConfig(t, t.Context(), path, nil, "verify"); ExitCode(err) != 3 || out != "" {
+		if out, err := runPanelConfig(t, t.Context(), path, nil, "verify"); cliui.ExitCode(err) != 3 || out != "" {
 			t.Fatalf("%s verify = %q, %v", name, out, err)
 		}
 	}
@@ -187,11 +188,11 @@ func TestPanelConfigReadErrorsAndSetUsage(t *testing.T) {
 		{"set", "server.port", "--file=-"}, {"set", "server.port", "9090", "--file=-"},
 		{"verify", "--core=x"}, {"set", "--revision=0"},
 	} {
-		if out, err := runPanelConfig(t, t.Context(), path, nil, args...); ExitCode(err) != 2 || out != "" {
+		if out, err := runPanelConfig(t, t.Context(), path, nil, args...); cliui.ExitCode(err) != 2 || out != "" {
 			t.Fatalf("usage %v = %q, %v", args, out, err)
 		}
 	}
-	if out, err := runPanelConfig(t, t.Context(), path, nil, "set", "--file", path+".missing"); ExitCode(err) != 3 || out != "" {
+	if out, err := runPanelConfig(t, t.Context(), path, nil, "set", "--file", path+".missing"); cliui.ExitCode(err) != 3 || out != "" {
 		t.Fatalf("missing input = %q, %v", out, err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -271,7 +272,7 @@ func TestPanelConfigSetField(t *testing.T) {
 				{"set", "server.port", ""}, {"set", "auth.password", ""},
 			} {
 				out, err := runPanelConfig(t, t.Context(), path, nil, append(args, "-o", format)...)
-				if ExitCode(err) != 3 || out != "" || strings.Contains(err.Error(), "secret") {
+				if cliui.ExitCode(err) != 3 || out != "" || strings.Contains(err.Error(), "secret") {
 					t.Fatalf("invalid field edit leaked input or succeeded: %q, %v", out, err)
 				}
 				data, readErr := os.ReadFile(path)
@@ -331,7 +332,7 @@ func TestPanelConfigGetField(t *testing.T) {
 		{[]string{"get", "unknown"}, 3}, {[]string{"get", "panel.language"}, 3},
 		{[]string{"get", "auth.password"}, 3},
 	} {
-		if out, err := runPanelConfig(t, t.Context(), path, nil, tc.args...); ExitCode(err) != tc.code || out != "" {
+		if out, err := runPanelConfig(t, t.Context(), path, nil, tc.args...); cliui.ExitCode(err) != tc.code || out != "" {
 			t.Fatalf("invalid get %v: %q, %v", tc.args, out, err)
 		}
 	}
@@ -422,7 +423,7 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 				t.Fatal("config init created storage", err)
 			}
 			before, _ := os.ReadFile(path)
-			if out, err := runPanelConfig(t, t.Context(), path, nil, "init"); ExitCode(err) != 3 || out != "" {
+			if out, err := runPanelConfig(t, t.Context(), path, nil, "init"); cliui.ExitCode(err) != 3 || out != "" {
 				t.Fatal("init did not preserve the existing file", err)
 			}
 			after, _ := os.ReadFile(path)
@@ -469,10 +470,10 @@ func TestPanelConfigRejectsRemovedFieldsAndForceInitDoesNotRegenerateThem(t *tes
 			section[tc.field] = json.RawMessage(tc.value)
 			root[tc.section], _ = json.Marshal(section)
 			legacy, _ := json.Marshal(root)
-			if _, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(legacy), "set", "--file=-"); ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
+			if _, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(legacy), "set", "--file=-"); cliui.ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
 				t.Fatalf("removed field accepted by set: %v", err)
 			}
-			if _, err := runPanelConfig(t, t.Context(), path, nil, "set", tc.section+"."+tc.field, tc.value); ExitCode(err) != 3 {
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "set", tc.section+"."+tc.field, tc.value); cliui.ExitCode(err) != 3 {
 				t.Fatalf("removed field accepted by field set: %v", err)
 			}
 			after, _ := settings.Read(path)
@@ -482,7 +483,7 @@ func TestPanelConfigRejectsRemovedFieldsAndForceInitDoesNotRegenerateThem(t *tes
 			if err := os.WriteFile(path, legacy, 0600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := runPanelConfig(t, t.Context(), path, nil, "verify"); ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
+			if _, err := runPanelConfig(t, t.Context(), path, nil, "verify"); cliui.ExitCode(err) != 3 || !strings.Contains(err.Error(), "unknown field") {
 				t.Fatalf("removed field accepted by verify: %v", err)
 			}
 			if _, err := runPanelConfig(t, t.Context(), path, nil, "init", "--force"); err != nil {

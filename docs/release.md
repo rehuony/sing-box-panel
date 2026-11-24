@@ -283,9 +283,10 @@ For every release:
 4. Open the generated Draft Release and review its version, target commit,
    generated notes, and six assets.
 5. Publish the draft once. Only a published, non-prerelease GitHub Release is
-   visible to `sing-box-panel update` and the panel's update check. Nodes
-   never read GitHub: each panel serves them the node binaries of its own
-   release.
+   visible to `sing-box-panel update`, the panel's update check and
+   `sing-box-node update` on a node without a panel. One release carries both
+   binaries under one version: an enrolled node never reads GitHub, and its
+   panel serves it the node binary of the panel's own release.
 
 Exercise the formal build, version rejection, and output-cleanup behavior
 locally with:
