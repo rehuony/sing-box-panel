@@ -17,7 +17,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -189,14 +188,15 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
-	// Node sessions share the Web listener; see fleet.SplitListener.
-	webListener, nodeListeners := fleet.SplitListener(listener)
-	fleetContext, stopFleet := context.WithCancel(ctx)
-	fleetResult := make(chan error, 1)
-	go func() { fleetResult <- services.Fleet.Serve(fleetContext, nodeListeners) }()
+	// The node endpoints sit beside the Web application under its base path.
+	if err := services.Fleet.Open(ctx); err != nil {
+		_ = listener.Close()
+		return startupError(ctx, "open node endpoints", err)
+	}
 	defer func() {
-		stopFleet()
-		runErr = errors.Join(runErr, <-fleetResult)
+		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		services.Fleet.Shutdown(shutdownContext)
 	}()
 	sweepContext, stopSweep := context.WithCancel(ctx)
 	sweepDone := startArtifactCacheSweep(sweepContext, services.Fleet, records)
@@ -220,7 +220,7 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 	})
 	serveResult := make(chan error, 1)
 	go func() {
-		serveResult <- httpServer.Serve(webListener)
+		serveResult <- httpServer.Serve(listener)
 	}()
 	control.Ready(listener.Addr().String())
 	panelURL := "http://" + listener.Addr().String() + configuration.Server.BasePath + "/"
@@ -241,16 +241,6 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 			return nil
 		}
 		return fmt.Errorf("serve panel HTTP server: %w", err)
-	case err := <-fleetResult:
-		// Report the node service failure once; the deferred wait must not
-		// block on a result that was already received.
-		fleetResult <- nil
-		cancel()
-		stopErr := stopHTTPServer(httpServer, serveResult)
-		if err == nil {
-			return stopErr
-		}
-		return errors.Join(fmt.Errorf("serve node connections: %w", err), stopErr)
 	case <-ctx.Done():
 		return stopHTTPServer(httpServer, serveResult)
 	}

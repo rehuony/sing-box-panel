@@ -474,8 +474,8 @@ func fleetProblem(err error) problemDetails {
 		return problemDetails{http.StatusPreconditionFailed, "node_settings_conflict", "Node settings changed", "Reload the node's settings before saving."}
 	case errors.Is(err, store.ErrNodeSettingsInvalid):
 		return problemDetails{http.StatusUnprocessableEntity, "node_settings_invalid", "Node settings invalid", err.Error()}
-	case errors.Is(err, fleet.ErrEndpointRequired):
-		return problemDetails{http.StatusConflict, "node_endpoint_required", "Node endpoint required", err.Error()}
+	case errors.Is(err, fleet.ErrNodeURLRequired):
+		return problemDetails{http.StatusConflict, "node_url_required", "Node URL required", err.Error()}
 	default:
 		return problemDetails{http.StatusInternalServerError, "node_operation_failed", "Node operation failed", "The node operation could not be completed."}
 	}

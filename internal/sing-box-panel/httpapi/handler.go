@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/webauth"
@@ -107,6 +108,8 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 		return
 	}
 	switch {
+	case strings.HasPrefix(path, nodeapi.PathPrefix+"/"):
+		handler.services.Fleet.ServeNode(w, request, path)
 	case strings.HasPrefix(path, "/api/v1/"):
 		handler.serveOperation(w, request, strings.TrimPrefix(path, "/api/v1"))
 	case path == "/sub" || strings.HasPrefix(path, "/sub/"):

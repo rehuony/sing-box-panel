@@ -204,35 +204,32 @@ func updateFailure(err error) nodeapi.ResultOutcome {
 	return problem("update_"+selfupdate.FailureCode(err), err.Error())
 }
 
-// FetchRelease receives the panel's node release over FetchRelease with the
-// node's enrollment into dir: the binary for this platform, the release's
-// checksum manifest and its signature. want, when set, is the version the
-// panel must send. It returns the release's version; the caller verifies
-// the files with its own key.
+// FetchRelease receives the panel's node release from its release endpoint
+// with the node's enrollment into dir: the binary for this platform, the
+// release's checksum manifest and its signature. want, when set, is the
+// version the panel must send. It returns the release's version; the caller
+// verifies the files with its own key.
 func FetchRelease(ctx context.Context, enrollment settings.Enrollment, build buildinfo.Info, want, dir string) (string, error) {
-	connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
+	client, err := nodeapi.NewClient(enrollment.URL)
 	if err != nil {
 		return "", err
 	}
-	defer connection.Close()
-	return fetchRelease(ctx, nodeapi.NewNodeServiceClient(connection), enrollment, build, want, dir)
+	defer client.Close()
+	return fetchRelease(ctx, client, enrollment, build, want, dir)
 }
 
-func fetchRelease(ctx context.Context, client nodeapi.NodeServiceClient, enrollment settings.Enrollment, build buildinfo.Info, want, dir string) (string, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+func fetchRelease(ctx context.Context, client *nodeapi.Client, enrollment settings.Enrollment, build buildinfo.Info, want, dir string) (string, error) {
 	stream, err := client.FetchRelease(ctx)
 	if err != nil {
 		return "", releaseUnavailable(err)
 	}
-	handshake := time.AfterFunc(handshakeTimeout, cancel)
-	defer handshake.Stop()
+	defer stream.Close(nil)
 	if err := stream.Send(&nodeapi.FetchReleaseRequest{Frame: &nodeapi.FetchReleaseRequest_Hello{Hello: &nodeapi.Hello{
 		NodeId: enrollment.NodeID, Protocol: protocol(), BuildVersion: build.Version, Platform: platform(),
 	}}}); err != nil {
 		return "", releaseUnavailable(err)
 	}
-	frame, err := stream.Recv()
+	frame, err := stream.RecvWithin(handshakeTimeout)
 	if err != nil {
 		return "", releaseUnavailable(err)
 	}
@@ -245,11 +242,10 @@ func fetchRelease(ctx context.Context, client nodeapi.NodeServiceClient, enrollm
 	}}); err != nil {
 		return "", releaseUnavailable(err)
 	}
-	frame, err = stream.Recv()
+	frame, err = stream.RecvWithin(handshakeTimeout)
 	if err != nil {
 		return "", releaseUnavailable(err)
 	}
-	handshake.Stop()
 	header := frame.GetHeader()
 	digest, digestErr := hex.DecodeString(header.GetSha256())
 	switch {
@@ -274,7 +270,7 @@ func fetchRelease(ctx context.Context, client nodeapi.NodeServiceClient, enrollm
 	hash := sha256.New()
 	var written int64
 	for {
-		frame, err := stream.Recv()
+		frame, err := stream.RecvWithin(transferIdleTimeout)
 		if errors.Is(err, io.EOF) {
 			break
 		}

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package sbp.node.v1 is the contract between the panel and its nodes. Nodes
-// dial out to the panel; the panel never connects to a node. Hello carries the
+// dial out to the panel; the panel never connects to a node. The messages
+// travel as WebSocket frames on the endpoints that internal/nodeapi names,
+// under the panel's base path beside its Web application. Hello carries the
 // node's minor protocol version so the panel can reject commands an older node
-// lacks. Minor version 1 adds FetchRelease, UpdateNode and
+// lacks. Minor version 1 adds the release endpoint, UpdateNode and
 // StateReport.last_update; minor version 2 adds GetCoreSchema.
 syntax = "proto3";
 
@@ -13,27 +15,6 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/rehuony/sing-box-panel/internal/nodeapi";
-
-// NodeService is served by the panel on its Web port, under its base path:
-// with base path /panel, nodes call /panel/sbp.node.v1.NodeService/Connect.
-service NodeService {
-  // Enroll exchanges a one-time enrollment token and the node's public key
-  // for a node identity.
-  rpc Enroll(EnrollRequest) returns (EnrollResponse);
-  // Connect is the control session. The node sends Hello and Proof, the
-  // panel sends Challenge and Welcome, and only then do commands, results and
-  // events flow. A new authenticated session for a node replaces the old one.
-  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
-  // FetchArtifact streams one cached core artifact, authorized by a grant
-  // issued in the node's current session.
-  rpc FetchArtifact(FetchArtifactRequest) returns (stream FetchArtifactResponse);
-  // FetchRelease streams the panel's node release for the node's platform.
-  // It has its own signed handshake, apart from Connect, so a running node
-  // and the node's update command can both use it: the node sends Hello and
-  // Proof, the panel sends Challenge, then ReleaseHeader and the binary in
-  // chunks. Since minor version 1.
-  rpc FetchRelease(stream FetchReleaseRequest) returns (stream FetchReleaseResponse);
-}
 
 // ProtocolVersion identifies this contract. The panel accepts nodes with the
 // same major version.
@@ -251,7 +232,8 @@ message GetRuntimeStatus {}
 
 message InstallCore {
   ArtifactIdentity artifact = 1;
-  // A short-lived grant that authorizes FetchArtifact for this artifact.
+  // A short-lived grant that authorizes fetching this artifact from the
+  // artifact endpoint.
   string fetch_grant = 2;
   int64 size = 3;
 }
@@ -312,8 +294,9 @@ message ClearCoreLog {
 }
 
 // UpdateNode updates the node to the panel's release of version. The node
-// fetches it with FetchRelease, verifies it with the release key embedded in
-// its own binary, and installs it or stages it for its root update helper.
+// fetches it from the release endpoint, verifies it with the release key
+// embedded in its own binary, and installs it or stages it for its root
+// update helper.
 message UpdateNode {
   string version = 1;
 }
@@ -621,8 +604,8 @@ message FetchArtifactResponse {
   bytes data = 3;
 }
 
-// FetchReleaseRequest is one node-to-panel frame of FetchRelease: Hello,
-// whose node ID, protocol and platform the panel uses, then Proof.
+// FetchReleaseRequest is one node-to-panel frame of the release endpoint:
+// Hello, whose node ID, protocol and platform the panel uses, then Proof.
 message FetchReleaseRequest {
   oneof frame {
     Hello hello = 1;
@@ -630,7 +613,7 @@ message FetchReleaseRequest {
   }
 }
 
-// FetchReleaseResponse is one panel-to-node frame of FetchRelease:
+// FetchReleaseResponse is one panel-to-node frame of the release endpoint:
 // Challenge, then ReleaseHeader, then the binary in chunks.
 message FetchReleaseResponse {
   oneof frame {

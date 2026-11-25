@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
@@ -34,7 +33,7 @@ func enrolledRawNode(t *testing.T, served testFleet, name string, minor uint32, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true), minor: minor, build: build}
+	node := &rawNode{client: dialRaw(t, served.url), minor: minor, build: build}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +89,12 @@ func TestFetchReleaseNeedsItsOwnProof(t *testing.T) {
 	_, _, err := node.fetchRelease(t, func(panelID string, nonce []byte) *nodeapi.Proof {
 		return nodeapi.SignProof(node.key, panelID, node.id, nonce)
 	})
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 	other := enrolledRawNode(t, served, "other", 1, "v1.0.0")
 	_, _, err = node.fetchRelease(t, func(panelID string, nonce []byte) *nodeapi.Proof {
 		return nodeapi.SignReleaseProof(other.key, panelID, node.id, nonce)
 	})
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 
 	header, received, err := node.fetchRelease(t, func(panelID string, nonce []byte) *nodeapi.Proof {
 		return nodeapi.SignReleaseProof(node.key, panelID, node.id, nonce)
@@ -159,7 +158,7 @@ func TestUpdateNeedsTheProtocolMinorThatHasIt(t *testing.T) {
 	}
 }
 
-func answerCommand(t *testing.T, stream nodeapi.NodeService_ConnectClient, requestID string, outcome nodeapi.ResultOutcome) {
+func answerCommand(t *testing.T, stream *nodeapi.ConnectClient, requestID string, outcome nodeapi.ResultOutcome) {
 	t.Helper()
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: &nodeapi.Result{
 		RequestId: requestID, Outcome: outcome,
@@ -171,7 +170,7 @@ func answerCommand(t *testing.T, stream nodeapi.NodeService_ConnectClient, reque
 func TestBatchUpdateRunsOneNodeAtATimeAndStopsAtAFailure(t *testing.T) {
 	served := startFleetWith(t, fleetSetup{version: "v1.1.0", release: map[string][]byte{}})
 	var nodes []*rawNode
-	var streams []nodeapi.NodeService_ConnectClient
+	var streams []*nodeapi.ConnectClient
 	for _, name := range []string{"first", "second", "third"} {
 		node := enrolledRawNode(t, served, name, 1, "v1.0.0")
 		stream, err := node.connect(t, node.key)
@@ -196,7 +195,7 @@ func TestBatchUpdateRunsOneNodeAtATimeAndStopsAtAFailure(t *testing.T) {
 		answerCommand(t, streams[0], frame.GetCommand().GetRequestId(), &nodeapi.Result_Update{Update: &nodeapi.UpdateOutcome{
 			State: nodeapi.UpdateState_UPDATE_STATE_RESTARTING, Version: "v1.1.0",
 		}})
-		_ = streams[0].CloseSend()
+		_ = streams[0].Close(nil)
 		time.Sleep(200 * time.Millisecond)
 		nodes[0].build = "v1.1.0"
 		if _, err := nodes[0].connect(t, nodes[0].key); err != nil {
@@ -266,7 +265,7 @@ func TestRetriedUpdateIsNotBlamedForTheLastFailure(t *testing.T) {
 		t.Fatalf("the update ended with %v before the node came back", err)
 	case <-time.After(1500 * time.Millisecond):
 	}
-	_ = stream.CloseSend()
+	_ = stream.Close(nil)
 	node.build = "v1.1.0"
 	if _, err := node.connect(t, node.key); err != nil {
 		t.Fatal(err)
@@ -292,7 +291,7 @@ func TestBatchUpdateWaitsForANodeThatRestartedBeforeAnswering(t *testing.T) {
 	if frame, err := stream.Recv(); err != nil || frame.GetCommand().GetUpdateNode() == nil {
 		t.Fatalf("expected an update command, got %v, %v", frame, err)
 	}
-	_ = stream.CloseSend()
+	_ = stream.Close(nil)
 	waitState(t, served.service, node.id, fleet.StateOffline)
 	node.build = "v1.1.0"
 	if _, err := node.connect(t, node.key); err != nil {

@@ -27,7 +27,7 @@ not need Go, Node.js, pnpm, or a separate SQLite CLI.
 
 ## Features
 
-- Manage a fleet from one panel: nodes dial out to the panel over gRPC, enroll
+- Manage a fleet from one panel: nodes dial out to the panel over WebSocket, enroll
   with a one-time code and a node-generated Ed25519 key, and keep running their
   applied configuration while the panel is unreachable.
 - Manage official and administrator-imported sing-box artifacts by exact
@@ -72,15 +72,15 @@ It does not read, initialize, migrate, or rewrite settings or data.
 Install the panel for the current user, or a node as root:
 
 ```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash -s -- --component node
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash -s -- --component node
 ```
 
 Pin an exact published release, including a pre-release, when reproducibility
 matters:
 
 ```sh
-curl https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel --version v0.1.0
 ```
 
 The default layouts are:

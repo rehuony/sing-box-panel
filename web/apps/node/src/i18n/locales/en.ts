@@ -119,7 +119,6 @@ export const en = {
       publicIp: 'public IP',
       total: 'total',
       traffic: 'traffic',
-      trust: 'trust',
     },
     since: '{{state}} for {{duration}}',
     stale: 'stale',
@@ -142,10 +141,6 @@ export const en = {
       protocol: 'protocol {{protocol}}',
       retrying: 'retrying',
       retryIn: 'retry in {{duration}}',
-      trust: {
-        pin: 'pinned certificate',
-        system: 'system CAs',
-      },
       upload: 'Upload',
       uptime: 'up {{duration}}',
     },

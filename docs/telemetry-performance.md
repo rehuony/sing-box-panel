@@ -87,33 +87,35 @@ SBP_FLEET_SCALE=200,500 go test ./internal/sing-box-panel/fleet/ \
 ```
 
 `TestFleetAtScale` is opt-in. It serves the fleet on a loopback listener and
-connects simulated nodes over TLS, each on its own connection, through the real
-enrollment, handshake and session code. Every node reports a running core,
-then sends 30 metrics samples with traffic counters, one a second of wall time
-and ten seconds apart in sample time, so every sample is stored, and a state
-report every tenth sample. Every node changes in every two-second snapshot. One
-client follows the shared snapshot the way `/fleet/stream` does. The test
-fails if a node's period does not hold the traffic of every sample after its
-first, or if a warm snapshot costs as much as reading one node row per node,
-which any per-node query would. Single runs on Apple M5 (macOS arm64) and in a
-Linux arm64 container on the same machine (10 cores, Go 1.26.10):
+connects simulated nodes over WebSocket, each on its own connection, through
+the real enrollment, handshake and session code. Every node reports a running
+core, then sends 30 metrics samples with traffic counters, one a second of wall
+time and ten seconds apart in sample time, and a state report every tenth
+sample. The panel's clock starts mid-month and runs ten times faster than wall
+time, as fast as the sample time, so the panel takes every sample as live and
+stores it. Every node changes in every two-second snapshot. One client follows
+the shared snapshot the way `/fleet/stream` does. The test fails if a node's
+period does not hold the traffic of every sample after its first, or if a warm
+snapshot costs as much as reading one node row per node, which any per-node
+query would. Single runs on Apple M5 (macOS arm64, Go 1.27.4) and in a Linux
+arm64 container on the same machine (Go 1.26.10), with 10 cores:
 
 | Measure | 200 nodes, macOS | 200 nodes, Linux | 500 nodes, macOS | 500 nodes, Linux |
 | --- | ---: | ---: | ---: | ---: |
-| Enroll and connect every node | 0.62 s | 1.57 s | 1.54 s | 2.48 s |
-| First snapshot, the ledger loading each node | 9.6 ms | 17.3 ms | 14.0 ms | 30.8 ms |
-| Warm snapshot | 1.44 ms | 5.11 ms | 9.81 ms | 10.09 ms |
-| One node row read per node, for comparison | 4.87 ms | 14.23 ms | 24.23 ms | 32.82 ms |
-| First stream frame | 306 KB | 247 KB | 807 KB | 811 KB |
-| Later frames, every node changed | 326 KB every 2 s | 330 KB every 2 s | 817 KB every 2 s | 826 KB every 2 s |
+| Enroll and connect every node | 0.33 s | 1.88 s | 0.84 s | 3.65 s |
+| First snapshot, the ledger loading each node | 13.8 ms | 19.4 ms | 29.2 ms | 37.8 ms |
+| Warm snapshot | 3.07 ms | 7.21 ms | 6.73 ms | 13.33 ms |
+| One node row read per node, for comparison | 11.44 ms | 14.31 ms | 23.56 ms | 26.68 ms |
+| First stream frame | 228 KB | 229 KB | 570 KB | 572 KB |
+| Later frames, every node changed | 334 KB every 2 s | 334 KB every 2 s | 835 KB every 2 s | 837 KB every 2 s |
 | Samples stored | 200 a second | 200 a second | 500 a second | 500 a second |
 | Samples lost | none | none | none | none |
-| Heap, panel and simulated nodes | 29.8 MiB | 31.7 MiB | 75.7 MiB | 73.8 MiB |
+| Heap, panel and simulated nodes | 12.1 MiB | 12.1 MiB | 24.9 MiB | 23.7 MiB |
 
-A node's item is 1.2–1.6 KB. The later frames carry every node because the
+A node's item is 1.1–1.7 KB. The later frames carry every node because the
 accelerated nodes sample faster than the snapshot refreshes; at the ten-second
 baseline a frame carries about a fifth of the online nodes, so a 500-node fleet
-streams about 160 KB every two seconds to each viewer. The heap figure includes
+streams about 170 KB every two seconds to each viewer. The heap figure includes
 the simulated nodes' own connections and buffers; the panel's share is lower.
 
 ## Pane screen

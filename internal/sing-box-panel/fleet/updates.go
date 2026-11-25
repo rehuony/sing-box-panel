@@ -8,9 +8,6 @@ import (
 	"os"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -295,7 +292,7 @@ func (service *Service) recordUpdateReport(nodeID string, attempt *nodeapi.Updat
 // FetchRelease authenticates the node with its own signed challenge, apart
 // from its session, and streams the panel's node release for the node's
 // platform: the header first, then the binary.
-func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseServer) error {
+func (server *nodeServer) FetchRelease(stream *nodeapi.ReleaseServer) error {
 	service := server.service
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
@@ -306,28 +303,28 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 	}
 	hello := frame.GetHello()
 	if hello == nil {
-		return status.Error(codes.InvalidArgument, "FetchRelease must start with Hello")
+		return nodeapi.Errorf(nodeapi.CodeInvalidArgument, "FetchRelease must start with Hello")
 	}
 	if err := checkProtocol(hello.GetProtocol()); err != nil {
 		return err
 	}
 	if !validPlatform(hello.GetPlatform()) {
-		return status.Error(codes.InvalidArgument, "Hello is malformed")
+		return nodeapi.Errorf(nodeapi.CodeInvalidArgument, "Hello is malformed")
 	}
 	node, err := service.database.Node(ctx, hello.GetNodeId())
 	if errors.Is(err, store.ErrNodeNotFound) {
-		return status.Error(codes.Unauthenticated, "node is not enrolled")
+		return nodeapi.Errorf(nodeapi.CodeUnauthenticated, "node is not enrolled")
 	}
 	if err != nil {
-		return status.Error(codes.Internal, "read node")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read node")
 	}
 	panelID, err := service.PanelID(ctx)
 	if err != nil {
-		return status.Error(codes.Internal, "read panel identity")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read panel identity")
 	}
 	nonce := make([]byte, nodeapi.NonceSize)
 	if n, err := service.random(nonce); err != nil || n != len(nonce) {
-		return status.Error(codes.Internal, "generate challenge")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "generate challenge")
 	}
 	if err := stream.Send(&nodeapi.FetchReleaseResponse{Frame: &nodeapi.FetchReleaseResponse_Challenge{
 		Challenge: &nodeapi.Challenge{PanelId: panelID, Nonce: nonce},
@@ -338,22 +335,22 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 		return err
 	}
 	if !nodeapi.VerifyReleaseProof(node.PublicKey, panelID, node.ID, nonce, frame.GetProof()) {
-		return status.Error(codes.Unauthenticated, "release proof is invalid")
+		return nodeapi.Errorf(nodeapi.CodeUnauthenticated, "release proof is invalid")
 	}
 	if service.releases == nil {
-		return status.Error(codes.FailedPrecondition, releases.ErrUnavailable.Error())
+		return nodeapi.Errorf(nodeapi.CodeFailedPrecondition, "%s", releases.ErrUnavailable)
 	}
 	release, err := service.releases.NodeRelease(ctx, hello.GetPlatform().GetOs(), hello.GetPlatform().GetArch())
 	switch {
 	case errors.Is(err, releases.ErrUnavailable), errors.Is(err, releases.ErrPlatformUnsupported):
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return nodeapi.Errorf(nodeapi.CodeFailedPrecondition, "%s", err)
 	case err != nil:
 		service.recordNodeEvent(store.LogLevelError, "node.release.unavailable", "The node release could not be prepared", node.ID)
-		return status.Error(codes.Unavailable, "the panel could not prepare its node release")
+		return nodeapi.Errorf(nodeapi.CodeUnavailable, "the panel could not prepare its node release")
 	}
 	file, err := os.Open(release.Path)
 	if err != nil {
-		return status.Error(codes.Internal, "open the node release")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "open the node release")
 	}
 	defer file.Close()
 	if err := stream.Send(&nodeapi.FetchReleaseResponse{Frame: &nodeapi.FetchReleaseResponse_Header{Header: &nodeapi.ReleaseHeader{
@@ -365,7 +362,7 @@ func (server *nodeServer) FetchRelease(stream nodeapi.NodeService_FetchReleaseSe
 		return stream.Send(&nodeapi.FetchReleaseResponse{Frame: &nodeapi.FetchReleaseResponse_Chunk{Chunk: chunk}})
 	})
 	if errors.Is(err, errChunkRead) {
-		return status.Error(codes.Internal, "read the node release")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read the node release")
 	}
 	return err
 }

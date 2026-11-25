@@ -70,13 +70,13 @@ Tools under `tools/` are maintainer programs that nothing imports.
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
 | | `singbox` | The supported sing-box release lines and what each needs: its configuration schema source, inbound family and runtime compatibility switches |
-| | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
+| | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the WebSocket transport that carries its frames with its endpoint paths, close codes and keepalive, the session proof and the enrollment code format |
 | | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files, and refusing a root start against files that account owns |
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
 | | `netguard` | Which addresses count as public: the only addresses the panel's source and core downloads reach without an operator's permission, and the only ones a node reports as its public address |
 | | `webauth` | What both management APIs share: Argon2id password hashing, login admission with its rate limits and deadline, origin and CSRF checks, and security headers |
 | Node (`internal/sing-box-node/`) | `cli` | The node's command tree: `enroll`, `update`, `server`, `config`, `system`, `systemd` and `completion` |
-| | `settings` | The node's settings file (console address, external origin, data directory and console password hash) and the enrollment in its data directory (panel endpoint, trust, IDs and the Ed25519 identity key) |
+| | `settings` | The node's settings file (console address, external origin, data directory and console password hash) and the enrollment in its data directory (panel URL, IDs and the Ed25519 identity key) |
 | | `agent` | Enrollment, the link that holds it with the session's state, the authenticated session with the panel, with reconnection, and the command executor with its idempotent results; the node only dials out |
 | | `httpapi` | The console API: password login, the link's status, enrollment and unenrollment |
 | | `systemd` | The node's unit templates and its settings file as the state of its systemd installation: data directory and created settings |
@@ -94,7 +94,7 @@ Tools under `tools/` are maintainer programs that nothing imports.
 | | `schema` | Configuration schema preparation for the editor and the panel's checks: the embedded reviewed 1.13 schema and the schemas nodes' cores print, with the presentation overlay |
 | | `nodeconfig` | Each node's editable configuration file, canonical revisions, a core's configuration schema and its support, preview and the schema check before a command |
 | | `subscription` | The node pool and its synchronization, sources and their parsers, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
-| | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the protocol minor version each needs, batch commands over many nodes, node updates and the release stream they fetch, the shared fleet snapshot and the short-lived grants under which nodes fetch cached archives |
+| | `fleet` | The node registry, enrollment codes, the node endpoints beside the Web application under the base path, authenticated node sessions, the typed commands sent over them and the protocol minor version each needs, batch commands over many nodes, node updates and the release stream they fetch, the shared fleet snapshot and the short-lived grants under which nodes fetch cached archives |
 | | `releases` | The panel's releases: the verified cache of the node release of the panel's version that nodes update from, and the panel's own update checks and updates |
 | | `app` | The one composition of the panel's services over a store and a settings file, used by the server and the transport tests |
 | | `httpapi` | The management API, Web delivery and subscription output over `app.Services` |
@@ -546,6 +546,10 @@ origin settings; the JSON-only login, the CSRF token and SameSite=Strict cookies
 still stop cross-site requests. An HTTPS external origin also enables Secure
 session cookies; origin changes take effect after restart. `Forwarded` and
 `X-Forwarded-*` headers are never trusted. Administrator credentials and subscription tokens are separate trust boundaries.
+The node endpoints under `/api/node/v1` are a third: they authenticate nodes by
+their one-time enrollment tokens and Ed25519 proofs, never by management
+sessions or CSRF tokens, accept connections only from loopback peers, and refuse
+a browser's WebSocket from another origin.
 
 The removed `auth.secure_cookie` setting and `service.secure_cookie` API field are
 rejected, including inside backup settings. Existing files and backups require

@@ -2794,9 +2794,9 @@ components:
         code:
           type: string
           description: >-
-            One-time code naming the panel endpoint and base path, how to trust it
-            and the enrollment token. Shown once; the panel keeps only a hash
-            of the token.
+            One-time code naming the panel URL that nodes connect to and the
+            enrollment token. Shown once; the panel keeps only a hash of the
+            token.
         command:
           type: string
           description: The command that enrolls the node with this code.

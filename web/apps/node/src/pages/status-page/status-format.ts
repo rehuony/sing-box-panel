@@ -1,4 +1,4 @@
-import type { Connection, ConsoleStatus, Enrollment, TrafficReading } from '@/api/generated';
+import type { Connection, ConsoleStatus, TrafficReading } from '@/api/generated';
 
 /** The colours of each link state: its dot and its words. */
 export const connectionTone: Record<Connection['state'], { dot: string; text: string }> = {
@@ -7,11 +7,6 @@ export const connectionTone: Record<Connection['state'], { dot: string; text: st
   disconnected: { dot: 'bg-[var(--color-warning)]', text: 'text-[var(--color-warning-text)]' },
   unenrolled: { dot: 'bg-[var(--color-text-faint)]', text: 'text-muted-foreground' },
 };
-
-/** The panel the node is enrolled with: its node service address and base path. */
-export function panelAddress(enrollment: Enrollment): string {
-  return `${enrollment.panel_endpoint}${enrollment.panel_path}`;
-}
 
 export interface TrafficRates {
   upload: number;
@@ -46,11 +41,8 @@ export function nodeWords(status: ConsoleStatus): string[] {
   const core = runtime?.running_version ?? runtime?.enabled_version;
   if (core) words.push(core, `sing-box ${core}`);
   if (enrollment) {
-    const port = /:(\d+)$/.exec(enrollment.panel_endpoint)?.[1];
-    const { node_id: nodeId, panel_id: panelId } = enrollment;
-    words.push(panelAddress(enrollment), nodeId, nodeId.slice(0, 9), nodeId.slice(-8), panelId);
-    if (port) words.push(`:${port}`);
-    words.push(enrollment.trust === 'pin' ? 'pinned' : 'system ca');
+    const { node_id: nodeId, panel_id: panelId, panel_url: panelURL } = enrollment;
+    words.push(panelURL, new URL(panelURL).host, nodeId, nodeId.slice(0, 9), nodeId.slice(-8), panelId);
   }
   return words;
 }

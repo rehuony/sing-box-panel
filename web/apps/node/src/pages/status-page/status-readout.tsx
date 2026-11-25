@@ -17,7 +17,7 @@ import type { ConsoleStatus, RuntimeReading } from '@/api/generated';
 
 import type { TrafficRates } from './status-format';
 
-import { connectionTone, panelAddress, percentOf } from './status-format';
+import { connectionTone, percentOf } from './status-format';
 
 /** The readout's rows, so the loading state holds their height. */
 const ROWS = 12;
@@ -63,7 +63,7 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
     const live = traffic?.live ?? null;
     // Without a running core nothing flows, so its rates are a known zero rather than unknown.
     const idle = live === null && runtime?.state === 'stopped';
-    const address = enrollment ? panelAddress(enrollment) : null;
+    const address = enrollment ? enrollment.panel_url : null;
     const memory = host ? percentOf(host.memory_used, host.memory_total) : null;
     const disk = host ? percentOf(host.disk_used, host.disk_total) : null;
     const retry = connection.retry_at === undefined ? null : Date.parse(connection.retry_at) - now;
@@ -85,7 +85,6 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
         </ReadoutRow>
         <ReadoutRow label={t('terminal.row.panel')}>{address ? <ReadoutCopyable label={t('terminal.row.panel')} value={address} /> : <ReadoutUnavailable />}</ReadoutRow>
         <ReadoutRow label={t('terminal.row.nodeId')}>{enrollment ? <ReadoutCopyable label={t('terminal.row.nodeId')} value={enrollment.node_id} /> : <ReadoutUnavailable />}</ReadoutRow>
-        <ReadoutRow label={t('terminal.row.trust')}>{enrollment ? t(`terminal.value.trust.${enrollment.trust}`) : <ReadoutUnavailable />}</ReadoutRow>
         <ReadoutRow label={t('terminal.row.core')}>
           {runtime
             ? (

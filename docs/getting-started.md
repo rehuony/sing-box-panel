@@ -203,7 +203,9 @@ default, where an operator can enroll it instead of using `enroll`.
 
 The node dials the panel, so the code must name an address the node can reach:
 the generated loopback listener serves a node on the same host, and a node on
-another host needs `nodes.endpoint` or `server.external_origin`. See
+another host reaches the panel through an HTTPS reverse proxy on the panel host,
+with `server.external_origin` set to its origin; see
+[Behind Nginx](configuration-and-runtime.md#behind-nginx). See
 [Nodes](cli.md#nodes) for the node's settings, data directory and states, and
 [Panel and node architecture](panel-node-architecture.md) for enrollment and
 trust.

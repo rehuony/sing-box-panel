@@ -34,7 +34,7 @@ managed through the same path.
  │ httpapi · fleet · nodeconfig · corecache · subscription ·     │
  │ telemetry · panel store (SQLite)                              │
  └───────────────▲──────────────────────▲────────────────────────┘
-   gRPC over TLS │ one session per node │  nodes dial out; panel never dials in
+   WebSocket     │ one session per node │  nodes dial out; panel never dials in
           ┌──────┴──────┐        ┌──────┴──────┐
           │   node A    │        │   node B    │   …
           │ agent ·     │        │             │
@@ -45,44 +45,53 @@ managed through the same path.
               sing-box
 ```
 
-The panel serves the Web application and the node service on one port, with
-the node service under the panel's base path. It tells connections apart by
-their first bytes: a TLS handshake is a node dialing directly, the HTTP/2
-cleartext preface from loopback is a reverse proxy on the panel host
-forwarding nodes with `grpc_pass`, and anything else is the Web application.
-Cleartext HTTP/2 from any other peer is closed. Behind a reverse proxy with a
-publicly trusted certificate, nodes reach the panel through the proxy's HTTPS
-origin, like browsers do.
+The panel serves the Web application and the node endpoints on one port, with
+the endpoints under the panel's base path beside the Web application, so one
+reverse proxy location serves both. The panel speaks plain HTTP and accepts
+node connections only from its own host: nodes on other hosts reach it through
+an HTTPS reverse proxy there, at the same origin as browsers, and a node
+connection from any other peer is refused, so node traffic never crosses a
+network unencrypted.
 
 ## Panel–node protocol
 
 The contract is a protobuf package, `sbp.node.v1`, in
 `api/proto/sbp/node/v1/`; `api/proto/` is the buf module with its lint and
-generation settings. The panel serves it with `google.golang.org/grpc`.
-Generated Go code in `internal/nodeapi` is committed and regenerated with
-`make generate` (`go tool buf generate`); `make check` fails when the generated
-code differs from the contract.
+generation settings. Generated Go code in `internal/nodeapi` is committed and
+regenerated with `make generate` (`go tool buf generate`); `make check` fails
+when the generated code differs from the contract.
 
-| RPC | Shape | Purpose |
+The messages travel over WebSockets, one binary message per frame of at most
+4 MiB, on four endpoints under the panel's base path that `internal/nodeapi`
+names:
+
+| Endpoint | Frames | Purpose |
 | --- | --- | --- |
-| `Enroll` | Unary | Exchanges a one-time enrollment token and the node's public key for a node identity |
-| `Connect` | Bidirectional stream | The control session: handshake, commands, results and events |
-| `FetchArtifact` | Server stream | Streams one cached core artifact to a node, authorized by a grant issued in the session |
-| `FetchRelease` | Bidirectional stream | Streams the panel's node release for the node's platform after its own signed handshake, to a running node or to the node's `update` command |
+| `/api/node/v1/enroll` | One request, one response | Exchanges a one-time enrollment token and the node's public key for a node identity |
+| `/api/node/v1/connect` | Both directions | The control session: handshake, commands, results and events |
+| `/api/node/v1/artifact` | One request, then a stream | Streams one cached core artifact to a node, authorized by a grant issued in the session |
+| `/api/node/v1/release` | Both directions | Streams the panel's node release for the node's platform after its own signed handshake, to a running node or to the node's `update` command |
 
-The session handshake runs inside `Connect` before any command:
+An exchange that fails ends with a WebSocket close frame whose status is 4000
+plus a code (`invalid_argument`, `unauthenticated`, `permission_denied`,
+`not_found`, `failed_precondition`, `aborted`, `deadline_exceeded`,
+`unavailable`, `internal`) and whose reason is the message; a normal close ends
+a stream that completed.
+
+The session handshake runs on the connect endpoint before any command:
 
 1. The node sends `Hello` with its node ID, protocol version, build version, platform and instance ID, the random identity of its database.
 2. The panel answers `Challenge` with a random nonce and the panel ID.
 3. The node answers `Proof`, an Ed25519 signature over a fixed context string, the panel ID, the node ID and the nonce.
-4. The panel verifies it against the enrolled public key and answers `Welcome` with the baseline metrics interval and the newest runtime transition it holds for that instance, or closes the stream with a status code.
+4. The panel verifies it against the enrolled public key and answers `Welcome` with the baseline metrics interval and the newest runtime transition it holds for that instance, or closes the stream with a code.
 5. The node sends a full `StateReport`, then the runtime transitions after the one the panel named. The panel accepts commands for the node once that report is recorded. A session whose first report does not arrive within 30 seconds, or cannot be recorded, ends, and the node reconnects with a new one.
 
 A new authenticated session for a node replaces the previous one. The panel
 records the new session and replaces the previous one in one step that cannot
 fail between them, so a handshake that fails never leaves a live session
-recorded as ended. gRPC keepalives detect dead sessions; the panel marks a node
-offline when its session ends.
+recorded as ended. Each side pings the other every 30 seconds, end to end
+through any proxy between them, and ends a session whose peer does not answer
+within 10 seconds; the panel marks a node offline when its session ends.
 
 Frames are `oneof` envelopes:
 
@@ -106,15 +115,15 @@ node with the same major version and records its build version and minor
 version. Each command belongs to the minor version that added it, and the
 panel refuses to send a command to a node whose session names an older minor
 version, answering `node_upgrade_required` without contacting the node. The
-contract is at minor version 2. Minor version 1 adds `FetchRelease`, `UpdateNode`
-and the state report's last update attempt, and minor version 2 adds
+contract is at minor version 2. Minor version 1 adds the release endpoint,
+`UpdateNode` and the state report's last update attempt, and minor version 2 adds
 `GetCoreSchema`, which runs the installed core's `sing-box schema` for a core of a
 line that has it and returns its output, at most 3 MiB; every other command is in
 minor version 0.
 A breaking change moves to a new package.
 
-`FetchRelease` authenticates on its own, apart from `Connect`, so the node's
-`update` command can use it while the node's service holds the session:
+The release endpoint authenticates on its own, apart from the session, so the
+node's `update` command can use it while the node's service holds the session:
 
 1. The node sends `Hello` with its node ID, protocol version and platform.
 2. The panel answers `Challenge` with a random nonce and the panel ID.
@@ -123,19 +132,19 @@ A breaking change moves to a new package.
 
 ## Identity and trust
 
-**Panel identity.** On first use the panel generates a TLS key and a
-self-signed certificate for direct node connections in its data directory, and
-a stable panel ID in its database. Nodes that dial the panel directly pin the
-certificate's public key. When the panel has an HTTPS external origin, such as
-a reverse proxy with a publicly trusted certificate, the enrollment code names
-that origin and selects system trust instead of a pin.
+**Panel identity.** Nodes on other hosts authenticate the panel by the
+publicly trusted certificate of the HTTPS reverse proxy in front of it,
+verified with the system's certificate authorities; the enrollment code names
+that origin, the panel's HTTPS `server.external_origin`, with the base path.
+A node on the panel host may instead use the listener over plain HTTP on
+loopback. The panel also keeps a stable panel ID in its database, which binds
+every proof a node signs to this panel.
 
 **Enrollment.** An administrator adds a node in the Web UI or with the panel
 CLI by naming it. The panel issues a one-time enrollment token for a new node:
 it stores the token's hash with a preassigned node ID, the name and an expiry
 one hour away, and shows one command, `sing-box-node enroll --code <code>`,
-where the code encodes the panel endpoint and base path, the trust mode or pin
-and the token. No node exists yet: a node appears in lists, status and
+where the code encodes the panel URL and the token. No node exists yet: a node appears in lists, status and
 commands only once a host enrolls. A new code for a name replaces an unused
 one, a name an enrolled node uses is refused, an unused code can be canceled,
 and an expired one is never accepted.
@@ -164,7 +173,7 @@ too, while the node runs.
 | Checked startup artifact, applied bundle and rollback bundle | Node, which keeps the bytes of the applied and previous bundles | The panel records their digests and the node's evidence |
 | Installed core files | Node | The panel records which node has which artifact |
 | Version catalog, official and imported artifacts | Panel, which caches and verifies them, and removes official archives that no node reports installed and no install asked for in the last ten minutes | Nodes fetch them from the panel |
-| Node release of the panel's version | Panel, which downloads both platforms' node binaries with the release's signed checksums into `release-cache/VERSION/`, verifies them with its embedded key and removes other versions | Nodes fetch it with `FetchRelease` and verify it again with their own embedded key |
+| Node release of the panel's version | Panel, which downloads both platforms' node binaries with the release's signed checksums into `release-cache/VERSION/`, verifies them with its embedded key and removes other versions | Nodes fetch it from the release endpoint and verify it again with their own embedded key |
 | Executables and their last update attempt | Each service, which replaces its own binary when it may or stages a release for its root update helper | The node reports its last attempt in its state report |
 | Runtime process, intents and recovery | Node | The panel shows the reported state |
 | Host facts, metrics, public IP, filesystem | Node, live | The panel keeps bounded metrics history |
@@ -173,7 +182,7 @@ too, while the node runs.
 | Panel log and operation outcomes | Panel, in its own `logs.db`, kept until cleared | Node events are recorded with their node ID |
 | Subscriptions: node pool and its order, sources, channels, keys, templates | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
-| Node settings: panel endpoint, trust, data directory and identity key; console settings and password hash | Node | — |
+| Node settings: panel URL, data directory and identity key; console settings and password hash | Node | — |
 
 The panel's configuration for a node is authoritative. The first state report
 of each session carries the configuration of the bundle the node runs, if any;
@@ -200,7 +209,7 @@ written before that baseline.
 - A node reports the state a state-changing command left before it sends the command's result, so the panel's reported state is current when the API answers.
 - Applying a configuration sends the revision, its digest and bytes, and the selected artifact identity. The node checks that the artifact is installed and verified, runs `sing-box check`, replaces the process through the existing preflight, keeps the previous bundle for rollback, and reports the new bundle. A failed check leaves the running process untouched.
 - Installing a core first caches the archive on the panel, then sends its identity, size and a fetch grant that lasts only while the command runs. The node streams the archive with `FetchArtifact`, verifies its digest and the exact version the binary reports, publishes it atomically and records it under the same artifact ID as the panel.
-- Updating a node first caches and verifies the panel's node release, then sends `UpdateNode` with the panel's version. The node fetches the release with `FetchRelease`, verifies its signature with its own embedded key, the binary's checksum, its build identity and platform and a version newer than its own, and answers how it left itself: up to date, restarting into the new version, staged for its root update helper, or installed and waiting for a manual restart. Restarting a node restarts its core, so its proxy is briefly interrupted. See [Packaging](#packaging) for how each kind of installation replaces its binary.
+- Updating a node first caches and verifies the panel's node release, then sends `UpdateNode` with the panel's version. The node fetches the release from the release endpoint, verifies its signature with its own embedded key, the binary's checksum, its build identity and platform and a version newer than its own, and answers how it left itself: up to date, restarting into the new version, staged for its root update helper, or installed and waiting for a manual restart. Restarting a node restarts its core, so its proxy is briefly interrupted. See [Packaging](#packaging) for how each kind of installation replaces its binary.
 
 ## Failure behavior
 
@@ -328,7 +337,7 @@ cmd/
 internal/
   sing-box-panel/        panel service: imports shared packages, never the node
     app/                 the one composition of the panel's services
-    fleet/               node registry, enrollment, gRPC sessions, command routing, presence, node updates
+    fleet/               node registry, enrollment, node endpoints and sessions, command routing, presence, node updates
     releases/            the node release cache of the panel's version and the panel's own updates
     nodeconfig/          per-node editable file, revisions, check and apply through fleet
     corecache/           upstream catalog discovery, artifact cache and distribution

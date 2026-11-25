@@ -29,7 +29,6 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -120,17 +119,17 @@ func TestBrowserReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web := listener
+	// Without a seeded fleet, real nodes may connect to the review panel.
 	if fleetCount <= 0 {
-		var nodes fleet.NodeListeners
-		web, nodes = fleet.SplitListener(listener)
-		go func() { _ = commands.Fleet.Serve(ctx, nodes) }()
+		if err := commands.Fleet.Open(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	defer server.Close()
 	go func() { <-ctx.Done(); _ = server.Close() }()
 	t.Log("Browser review: http://127.0.0.1:3337/panel (isolated database; no runtime executor)")
-	if err := server.Serve(web); err != nil && err != http.ErrServerClosed {
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		t.Fatal(err)
 	}
 }

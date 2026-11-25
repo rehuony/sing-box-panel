@@ -121,7 +121,6 @@ export const zhCN: NodeTranslation = {
       publicIp: '公网 IP',
       total: '累计',
       traffic: '流量',
-      trust: '信任',
     },
     since: '{{state}} {{duration}}',
     stale: '未能刷新',
@@ -144,10 +143,6 @@ export const zhCN: NodeTranslation = {
       protocol: '协议 {{protocol}}',
       retrying: '正在重试',
       retryIn: '{{duration}}后重试',
-      trust: {
-        pin: '固定证书',
-        system: '系统证书',
-      },
       upload: '上传',
       uptime: '已运行 {{duration}}',
     },

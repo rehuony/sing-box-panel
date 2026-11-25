@@ -319,13 +319,13 @@ node host. A node added with `add` exists, and appears in `list`, only once its
 host enrolls; adding the same name again replaces an unused code:
 
 ```sh
-sing-box-node enroll --code sbp1....
+sing-box-node enroll --code sbp2....
 sing-box-node server start
 ```
 
-The code names the panel endpoint and base path, how the node trusts it and a
-one-time token; the panel keeps only a hash of the token. See
-[Nodes](configuration-and-runtime.md#nodes) for how the panel derives them.
+The code names the panel URL and a one-time token; the panel keeps only a hash
+of the token. See [Nodes](configuration-and-runtime.md#nodes) for how the panel
+derives the URL.
 
 ### Node settings and data
 
@@ -437,7 +437,7 @@ settings path written in the unit file and the data directory it selects.
 
 ```sh
 sudo sing-box-node systemd install --scope=system --now
-sudo sing-box-node enroll --code sbp1....
+sudo sing-box-node enroll --code sbp2....
 sudo sing-box-node systemd status
 sudo sing-box-node systemd uninstall --scope=system   # keeps the settings and data
 ```

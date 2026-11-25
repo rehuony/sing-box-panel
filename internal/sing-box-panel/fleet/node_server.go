@@ -11,8 +11,6 @@ import (
 	"time"
 	"unicode"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
@@ -40,7 +38,6 @@ const (
 
 // nodeServer serves sbp.node.v1 to nodes.
 type nodeServer struct {
-	nodeapi.UnimplementedNodeServiceServer
 	service *Service
 }
 
@@ -51,13 +48,13 @@ func (server *nodeServer) Enroll(ctx context.Context, request *nodeapi.EnrollReq
 	}
 	if len(request.GetPublicKey()) != ed25519.PublicKeySize || !boundedText(request.GetHostname(), 256) ||
 		!boundedText(request.GetBuildVersion(), 256) || !validPlatform(request.GetPlatform()) {
-		return nil, status.Error(codes.InvalidArgument, "enrollment request is malformed")
+		return nil, nodeapi.Errorf(nodeapi.CodeInvalidArgument, "enrollment request is malformed")
 	}
 	now := service.now().UTC()
 	// A node the code creates starts with the empty document, saved with it.
 	initial, err := store.NewConfigurationFileUpdate(service.random, now, 0, string(configuration.Empty().CanonicalJSON()))
 	if err != nil {
-		return nil, status.Error(codes.Internal, "prepare configuration")
+		return nil, nodeapi.Errorf(nodeapi.CodeInternal, "prepare configuration")
 	}
 	node, created, err := service.database.EnrollNode(ctx, nodeapi.TokenHash(request.GetToken()), store.NodeEnrollment{
 		PublicKey: request.GetPublicKey(), Hostname: request.GetHostname(),
@@ -67,11 +64,11 @@ func (server *nodeServer) Enroll(ctx context.Context, request *nodeapi.EnrollReq
 	})
 	switch {
 	case errors.Is(err, store.ErrEnrollmentInvalid):
-		return nil, status.Error(codes.Unauthenticated, "enrollment code is invalid, used or expired")
+		return nil, nodeapi.Errorf(nodeapi.CodeUnauthenticated, "enrollment code is invalid, used or expired")
 	case errors.Is(err, store.ErrNodeNameConflict):
-		return nil, status.Error(codes.FailedPrecondition, "another node already uses the name this code was issued for")
+		return nil, nodeapi.Errorf(nodeapi.CodeFailedPrecondition, "another node already uses the name this code was issued for")
 	case err != nil:
-		return nil, status.Error(codes.Internal, "record enrollment")
+		return nil, nodeapi.Errorf(nodeapi.CodeInternal, "record enrollment")
 	}
 	service.expireStatus()
 	if created {
@@ -82,7 +79,7 @@ func (server *nodeServer) Enroll(ctx context.Context, request *nodeapi.EnrollReq
 	}
 	panelID, err := service.PanelID(ctx)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "read panel identity")
+		return nil, nodeapi.Errorf(nodeapi.CodeInternal, "read panel identity")
 	}
 	service.recordNodeEvent(store.LogLevelInfo, "node.enrolled", "Node enrolled", node.ID)
 	return &nodeapi.EnrollResponse{NodeId: node.ID, PanelId: panelID}, nil
@@ -91,11 +88,14 @@ func (server *nodeServer) Enroll(ctx context.Context, request *nodeapi.EnrollReq
 // Connect authenticates the node with a signed challenge and then holds its
 // session until the stream ends, the session is replaced or the node is
 // removed.
-func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) error {
+func (server *nodeServer) Connect(stream *nodeapi.ConnectServer) error {
 	service := server.service
 	ctx, cancel := context.WithCancelCause(stream.Context())
 	defer cancel(nil)
 	receiver := receiveFrames(ctx, stream.Recv)
+	// A node that stops answering ends its session, whatever proxies stand
+	// between it and the panel.
+	stream.KeepAlive()
 
 	frame, err := receiver.next()
 	if err != nil {
@@ -103,29 +103,29 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	}
 	hello := frame.GetHello()
 	if hello == nil {
-		return status.Error(codes.InvalidArgument, "the session must start with Hello")
+		return nodeapi.Errorf(nodeapi.CodeInvalidArgument, "the session must start with Hello")
 	}
 	if err := checkProtocol(hello.GetProtocol()); err != nil {
 		return err
 	}
 	instanceID := hello.GetInstanceId()
 	if !boundedText(hello.GetBuildVersion(), 256) || !validPlatform(hello.GetPlatform()) || instanceID == "" || !boundedText(instanceID, 64) {
-		return status.Error(codes.InvalidArgument, "Hello is malformed")
+		return nodeapi.Errorf(nodeapi.CodeInvalidArgument, "Hello is malformed")
 	}
 	node, err := service.database.Node(ctx, hello.GetNodeId())
 	if errors.Is(err, store.ErrNodeNotFound) {
-		return status.Error(codes.Unauthenticated, "node is not enrolled")
+		return nodeapi.Errorf(nodeapi.CodeUnauthenticated, "node is not enrolled")
 	}
 	if err != nil {
-		return status.Error(codes.Internal, "read node")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read node")
 	}
 	panelID, err := service.PanelID(ctx)
 	if err != nil {
-		return status.Error(codes.Internal, "read panel identity")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read panel identity")
 	}
 	nonce := make([]byte, nodeapi.NonceSize)
 	if n, err := service.random(nonce); err != nil || n != len(nonce) {
-		return status.Error(codes.Internal, "generate challenge")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "generate challenge")
 	}
 	if err := stream.Send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Challenge{
 		Challenge: &nodeapi.Challenge{PanelId: panelID, Nonce: nonce},
@@ -137,11 +137,11 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		return err
 	}
 	if !nodeapi.VerifyProof(node.PublicKey, panelID, node.ID, nonce, frame.GetProof()) {
-		return status.Error(codes.Unauthenticated, "session proof is invalid")
+		return nodeapi.Errorf(nodeapi.CodeUnauthenticated, "session proof is invalid")
 	}
 	sessionID, err := database.NewID(service.random, "session")
 	if err != nil {
-		return status.Error(codes.Internal, "generate session")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "generate session")
 	}
 	current := newSession(ctx, cancel, stream)
 	current.nodeID, current.instanceID, current.sessionID = node.ID, instanceID, sessionID
@@ -151,7 +151,7 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 	}
 	historyAfter, err := service.records.LatestRuntimeTransitionSource(ctx, node.ID, instanceID)
 	if err != nil {
-		return status.Error(codes.Internal, "read runtime history")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read runtime history")
 	}
 	// Nothing fails between recording the session and replacing the node's
 	// previous one, so the record always names the session the registry
@@ -161,10 +161,10 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 		ProtocolMinor: int(hello.GetProtocol().GetMinor()), SeenAt: service.now().UTC(),
 	})
 	if errors.Is(err, store.ErrNodeNotFound) {
-		return status.Error(codes.Unauthenticated, "node is not enrolled")
+		return nodeapi.Errorf(nodeapi.CodeUnauthenticated, "node is not enrolled")
 	}
 	if err != nil {
-		return status.Error(codes.Internal, "record session")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "record session")
 	}
 	defer func() {
 		endCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
@@ -221,11 +221,11 @@ func (server *nodeServer) Connect(stream nodeapi.NodeService_ConnectServer) erro
 					return err
 				}
 			case frame.GetHello() != nil || frame.GetProof() != nil:
-				return status.Error(codes.InvalidArgument, "handshake frames are not allowed after Welcome")
+				return nodeapi.Errorf(nodeapi.CodeInvalidArgument, "handshake frames are not allowed after Welcome")
 			}
 		case <-firstReport.C:
 			if !current.isReady() {
-				return status.Error(codes.DeadlineExceeded, "the node sent no state report after Welcome")
+				return nodeapi.Errorf(nodeapi.CodeDeadlineExceeded, "the node sent no state report after Welcome")
 			}
 		case <-validation.C:
 			err := service.database.TouchNode(ctx, node.ID, node.PublicKey, service.now().UTC())
@@ -276,9 +276,9 @@ func (receiver *frameReceiver[T]) next() (T, error) {
 	case err := <-receiver.ended:
 		return none, err
 	case <-timer.C:
-		return none, status.Error(codes.DeadlineExceeded, "handshake timed out")
+		return none, nodeapi.Errorf(nodeapi.CodeDeadlineExceeded, "handshake timed out")
 	case <-receiver.ctx.Done():
-		return none, status.FromContextError(receiver.ctx.Err()).Err()
+		return none, contextError(receiver.ctx.Err())
 	}
 }
 
@@ -311,19 +311,28 @@ func sendChunks(file io.Reader, send func(chunk []byte) error) error {
 func sessionEnd(cause error) error {
 	switch {
 	case errors.Is(cause, errSessionReplaced):
-		return status.Error(codes.Aborted, cause.Error())
+		return nodeapi.Errorf(nodeapi.CodeAborted, "%s", cause)
 	case errors.Is(cause, errNodeRemoved):
-		return status.Error(codes.Unauthenticated, cause.Error())
+		return nodeapi.Errorf(nodeapi.CodeUnauthenticated, "%s", cause)
 	case errors.Is(cause, errPanelStopping):
-		return status.Error(codes.Unavailable, cause.Error())
+		return nodeapi.Errorf(nodeapi.CodeUnavailable, "%s", cause)
 	default:
-		return status.FromContextError(cause).Err()
+		return contextError(cause)
 	}
+}
+
+// contextError maps the error of a context that ended to the status the
+// node sees.
+func contextError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nodeapi.Errorf(nodeapi.CodeDeadlineExceeded, "%s", err)
+	}
+	return nodeapi.Errorf(nodeapi.CodeUnavailable, "%s", err)
 }
 
 func checkProtocol(version *nodeapi.ProtocolVersion) error {
 	if version.GetMajor() != nodeapi.ProtocolMajor {
-		return status.Errorf(codes.FailedPrecondition, "protocol major version %d is not supported; this panel speaks %d", version.GetMajor(), nodeapi.ProtocolMajor)
+		return nodeapi.Errorf(nodeapi.CodeFailedPrecondition, "protocol major version %d is not supported; this panel speaks %d", version.GetMajor(), nodeapi.ProtocolMajor)
 	}
 	return nil
 }
@@ -359,24 +368,24 @@ const artifactChunkSize = 64 << 10
 
 // FetchArtifact streams a cached core archive to a node holding a grant for
 // it. The first frame carries the artifact's identity and size.
-func (server *nodeServer) FetchArtifact(request *nodeapi.FetchArtifactRequest, stream nodeapi.NodeService_FetchArtifactServer) error {
+func (server *nodeServer) FetchArtifact(request *nodeapi.FetchArtifactRequest, stream *nodeapi.ArtifactServer) error {
 	service := server.service
 	nodeID, ok := service.grants.check(request.GetGrant(), request.GetArtifactId(), service.now())
 	if !ok {
-		return status.Error(codes.PermissionDenied, "artifact grant is invalid or expired")
+		return nodeapi.Errorf(nodeapi.CodePermissionDenied, "artifact grant is invalid or expired")
 	}
 	file, artifact, err := service.cores.OpenCachedArtifact(stream.Context(), request.GetArtifactId())
 	if errors.Is(err, store.ErrCachedArtifactNotFound) {
-		return status.Error(codes.NotFound, "the artifact is no longer cached")
+		return nodeapi.Errorf(nodeapi.CodeNotFound, "the artifact is no longer cached")
 	}
 	if err != nil {
 		service.recordNodeEvent(store.LogLevelError, "core.artifact.open_failed", "Cached core archive could not be opened", nodeID)
-		return status.Error(codes.Internal, "open cached artifact")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "open cached artifact")
 	}
 	defer file.Close()
 	identity, err := artifactIdentity(artifact)
 	if err != nil {
-		return status.Error(codes.Internal, "read cached artifact identity")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read cached artifact identity")
 	}
 	// The first frame carries the artifact's identity with the first data.
 	frame := &nodeapi.FetchArtifactResponse{Artifact: identity, Size: artifact.Size}
@@ -387,7 +396,7 @@ func (server *nodeServer) FetchArtifact(request *nodeapi.FetchArtifactRequest, s
 		return sent
 	})
 	if errors.Is(err, errChunkRead) {
-		return status.Error(codes.Internal, "read cached artifact")
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read cached artifact")
 	}
 	if err == nil && frame.Artifact != nil {
 		// An empty archive still names itself.

@@ -298,13 +298,9 @@ type liveTrafficView struct {
 }
 
 type enrollmentView struct {
-	PanelEndpoint string `json:"panel_endpoint"`
-	PanelPath     string `json:"panel_path"`
-	PanelID       string `json:"panel_id"`
-	NodeID        string `json:"node_id"`
-	// Trust is how the node verifies the panel: a pinned certificate key or
-	// the system's certificate authorities.
-	Trust string `json:"trust"`
+	PanelURL string `json:"panel_url"`
+	PanelID  string `json:"panel_id"`
+	NodeID   string `json:"node_id"`
 }
 
 type connectionView struct {
@@ -328,13 +324,7 @@ func (handler *Handler) view(ctx context.Context, status agent.Status) statusVie
 		view.Connection.RetryAt = &retryAt
 	}
 	if enrollment := status.Enrollment; enrollment != nil {
-		trust := "system"
-		if enrollment.Pinned {
-			trust = "pin"
-		}
-		view.Enrollment = &enrollmentView{
-			PanelEndpoint: enrollment.Endpoint, PanelPath: enrollment.Path, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID, Trust: trust,
-		}
+		view.Enrollment = &enrollmentView{PanelURL: enrollment.URL, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID}
 	}
 	if handler.readings == nil {
 		return view
@@ -383,7 +373,7 @@ func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ s
 		writeProblem(w, http.StatusInternalServerError, "enrollment_not_saved", "Enrollment not saved", err.Error())
 		return
 	}
-	handler.logf("Console enrolled the node as %s with the panel at %s", status.Enrollment.NodeID, status.Enrollment.Endpoint)
+	handler.logf("Console enrolled the node as %s with the panel at %s", status.Enrollment.NodeID, status.Enrollment.URL)
 	writeJSON(w, http.StatusOK, handler.view(request.Context(), status))
 }
 

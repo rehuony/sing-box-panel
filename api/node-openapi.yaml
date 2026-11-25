@@ -327,20 +327,13 @@ components:
     Enrollment:
       type: object
       additionalProperties: false
-      required: [panel_endpoint, panel_path, panel_id, node_id, trust]
+      required: [panel_url, panel_id, node_id]
       properties:
-        panel_endpoint:
+        panel_url:
           type: string
-          description: The panel's node service address as host:port.
-        panel_path:
-          type: string
-          description: The panel's base path; empty when it has none.
+          description: The panel's base URL. https is verified with the system's certificate authorities; plain http reaches only a panel on the node's own host.
         panel_id: {type: string}
         node_id: {type: string}
-        trust:
-          type: string
-          enum: [pin, system]
-          description: pin checks the panel certificate's public key; system uses the system's certificate authorities.
     Connection:
       type: object
       additionalProperties: false

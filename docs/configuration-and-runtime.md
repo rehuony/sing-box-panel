@@ -422,8 +422,6 @@ changes take effect after restart.
 | `server.host` / `server.port` | Listener host / port | `127.0.0.1` / `3000` |
 | `server.external_origin` | External origin | Empty |
 | `server.base_path` | Base path | Empty |
-| `nodes.endpoint` | File only | Empty; derived from the server settings |
-| `nodes.trust` | File only | Empty; derived from the server settings |
 | `nodes.runtime_history_retention_days` | Runtime states retention | `90` |
 | `data_dir` | Data directory (absolute path) | Root or XDG data directory |
 | `auth.email` | Administrator email | `admin@example.com` |
@@ -443,68 +441,66 @@ changes take effect after restart.
 ### Nodes
 
 Nodes connect to the same `server.host:server.port` as the Web application;
-the panel opens no other port. The node service sits under `server.base_path`:
-with base path `/panel`, nodes call `/panel/sbp.node.v1.NodeService/Connect`.
-The panel tells connections apart by their first bytes:
+the panel opens no other port. The node endpoints are WebSockets under
+`server.base_path`, beside the Web application: with base path `/panel`, a
+node's session opens `/panel/api/node/v1/connect`. The panel itself speaks only
+plain HTTP, so it accepts node connections only from its own host, from a node
+there or from a reverse proxy there that terminates the HTTPS of nodes
+elsewhere, and refuses every other peer: node traffic never crosses a network
+unencrypted. Each side pings the other every 30 seconds, end to end through any
+proxy between them, and ends a session whose peer does not answer within 10
+seconds.
 
-| Connection opens with | Typical sender | Goes to |
-| --- | --- | --- |
-| A TLS handshake | A node dialing the panel directly | The node service, with the panel's self-signed certificate |
-| The HTTP/2 cleartext preface, from loopback | A reverse proxy on the panel host using `grpc_pass grpc://` | The node service |
-| The HTTP/2 cleartext preface, from any other peer | — | Closed, so node traffic never crosses a network unencrypted |
-| Anything else | A browser or `proxy_pass` | The Web application |
+Enrollment codes name the panel URL that nodes use: an HTTPS
+`server.external_origin` with the base path, else the listener over plain HTTP,
+which only nodes on the panel host can use. Nodes on other hosts therefore need
+a reverse proxy with a publicly trusted certificate, with
+`server.external_origin` set to its origin; issuing a code fails while the
+listener is not a loopback address and no HTTPS origin is set. Nodes verify
+HTTPS with the system's certificate authorities over TLS 1.3, and use plain
+HTTP only to a loopback address.
 
-Enrollment codes name the endpoint, base path and trust mode that nodes use:
-
-- The endpoint is `nodes.endpoint`, else the host and port of an HTTPS
-  `server.external_origin` (port 443 by default), else `server.host:server.port`.
-  Set one of the first two when `server.host` is an unspecified address such as
-  `0.0.0.0`.
-- The trust mode is `nodes.trust`, else `system` when the endpoint comes from an
-  HTTPS external origin, else `pin`. With `pin`, nodes pin the public key of the
-  panel's self-signed certificate; with `system`, they verify the endpoint's
-  certificate with the system's certificate authorities. `system` needs
-  `nodes.endpoint` or an HTTPS external origin.
-
-Nodes keep the endpoint, path and trust mode from their enrollment. Changing
-the external origin, base path or listener address therefore requires
-enrolling nodes again with new codes.
+Nodes keep the URL from their enrollment. Changing the external origin, base
+path or listener address therefore requires enrolling nodes again with new
+codes. Settings files and backups that still name the removed `nodes.endpoint`
+or `nodes.trust` are rejected: delete those fields.
 
 #### Behind Nginx
 
-With a publicly trusted certificate on Nginx, set `server.external_origin` to
-the public HTTPS origin; nodes then dial it with system trust and need no other
-node setting. Route the node service to the panel with `grpc_pass` and the Web
-application with `proxy_pass`, for example with `server.base_path` set to
-`/panel`:
+Set `server.external_origin` to the public HTTPS origin. One location serves
+the Web application and the node endpoints together; it only has to pass
+WebSocket upgrades, for example with `server.base_path` set to `/panel`:
 
 ```nginx
+# In the http block: ask the panel to upgrade only when the client did.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 443 ssl;
-    http2 on;    # gRPC needs HTTP/2; before Nginx 1.25.1 write "listen 443 ssl http2;"
     server_name www.example.com;
     ssl_certificate     /etc/letsencrypt/live/www.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/www.example.com/privkey.pem;
 
-    location /panel/sbp.node.v1.NodeService/ {
-        grpc_pass grpc://127.0.0.1:3000;
-        # Node sessions stay open; Nginx closes a stream that carries no
-        # data for longer than these timeouts, after which the node reconnects.
-        grpc_read_timeout 1h;
-        grpc_send_timeout 1h;
-    }
     location /panel/ {
         proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
     }
 }
 ```
 
-The `grpc_pass` location must be the longer prefix so it wins over the Web
-location. Without a base path, use `location /sbp.node.v1.NodeService/` and
-`location /`. Keep the existing Web proxy settings, such as those in
+Without a base path, use `location /`. The keepalive pings keep node sessions
+within Nginx's default 60-second `proxy_read_timeout`, and session frames are
+not request bodies, so `client_max_body_size` does not limit them. Nginx offers
+TLS 1.3 by default since 1.23.4. Keep the existing Web proxy settings, such as
+those in
 [reverse proxy streaming](subscriptions-and-observability.md#reverse-proxy-streaming).
-A proxy on another host must reach the panel over TLS instead, with
-`grpc_pass grpcs://`.
+Run the proxy on the panel host, since the panel refuses node connections from
+other hosts. Caddy passes WebSocket upgrades without further settings.
 
 `data_dir` remains the common root: ordinary users default to
 `$XDG_DATA_HOME/sing-box-panel` (or `~/.local/share/sing-box-panel`), and root
@@ -516,7 +512,6 @@ are not duplicated as independent settings:
 data_dir/
   panel.db                # product state, nodes and their configurations, metrics and runtime history
   logs.db                 # the panel log, kept until it is cleared
-  node-tls.pem            # key and self-signed certificate for direct node connections (0600)
   artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
   control.sock            # private process control

@@ -92,7 +92,7 @@ func TestConsoleAdmitsOnlyItsOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := settings.SaveEnrollment(dataDir, settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: "node", Key: key}); err != nil {
+	if err := settings.SaveEnrollment(dataDir, settings.Enrollment{URL: "https://panel.example", PanelID: "panel", NodeID: "node", Key: key}); err != nil {
 		t.Fatal(err)
 	}
 	link, err := agent.OpenLink(dataDir, buildinfo.Info{Version: "test"})
@@ -183,7 +183,7 @@ func TestConsoleAdmitsOnlyItsOperator(t *testing.T) {
 	var status statusView
 	response = serve(http.MethodGet, "/api/v1/status", "", nil)
 	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil || status.Enrollment == nil || status.Enrollment.NodeID != "node" ||
-		status.Enrollment.Trust != "system" || status.Connection.State != agent.ConnectionConnecting {
+		status.Enrollment.PanelURL != "https://panel.example" || status.Connection.State != agent.ConnectionConnecting {
 		t.Fatalf("status = %s", response.Body.String())
 	}
 	// The node's own readings ride along, read-only.

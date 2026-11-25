@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -56,7 +54,7 @@ func (service *Service) receiveEvent(ctx context.Context, current *session, even
 	}
 	service.recordNodeEvent(store.LogLevelWarn, code, "A node report could not be recorded", current.nodeID)
 	if opening {
-		return status.Error(codes.Unavailable, "the panel could not record the session's first state report")
+		return nodeapi.Errorf(nodeapi.CodeUnavailable, "the panel could not record the session's first state report")
 	}
 	return nil
 }

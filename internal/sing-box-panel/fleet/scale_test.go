@@ -23,11 +23,14 @@ import (
 )
 
 // Scale run parameters: each node sends scaleSamples traffic samples, one
-// every scaleCadence of wall time and ten seconds apart in sample time, the
-// node baseline, and a state report every tenth sample.
+// every scaleCadence of wall time and scaleSpacing apart in sample time, the
+// node baseline, and a state report every tenth sample. The panel's clock runs
+// scaleSpacing/scaleCadence times faster than wall time, as fast as the
+// nodes' sample time, so the panel takes every sample as live and stores it.
 const (
 	scaleSamples = 30
 	scaleCadence = time.Second
+	scaleSpacing = 10 * time.Second
 )
 
 // TestFleetAtScale runs fleets of simulated nodes over the node listener and
@@ -50,7 +53,7 @@ func TestFleetAtScale(t *testing.T) {
 // scaleNode is a simulated node with a running core.
 type scaleNode struct {
 	*rawNode
-	stream nodeapi.NodeService_ConnectClient
+	stream *nodeapi.ConnectClient
 	index  int
 }
 
@@ -73,11 +76,12 @@ func (node *scaleNode) counters(sample int) (upload, download uint64) {
 	return upload, 2 * upload
 }
 
+// sample is the node's sample number, the first taken at base.
 func (node *scaleNode) sample(base time.Time, number int) *nodeapi.MetricsSample {
 	upload, download := node.counters(number)
 	cpu, load, total, used := float64(number%100), 0.5, uint64(8<<30), uint64(3<<30)
 	return &nodeapi.MetricsSample{
-		SampledAt: timestamppb.New(base.Add(time.Duration(number) * 10 * time.Second)), CpuPercent: &cpu, CpuCount: 4, LoadOne: &load,
+		SampledAt: timestamppb.New(base.Add(time.Duration(number-1) * scaleSpacing)), CpuPercent: &cpu, CpuCount: 4, LoadOne: &load,
 		MemoryTotal: &total, MemoryUsed: &used, DiskTotal: &total, DiskUsed: &used,
 		Traffic: &nodeapi.TrafficCounters{
 			BundleId: node.bundle(), UploadBytes: upload, DownloadBytes: download, Connections: uint32(number),
@@ -96,7 +100,13 @@ func heapInUse() uint64 {
 func runFleetAtScale(t *testing.T, count int) {
 	ctx := t.Context()
 	heapBefore := heapInUse()
-	served := startFleetWith(t, fleetSetup{})
+	// The panel's clock starts mid-month, so a run never crosses a traffic
+	// period, and keeps pace with the nodes' sample time: the panel replaces
+	// a sample time that strays from its own clock.
+	wallStart := time.Now()
+	panelStart := time.Date(wallStart.UTC().Year(), wallStart.UTC().Month(), 15, 0, 0, 0, 0, time.UTC)
+	speedup := scaleSpacing / scaleCadence
+	served := startFleetWith(t, fleetSetup{now: func() time.Time { return panelStart.Add(time.Since(wallStart) * speedup) }})
 	nodes := make([]*scaleNode, count)
 	started := time.Now()
 	for index := range nodes {
@@ -107,6 +117,15 @@ func runFleetAtScale(t *testing.T, count int) {
 			t.Fatal(err)
 		}
 		node.stream = stream
+		// A node reads its session the whole time, which answers the
+		// panel's keepalive pings.
+		go func() {
+			for {
+				if _, err := stream.Recv(); err != nil {
+					return
+				}
+			}
+		}()
 		sendEvent(t, stream, &nodeapi.Event{Body: &nodeapi.Event_StateReport{StateReport: node.report()}})
 		nodes[index] = node
 	}
@@ -180,11 +199,13 @@ func runFleetAtScale(t *testing.T, count int) {
 		}
 	}()
 
-	// Every node changes on every sample.
-	base := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 15, 0, 0, 0, 0, time.UTC)
+	// Every node changes on every sample. A node sends sample n no earlier
+	// than n-1 cadences after sendStart, when the panel's clock has reached
+	// its sample time.
+	sendStart := time.Now()
+	base := panelStart.Add(sendStart.Sub(wallStart) * speedup)
 	heapLoaded := uint64(0)
 	var senders sync.WaitGroup
-	sendStart := time.Now()
 	for _, node := range nodes {
 		senders.Go(func() {
 			ticker := time.NewTicker(scaleCadence)
@@ -221,7 +242,7 @@ func runFleetAtScale(t *testing.T, count int) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		at := base.Add(scaleSamples * 10 * time.Second)
+		at := base.Add(scaleSamples * scaleSpacing)
 		start, end, err := telemetry.TrafficPeriod(at, record.Settings.Traffic)
 		if err != nil {
 			t.Fatal(err)

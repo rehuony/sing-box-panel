@@ -52,25 +52,8 @@ type Server struct {
 	ExternalOrigin string `json:"external_origin"`
 }
 
-// Node trust modes written into enrollment codes.
-const (
-	// NodeTrustPin makes nodes pin the public key of the panel's self-signed
-	// certificate.
-	NodeTrustPin = "pin"
-	// NodeTrustSystem makes nodes verify the endpoint with the system's
-	// trusted certificate authorities, for a panel behind a reverse proxy
-	// with a publicly trusted certificate.
-	NodeTrustSystem = "system"
-)
-
-// Nodes overrides how enrollment codes tell nodes to reach the panel, and
-// holds how long the panel keeps each node's runtime history. Nodes connect
-// to the Web listener; empty endpoint and trust follow the server settings.
+// Nodes holds how long the panel keeps each node's runtime history.
 type Nodes struct {
-	// Endpoint is the host:port that nodes dial.
-	Endpoint string `json:"endpoint"`
-	// Trust is NodeTrustPin, NodeTrustSystem or empty.
-	Trust string `json:"trust"`
 	// RuntimeHistoryRetentionDays is how long the panel keeps each node's
 	// runtime history.
 	RuntimeHistoryRetentionDays int `json:"runtime_history_retention_days"`
@@ -82,41 +65,19 @@ func defaultNodes() Nodes {
 	return Nodes{RuntimeHistoryRetentionDays: 90}
 }
 
-// NodeEndpoint returns the host:port that enrollment codes name:
-// nodes.endpoint, else the host of an HTTPS external origin, else the Web
-// listener.
-func (value Settings) NodeEndpoint() string {
-	if value.Nodes.Endpoint != "" {
-		return value.Nodes.Endpoint
+// NodeURL returns the base URL that enrollment codes name: an HTTPS
+// external origin with the base path, which a reverse proxy in front of the
+// panel serves to nodes anywhere, else the listener over plain HTTP, which
+// only nodes on the panel host can use. ok is false when neither applies:
+// the listener is not a loopback address and no HTTPS origin is set.
+func (value Settings) NodeURL() (panelURL string, ok bool) {
+	if parsed, err := url.Parse(value.Server.ExternalOrigin); err == nil && parsed.Scheme == "https" && parsed.Host != "" {
+		return value.Server.ExternalOrigin + value.Server.BasePath, true
 	}
-	if endpoint, ok := httpsOriginEndpoint(value.Server.ExternalOrigin); ok {
-		return endpoint
-	}
-	return net.JoinHostPort(value.Server.Host, strconv.Itoa(value.Server.Port))
-}
-
-// NodeTrust returns how nodes verify the panel: nodes.trust, else system
-// trust for an endpoint taken from an HTTPS external origin, else a pin.
-func (value Settings) NodeTrust() string {
-	if value.Nodes.Trust != "" {
-		return value.Nodes.Trust
-	}
-	if _, ok := httpsOriginEndpoint(value.Server.ExternalOrigin); ok && value.Nodes.Endpoint == "" {
-		return NodeTrustSystem
-	}
-	return NodeTrustPin
-}
-
-func httpsOriginEndpoint(origin string) (string, bool) {
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" {
+	if !nodeapi.LoopbackHost(value.Server.Host) {
 		return "", false
 	}
-	port := parsed.Port()
-	if port == "" {
-		port = "443"
-	}
-	return net.JoinHostPort(parsed.Hostname(), port), true
+	return "http://" + net.JoinHostPort(value.Server.Host, strconv.Itoa(value.Server.Port)) + value.Server.BasePath, true
 }
 
 type Auth struct {
@@ -314,20 +275,6 @@ func (value Settings) Validate() error {
 func (value Settings) validateNodes() error {
 	if value.Nodes.RuntimeHistoryRetentionDays < 1 || value.Nodes.RuntimeHistoryRetentionDays > 3650 {
 		return errors.New("nodes.runtime_history_retention_days must be between 1 and 3650")
-	}
-	if value.Nodes.Endpoint != "" {
-		if err := nodeapi.ValidEndpoint(value.Nodes.Endpoint); err != nil {
-			return fmt.Errorf("nodes.endpoint must be a host:port address: %w", err)
-		}
-	}
-	switch value.Nodes.Trust {
-	case "", NodeTrustPin:
-	case NodeTrustSystem:
-		if _, ok := httpsOriginEndpoint(value.Server.ExternalOrigin); !ok && value.Nodes.Endpoint == "" {
-			return errors.New("nodes.trust system needs nodes.endpoint or an HTTPS server.external_origin naming the publicly trusted host")
-		}
-	default:
-		return errors.New("nodes.trust must be empty, pin or system")
 	}
 	return nil
 }

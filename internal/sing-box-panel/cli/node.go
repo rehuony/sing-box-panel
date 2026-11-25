@@ -131,7 +131,7 @@ func withFleet(cmd *cobra.Command, state *options, action func(*fleet.Service) e
 		return &cliui.Error{Kind: cliui.ErrorValidation, Code: "node_not_found", Message: "no node has this ID or name", Cause: err}
 	case errors.Is(err, store.ErrNodeNameConflict):
 		return &cliui.Error{Kind: cliui.ErrorConflict, Code: "node_name_conflict", Message: err.Error(), Cause: err}
-	case errors.Is(err, fleet.ErrNameInvalid), errors.Is(err, fleet.ErrEndpointRequired):
+	case errors.Is(err, fleet.ErrNameInvalid), errors.Is(err, fleet.ErrNodeURLRequired):
 		return &cliui.Error{Kind: cliui.ErrorValidation, Code: "node_invalid", Message: err.Error(), Cause: err}
 	}
 	return err

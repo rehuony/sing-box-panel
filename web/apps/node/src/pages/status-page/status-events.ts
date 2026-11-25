@@ -5,8 +5,6 @@ import { logLine } from '@shared/components/terminal';
 
 import type { ConsoleStatus, RuntimeReading } from '@/api/generated';
 
-import { panelAddress } from './status-format';
-
 interface EventContext {
   t: TFunction;
   /** Formats an instant as a time of day. */
@@ -43,7 +41,7 @@ export function statusEvents(
 ): LogLine[] {
   const lines: LogLine[] = [];
   const { connection } = next;
-  const address = next.enrollment ? panelAddress(next.enrollment) : '';
+  const address = next.enrollment ? next.enrollment.panel_url : '';
   const was = previous?.connection.state;
 
   switch (connection.state) {

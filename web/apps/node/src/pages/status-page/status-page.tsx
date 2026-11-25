@@ -17,7 +17,7 @@ import { LinkClock } from './link-clock';
 import { statusEvents } from './status-events';
 import { StatusReadout } from './status-readout';
 import { freezeStatus, shellPrompt, statusBlock } from './buffer-entries';
-import { connectionTone, nodeWords, panelAddress, trafficRates } from './status-format';
+import { connectionTone, nodeWords, trafficRates } from './status-format';
 
 /** How often the page refreshes the node's status. */
 const REFRESH_INTERVAL_MS = 5_000;
@@ -192,11 +192,11 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
     if (current === null) {
       print(logLine('warning', t('terminal.log.waiting')));
     } else if (command === 'enroll' && current.enrollment) {
-      print(logLine('warning', t('terminal.log.alreadyEnrolled', { address: panelAddress(current.enrollment) })));
+      print(logLine('warning', t('terminal.log.alreadyEnrolled', { address: current.enrollment.panel_url })));
     } else if (command === 're-enroll' && !current.enrollment) {
       print(logLine('warning', t('terminal.log.notEnrolledYet')));
     } else {
-      if (current.enrollment) print(logLine('warning', t('terminal.log.reenrollWarning', { address: panelAddress(current.enrollment) })));
+      if (current.enrollment) print(logLine('warning', t('terminal.log.reenrollWarning', { address: current.enrollment.panel_url })));
       print(logLine('muted', t('terminal.log.codeHint')));
       setMode({ command, kind: 'code' });
     }
@@ -209,7 +209,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
     } else if (!current.enrollment) {
       print(logLine('warning', t('terminal.log.notEnrolledYet')));
     } else {
-      const address = panelAddress(current.enrollment);
+      const address = current.enrollment.panel_url;
       print(logLine('danger', t('terminal.log.unenrollWarning', { address })));
       setMode({ address, kind: 'confirm' });
     }
@@ -231,7 +231,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
       const next = await enroll(code, session.csrfToken);
       settle(pending.id);
       if (next.enrollment) {
-        print(logLine('success', t('terminal.log.enrolled', { address: panelAddress(next.enrollment), nodeId: next.enrollment.node_id })));
+        print(logLine('success', t('terminal.log.enrolled', { address: next.enrollment.panel_url, nodeId: next.enrollment.node_id })));
       }
       accept(next);
     } catch (error) {
