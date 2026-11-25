@@ -285,9 +285,11 @@ func TestOpenMovesLogEntriesOfThePreviousSchema(t *testing.T) {
 func TestClearingTheLogShrinksItsFiles(t *testing.T) {
 	ctx := testContext(t)
 	db := openTestStore(t, ctx)
+	// Few rows of the longest kind fill the file in time under the race detector.
+	const entries = 200
 	message := strings.Repeat("A long diagnostic message. ", 120)
 	base := time.Now().Add(-time.Hour)
-	for index := range 2000 {
+	for index := range entries {
 		entry := logFixture(fmt.Sprintf("log_%04d", index), base.Add(time.Duration(index)*time.Millisecond), LogSourcePanel, LogLevelInfo)
 		entry.Message = message
 		if _, err := db.AppendLogEntry(ctx, entry); err != nil {
@@ -295,10 +297,10 @@ func TestClearingTheLogShrinksItsFiles(t *testing.T) {
 		}
 	}
 	before, err := db.LogUsage(ctx)
-	if err != nil || before.Entries != 2000 {
+	if err != nil || before.Entries != entries {
 		t.Fatalf("usage before = %+v, %v", before, err)
 	}
-	if deleted, err := db.ClearLogEntries(ctx, LogClearFilter{}); err != nil || deleted != 2000 {
+	if deleted, err := db.ClearLogEntries(ctx, LogClearFilter{}); err != nil || deleted != entries {
 		t.Fatalf("cleared %d, %v", deleted, err)
 	}
 	if err := db.CompactLogs(ctx); err != nil {
