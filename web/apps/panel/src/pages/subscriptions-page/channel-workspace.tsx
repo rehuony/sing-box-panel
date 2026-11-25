@@ -33,8 +33,8 @@ import type {
 
 import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
-import { StripDivider } from '@/components/title-strip';
 import { ToolbarActions } from '@/components/workspace-toolbar';
+import { StripAction, StripDivider } from '@/components/title-strip';
 import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
 
 import type { ChannelGroupTab } from './channel-group-editor';
@@ -196,18 +196,12 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
             <span className='min-w-0 truncate text-sm font-semibold' title={name}>{name}</span>
             <span className='flex h-5 flex-none items-center rounded-[var(--radius-pill)] border px-2 font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]'>{format}</span>
           </div>
-          {/* Icon actions named by their tooltips, from looking to changing; saving stands apart after a divider. */}
+          {/* Actions from looking to changing; saving stands apart after a divider. */}
           <div className='ms-auto flex flex-none items-center gap-2'>
-            <IconAction disabled={busy} label={t('channels.preview')} onClick={() => void showPreview()} variant='flat'>
-              <Eye aria-hidden='true' />
-            </IconAction>
-            <IconAction disabled={busy} label={t('channels.distribution')} onClick={() => setOptionsOpen(true)} variant='flat'>
-              <Settings2 aria-hidden='true' />
-            </IconAction>
+            <StripAction disabled={busy} icon={<Eye aria-hidden='true' data-icon='inline-start' />} label={t('channels.preview')} onClick={() => void showPreview()} />
+            <StripAction disabled={busy} icon={<Settings2 aria-hidden='true' data-icon='inline-start' />} label={t('channels.distribution')} onClick={() => setOptionsOpen(true)} />
             <StripDivider />
-            <IconAction disabled={busy || conflict || !dirty} label={t('channels.save')} onClick={() => void save()} variant='flat'>
-              <Save aria-hidden='true' />
-            </IconAction>
+            <StripAction disabled={busy || conflict || !dirty} icon={<Save aria-hidden='true' data-icon='inline-start' />} label={t('channels.save')} onClick={() => void save()} />
           </div>
         </div>
       </ToolbarActions>

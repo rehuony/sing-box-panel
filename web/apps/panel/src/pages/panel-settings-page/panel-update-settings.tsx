@@ -20,7 +20,7 @@ import {
 import type { SystemUpdate } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
-import { IconAction } from '@/components/icon-action';
+import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { usePanelUpdate } from '@/hooks/use-panel-update';
 import { describeRequestError } from '@/components/error-notice';
@@ -69,11 +69,13 @@ export function PanelUpdateSettings({ children }: { children: ReactNode }) {
       actions={unsupported
         ? null
         : (
-            <IconAction label={t(check.isPending ? 'panelSettings.checking' : 'panelSettings.checkUpdate')} onClick={() => {
-              if (!busy) check.mutate();
-            }} size='icon-xs'>
-              <RefreshCw aria-hidden='true' className={check.isPending ? 'animate-spin' : undefined} />
-            </IconAction>
+            <StripAction
+              icon={<RefreshCw aria-hidden='true' className={check.isPending ? 'animate-spin motion-reduce:animate-none' : undefined} data-icon='inline-start' />}
+              label={t(check.isPending ? 'panelSettings.checking' : 'panelSettings.checkUpdate')}
+              onClick={() => {
+                if (!busy) check.mutate();
+              }}
+            />
           )}
       title={t('panelSettings.updates')}
     >

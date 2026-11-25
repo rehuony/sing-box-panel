@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
-import { ArrowDownToLine, Eraser, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
+import { Eraser, ListEnd, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@shared/components/ui/alert-dialog';
 
 import { IconAction } from '@/components/icon-action';
@@ -132,15 +132,32 @@ export function NodeLogsPage() {
       </AlertDialog>
       <div className='relative flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
         <CardToolbar>
-          <SelectField
-            aria-label={t('productLogs.file')}
-            className='max-w-56 min-w-0 flex-none'
-            disabled={mutating}
-            items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
-            onValueChange={log.selectFile}
-            value={log.file}
-            variant='flat'
-          />
+          {/* What the view shows: the file, led by whether it is live, then its level. */}
+          <div className='flex min-w-0 flex-none items-center'>
+            <Tooltip>
+              <TooltipTrigger render={(
+                <span
+                  className='inline-flex h-(--control-height-sm) w-4 flex-none items-center justify-center rounded-[var(--radius-control)] text-muted-foreground data-[state=live]:text-[var(--color-success)]'
+                  data-state={state}
+                  role='status'
+                  aria-label={t(`productLogs.${state}`)}
+                  tabIndex={0}
+                />
+              )}>
+                <i aria-hidden='true' className='size-2 rounded-full bg-current' />
+              </TooltipTrigger>
+              <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
+            </Tooltip>
+            <SelectField
+              aria-label={t('productLogs.file')}
+              className='-ms-1 max-w-56 min-w-0 flex-none'
+              disabled={mutating}
+              items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
+              onValueChange={log.selectFile}
+              value={log.file}
+              variant='flat'
+            />
+          </div>
           <SelectField
             active={level !== ''}
             aria-label={t('productLogs.level')}
@@ -154,20 +171,6 @@ export function NodeLogsPage() {
           <StripSearch className='max-sm:order-last max-sm:basis-full' label={t('productLogs.search')} onValueChange={setSearch} value={search} />
           <StripDivider className='max-sm:hidden' />
           <div className='flex items-center gap-0.5 max-sm:ms-auto' role='group' aria-label={t('productLogs.actions')}>
-            <Tooltip>
-              <TooltipTrigger render={(
-                <span
-                  className='inline-flex size-(--control-height-sm) items-center justify-center rounded-[var(--radius-control)] text-muted-foreground data-[state=live]:text-[var(--color-success)]'
-                  data-state={state}
-                  role='status'
-                  aria-label={t(`productLogs.${state}`)}
-                  tabIndex={0}
-                />
-              )}>
-                <i aria-hidden='true' className='size-2 rounded-full bg-current' />
-              </TooltipTrigger>
-              <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
-            </Tooltip>
             <IconAction
               aria-pressed={canToggle && !log.paused}
               disabled={!canToggle || mutating}
@@ -187,8 +190,10 @@ export function NodeLogsPage() {
               }}
               variant='flat'
             >
-              <ArrowDownToLine aria-hidden='true' />
+              <ListEnd aria-hidden='true' />
             </IconAction>
+            {/* Icons named by their tooltips: the view's controls, then after a divider the file's. */}
+            <StripDivider className='mx-1' />
             <IconAction
               disabled={!log.file || mutating}
               label={t('productLogs.clearDescription')}

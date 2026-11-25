@@ -12,6 +12,7 @@ import type { SubscriptionRule, SubscriptionRuleSet } from '@/api/api-client';
 import { ApiRequestError } from '@/api/api-client';
 import { messageLine } from '@/utils/message-line';
 import { IconAction } from '@/components/icon-action';
+import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
@@ -125,12 +126,8 @@ export function RuleSetEditor({ onDelete, onRename, ruleSet }: {
             {[ruleSet.client, t('subscriptions.ruleSets.ruleCount', { count: current.length }), usedBy].join(' · ')}
           </p>
         </div>
-        <IconAction label={t('subscriptions.ruleSets.rename')} onClick={() => onRename(name, setName)}>
-          <PencilLine aria-hidden='true' />
-        </IconAction>
-        <IconAction label={t('subscriptions.ruleSets.delete')} onClick={() => onDelete(ruleSet)}>
-          <Trash2 aria-hidden='true' />
-        </IconAction>
+        <StripAction icon={<PencilLine aria-hidden='true' data-icon='inline-start' />} label={t('subscriptions.ruleSets.rename')} onClick={() => onRename(name, setName)} />
+        <StripAction icon={<Trash2 aria-hidden='true' data-icon='inline-start' />} label={t('subscriptions.ruleSets.delete')} onClick={() => onDelete(ruleSet)} />
         <Button
           aria-busy={save.isPending || undefined}
           disabled={!dirty || (parsed !== null && parsed.errors.length > 0)}
