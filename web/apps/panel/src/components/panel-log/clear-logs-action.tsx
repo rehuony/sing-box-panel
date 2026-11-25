@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Eraser } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { EM_DASH, formatBytes } from '@shared/lib/telemetry-format';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,27 +15,35 @@ import {
   AlertDialogTitle,
 } from '@shared/components/ui/alert-dialog';
 
+import type { LogScope } from '@/api/api-client';
+
+import { IconAction } from '@/components/icon-action';
+import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 
 /**
- * The log's clear action and its confirmation. The dialog reads how many
- * entries the log holds and how much disk it takes now when it opens; what
+ * The clear action of the log in one scope, the panel's own entries or one
+ * node's events, and its confirmation. The dialog reads how many entries the
+ * scope holds and how much disk the whole log takes now when it opens; what
  * clearing frees is only known after it, so the toast says that. Clearing
- * deletes every entry, whatever the strip filters, and leaves runtime states.
+ * deletes every entry in the scope, whatever the strip filters, and leaves
+ * other scopes and runtime states. In a node's logs window the action is an
+ * eraser named by its tooltip, like the core log's own clear.
  */
-export function ClearLogsAction() {
+export function ClearLogsAction({ className, scope }: { className?: string; scope: LogScope }) {
   const { i18n, t } = useTranslation();
   const client = useApiClient();
   const cache = useQueryClient();
   const [open, setOpen] = useState(false);
+  const kind = 'nodeID' in scope ? 'node' : 'panel';
   const usage = useQuery({
-    queryKey: ['logUsage'],
-    queryFn: ({ signal }) => client.getLogUsage(signal),
+    queryKey: ['logUsage', 'nodeID' in scope ? scope.nodeID : 'panel'],
+    queryFn: ({ signal }) => client.getLogUsage(scope, signal),
     enabled: open, gcTime: 0, staleTime: 0,
   });
   const clear = useMutation({
-    mutationFn: () => client.clearPanelLogs(),
+    mutationFn: () => client.clearPanelLogs(scope),
     onError: error => toast.add({ description: describeRequestError(error), title: t('productLogs.clearLogs.failed'), type: 'error' }),
     onSuccess: (result) => {
       toast.add({
@@ -51,10 +58,20 @@ export function ClearLogsAction() {
   const known = usage.data;
   return (
     <>
-      <Button className='max-sm:w-(--control-height-sm) max-sm:px-0' onClick={() => setOpen(true)} size='sm' variant='flat'>
-        <Trash2 aria-hidden='true' data-icon='inline-start' />
-        <span className='max-sm:sr-only'>{t('productLogs.clearLogs.action')}</span>
-      </Button>
+      {kind === 'node'
+        ? (
+            <IconAction className={className} label={t('productLogs.clearLogs.nodeTitle')} onClick={() => setOpen(true)} variant='flat'>
+              <Eraser aria-hidden='true' />
+            </IconAction>
+          )
+        : (
+            <StripAction
+              className={className}
+              icon={<Eraser aria-hidden='true' data-icon='inline-start' />}
+              label={t('productLogs.clearLogs.action')}
+              onClick={() => setOpen(true)}
+            />
+          )}
       <AlertDialog
         onOpenChange={(next) => {
           if (!clear.isPending) setOpen(next);
@@ -63,10 +80,10 @@ export function ClearLogsAction() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('productLogs.clearLogs.title')}</AlertDialogTitle>
+            <AlertDialogTitle>{t(`productLogs.clearLogs.${kind}Title`)}</AlertDialogTitle>
             <AlertDialogDescription className='flex flex-col gap-1'>
               <span>
-                {t('productLogs.clearLogs.description', {
+                {t(`productLogs.clearLogs.${kind}Description`, {
                   count: known?.entries ?? 0,
                   entries: known ? known.entries : EM_DASH,
                   size: known ? formatBytes(known.bytes, i18n.resolvedLanguage) : EM_DASH,

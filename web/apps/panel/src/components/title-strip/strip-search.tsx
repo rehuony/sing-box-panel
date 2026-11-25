@@ -21,21 +21,22 @@ const POINTER_FOCUS_MS = 1_000;
 
 /**
  * A bar's search: an icon and a flat field that takes the room between its
- * dividers, on the raised surface while focused and ringed when the keyboard
- * brought focus there, with a clear action while it holds text. Forms keep
- * the bordered field.
+ * dividers. While focused it becomes a field, opaque with a strong hairline
+ * and the icon in the text colour, the hairline turning to the accent when
+ * the keyboard brought focus there; a clear action shows while it holds text.
+ * Forms keep the bordered field.
  */
 export function StripSearch({ className, label, onValueChange, ref, value }: StripSearchProps) {
   const { t } = useTranslation();
   const pressedAtRef = useRef(Number.NEGATIVE_INFINITY);
-  const [keyboardFocus, setKeyboardFocus] = useState(false);
+  const [focus, setFocus] = useState<'keyboard' | 'pointer' | null>(null);
   return (
     <div
       className={cn(
-        'flex h-(--control-height-sm) min-w-0 flex-1 cursor-text items-center gap-2 rounded-[var(--radius-control)] ps-2.5 pe-0.5 text-muted-foreground transition-colors hover:bg-[var(--color-hover)] has-[input:focus]:bg-[var(--color-hover)] data-keyboard-focus:ring-2 data-keyboard-focus:ring-ring',
+        'flex h-(--control-height-sm) min-w-0 flex-1 cursor-text items-center gap-2 rounded-[var(--radius-control)] border border-transparent ps-2.5 pe-0.5 text-muted-foreground transition-colors data-focus:bg-[var(--color-field)] data-focus:text-foreground data-[focus=keyboard]:border-primary data-[focus=pointer]:border-[var(--color-border-strong)]',
         className,
       )}
-      data-keyboard-focus={keyboardFocus || undefined}
+      data-focus={focus ?? undefined}
       onPointerDown={(event) => {
         pressedAtRef.current = event.timeStamp;
         // A press on the icon or the free space puts the caret in the field.
@@ -52,10 +53,10 @@ export function StripSearch({ className, label, onValueChange, ref, value }: Str
         onBlur={() => {
           // A press counts only toward the focus it brought.
           pressedAtRef.current = Number.NEGATIVE_INFINITY;
-          setKeyboardFocus(false);
+          setFocus(null);
         }}
         onChange={event => onValueChange(event.target.value)}
-        onFocus={event => setKeyboardFocus(event.timeStamp - pressedAtRef.current > POINTER_FOCUS_MS)}
+        onFocus={event => setFocus(event.timeStamp - pressedAtRef.current > POINTER_FOCUS_MS ? 'keyboard' : 'pointer')}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && value !== '') {
             event.preventDefault();

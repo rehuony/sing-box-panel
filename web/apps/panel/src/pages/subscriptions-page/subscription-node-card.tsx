@@ -127,7 +127,7 @@ export const PoolNodeCard = memo(({ index, node, onOpen, sortable }: PoolNodeCar
         aria-roledescription={t('subscriptions.pool.sortableCard')}
         className={cn(
           face,
-          'cursor-grab touch-pan-y bg-[var(--color-surface-translucent)] outline-none select-none transition-colors duration-[var(--dur-short)] ease-out hover:border-[var(--color-border-strong)] focus-visible:border-primary',
+          'cursor-pointer touch-pan-y bg-[var(--color-surface-translucent)] outline-none select-none transition-colors duration-[var(--dur-short)] ease-out hover:border-[var(--color-border-strong)] focus-visible:border-primary',
           isDragging && dropSlotCard,
         )}
         data-dragging={isDragging || undefined}

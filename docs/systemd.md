@@ -45,12 +45,13 @@ executable and state: `/usr/local/bin/sing-box-panel` with settings
 `/etc/sing-box-panel/setting.json`, and `/usr/local/bin/sing-box-node` with
 settings `/etc/sing-box-node/setting.json`. Data defaults to
 `/var/lib/sing-box-panel` and `/var/lib/sing-box-node`;
-a configured dedicated directory is rendered into the unit, the [update
-helper](#update-helper)'s units and the tmpfiles rule. It creates
+a configured dedicated directory is rendered into the unit, its [install
+step](#updates) and the tmpfiles rule. It creates
 the dedicated account/directories, assigns ownership of the
-state and data paths, reloads systemd, enables the unit, and enables and starts
-the update helper's path unit. User scope
-writes only the current user's XDG systemd unit.
+state and data paths, reloads systemd and enables the unit. It also stops and
+removes `NAME-update.path` and `NAME-update.service`, the update helper units
+of earlier releases, when they carry the installer's mark, as `uninstall`
+does. User scope writes only the current user's XDG systemd unit.
 
 Installing either service creates missing settings and prints the generated
 password once, so `install --now` starts it at once. A node starts unenrolled
@@ -193,8 +194,7 @@ Unresolvable or unsafe data locations must be repaired, or use `--keep-user`.
 single effective `[Service] ExecStart` line of the unit file on disk (its
 `--config`) and the data directory that settings file selects, plus, for the
 panel, the database and configuration storage declared by that settings file
-as it exists now. The panel CLI's own `--config` path is listed separately. In
-system scope it also reports the update helper's two units. Nonempty drop-ins,
+as it exists now. The panel CLI's own `--config` path is listed separately. Nonempty drop-ins,
 including global `service.d/` ones that some container hosts add to every
 service, unreadable units, several effective commands, or
 unresolved specifiers leave the unit-file settings path unknown rather than
@@ -225,8 +225,6 @@ templates directory above:
 | Source | Destination |
 | --- | --- |
 | `system/NAME.service` | `/usr/lib/systemd/system/NAME.service` |
-| `system/NAME-update.path` | `/usr/lib/systemd/system/NAME-update.path` |
-| `system/NAME-update.service` | `/usr/lib/systemd/system/NAME-update.service` |
 | `sysusers.d/NAME.conf` | `/usr/lib/sysusers.d/NAME.conf` |
 | `tmpfiles.d/NAME.conf` | `/usr/lib/tmpfiles.d/NAME.conf` |
 
@@ -273,38 +271,43 @@ systemctl show sing-box-node -p User -p Group -p CapabilityBoundingSet -p Ambien
 
 Review customized units before replacement.
 
-## Update helper
+## Updates
 
 A system service runs as its dedicated account under `ProtectSystem=strict`, so
-it cannot replace its own executable in `/usr/local/bin`. Each system
-installation therefore keeps two companion units beside its service unit, which
-`systemd install`, `uninstall` and `status` cover with it:
+it cannot replace its own executable in `/usr/local/bin`. Its unit installs the
+release for it, with no other unit:
 
-- `NAME-update.path` watches `updates/request` in the service's data directory. Installation enables and starts it whether or not the service starts; uninstallation disables and stops it before the service, so no update starts while the service is removed.
-- `NAME-update.service` is a root oneshot that the path unit starts. It runs `sing-box-node update --apply-staged --data-dir DIR` or `sing-box-panel update --apply-staged --data-dir DIR`, with the data directory written into the unit at installation, never read from the service's settings.
+```ini
+ExecStartPre=-+/usr/local/bin/sing-box-panel update --apply-staged --data-dir /var/lib/sing-box-panel
+SuccessExitStatus=75
+RestartForceExitStatus=75
+```
 
 The service downloads and verifies a release itself, stages it in
 `updates/VERSION/` (the binary for its platform, `SHA256SUMS` and
-`SHA256SUMS.sig`) and then writes `updates/request`, holding only the version.
-The helper treats everything in the data directory as the service account's:
+`SHA256SUMS.sig`), writes `updates/request`, holding only the version, and
+stops the way a stop does with exit status 75. systemd counts that status as
+success and starts the service again after `RestartSec`. Before the service
+starts, the install step runs `sing-box-node update --apply-staged --data-dir
+DIR` or `sing-box-panel update --apply-staged --data-dir DIR`, with the data
+directory written into the unit at installation, never read from the service's
+settings. Without a request it ends at once.
 
-- It removes the request before any work, so a failed attempt does not start again, and accepts its content only as one strict release version, which it compares with the entries of `updates/` and never uses as a path.
+The `+` runs the step as root and outside the unit's sandbox, since it writes
+the executable's directory; the `-` lets the service start whatever the step's
+outcome. The step treats everything in the data directory as the service
+account's:
+
+- It removes the request before any work, so a failed attempt does not run again, and accepts its content only as one strict release version, which it compares with the entries of `updates/` and never uses as a path.
 - It opens the data directory and everything below it without following a symbolic link, reads only regular files within their size bounds, and copies the staged files into a new directory beside the executable, which only root writes, before reading them.
 - It verifies the copies with the release key embedded in the installed binary, which it runs as: the signature over the version and checksums, the binary's checksum, its Go command, module and platform, and a version newer than its own. An equal or older version is refused.
-- It installs under the executable's update lock, keeping the replaced binary as `NAME.previous`, restarts the service and waits up to 30 seconds for systemd to report it active for 5 seconds in a row. Otherwise it restores `NAME.previous` and restarts the service again.
-- A service whose request is still there two minutes after it staged the release concludes that the helper did not start, for example because its path unit is disabled or hit systemd's start limit: it withdraws the request and the staged release and records a failed attempt with the code `helper_unavailable`, so the panel's update returns to idle and a node reports the attempt. A request that is gone means the helper took it, and the service waits for its result.
-- It writes `updates/result` (version, success or a short failure code, and time) through the directory's descriptor, as a new file renamed into place, before each restart, so the service that starts reads the outcome; a refused release is recorded without a restart, and the running service picks the result up within seconds. The panel shows it and records it in its log, and a node reports it in its state report.
+- It installs atomically while it holds a lock on the executable itself. Updates go one way: the replaced binary is not kept, and nothing stays beside the executable but the executable. An install also removes `NAME.previous` and `.NAME.update.lock`, which earlier releases left there, and temporary files an interrupted update left more than an hour ago.
+- It writes `updates/result` (version, success or a short failure code, and time) through the directory's descriptor, as a new file renamed into place, mode 0644, so the service that starts next reads the outcome. The panel shows it and records it in its log, and a node reports it in its state report.
 
-The helper unit is hardened like the service units: `NoNewPrivileges`,
-`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`,
-`ProtectProc=invisible`, the kernel, clock, hostname and control-group
-protections, `RestrictNamespaces`, `RestrictSUIDSGID`, `MemoryDenyWriteExecute`
-and `LockPersonality`. It has no network (`PrivateNetwork=true`) and may open
-only Unix sockets, which it needs to ask systemd to restart the service. Its
-only capability is `CAP_DAC_OVERRIDE`, to read and write the service account's
-private updates directory, and it may write only the executable's directory and
-the data directory (`ReadWritePaths`). Its `UMask` is `0022` and it gives the
-result mode 0644, so the service can read it.
+A service that starts with `updates/request` still in place has a unit without
+the install step, such as one an earlier release wrote: it withdraws the request
+and the staged release and records a failed attempt with the code
+`install_step_missing`. Rewrite the unit with `systemd install`.
 
 A user service and a process in the foreground replace their executable
 themselves when they may write it; a user service then asks its manager to
@@ -356,9 +359,10 @@ refresh the unit and ownership, then restart the service. Until then
 `systemd status` warns that the unit was written by another release when its
 command line differs from the one this release writes, and `systemd start` and
 `restart` refuse it with the command that rewrites it, rather than letting
-systemd restart a process that rejects its arguments. An update through the
-root update helper keeps the unit, so a release that changes the command line
-fails to stay active there and the helper restores the previous binary.
+systemd restart a process that rejects its arguments. A system unit also
+counts as written by another release when it lacks this release's install
+step. An update keeps the unit and goes one way, so after a release that
+changes the command line, rerun `systemd install`.
 
 After editing the panel's `data_dir`, an explicit `systemd restart` coordinates a stopped
 relocation and refreshes generated working-directory, sandbox and tmpfiles paths.

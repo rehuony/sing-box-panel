@@ -6,16 +6,32 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 func TestExitCodeClassifiesCobraUsage(t *testing.T) {
 	if got := ExitCode(errors.New(`unknown command "wrong" for "sing-box-panel"`)); got != 2 {
 		t.Fatalf("ExitCode() = %d, want 2", got)
+	}
+}
+
+// A service that stops for systemd to start it again, such as to install a
+// staged update, exits with the status its system unit restarts on, silently.
+func TestServiceRestartExitsWithTheUnitsRestartStatus(t *testing.T) {
+	err := fmt.Errorf("serve: %w", systemd.ErrRestart)
+	if got := ExitCode(err); got != systemd.RestartExitStatus {
+		t.Fatalf("ExitCode() = %d, want %d", got, systemd.RestartExitStatus)
+	}
+	var output bytes.Buffer
+	if writeErr := WriteError(&output, &cobra.Command{Use: "test"}, err); writeErr != nil || output.Len() != 0 {
+		t.Fatalf("WriteError() wrote %q, %v; want nothing", output.String(), writeErr)
 	}
 }
 

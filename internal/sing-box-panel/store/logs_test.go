@@ -296,7 +296,7 @@ func TestClearingTheLogShrinksItsFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	before, err := db.LogUsage(ctx)
+	before, err := db.LogUsage(ctx, LogScope{})
 	if err != nil || before.Entries != entries {
 		t.Fatalf("usage before = %+v, %v", before, err)
 	}
@@ -306,7 +306,7 @@ func TestClearingTheLogShrinksItsFiles(t *testing.T) {
 	if err := db.CompactLogs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	after, err := db.LogUsage(ctx)
+	after, err := db.LogUsage(ctx, LogScope{})
 	if err != nil || after.Entries != 0 || after.Bytes >= before.Bytes/10 {
 		t.Fatalf("usage after = %+v (before %+v), %v", after, before, err)
 	}

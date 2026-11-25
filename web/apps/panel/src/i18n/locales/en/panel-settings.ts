@@ -58,8 +58,7 @@ export const panelSettings = {
   updating: 'Starting…',
   updateState: {
     updating: 'Downloading and verifying {{version}}…',
-    staged: '{{version}} is staged; the update helper installs it and restarts the panel.',
-    restarting: '{{version}} is installed; the panel is restarting.',
+    restarting: 'The panel is restarting into {{version}}.',
     restart_required: '{{version}} is installed. Restart the panel to run it.',
   },
   updateFailed: 'The update to {{version}} failed ({{code}}).',

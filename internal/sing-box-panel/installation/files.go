@@ -16,7 +16,8 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
+	"github.com/rehuony/sing-box-panel/internal/selfupdate"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
@@ -46,7 +47,8 @@ type Report struct {
 var knownDataPaths = []struct{ name, role string }{
 	{"artifact-cache", "verified core archives that nodes install from"},
 	{"imports", "staged core uploads"},
-	{fleet.IdentityFile, "TLS key and certificate for direct node connections"},
+	{releases.CacheDir, "verified node release of the panel's version that nodes update from"},
+	{selfupdate.UpdatesDir, "panel updates being received or staged, and the last update's outcome"},
 	{procctl.SocketName, "local process control"},
 	{store.LogsFile + "-shm", "log database shared memory"},
 	{store.LogsFile + "-wal", "log database write-ahead log"},

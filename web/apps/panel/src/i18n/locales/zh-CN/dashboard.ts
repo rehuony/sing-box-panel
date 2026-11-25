@@ -52,6 +52,7 @@ export const dashboard = {
       stopped: '已停止',
       unknown: '未知',
     },
+    now: '现在',
     title: '运行时间线',
   },
   trend: {

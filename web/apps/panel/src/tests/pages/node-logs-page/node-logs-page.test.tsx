@@ -1,20 +1,23 @@
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 
-import '@/i18n';
-import type { CoreLogChunk } from '@/api/api-client';
+import type { CoreLogChunk, NodeRuntimeTransition } from '@/api/api-client';
 
+import i18n from '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { createMockApiClient } from '@/tests/api/mock-api-client';
+import { CurrentNodeContext } from '@/stores/current-node.store';
 import { NodeLogsPage } from '@/pages/node-logs-page/node-logs-page';
+import { createMockApiClient, testNode } from '@/tests/api/mock-api-client';
 
-function show(client = createMockApiClient(), url = '/nodes/node_edge/logs') {
+function show(client = createMockApiClient(), url = `/nodes/${testNode.id}/logs#logs-core`) {
   render(
     <MemoryRouter initialEntries={[url]}>
       <ApiClientProvider client={client}>
-        <NodeLogsPage />
+        <CurrentNodeContext value={testNode}>
+          <NodeLogsPage />
+        </CurrentNodeContext>
       </ApiClientProvider>
     </MemoryRouter>,
   );
@@ -29,7 +32,57 @@ function waitForAbort(signal?: AbortSignal) {
 const file = '2026-09-19-000.log';
 
 describe('node core logs', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(async () => {
+    vi.useRealTimers();
+    await i18n.changeLanguage('en');
+  });
+  it('opens on the node\'s events and clears only them', async () => {
+    const user = userEvent.setup();
+    const client = show(createMockApiClient({
+      clearPanelLogs: vi.fn().mockResolvedValue({ deleted: 2, freed_bytes: 4096 }),
+      getLogUsage: vi.fn().mockResolvedValue({ entries: 2, bytes: 20_480 }),
+      listPanelLogs: vi.fn().mockResolvedValue({ items: [{
+        id: 'log:one', time: '2026-09-24T01:16:57Z', source: 'panel', level: 'info',
+        code: 'runtime.start.completed', message: 'Core start completed', metadata: { node_id: testNode.id },
+      }], total: 1 }),
+    }), `/nodes/${testNode.id}/logs`);
+    expect(await screen.findByRole('cell', { name: 'Core start operation completed' })).toBeVisible();
+    expect(client.listPanelLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: { nodeID: testNode.id } }), expect.any(AbortSignal),
+    );
+    expect(screen.queryByRole('columnheader', { name: 'Event source' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear node events' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Clear node events' });
+    expect(await within(dialog).findByText(/This deletes this node's 2 events/)).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Clear' }));
+    expect(client.clearPanelLogs).toHaveBeenCalledExactlyOnceWith({ nodeID: testNode.id });
+  });
+  it('lists the node\'s runtime states and their details without confusing them with operations', async () => {
+    const transition: NodeRuntimeTransition = {
+      id: 2, node_id: testNode.id, node_name: testNode.name, state: 'running', reason: 'start_succeeded',
+      occurred_at: '2026-09-24T01:16:57Z', pid: 123, process_started_at: '2026-09-24T01:16:57Z',
+      activation_bundle_id: 'bundle_current',
+    };
+    const client = show(createMockApiClient({
+      listFleetRuntimeHistory: vi.fn().mockResolvedValue({ items: [transition], total: 1 }),
+    }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Runtime states' }));
+    expect(await screen.findByRole('cell', { name: 'Core started' })).toBeVisible();
+    expect(client.listFleetRuntimeHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ nodeID: testNode.id }), expect.any(AbortSignal),
+    );
+    expect(screen.getByRole('cell', { name: 'Running' })).toBeVisible();
+    expect(screen.queryByText(/bundle_current/)).not.toBeInTheDocument();
+    await act(() => i18n.changeLanguage('zh-CN'));
+    expect(screen.queryByText('start_succeeded')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('table').querySelector('time')).toHaveAttribute('datetime', transition.occurred_at));
+    await userEvent.click(screen.getByRole('button', { name: '查看详情: 核心已启动' }));
+    const dialog = screen.getByRole('dialog', { name: '运行状态详情' });
+    expect(within(dialog).getByText(testNode.name)).toBeVisible();
+    const context = within(dialog).getByRole('region', { name: '事件上下文' });
+    expect(within(context).getByText('进程 ID')).toBeVisible();
+    expect(within(context).getByText('bundle_current')).toBeVisible();
+  });
   it('wires the live toggle to stream cancellation and resumption', async () => {
     const stream = vi.fn(async function* (_file: string, offset = -1, _generation?: string, signal?: AbortSignal) {
       const chunk: CoreLogChunk = {

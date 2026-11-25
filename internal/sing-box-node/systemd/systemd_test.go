@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -135,6 +136,16 @@ func TestSystemInstallCreatesSettingsStartsTheNodeAndGivesItsAccountTheFiles(t *
 	manager, runner, layout := fixture.manager, fixture.runner, fixture.layout
 	executable, settingsPath, dataDir := fixture.executable, fixture.settingsPath, fixture.dataDir
 	request := systemd.InstallRequest{Scope: systemd.ScopeSystem, StatePath: settingsPath, Now: true}
+	// The update helper units an earlier release installed go with this one.
+	unitDir := filepath.Dir(layout.SystemUnitPath)
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range retiredUnits {
+		if err := os.WriteFile(filepath.Join(unitDir, unit), []byte("# Managed by sing-box-node system install.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	// The console is always on, so a new node starts at once and waits to be
 	// enrolled; installing creates its settings with a console password.
@@ -149,17 +160,28 @@ func TestSystemInstallCreatesSettingsStartsTheNodeAndGivesItsAccountTheFiles(t *
 		{"chown", "--recursive", "--no-dereference", "sing-box-node:sing-box-node", dataDir},
 		{"chown", "sing-box-node:sing-box-node", settingsPath},
 		{"systemctl", "--no-ask-password", "enable", "--now", UnitName},
-		{"systemctl", "--no-ask-password", "enable", "--now", UpdatePathUnit},
+		{"systemctl", "--no-ask-password", "disable", "--now", Name + "-update.path"},
+		{"systemctl", "--no-ask-password", "stop", Name + "-update.service"},
 	}
-	// The root update helper watches the node's request and applies it with
-	// the installed executable.
-	for unit, line := range map[string]string{
-		UpdatePathUnit:    "PathExists=" + filepath.Join(dataDir, "updates", "request"),
-		UpdateServiceUnit: `ExecStart="` + executable + `" update --apply-staged --data-dir "` + dataDir + `"`,
+	// The unit installs a staged release with the installed executable before
+	// it starts the node again on the restart status.
+	content, err := os.ReadFile(layout.SystemUnitPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range []string{
+		`ExecStartPre=-+"` + executable + `" update --apply-staged --data-dir "` + dataDir + `"`,
+		"SuccessExitStatus=" + strconv.Itoa(systemd.RestartExitStatus),
+		"RestartForceExitStatus=" + strconv.Itoa(systemd.RestartExitStatus),
 	} {
-		content, err := os.ReadFile(filepath.Join(filepath.Dir(layout.SystemUnitPath), unit))
-		if err != nil || !slices.Contains(strings.Split(string(content), "\n"), line) {
-			t.Errorf("%s lacks %q: %v\n%s", unit, line, err, content)
+		if !slices.Contains(lines, line) {
+			t.Errorf("the unit lacks %q:\n%s", line, content)
+		}
+	}
+	for _, unit := range retiredUnits {
+		if _, err := os.Lstat(filepath.Join(unitDir, unit)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the retired %s remains: %v", unit, err)
 		}
 	}
 	for _, call := range want {
@@ -201,6 +223,23 @@ func TestUnitOfAnEarlierReleaseIsRefusedUntilInstallationRewritesIt(t *testing.T
 	if status, err := fixture.manager.Status(t.Context(), systemd.ScopeSystem); err != nil || status.UnitOutdated || status.UnitFileStatePath != fixture.settingsPath {
 		t.Fatalf("status after install = %+v, %v", status, err)
 	}
+	// A unit without the install step never installs a staged update.
+	installed, err := os.ReadFile(fixture.layout.SystemUnitPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(installed), "\n") {
+		if !strings.HasPrefix(line, "ExecStartPre=") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(fixture.layout.SystemUnitPath, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := fixture.manager.Status(t.Context(), systemd.ScopeSystem); err != nil || !status.UnitOutdated {
+		t.Fatalf("status without the install step = %+v, %v", status, err)
+	}
 }
 
 func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
@@ -227,24 +266,6 @@ func TestGeneratedUnitsWithSystemdAnalyze(t *testing.T) {
 				}
 				if output, err := exec.CommandContext(t.Context(), analyze, "verify", "--man=no", path).CombinedOutput(); err != nil {
 					t.Fatalf("systemd rejected generated unit: %v\n%s\n%s", err, output, unit)
-				}
-				if scope != systemd.ScopeSystem {
-					return
-				}
-				paths := []string{}
-				for _, companion := range Definition().Companions {
-					rendered, err := manager.RenderCompanion(companion, "/usr/bin/true", data)
-					if err != nil {
-						t.Fatal(err)
-					}
-					path := filepath.Join(dir, companion.Name)
-					if err := os.WriteFile(path, rendered, 0o600); err != nil {
-						t.Fatal(err)
-					}
-					paths = append(paths, path)
-				}
-				if output, err := exec.CommandContext(t.Context(), analyze, append([]string{"verify", "--man=no"}, paths...)...).CombinedOutput(); err != nil {
-					t.Fatalf("systemd rejected the update helper units: %v\n%s", err, output)
 				}
 			})
 		}

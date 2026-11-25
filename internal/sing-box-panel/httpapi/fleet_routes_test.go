@@ -54,7 +54,7 @@ func TestNodeRoutesConformToOpenAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, err := nodeapi.ParseEnrollmentCode(enrollment.Code)
-	if err != nil || code.Pin == "" || code.Endpoint != "127.0.0.1:3000" || code.Path != "" || enrollment.Name != "edge" {
+	if err != nil || code.URL != "http://127.0.0.1:3000" || enrollment.Name != "edge" {
 		t.Fatalf("enrollment = %+v, code %+v, %v", enrollment, code, err)
 	}
 	// The node exists once a host enrolls with its code; a canceled code

@@ -2,7 +2,7 @@ import { createStore, useStore } from 'zustand';
 import { replaceEqualDeep } from '@tanstack/react-query';
 import { use, useEffect, useRef, useState } from 'react';
 
-import type { DashboardStreamSnapshot, MetricsSnapshot, RuntimeStatus } from '@/api/api-client';
+import type { DashboardStreamSnapshot, MetricsSnapshot, RecentMetrics, RuntimeStatus } from '@/api/api-client';
 
 import { followStream } from '@/api/stream-connection';
 import { useApiClient } from '@/api/api-client-context';
@@ -19,6 +19,8 @@ export interface TrafficRates {
 }
 export interface LivePoint extends TrafficRates {
   at: number;
+  /** How long a stored sample's rates cover, in milliseconds; the stream's own readings leave it out. */
+  span?: number;
   connections: number | null;
 }
 export interface TelemetryState {
@@ -44,6 +46,36 @@ const noReadings = {
   runtimeError: null, trafficError: null, dashboardError: null,
   snapshot: null, runtimeStatus: null, dashboardSnapshot: null,
 } satisfies Partial<TelemetryState>;
+
+/** A stored sample as a point of the live window. */
+function storedPoint(sample: RecentMetrics['samples'][number]): LivePoint {
+  return {
+    at: Date.parse(sample.sampled_at),
+    connections: sample.active_connections,
+    downloadBytesPerSecond: sample.download_bytes_per_second,
+    uploadBytesPerSecond: sample.upload_bytes_per_second,
+    ...(sample.interval_seconds === null ? {} : { span: sample.interval_seconds * 1000 }),
+  };
+}
+
+/** How far apart a span without a running core draws its known zeros: as far as stored samples are. */
+const IDLE_STEP = 10_000;
+
+/**
+ * A span in which no core ran as known zeros, one every IDLE_STEP and one at
+ * its end, so the window drops only its oldest ones as it moves on.
+ */
+function idlePoints(idle: RecentMetrics['idle'][number]): LivePoint[] {
+  const from = Date.parse(idle.from);
+  const to = Date.parse(idle.to);
+  const zero = (at: number): LivePoint => ({
+    at, connections: 0, downloadBytesPerSecond: 0, span: IDLE_STEP, uploadBytesPerSecond: 0,
+  });
+  const points: LivePoint[] = [];
+  for (let at = from; at < to; at += IDLE_STEP) points.push(zero(at));
+  points.push(zero(to));
+  return points;
+}
 
 function trafficRates(snapshot: MetricsSnapshot): TrafficRates {
   const sample = snapshot.live_sample;
@@ -118,6 +150,21 @@ export function useTelemetryStore(online: boolean): TelemetryStore {
     let ratesExpireAt = 0;
     let interrupted = store.getState().liveTail.length > 0;
     store.setState({ rates: emptyRates });
+    // The window opens with the node's stored samples of the last two minutes
+    // and the spans in which its core did not run, older than anything the
+    // stream has brought, so re-entering a node or reloading shows what came
+    // before.
+    const recent = new AbortController();
+    void client.getRecentMetrics(recent.signal).then(({ idle, samples }) => {
+      if (recent.signal.aborted) return;
+      const tail = store.getState().liveTail;
+      const first = tail[0]?.at ?? Number.POSITIVE_INFINITY;
+      const stored = [...samples.map(storedPoint), ...idle.flatMap(idlePoints)]
+        .filter(point => point.at < first)
+        .sort((a, b) => a.at - b.at)
+        .filter((point, index, points) => index === 0 || point.at !== points[index - 1]!.at);
+      if (stored.length) store.setState({ liveTail: [...stored, ...tail] });
+    }).catch(() => undefined);
     const stop = followStream(signal => client.streamMetrics(signal), event => {
       receivedAt = Date.now();
       const state = store.getState();
@@ -163,6 +210,7 @@ export function useTelemetryStore(online: boolean): TelemetryStore {
       }
     }, 1000);
     return () => {
+      recent.abort();
       stop();
       clearInterval(freshness);
     };

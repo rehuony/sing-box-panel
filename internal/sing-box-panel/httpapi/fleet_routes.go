@@ -16,6 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -253,14 +254,25 @@ func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Reque
 	case "update":
 		// Updates run one node at a time: each must come back with the
 		// panel's version before the next starts, and a failure stops them.
+		// The panel's own update waits for the whole batch.
 		if _, err := handler.services.Releases.NodeVersion(); err != nil {
 			nodeUpdateProblem(err).write(w, request)
+			return
+		}
+		if handler.services.Releases.Status().State != releases.StateIdle {
+			nodeUpdateProblem(releases.ErrUpdateRunning).write(w, request)
 			return
 		}
 		command = func(ctx context.Context, node fleet.Node) error {
 			return handler.services.Fleet.UpdateNodeAndWait(ctx, node.ID)
 		}
-		run = handler.services.Fleet.RunSequential
+		run = func(ctx context.Context, nodes []fleet.BatchNode, command func(context.Context, fleet.Node) error, report func(fleet.BatchResult)) {
+			// A panel update that began since is refused to each node in turn.
+			if end, err := handler.services.Releases.BeginNodeUpdate(); err == nil {
+				defer end()
+			}
+			handler.services.Fleet.RunSequential(ctx, nodes, command, report)
+		}
 	default:
 		invalid("action must be start, stop, restart, install_core or update.")
 		return
@@ -474,8 +486,8 @@ func fleetProblem(err error) problemDetails {
 		return problemDetails{http.StatusPreconditionFailed, "node_settings_conflict", "Node settings changed", "Reload the node's settings before saving."}
 	case errors.Is(err, store.ErrNodeSettingsInvalid):
 		return problemDetails{http.StatusUnprocessableEntity, "node_settings_invalid", "Node settings invalid", err.Error()}
-	case errors.Is(err, fleet.ErrEndpointRequired):
-		return problemDetails{http.StatusConflict, "node_endpoint_required", "Node endpoint required", err.Error()}
+	case errors.Is(err, fleet.ErrNodeURLRequired):
+		return problemDetails{http.StatusConflict, "node_url_required", "Node URL required", err.Error()}
 	default:
 		return problemDetails{http.StatusInternalServerError, "node_operation_failed", "Node operation failed", "The node operation could not be completed."}
 	}

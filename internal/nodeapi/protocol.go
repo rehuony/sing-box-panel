@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package nodeapi holds the generated panel–node protocol code (sbp.node.v1),
-// its protocol version and the helpers both services use to build frames.
+// its protocol version, the WebSocket transport that carries its frames and
+// the helpers both services use to build them.
 package nodeapi
 
 import (
@@ -17,8 +18,7 @@ const (
 )
 
 // MaximumCoreSchemaBytes bounds the schema a node sends in CoreSchemaOutcome.
-// It leaves room for the result around it within the panel's 4 MiB frame
-// limit.
+// It leaves room for the result around it within MaximumFrameBytes.
 const MaximumCoreSchemaBytes = 3 << 20
 
 // NonceSize is the length of the random nonce in Challenge.

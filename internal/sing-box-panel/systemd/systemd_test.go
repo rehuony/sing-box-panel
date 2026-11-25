@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -185,7 +186,7 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Scope != systemd.ScopeSystem || result.Started || len(result.InstalledPaths) != 5 {
+	if result.Scope != systemd.ScopeSystem || result.Started || len(result.InstalledPaths) != 3 {
 		t.Fatalf("Install() = %+v", result)
 	}
 	wantCalls := []recordedCommand{
@@ -205,7 +206,6 @@ func TestSystemInstallRequiresRootAndConventionalLayout(t *testing.T) {
 		{name: "chown", args: []string{"--recursive", "--no-dereference", Name + ":" + Name, fixture.data}},
 		{name: "systemctl", args: []string{"--no-ask-password", "daemon-reload"}},
 		{name: "systemctl", args: []string{"--no-ask-password", "enable", UnitName}},
-		{name: "systemctl", args: []string{"--no-ask-password", "enable", "--now", UpdatePathUnit}},
 	}
 	if !reflect.DeepEqual(fixture.runner.calls, wantCalls) {
 		t.Fatalf("commands = %#v, want %#v", fixture.runner.calls, wantCalls)
@@ -482,4 +482,27 @@ func testStatusArgs(user bool) []string {
 func fileExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
+}
+
+// The system unit installs a release the panel staged before it starts the
+// panel again on the status the panel exits with for that.
+func TestSystemUnitInstallsAStagedUpdateBeforeThePanel(t *testing.T) {
+	manager, err := New(systemd.Options{Layout: systemd.Layout{UserUnitPath: "/nonexistent/user/" + UnitName}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := manager.Render(systemd.ScopeSystem, "/usr/local/bin/sing-box-panel", SystemSettingsPath, "/var/lib/sing-box-panel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(unit), "\n")
+	for _, want := range []string{
+		`ExecStartPre=-+"/usr/local/bin/sing-box-panel" update --apply-staged --data-dir "/var/lib/sing-box-panel"`,
+		"SuccessExitStatus=" + strconv.Itoa(systemd.RestartExitStatus),
+		"RestartForceExitStatus=" + strconv.Itoa(systemd.RestartExitStatus),
+	} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("the system unit lacks %q:\n%s", want, unit)
+		}
+	}
 }

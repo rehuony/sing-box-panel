@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Fragment, useEffect, useState } from 'react';
 import { CellMeter } from '@shared/components/cell-meter';
+import { trafficDirectionText, trafficValueText } from '@shared/lib/telemetry-format';
 
 /** How long a copy action shows that it copied. */
 const COPIED_MS = 1_500;
@@ -33,20 +34,28 @@ export function ReadoutParts({ children, className }: { children: ReactNode[]; c
   );
 }
 
-/** An upload and a download value, each after its arrow. */
-export function ReadoutUpDown({ download, upload }: { download: string; upload: string }) {
+/**
+ * A download and an upload value, as the panel puts them, each after its
+ * arrow in its direction's colour; a value takes that colour too unless it is
+ * zero. A value not known reads 0.
+ */
+export function ReadoutUpDown({ download, format, upload }: {
+  download: number | null;
+  upload: number | null;
+  format: (value: number) => string;
+}) {
   const { t } = useTranslation();
   return (
     <span className='inline-flex gap-x-3'>
       <span>
-        <span aria-hidden='true'>↑ </span>
-        <span className='sr-only'>{t('terminal.value.upload')}</span>
-        {upload}
+        <span aria-hidden='true' className={trafficDirectionText.download}>↓ </span>
+        <span className='sr-only'>{t('terminal.value.download')}</span>
+        <span className={trafficValueText('download', download)}>{format(download ?? 0)}</span>
       </span>
       <span>
-        <span aria-hidden='true'>↓ </span>
-        <span className='sr-only'>{t('terminal.value.download')}</span>
-        {download}
+        <span aria-hidden='true' className={trafficDirectionText.upload}>↑ </span>
+        <span className='sr-only'>{t('terminal.value.upload')}</span>
+        <span className={trafficValueText('upload', upload)}>{format(upload ?? 0)}</span>
       </span>
     </span>
   );

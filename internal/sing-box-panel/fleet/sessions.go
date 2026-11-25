@@ -50,7 +50,7 @@ type session struct {
 	pending map[string]chan *nodeapi.Result
 }
 
-func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream nodeapi.NodeService_ConnectServer) *session {
+func newSession(ctx context.Context, cancel context.CancelCauseFunc, stream *nodeapi.ConnectServer) *session {
 	var sendMu sync.Mutex
 	return &session{
 		ready: make(chan struct{}), metricsInterval: MetricsInterval,
@@ -140,15 +140,6 @@ func (registry *sessions) close(nodeID string, cause error) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	if current := registry.byNode[nodeID]; current != nil {
-		current.cancel(cause)
-		delete(registry.byNode, nodeID)
-	}
-}
-
-func (registry *sessions) closeAll(cause error) {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	for nodeID, current := range registry.byNode {
 		current.cancel(cause)
 		delete(registry.byNode, nodeID)
 	}

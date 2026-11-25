@@ -1,3 +1,4 @@
+import { logLine } from '@shared/components/terminal';
 import { toast } from '@shared/components/ui/toast-manager';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -53,6 +54,26 @@ describe('runBatch', () => {
     expect(lines[0]).toBe('Restart on 300 nodes…');
     expect(lines.filter(text => text === 'done')).toHaveLength(300);
     expect(lines.at(-1)).toBe('300 succeeded · 0 failed · 0 skipped');
+  });
+
+  it('leaves a later command\'s result alone and reports in a toast when its own was replaced', async () => {
+    const add = vi.spyOn(toast, 'add');
+    const release = deferred<void>();
+    const client = createMockApiClient({
+      runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* () {
+        await release.promise;
+        yield { result: { node_id: 'node_0', ok: true } };
+        yield { done: { failed: 0, skipped: 0, succeeded: 1, total: 1 } };
+      }),
+    });
+    useCommandSession.getState().setOpen(true);
+    const batch = runBatch({ cache, action: 'restart', client, nodes: fleet(1), t });
+    const session = useCommandSession.getState();
+    session.begin(logLine('muted', 'later'));
+    release.resolve();
+    await batch;
+    expect(texts()).toEqual(['later']);
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ description: '1 succeeded · 0 failed · 0 skipped', type: 'success' }));
   });
 
   it('says so when a batch stops before its summary', async () => {

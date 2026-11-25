@@ -37,7 +37,7 @@ func TestUpdateSourceFollowsTheEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved := settings.Enrollment{Endpoint: "panel.example:443", Path: "/node", PanelID: "panel", NodeID: "node", Key: key}
+	saved := settings.Enrollment{URL: "https://panel.example/node", PanelID: "panel", NodeID: "node", Key: key}
 	if err := settings.SaveEnrollment(dataDir, saved); err != nil {
 		t.Fatal(err)
 	}

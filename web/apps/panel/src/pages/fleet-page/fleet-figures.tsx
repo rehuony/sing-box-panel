@@ -23,7 +23,7 @@ export function FleetFigures({ figures }: { figures: Figures }) {
         <span className='text-muted-foreground'>{` / ${figures.total}`}</span>
       </KeyFigure>
       <KeyFigure label={t('fleet.figures.rates')} meta={t('fleet.figures.ratesMeta', { value: formatRate(combined, locale) })}>
-        <UpDown download={formatRate(download, locale)} upload={formatRate(upload, locale)} />
+        <UpDown download={download} format={value => formatRate(value, locale)} upload={upload} />
       </KeyFigure>
       <KeyFigure
         label={t('fleet.figures.connections')}
@@ -34,7 +34,9 @@ export function FleetFigures({ figures }: { figures: Figures }) {
       <KeyFigure
         help={t('fleet.usageHint')}
         label={t('fleet.figures.usage')}
-        meta={<UpDown download={formatBytes(figures.download, locale)} upload={formatBytes(figures.upload, locale)} />}
+        meta={(
+          <UpDown download={figures.download} format={value => formatBytes(value, locale)} upload={figures.upload} />
+        )}
       >
         {formatBytes(figures.download + figures.upload, locale)}
       </KeyFigure>

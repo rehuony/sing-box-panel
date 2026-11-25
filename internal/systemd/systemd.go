@@ -79,30 +79,27 @@ type Definition[T any] struct {
 	// the quoted state path.
 	Arguments func(quotedStatePath string) string
 	State     State[T]
-	// Companions are units a system installation keeps beside the service's
-	// unit, such as its root update helper, rendered with the executable
-	// and the data directory.
-	Companions []Companion
-	// CompanionArguments renders a companion's ExecStart arguments after
-	// the executable around the quoted data directory.
-	CompanionArguments func(quotedDataDir string) string
+	// PreStartArguments renders the arguments of the system unit's install
+	// step after the executable around the quoted data directory: the
+	// command its template's ExecStartPre runs as root before the service,
+	// which installs a release the service staged before it exited with
+	// RestartExitStatus. A template without ExecStartPre needs none.
+	PreStartArguments func(quotedDataDir string) string
+	// RetiredUnits name unit files that system installations by earlier
+	// releases kept beside the unit. Installation and uninstallation stop
+	// and remove those that carry the installation's mark, in this order,
+	// so a path unit listed first starts nothing more.
+	RetiredUnits []string
 }
 
-// Companion is a unit installed, inspected and removed with a system
-// service. In its audited template, ExecStart runs the executable with the
-// definition's CompanionArguments, ReadWritePaths names the executable's
-// directory and the data directory, and PathExists names Watch inside the
-// data directory; each directive is optional.
-type Companion struct {
-	// Name is the unit's file name, such as NAME-update.path.
-	Name     string
-	Template []byte
-	// Watch is the path inside the data directory that PathExists names.
-	Watch string
-	// Enable enables and starts the companion with the service; the others
-	// are started by an enabled companion.
-	Enable bool
-}
+// RestartExitStatus is the exit status with which a service asks systemd to
+// start it again, such as once it staged an update for its unit's install
+// step. Its system unit counts the status as success and restarts on it.
+const RestartExitStatus = 75
+
+// ErrRestart ends a service so that systemd starts it again: its process
+// exits with RestartExitStatus once it has stopped the way a stop does.
+var ErrRestart = errors.New("the service stops for systemd to start it again")
 
 // ScopeEnvironment is set by each service unit to its scope, so a service
 // knows how it is supervised.
@@ -325,18 +322,6 @@ type Status struct {
 	// release does not write, such as one an earlier release installed; the
 	// service may not start until installation rewrites it.
 	UnitOutdated bool `json:"unit_outdated"`
-	// Companions are systemd's view of the companion units of a system
-	// installation.
-	Companions []UnitState `json:"companions,omitempty"`
-}
-
-// UnitState is systemd's view of one companion unit.
-type UnitState struct {
-	Unit          string `json:"unit"`
-	LoadState     string `json:"load_state"`
-	ActiveState   string `json:"active_state"`
-	SubState      string `json:"sub_state"`
-	UnitFileState string `json:"unit_file_state"`
 }
 
 type ControlResult[T any] struct {

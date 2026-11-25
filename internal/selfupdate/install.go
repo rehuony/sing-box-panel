@@ -5,20 +5,22 @@ package selfupdate
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
 	"golang.org/x/mod/semver"
 )
 
-// PreviousSuffix names the binary an install replaced, kept beside the
-// executable so a failed update can be undone.
-const PreviousSuffix = ".previous"
+// staleTemporaryAge is how old a temporary file an update left beside the
+// executable must be before an install removes it: one that an interrupted
+// update left, not one an update in progress still uses.
+const staleTemporaryAge = time.Hour
 
 // Staged is a verified release binary in a staging directory.
 type Staged struct {
@@ -128,8 +130,8 @@ func openStaged(path string, maximum int64) (*os.File, error) {
 }
 
 // Install replaces the current executable with a verified staged binary,
-// atomically and under the update lock, keeping the replaced binary beside
-// it with PreviousSuffix.
+// atomically and under the update lock. An update goes one way: the
+// replaced binary is not kept.
 func (updater *Updater) Install(ctx context.Context, staged Staged) (Result, error) {
 	targetPath, targetMode, err := updater.executableTarget()
 	if err != nil {
@@ -157,6 +159,7 @@ func (updater *Updater) Install(ctx context.Context, staged Staged) (Result, err
 // against the verified digest, and renames it over the target, which must
 // still have targetDigest. The caller holds the update lock.
 func (updater *Updater) installLocked(ctx context.Context, staged Staged, targetPath string, targetMode os.FileMode, targetDigest [sha256.Size]byte) error {
+	removeLeftovers(targetPath, time.Now())
 	source, err := openStaged(staged.Path, MaxBinaryBytes)
 	if err != nil {
 		return err
@@ -201,93 +204,41 @@ func (updater *Updater) installLocked(ctx context.Context, staged Staged, target
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := keepPrevious(targetPath); err != nil {
-		return err
-	}
 	if err := os.Rename(temporaryPath, targetPath); err != nil {
 		return fmt.Errorf("replace current executable: %w", err)
 	}
 	return atomicfile.SyncDir(filepath.Dir(targetPath))
 }
 
-// keepPrevious links the current executable to its previous name, replacing
-// an older one, before an install replaces it.
-func keepPrevious(targetPath string) error {
-	candidate, err := os.CreateTemp(filepath.Dir(targetPath), "."+filepath.Base(targetPath)+"-previous-*")
-	if err != nil {
-		return fmt.Errorf("keep previous executable: %w", err)
-	}
-	candidatePath := candidate.Name()
-	defer func() { _ = os.Remove(candidatePath) }()
-	if err := candidate.Close(); err != nil {
-		return err
-	}
-	if err := os.Remove(candidatePath); err != nil {
-		return err
-	}
-	if err := os.Link(targetPath, candidatePath); err != nil {
-		if err := copyFile(targetPath, candidatePath); err != nil {
-			return fmt.Errorf("keep previous executable: %w", err)
+// removeLeftovers removes what earlier updates left beside the executable
+// at targetPath: the replaced binary and the lock file that releases before
+// one-way updates kept there, and temporary files of interrupted updates
+// older than staleTemporaryAge. It is best effort; nothing it fails to remove
+// stops an install.
+func removeLeftovers(targetPath string, now time.Time) {
+	directory, base := filepath.Dir(targetPath), filepath.Base(targetPath)
+	for _, retired := range []string{base + ".previous", "." + base + ".update.lock"} {
+		if info, err := os.Lstat(filepath.Join(directory, retired)); err == nil && info.Mode().IsRegular() {
+			_ = os.Remove(filepath.Join(directory, retired))
 		}
 	}
-	if err := os.Rename(candidatePath, targetPath+PreviousSuffix); err != nil {
-		return fmt.Errorf("keep previous executable: %w", err)
-	}
-	return nil
-}
-
-func copyFile(source, destination string) error {
-	input, err := os.Open(source)
+	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return err
+		return
 	}
-	defer input.Close()
-	info, err := input.Stat()
-	if err != nil {
-		return err
+	for _, entry := range entries {
+		name := entry.Name()
+		temporary := false
+		for _, prefix := range []string{"." + base + "-update-", "." + base + "-apply-", "." + base + "-previous-"} {
+			temporary = temporary || strings.HasPrefix(name, prefix)
+		}
+		if !temporary {
+			continue
+		}
+		if info, err := entry.Info(); err == nil && now.Sub(info.ModTime()) > staleTemporaryAge {
+			_ = os.RemoveAll(filepath.Join(directory, name))
+		}
 	}
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(output, input); err != nil {
-		_ = output.Close()
-		return err
-	}
-	if err := output.Sync(); err != nil {
-		_ = output.Close()
-		return err
-	}
-	return output.Close()
-}
-
-// RestorePrevious puts back the binary that the last install replaced,
-// under the update lock.
-func (updater *Updater) RestorePrevious(ctx context.Context) error {
-	targetPath, _, err := updater.executableTarget()
-	if err != nil {
-		return err
-	}
-	lock, err := acquireUpdateLock(ctx, targetPath)
-	if err != nil {
-		return fmt.Errorf("acquire update lock: %w", err)
-	}
-	defer func() { _ = lock.Close() }()
-	previous := targetPath + PreviousSuffix
-	info, err := os.Lstat(previous)
-	if errors.Is(err, os.ErrNotExist) {
-		return ErrNoPreviousExecutable
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%w: %s is not a regular file", ErrExecutableInvalid, previous)
-	}
-	if err := os.Rename(previous, targetPath); err != nil {
-		return fmt.Errorf("restore previous executable: %w", err)
-	}
-	return atomicfile.SyncDir(filepath.Dir(targetPath))
 }
 
 // Writable reports whether the process may replace its executable.

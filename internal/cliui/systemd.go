@@ -220,26 +220,18 @@ func UnitTitle(status systemd.Status, style Style) string {
 	return style.Title(status.Unit)
 }
 
-// UnitFields are systemd's view of the unit and its companions.
+// UnitFields are systemd's view of the unit.
 func UnitFields(status systemd.Status, style Style) []Field {
 	pid := ""
 	if status.MainPID > 0 {
 		pid = strconv.Itoa(status.MainPID)
 	}
-	fields := []Field{
+	return []Field{
 		{Label: "Scope", Value: string(status.Scope)},
 		{Label: "State", Value: unitState(status.ActiveState, status.SubState, status.UnitFileState)},
 		{Label: "PID", Value: pid},
 		{Label: "Unit file", Value: style.Path(status.UnitPath)},
 	}
-	for _, companion := range status.Companions {
-		label := strings.ReplaceAll(strings.TrimPrefix(companion.Unit, strings.TrimSuffix(status.Unit, ".service")+"-"), ".", " ")
-		if label != "" {
-			label = strings.ToUpper(label[:1]) + label[1:]
-		}
-		fields = append(fields, Field{Label: label, Value: unitState(companion.ActiveState, companion.SubState, companion.UnitFileState)})
-	}
-	return fields
 }
 
 // UnitNotes warn about a unit file systemd has not loaded or that an

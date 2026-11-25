@@ -47,13 +47,10 @@ type Status struct {
 
 // EnrollmentSummary is an enrollment without the node's key.
 type EnrollmentSummary struct {
-	Endpoint string
-	Path     string
-	PanelID  string
-	NodeID   string
-	// Pinned reports that the panel's certificate is pinned instead of
-	// verified by the system's certificate authorities.
-	Pinned bool
+	// URL is the panel's base URL.
+	URL     string
+	PanelID string
+	NodeID  string
 }
 
 // Link is a node's enrollment with its panel and the state of its session.
@@ -157,11 +154,8 @@ func (link *Link) setLocked(enrollment *settings.Enrollment) {
 	link.status = Status{State: ConnectionUnenrolled, Since: link.now()}
 	if enrollment != nil {
 		link.status = Status{
-			Enrollment: &EnrollmentSummary{
-				Endpoint: enrollment.Endpoint, Path: enrollment.Path, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID,
-				Pinned: enrollment.Pin != "",
-			},
-			State: ConnectionConnecting, Since: link.now(),
+			Enrollment: &EnrollmentSummary{URL: enrollment.URL, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID},
+			State:      ConnectionConnecting, Since: link.now(),
 		}
 	}
 }
@@ -243,7 +237,7 @@ func (link *Link) reconnect(ctx context.Context, generation uint64, enrollment s
 		wait := backoff/2 + mathrand.N(backoff/2+1)
 		retryAt := link.now().Add(wait)
 		link.report(generation, ConnectionDisconnected, describe(err), &retryAt)
-		logf("warn", "Session with panel %s ended: %s; reconnecting in %s", enrollment.Endpoint, describe(err), wait.Round(time.Second))
+		logf("warn", "Session with panel %s ended: %s; reconnecting in %s", enrollment.URL, describe(err), wait.Round(time.Second))
 		select {
 		case <-ctx.Done():
 			return
@@ -285,10 +279,10 @@ func (link *Link) reload(logf func(level, format string, args ...any)) bool {
 		return false
 	}
 	link.replace(&saved)
-	logf("info", "The saved enrollment changed; switching to node %s of the panel at %s%s", saved.NodeID, saved.Endpoint, saved.Path)
+	logf("info", "The saved enrollment changed; switching to node %s of the panel at %s", saved.NodeID, saved.URL)
 	return true
 }
 
 func sameEnrollment(a, b settings.Enrollment) bool {
-	return a.Endpoint == b.Endpoint && a.Path == b.Path && a.Pin == b.Pin && a.PanelID == b.PanelID && a.NodeID == b.NodeID && a.Key.Equal(b.Key)
+	return a.URL == b.URL && a.PanelID == b.PanelID && a.NodeID == b.NodeID && a.Key.Equal(b.Key)
 }

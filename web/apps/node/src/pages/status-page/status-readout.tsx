@@ -17,7 +17,7 @@ import type { ConsoleStatus, RuntimeReading } from '@/api/generated';
 
 import type { TrafficRates } from './status-format';
 
-import { connectionTone, panelAddress, percentOf } from './status-format';
+import { connectionTone, percentOf } from './status-format';
 
 /** The readout's rows, so the loading state holds their height. */
 const ROWS = 12;
@@ -63,7 +63,7 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
     const live = traffic?.live ?? null;
     // Without a running core nothing flows, so its rates are a known zero rather than unknown.
     const idle = live === null && runtime?.state === 'stopped';
-    const address = enrollment ? panelAddress(enrollment) : null;
+    const address = enrollment ? enrollment.panel_url : null;
     const memory = host ? percentOf(host.memory_used, host.memory_total) : null;
     const disk = host ? percentOf(host.disk_used, host.disk_total) : null;
     const retry = connection.retry_at === undefined ? null : Date.parse(connection.retry_at) - now;
@@ -85,7 +85,6 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
         </ReadoutRow>
         <ReadoutRow label={t('terminal.row.panel')}>{address ? <ReadoutCopyable label={t('terminal.row.panel')} value={address} /> : <ReadoutUnavailable />}</ReadoutRow>
         <ReadoutRow label={t('terminal.row.nodeId')}>{enrollment ? <ReadoutCopyable label={t('terminal.row.nodeId')} value={enrollment.node_id} /> : <ReadoutUnavailable />}</ReadoutRow>
-        <ReadoutRow label={t('terminal.row.trust')}>{enrollment ? t(`terminal.value.trust.${enrollment.trust}`) : <ReadoutUnavailable />}</ReadoutRow>
         <ReadoutRow label={t('terminal.row.core')}>
           {runtime
             ? (
@@ -102,40 +101,29 @@ export function StatusReadout({ now, rates, stale, status }: StatusReadoutProps)
               )
             : <ReadoutUnavailable />}
         </ReadoutRow>
+        {/* Traffic that is not known reads 0, never a dash; a running core without counters says why. */}
         <ReadoutRow label={t('terminal.row.traffic')}>
-          {live || idle
-            ? (
-                <ReadoutParts>
-                  {[
-                    <ReadoutUpDown
-                      download={formatRate(live ? rates?.download ?? null : 0, locale)}
-                      key='rates'
-                      upload={formatRate(live ? rates?.upload ?? null : 0, locale)}
-                    />,
-                    t('terminal.value.connections', { count: live?.connections ?? 0 }),
-                  ]}
-                </ReadoutParts>
-              )
-            : (
-                <ReadoutParts>
-                  {[
-                    <ReadoutUnavailable key='rates' />,
-                    runtime?.state === 'running'
-                      ? <span className='text-muted-foreground' key='why'>{t('terminal.value.noCounters')}</span>
-                      : null,
-                  ]}
-                </ReadoutParts>
-              )}
+          <ReadoutParts>
+            {[
+              <ReadoutUpDown
+                download={live ? rates?.download ?? null : 0}
+                format={value => formatRate(value, locale)}
+                key='rates'
+                upload={live ? rates?.upload ?? null : 0}
+              />,
+              t('terminal.value.connections', { count: live?.connections ?? 0 }),
+              !live && !idle && runtime?.state === 'running'
+                ? <span className='text-muted-foreground' key='why'>{t('terminal.value.noCounters')}</span>
+                : null,
+            ]}
+          </ReadoutParts>
         </ReadoutRow>
         <ReadoutRow label={t('terminal.row.total')}>
-          {traffic
-            ? (
-                <ReadoutUpDown
-                  download={formatBytes(traffic.download_bytes, locale)}
-                  upload={formatBytes(traffic.upload_bytes, locale)}
-                />
-              )
-            : <ReadoutUnavailable />}
+          <ReadoutUpDown
+            download={traffic?.download_bytes ?? 0}
+            format={value => formatBytes(value, locale)}
+            upload={traffic?.upload_bytes ?? 0}
+          />
         </ReadoutRow>
         <ReadoutRow label={t('terminal.row.cpu')}>
           {host

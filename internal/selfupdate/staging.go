@@ -20,7 +20,7 @@ import (
 
 // A service keeps its updates in UpdatesDir inside its data directory: an
 // incoming directory per release being received, the staged release
-// VERSION/ that a system service hands to its root update helper, the
+// VERSION/ that a system service hands to its unit's install step, the
 // request that names it, and the results of attempts.
 const (
 	UpdatesDir     = "updates"
@@ -32,14 +32,10 @@ const (
 	maxResultBytes = 4096
 )
 
-// HelperTimeout is how long a staged release waits for the root update
-// helper to take its request. The helper removes the request before any
-// work, so a request older than this means the helper did not start.
-const HelperTimeout = 2 * time.Minute
-
-// ErrHelperUnavailable records a staged release whose root update helper
-// did not take the request in time.
-var ErrHelperUnavailable = errors.New("the root update helper did not take the staged release")
+// ErrInstallStepMissing records a staged release that was still requested
+// when the service started again: its unit has no install step, as a unit
+// an earlier release wrote does not.
+var ErrInstallStepMissing = errors.New("the service's unit did not install the staged release; rewrite the unit with systemd install")
 
 // Delivery is how a verified release reached the running service.
 type Delivery string
@@ -49,8 +45,8 @@ const (
 	// version runs after the service restarts.
 	DeliveryInstalled Delivery = "installed"
 	// DeliveryStaged: a system service that may not replace its executable
-	// staged the release and requested its root update helper, which
-	// installs it and restarts the service.
+	// staged the release; its unit installs it when it starts the service
+	// again.
 	DeliveryStaged Delivery = "staged"
 )
 
@@ -65,7 +61,7 @@ func IncomingDir(updatesDir string) (string, error) {
 
 // Deliver installs a verified release in place when the process may replace
 // its executable. A system service that may not stages it in updatesDir for
-// its root update helper instead; staged must then have been received in an
+// its unit's install step instead; staged must then have been received in an
 // IncomingDir of updatesDir. Any other process fails with
 // ErrExecutableNotWritable.
 func (updater *Updater) Deliver(ctx context.Context, staged Staged, updatesDir string, systemService bool) (Delivery, error) {
@@ -88,9 +84,9 @@ func (updater *Updater) Deliver(ctx context.Context, staged Staged, updatesDir s
 	return DeliveryStaged, nil
 }
 
-// StageRelease moves the incoming directory holding staged to updatesDir/VERSION and
-// then writes the request that names it, the file a system service's root
-// update helper watches.
+// StageRelease moves the incoming directory holding staged to
+// updatesDir/VERSION and then writes the request that names it, which the
+// install step of a system service's unit reads when it starts the service.
 func StageRelease(staged Staged, updatesDir string) error {
 	incoming := filepath.Dir(staged.Path)
 	if filepath.Dir(incoming) != filepath.Clean(updatesDir) || !strings.HasPrefix(filepath.Base(incoming), incomingPrefix) {
@@ -164,8 +160,8 @@ type Attempt struct {
 }
 
 // TakeAttempt reads the last update attempt in updatesDir, if any. A result
-// that the root update helper wrote since the service last read one is
-// fresh: it moves to the last result, so each is fresh once.
+// that the install step wrote since the service last read one is fresh: it
+// moves to the last result, so each is fresh once.
 func TakeAttempt(updatesDir string) (*Attempt, bool, error) {
 	fresh := filepath.Join(updatesDir, resultName)
 	last := filepath.Join(updatesDir, lastResultName)
@@ -190,28 +186,21 @@ func TakeAttempt(updatesDir string) (*Attempt, bool, error) {
 	return attempt, false, nil
 }
 
-// WithdrawUnclaimed withdraws a staged release whose request the root
-// update helper has not taken HelperTimeout after it was written: it removes
-// the request and the staged release and records a failed attempt with the
-// code helper_unavailable, which it returns. A request that is gone means
-// the helper is working, and one younger than HelperTimeout may still be
-// taken; both return nil.
-func WithdrawUnclaimed(updatesDir string, now time.Time) (*Attempt, error) {
+// WithdrawUnapplied withdraws a staged release whose request is still there
+// when the service starts: the install step takes the request before the
+// service starts, so its unit has none. It removes the request and the staged
+// release and records a failed attempt with the code install_step_missing,
+// which it returns; nil means nothing was requested.
+func WithdrawUnapplied(updatesDir string, now time.Time) (*Attempt, error) {
 	request := filepath.Join(updatesDir, RequestName)
-	info, err := os.Lstat(request)
+	raw, err := os.ReadFile(request)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if now.Sub(info.ModTime()) < HelperTimeout {
-		return nil, nil
-	}
-	version := ""
-	if raw, err := os.ReadFile(request); err == nil {
-		version, _ = parseRequest(raw)
-	}
+	version, _ := parseRequest(raw)
 	if err := os.Remove(request); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -220,23 +209,8 @@ func WithdrawUnclaimed(updatesDir string, now time.Time) (*Attempt, error) {
 			return nil, err
 		}
 	}
-	attempt := Attempt{Version: version, Code: FailureCode(ErrHelperUnavailable), FinishedAt: now.UTC()}
+	attempt := Attempt{Version: version, Code: FailureCode(ErrInstallStepMissing), FinishedAt: now.UTC()}
 	return &attempt, RecordAttempt(updatesDir, attempt)
-}
-
-// TakeFreshAttempt returns a result the root update helper wrote since the
-// service last read one, moving it to the last result, or nil when there is
-// none. A running service calls it to learn of a staged release the helper
-// refused or of a restart it is about to receive.
-func TakeFreshAttempt(updatesDir string) (*Attempt, error) {
-	if _, err := os.Lstat(filepath.Join(updatesDir, resultName)); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	attempt, fresh, err := TakeAttempt(updatesDir)
-	if err != nil || !fresh {
-		return nil, err
-	}
-	return attempt, nil
 }
 
 // RecordAttempt saves an attempt the service itself made as the last result.
@@ -291,8 +265,8 @@ func validCode(code string) bool {
 // version_not_newer, unsupported, verification_key_invalid,
 // signature_invalid, checksum_invalid, identity_invalid,
 // staged_file_invalid, release_unavailable, release_invalid,
-// executable_changed, permission_denied, service_not_active,
-// helper_unavailable, or install_failed for anything else.
+// executable_changed, permission_denied, install_step_missing, or
+// install_failed for anything else.
 func FailureCode(err error) string {
 	for _, known := range []struct {
 		target error
@@ -315,8 +289,7 @@ func FailureCode(err error) string {
 		{ErrExecutableChanged, "executable_changed"},
 		{ErrExecutableNotWritable, "permission_denied"},
 		{fs.ErrPermission, "permission_denied"},
-		{ErrNotActive, "service_not_active"},
-		{ErrHelperUnavailable, "helper_unavailable"},
+		{ErrInstallStepMissing, "install_step_missing"},
 	} {
 		if errors.Is(err, known.target) {
 			return known.code

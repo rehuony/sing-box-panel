@@ -173,6 +173,34 @@ func (s *Store) LatestAcceptedTrafficSample(ctx context.Context, nodeID string) 
           ORDER BY sampled_at DESC, id DESC LIMIT 1`, nodeID))
 }
 
+// AcceptedTrafficSamplesSince returns the node's accepted samples taken at or
+// after since, oldest first.
+func (s *Store) AcceptedTrafficSamplesSince(ctx context.Context, nodeID string, since time.Time) ([]TrafficSample, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, activation_bundle_id, pid, process_start_token, sampled_at,
+               memory_bytes, active_connections, upload_total, download_total,
+               upload_delta, download_delta, interval_start, interval_end,
+               coverage, accepted, diagnostic_code
+          FROM traffic_samples WHERE node_id = ? AND sampled_at >= ? AND accepted = 1
+          ORDER BY sampled_at ASC, id ASC`, nodeID, formatTime(since))
+	if err != nil {
+		return nil, fmt.Errorf("query traffic samples: %w", err)
+	}
+	defer rows.Close()
+	samples := []TrafficSample{}
+	for rows.Next() {
+		sample, err := scanTrafficSample(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan traffic sample: %w", err)
+		}
+		samples = append(samples, sample)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate traffic samples: %w", err)
+	}
+	return samples, nil
+}
+
 // AggregateTrafficPeriod returns the node's recorded traffic in a range of
 // whole UTC days, or every node's when nodeID is empty.
 func (s *Store) AggregateTrafficPeriod(ctx context.Context, nodeID string, start, end, at time.Time) (TrafficPeriod, error) {

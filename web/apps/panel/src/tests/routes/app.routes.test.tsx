@@ -269,7 +269,11 @@ describe('application routes', () => {
 
     await user.keyboard(':');
     await user.type(screen.getByRole('combobox', { name: 'Command' }), 'nonsense{Enter}');
-    expect(screen.getByRole('log')).toHaveTextContent('command not found: nonsense');
+    const log = screen.getByRole('log');
+    expect(log).toHaveTextContent(/^command not found: nonsense$/);
+    // The next command's result replaces the last one, and neither echoes its line.
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'other{Enter}');
+    expect(log).toHaveTextContent(/^command not found: other$/);
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('combobox', { name: 'Command' })).not.toBeInTheDocument();
   });
@@ -289,6 +293,8 @@ describe('application routes', () => {
     expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'restart', node_ids: [testNode.id] }, expect.any(AbortSignal));
     await waitFor(() => expect(log).toHaveTextContent('1 succeeded · 0 failed · 0 skipped'));
     expect(log).toHaveTextContent(`${testNode.name}done`);
+    // The answer replaced the question with the batch's own result.
+    expect(log).not.toHaveTextContent('Restart 1 node');
   });
 
   it('selects panes without opening them and runs a batch on them after its confirmation', async () => {
@@ -355,7 +361,7 @@ describe('application routes', () => {
     renderRoutes('/', client);
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     act(() => {
-      useCommandSession.getState().print(logLine('plain', 'restart all'));
+      useCommandSession.getState().begin(logLine('plain', 'restart all'));
       useFleetView.getState().setFilter({ search: 'hk', tag: 'edge' });
     });
 

@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { QueryClient } from '@tanstack/react-query';
+import type { LogLine } from '@shared/components/terminal';
 
 import { logLine } from '@shared/components/terminal';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -44,19 +45,19 @@ interface BatchRun {
 }
 
 /**
- * Runs one action on the nodes and prints each node's result to the command
- * output as it arrives, then the summary. It is not tied to any view, so
- * leaving the command line or the window never cancels it; when the command
- * line is closed at the end, a toast carries the summary, or says that the
- * batch stopped reporting before it. One batch runs at a time, and signing
- * out stops following it: the panel still finishes it, but its lines never
- * reach the next session. Once it ends, the views of what it can change read
- * again.
+ * Runs one action on the nodes as the command line's next result: each
+ * node's outcome as it arrives, then the summary. It is not tied to any view,
+ * so leaving the command line or the window never cancels it; when its
+ * result is out of sight at the end, the line closed or the result replaced
+ * by a later command's, a toast carries the summary, or says that the batch
+ * stopped reporting before it. One batch runs at a time, and signing out
+ * stops following it: the panel still finishes it, but its lines never reach
+ * the next session. Once it ends, the views of what it can change read again.
  */
 export async function runBatch({ action, cache, client, exactVersion, nodes, t }: BatchRun): Promise<void> {
   const session = useCommandSession.getState();
   if (session.running) {
-    session.print(logLine('danger', t('command.batch.busy')));
+    session.begin(logLine('danger', t('command.batch.busy')));
     return;
   }
   const { generation } = session;
@@ -71,8 +72,9 @@ export async function runBatch({ action, cache, client, exactVersion, nodes, t }
   const names = new Map(nodes.map(item => [item.node.id, item.node.name]));
   const header = logLine('muted', t('command.batch.running', { action: label, count: nodes.length }), { pending: true });
   session.setRunning(true);
+  const shown = session.begin(header);
   session.reserve(nodes.length);
-  session.print(header);
+  const print = (line: LogLine) => session.print(shown, line);
   let summary: FleetCommandSummary | null = null;
   let failure: string | null = null;
   const nodeIDs = nodes.map(item => item.node.id);
@@ -90,9 +92,9 @@ export async function runBatch({ action, cache, client, exactVersion, nodes, t }
       }
       const { result } = event;
       const term = names.get(result.node_id) ?? result.node_id;
-      if (result.ok) session.print(logLine('success', t('command.batch.ok'), { term }));
-      else if (result.skipped) session.print(logLine('muted', t('command.batch.skipped'), { term }));
-      else session.print(logLine('danger', t('command.batch.failed', { reason: describeProblem(result.code, result.title ?? result.code ?? '') }), { term }));
+      if (result.ok) print(logLine('success', t('command.batch.ok'), { term }));
+      else if (result.skipped) print(logLine('muted', t('command.batch.skipped'), { term }));
+      else print(logLine('danger', t('command.batch.failed', { reason: describeProblem(result.code, result.title ?? result.code ?? '') }), { term }));
     }
   } catch (error) {
     failure = describeRequestError(error);
@@ -105,17 +107,18 @@ export async function runBatch({ action, cache, client, exactVersion, nodes, t }
     }
   }
   if (!current()) return;
-  const closed = !useCommandSession.getState().open;
+  const end = useCommandSession.getState();
+  const closed = !end.open || end.result !== shown;
   if (summary === null) {
     // Without a summary some nodes' outcomes are unknown, so the ending is a failure the user must see.
     const reason = failure ?? t('command.batch.incomplete');
-    session.print(logLine('danger', reason));
+    print(logLine('danger', reason));
     if (closed) toast.add({ description: reason, title: t('command.batch.toastIncomplete', { action: label }), type: 'error' });
     return;
   }
-  if (failure !== null) session.print(logLine('danger', failure));
+  if (failure !== null) print(logLine('danger', failure));
   const line = t('command.batch.summary', summary);
-  session.print(logLine(summary.failed > 0 ? 'warning' : 'success', line));
+  print(logLine(summary.failed > 0 ? 'warning' : 'success', line));
   if (closed) {
     toast.add({
       description: line,

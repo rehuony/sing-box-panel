@@ -135,6 +135,52 @@ describe('useTelemetry', () => {
     expect(result.current.liveTail.map(point => point.uploadBytesPerSecond)).toEqual([200, null, 400]);
   });
 
+  it('opens the live window with the stored samples older than the stream', async () => {
+    const at = (second: number) => new Date(Date.parse('2026-10-16T00:00:00Z') + second * 1000).toISOString();
+    const stored = (second: number) => ({
+      sampled_at: at(second), interval_seconds: 10, active_connections: 1,
+      upload_bytes_per_second: 50, download_bytes_per_second: 100,
+    });
+    const client = createMockApiClient({
+      getRecentMetrics: vi.fn<ApiClient['getRecentMetrics']>().mockResolvedValue({
+        from: at(-120), to: at(0), samples: [stored(-20), stored(-10), stored(0)], idle: [],
+      }),
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: liveMetrics(0, 200), runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.liveTail).toHaveLength(3));
+    expect(result.current.liveTail.map(point => point.at)).toEqual([at(-20), at(-10), at(0)].map(Date.parse));
+    expect(result.current.liveTail[0])
+      .toMatchObject({ uploadBytesPerSecond: 50, downloadBytesPerSecond: 100, connections: 1, span: 10_000 });
+    // The stream's reading of the same moment replaces the stored one.
+    expect(result.current.liveTail[2]).toMatchObject({ uploadBytesPerSecond: 200 });
+    expect(result.current.liveTail[2]).not.toHaveProperty('span');
+  });
+
+  it('opens the live window of a stopped core with the known zeros before it', async () => {
+    const at = (second: number) => new Date(Date.parse('2026-10-16T00:00:00Z') + second * 1000).toISOString();
+    const stopped: RuntimeStatus = { desired_running: false, target_generation: 1, observation_state: 'stopped' };
+    const client = createMockApiClient({
+      getRecentMetrics: vi.fn<ApiClient['getRecentMetrics']>().mockResolvedValue({
+        from: at(-120), to: at(0), samples: [], idle: [{ from: at(-90), to: at(0) }],
+      }),
+      streamMetrics: vi.fn(async function* (signal) {
+        yield { metrics: { ...testMetrics, collected_at: at(1) }, runtime: stopped };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    // A known zero every ten seconds from the stop on, then the stream's.
+    await waitFor(() => expect(result.current.liveTail).toHaveLength(11));
+    expect(result.current.liveTail.map(point => point.at))
+      .toEqual([-90, -80, -70, -60, -50, -40, -30, -20, -10, 0, 1].map(second => Date.parse(at(second))));
+    expect(result.current.liveTail.every(point => point.uploadBytesPerSecond === 0 && point.connections === 0))
+      .toBe(true);
+  });
+
   it('records a stopped core as zero traffic and connections rather than a gap', async () => {
     const stopped: RuntimeStatus = { desired_running: false, target_generation: 1, observation_state: 'stopped' };
     const client = createMockApiClient({

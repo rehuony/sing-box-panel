@@ -52,6 +52,7 @@ export const dashboard = {
       stopped: 'stopped',
       unknown: 'unknown',
     },
+    now: 'now',
     title: 'Runtime timeline',
   },
   trend: {

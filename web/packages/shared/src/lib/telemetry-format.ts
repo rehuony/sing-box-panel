@@ -15,9 +15,23 @@ export function formatBytes(value: number | null | undefined, locale = 'en'): st
   }).format(amount)} ${unit}`;
 }
 
-export function formatRate(value: number | null, locale = 'en', perSecond = '/s'): string {
-  if (value === null || !Number.isFinite(value) || value < 0) return EM_DASH;
-  return `${formatBytes(value, locale)}${perSecond}`;
+/** A traffic rate; one that is not known reads 0, never a dash. */
+export function formatRate(value: number | null | undefined, locale = 'en', perSecond = '/s'): string {
+  const known = value !== null && value !== undefined && Number.isFinite(value) && value >= 0;
+  return `${formatBytes(known ? value : 0, locale)}${perSecond}`;
+}
+
+export type TrafficDirection = 'download' | 'upload';
+
+/** Each traffic direction's colour, its chart series' own: download in cyan, upload in magenta. */
+export const trafficDirectionText: Record<TrafficDirection, string> = {
+  download: 'text-[var(--color-highlight-cyan)]',
+  upload: 'text-[var(--color-highlight-magenta)]',
+};
+
+/** A traffic value's colour: its direction's, or secondary text while it is zero or not known. */
+export function trafficValueText(direction: TrafficDirection, value: number | null | undefined): string {
+  return value ? trafficDirectionText[direction] : 'text-[var(--color-text-secondary)]';
 }
 
 interface DurationLabels {

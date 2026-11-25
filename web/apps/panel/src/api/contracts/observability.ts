@@ -9,6 +9,7 @@ export type {
   LogUsage,
   NodeRuntimeTransition,
   PanelLogPage,
+  RecentMetrics,
 } from '../generated';
 
 export type LogLevel = LogEntry['level'];
@@ -34,15 +35,16 @@ export interface FleetRuntimeHistoryFilter {
   searchCodes?: string[];
   state?: RuntimeTransitionState;
 }
+/** The entries a log request reads, counts or clears: the panel's own, about no node, or one node's. */
+export type LogScope = { nodeID: string } | { panel: true };
 export interface PanelLogFilter {
   limit?: number;
   since?: string;
   until?: string;
-  /** Keeps only the entries about this node. */
-  nodeID?: string;
   offset?: number;
   search?: string;
   level?: LogLevel;
+  scope?: LogScope;
   beforeID?: string;
   beforeTime?: string;
   searchCodes?: string[];

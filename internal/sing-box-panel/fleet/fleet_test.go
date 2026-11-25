@@ -8,12 +8,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -22,11 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
@@ -69,22 +64,24 @@ type testFleet struct {
 	cores    *corecache.Service
 	records  *telemetry.Service
 	database *store.Store
-	endpoint string
-	dataDir  string
+	// url is the panel's base URL, which its enrollment codes name.
+	url     string
+	dataDir string
 	// releaseKey verifies the node release in the panel's cache.
 	releaseKey ed25519.PublicKey
 }
 
-// fleetSetup adjusts a served fleet: the panel's clock, its version, and a
-// signed node release of that version in its cache, by architecture.
+// fleetSetup adjusts a served fleet: the panel's clock, which its fleet and
+// telemetry share, its version, and a signed node release of that version in
+// its cache, by architecture.
 type fleetSetup struct {
 	now     func() time.Time
 	version string
 	release map[string][]byte
 }
 
-// startFleet serves a fleet and a stand-in Web server on one loopback port,
-// with the node service under basePath.
+// startFleet serves a fleet beside a stand-in Web application on one
+// loopback port, with the node endpoints under basePath.
 func startFleet(t *testing.T, now func() time.Time) testFleet {
 	t.Helper()
 	return startFleetWith(t, fleetSetup{now: now})
@@ -145,9 +142,9 @@ func startFleetWith(t *testing.T, setup fleetSetup) testFleet {
 	value := settings.Defaults()
 	value.DataDir = dataDir
 	value.Server.BasePath = basePath
-	value.Nodes.Endpoint = listener.Addr().String()
+	value.Server.Port = listener.Addr().(*net.TCPAddr).Port
 	panelSettings := settings.NewService(database, "", value)
-	records := telemetry.New(database, panelSettings, telemetry.Options{})
+	records := telemetry.New(database, panelSettings, telemetry.Options{Now: now})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
 	var service *fleet.Service
 	configs := nodeconfig.New(database, cores, func(ctx context.Context, nodeID, artifactID string) ([]byte, error) {
@@ -162,22 +159,26 @@ func startFleetWith(t *testing.T, setup fleetSetup) testFleet {
 		Build: build, Now: now,
 		Releases: releases.New(build, dataDir, panelSettings, records, releases.Options{PublicKey: releaseKey}),
 	})
-	web, nodes := fleet.SplitListener(listener)
-	webServer := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "web") })}
-	go func() { _ = webServer.Serve(web) }()
-	ctx, cancel := context.WithCancel(context.Background())
-	served := make(chan error, 1)
-	go func() { served <- service.Serve(ctx, nodes) }()
-	t.Cleanup(func() {
-		_ = webServer.Close()
-		cancel()
-		if err := <-served; err != nil {
-			t.Errorf("serve: %v", err)
+	if err := service.Open(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if path, ok := strings.CutPrefix(request.URL.Path, basePath); ok && strings.HasPrefix(path, nodeapi.PathPrefix+"/") {
+			service.ServeNode(w, request, path)
+			return
 		}
+		_, _ = io.WriteString(w, "web")
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		service.Shutdown(ctx)
+		_ = server.Close()
 	})
 	return testFleet{
 		service: service, configs: configs, cores: cores, records: records, database: database,
-		endpoint: listener.Addr().String(), dataDir: dataDir, releaseKey: releaseKey,
+		url: "http://" + listener.Addr().String() + basePath, dataDir: dataDir, releaseKey: releaseKey,
 	}
 }
 
@@ -201,8 +202,8 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 		t.Skip("the node runs its core runtime only on Linux")
 	}
 	served := startFleet(t, nil)
-	service, endpoint := served.service, served.endpoint
-	response, err := http.Get("http://" + endpoint + "/")
+	service := served.service
+	response, err := http.Get(served.url + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,8 +225,8 @@ func TestNodeSharesTheWebPortAndLosesSessionWhenRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enrolled.NodeID != enrollment.NodeID || enrolled.Path != basePath || enrolled.Pin == "" {
-		t.Fatalf("enrolled as %+v, want node %q under %s with a pin", enrolled, enrollment.NodeID, basePath)
+	if enrolled.NodeID != enrollment.NodeID || enrolled.URL != served.url {
+		t.Fatalf("enrolled as %+v, want node %q of the panel at %s", enrolled, enrollment.NodeID, served.url)
 	}
 	var rejected *agent.EnrollmentError
 	if _, err := agent.Enroll(t.Context(), t.TempDir(), enrollment.Code, build); !errors.As(err, &rejected) || !rejected.Rejected {
@@ -328,34 +329,22 @@ func reenrollAndUnenroll(t *testing.T, service *fleet.Service, link *agent.Link,
 // rawNode speaks the protocol directly to exercise the panel's checks. Its
 // Hello names protocol minor version minor and build version build.
 type rawNode struct {
-	client nodeapi.NodeServiceClient
+	client *nodeapi.Client
 	key    ed25519.PrivateKey
 	id     string
 	minor  uint32
 	build  string
 }
 
-// dialRaw connects over TLS, or over cleartext HTTP/2 as a reverse proxy on
-// this host would, sending every method under prefix.
-func dialRaw(t *testing.T, endpoint, prefix string, secure bool) nodeapi.NodeServiceClient {
+// dialRaw returns a client of the panel at panelURL.
+func dialRaw(t *testing.T, panelURL string) *nodeapi.Client {
 	t.Helper()
-	transport := insecure.NewCredentials()
-	if secure {
-		transport = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
-	}
-	connection, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(transport),
-		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
-			return invoke(ctx, prefix+method, request, reply, connection, options...)
-		}),
-		grpc.WithChainStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, connection *grpc.ClientConn, method string, stream grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
-			return stream(ctx, desc, connection, prefix+method, options...)
-		}),
-	)
+	client, err := nodeapi.NewClient(panelURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = connection.Close() })
-	return nodeapi.NewNodeServiceClient(connection)
+	t.Cleanup(client.Close)
+	return client
 }
 
 func (node *rawNode) enroll(t *testing.T, code string) error {
@@ -381,7 +370,7 @@ func (node *rawNode) enroll(t *testing.T, code string) error {
 // connect runs the handshake with key and sends an empty state report,
 // which opens the session to commands. It returns the stream, or the status
 // that ended the handshake.
-func (node *rawNode) connect(t *testing.T, key ed25519.PrivateKey) (nodeapi.NodeService_ConnectClient, error) {
+func (node *rawNode) connect(t *testing.T, key ed25519.PrivateKey) (*nodeapi.ConnectClient, error) {
 	t.Helper()
 	stream, _, err := node.handshake(t, key)
 	if err != nil {
@@ -393,7 +382,7 @@ func (node *rawNode) connect(t *testing.T, key ed25519.PrivateKey) (nodeapi.Node
 
 // handshake authenticates a session as the node instance "instance-a" and
 // returns the stream and the panel's Welcome.
-func (node *rawNode) handshake(t *testing.T, key ed25519.PrivateKey) (nodeapi.NodeService_ConnectClient, *nodeapi.Welcome, error) {
+func (node *rawNode) handshake(t *testing.T, key ed25519.PrivateKey) (*nodeapi.ConnectClient, *nodeapi.Welcome, error) {
 	t.Helper()
 	stream, err := node.client.Connect(t.Context())
 	if err != nil {
@@ -425,32 +414,32 @@ func (node *rawNode) handshake(t *testing.T, key ed25519.PrivateKey) (nodeapi.No
 	return stream, frame.GetWelcome(), nil
 }
 
-func sendEvent(t *testing.T, stream nodeapi.NodeService_ConnectClient, event *nodeapi.Event) {
+func sendEvent(t *testing.T, stream *nodeapi.ConnectClient, event *nodeapi.Event) {
 	t.Helper()
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Event{Event: event}}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func requireCode(t *testing.T, err error, want codes.Code) {
+func requireCode(t *testing.T, err error, want nodeapi.Code) {
 	t.Helper()
-	if status.Code(err) != want {
-		t.Fatalf("status = %v, want %v", err, want)
+	if nodeapi.ErrorCode(err) != want {
+		t.Fatalf("error = %v, want %v", err, want)
 	}
 }
 
 func TestSessionsRequireProofAndReplaceEachOther(t *testing.T) {
 	now := &clock{now: time.Date(2026, time.November, 4, 12, 0, 0, 0, time.UTC)}
 	served := startFleet(t, now.Now)
-	service, endpoint := served.service, served.endpoint
-	node := &rawNode{client: dialRaw(t, endpoint, basePath, true)}
+	service := served.service
+	node := &rawNode{client: dialRaw(t, served.url)}
 
 	expired, err := service.AddNode(t.Context(), "expired")
 	if err != nil {
 		t.Fatal(err)
 	}
 	now.Advance(fleet.EnrollmentLifetime + time.Second)
-	requireCode(t, node.enroll(t, expired.Code), codes.Unauthenticated)
+	requireCode(t, node.enroll(t, expired.Code), nodeapi.CodeUnauthenticated)
 
 	enrollment, err := service.AddNode(t.Context(), "edge")
 	if err != nil {
@@ -461,21 +450,19 @@ func TestSessionsRequireProofAndReplaceEachOther(t *testing.T) {
 	}
 	_, impostor, _ := ed25519.GenerateKey(rand.Reader)
 	_, err = node.connect(t, impostor)
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 
 	first, err := node.connect(t, node.key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, service, node.id, fleet.StateOnline)
-	// The second session arrives the way a reverse proxy forwards it.
-	node.client = dialRaw(t, endpoint, basePath, false)
 	second, err := node.connect(t, node.key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = first.Recv()
-	requireCode(t, err, codes.Aborted)
+	requireCode(t, err, nodeapi.CodeAborted)
 
 	// Enrolling again replaces the key and ends the session of the old one.
 	reissued, err := service.IssueEnrollment(t.Context(), node.id)
@@ -487,15 +474,26 @@ func TestSessionsRequireProofAndReplaceEachOther(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = second.Recv()
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 	_, err = node.connect(t, oldKey)
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 	if _, err := node.connect(t, node.key); err != nil {
 		t.Fatal(err)
 	}
-	// The node service lives only under the base path.
-	_, err = dialRaw(t, endpoint, "", true).Enroll(t.Context(), &nodeapi.EnrollRequest{})
-	requireCode(t, err, codes.Unimplemented)
+}
+
+// TestNodesElsewhereReachThePanelThroughAProxyOnItsHost refuses a node that
+// connects from another host: the panel speaks plain HTTP, and node traffic
+// never crosses a network unencrypted.
+func TestNodesElsewhereReachThePanelThroughAProxyOnItsHost(t *testing.T) {
+	served := startFleet(t, nil)
+	request := httptest.NewRequest(http.MethodGet, basePath+nodeapi.ConnectPath, nil)
+	request.RemoteAddr = "203.0.113.7:40000"
+	recorder := httptest.NewRecorder()
+	served.service.ServeNode(recorder, request, nodeapi.ConnectPath)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("a node on another host got %d %q, want 403", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *testing.T) {
@@ -513,7 +511,7 @@ func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +597,7 @@ func TestInstallStreamsTheCachedArchiveUnderAGrantThatEndsWithTheCommand(t *test
 	if err == nil {
 		_, err = fetch.Recv()
 	}
-	requireCode(t, err, codes.PermissionDenied)
+	requireCode(t, err, nodeapi.CodePermissionDenied)
 }
 
 func TestStateChangingCommandsOutliveTheirCaller(t *testing.T) {
@@ -608,7 +606,7 @@ func TestStateChangingCommandsOutliveTheirCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +645,7 @@ func TestBatchReportsEachNodesOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -717,7 +715,7 @@ func TestStatusShowsThePanelsWritesWhileStreamed(t *testing.T) {
 	if _, err := served.service.FindNode(t.Context(), "edge"); !errors.Is(err, store.ErrNodeNotFound) {
 		t.Fatalf("finding an unused code's name = %v, want ErrNodeNotFound", err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -741,7 +739,7 @@ func TestSessionWhoseFirstReportFailsEndsInsteadOfHangingCommands(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +758,7 @@ func TestSessionWhoseFirstReportFailsEndsInsteadOfHangingCommands(t *testing.T) 
 	}}})
 	for {
 		if _, err := stream.Recv(); err != nil {
-			requireCode(t, err, codes.Unavailable)
+			requireCode(t, err, nodeapi.CodeUnavailable)
 			break
 		}
 	}
@@ -781,7 +779,7 @@ func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -873,7 +871,7 @@ func TestNodeReportsStateHistoryAndTraffic(t *testing.T) {
 	}
 
 	// A new session sends only the history the panel lacks.
-	_ = stream.CloseSend()
+	_ = stream.Close(nil)
 	_, welcome, err = node.handshake(t, node.key)
 	if err != nil {
 		t.Fatal(err)
@@ -918,7 +916,7 @@ func TestCacheSweepKeepsTheArchivesNodesUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true)}
+	node := &rawNode{client: dialRaw(t, served.url)}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -937,7 +935,7 @@ func TestCacheSweepKeepsTheArchivesNodesUse(t *testing.T) {
 			t.Fatal("the node's report was not recorded")
 		}
 	}
-	_ = stream.CloseSend()
+	_ = stream.Close(nil)
 	waitState(t, served.service, node.id, fleet.StateOffline)
 
 	removed, err := served.service.SweepArtifactCache(t.Context())

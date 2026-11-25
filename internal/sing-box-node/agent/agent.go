@@ -9,22 +9,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/status"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
@@ -33,18 +25,18 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/service"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 const (
-	keepaliveInterval = 30 * time.Second
 	// enrollmentCheckInterval is how often a running node looks for an
 	// enrollment saved while it runs.
 	enrollmentCheckInterval = 3 * time.Second
-	// resultCheckInterval is how often a running node looks for the result
-	// of its root update helper.
-	resultCheckInterval = 2 * time.Second
-	keepaliveTimeout    = 10 * time.Second
+	// handshakeTimeout bounds each handshake step of a session or release
+	// fetch; transferIdleTimeout bounds the wait for each chunk of a
+	// download.
 	handshakeTimeout    = 15 * time.Second
+	transferIdleTimeout = time.Minute
 	enrollTimeout       = 30 * time.Second
 	minimumBackoff      = time.Second
 	maximumBackoff      = time.Minute
@@ -83,7 +75,8 @@ func (options Options) logf(level, format string, args ...any) {
 
 // EnrollmentError is a code exchange with a panel that did not complete.
 type EnrollmentError struct {
-	Endpoint string
+	// URL is the panel's base URL the code names.
+	URL string
 	// Rejected reports that the panel refused the code; otherwise the panel
 	// could not be reached or could not enroll the node.
 	Rejected bool
@@ -91,7 +84,7 @@ type EnrollmentError struct {
 }
 
 func (err *EnrollmentError) Error() string {
-	return fmt.Sprintf("enroll with %s: %s", err.Endpoint, err.Reason)
+	return fmt.Sprintf("enroll with %s: %s", err.URL, err.Reason)
 }
 
 // Enroll exchanges an enrollment code for a node identity with a new key and
@@ -105,27 +98,30 @@ func Enroll(ctx context.Context, dataDir, rawCode string, build buildinfo.Info) 
 	if err != nil {
 		return settings.Enrollment{}, err
 	}
-	connection, err := dial(code.Endpoint, code.Path, code.Pin)
+	client, err := nodeapi.NewClient(code.URL)
 	if err != nil {
 		return settings.Enrollment{}, err
 	}
-	defer connection.Close()
+	defer client.Close()
 	hostname, _ := os.Hostname()
 	ctx, cancel := context.WithTimeout(ctx, enrollTimeout)
 	defer cancel()
-	response, err := nodeapi.NewNodeServiceClient(connection).Enroll(ctx, &nodeapi.EnrollRequest{
+	response, err := client.Enroll(ctx, &nodeapi.EnrollRequest{
 		Token: code.Token, PublicKey: publicKey, Protocol: protocol(), BuildVersion: build.Version,
 		Platform: platform(), Hostname: hostname,
 	})
 	if err != nil {
-		switch status.Code(err) {
-		case codes.InvalidArgument, codes.Unauthenticated, codes.PermissionDenied, codes.FailedPrecondition:
-			return settings.Enrollment{}, &EnrollmentError{Endpoint: code.Endpoint, Rejected: true, Reason: status.Convert(err).Message()}
+		var refused *nodeapi.Error
+		if errors.As(err, &refused) {
+			switch refused.Code {
+			case nodeapi.CodeInvalidArgument, nodeapi.CodeUnauthenticated, nodeapi.CodePermissionDenied, nodeapi.CodeFailedPrecondition:
+				return settings.Enrollment{}, &EnrollmentError{URL: code.URL, Rejected: true, Reason: refused.Message}
+			}
 		}
-		return settings.Enrollment{}, &EnrollmentError{Endpoint: code.Endpoint, Reason: describe(err)}
+		return settings.Enrollment{}, &EnrollmentError{URL: code.URL, Reason: describe(err)}
 	}
 	enrollment := settings.Enrollment{
-		Endpoint: code.Endpoint, Path: code.Path, Pin: code.Pin, PanelID: response.GetPanelId(), NodeID: response.GetNodeId(), Key: privateKey,
+		URL: code.URL, PanelID: response.GetPanelId(), NodeID: response.GetNodeId(), Key: privateKey,
 	}
 	if err := settings.SaveEnrollment(dataDir, enrollment); err != nil {
 		return settings.Enrollment{}, fmt.Errorf("the panel enrolled node %s but saving the enrollment failed; issue a new code: %w", enrollment.NodeID, err)
@@ -216,7 +212,9 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	background.Go(func() { link.watch(ctx, enrollmentCheckInterval, options.logf) })
 	self := newUpdates(dataDir, link.build, options.Update)
 	self.load()
-	background.Go(func() { self.watch(ctx, resultCheckInterval) })
+	// A system service that staged an update stops for its unit to install
+	// it: Run then returns systemd.ErrRestart.
+	self.exit = func() { stop(systemd.ErrRestart) }
 	// The sessions' reports and the console share one host sampler.
 	sampler := &host.Sampler{}
 	if options.Console != nil {
@@ -237,12 +235,11 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	var inFlight sync.WaitGroup
 	defer inFlight.Wait()
 	link.supervise(ctx, func(attempt context.Context, enrollment settings.Enrollment, connected func()) error {
-		connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
+		client, err := nodeapi.NewClient(enrollment.URL)
 		if err != nil {
 			return err
 		}
-		defer connection.Close()
-		client := nodeapi.NewNodeServiceClient(connection)
+		defer client.Close()
 		commands := &executor{
 			node: node, database: database, fetch: fetchArtifact(client), now: time.Now, slots: slots, updates: self,
 			fetchRelease: func(ctx context.Context, version, dir string) error {
@@ -252,7 +249,7 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 		}
 		identity := sessionIdentity{enrollment: enrollment, instanceID: instanceID, build: link.build}
 		return holdSession(attempt, ctx, client, identity, commands, sampler, dataDir, &inFlight, func() {
-			options.logf("info", "Connected to panel %s as node %s", enrollment.Endpoint, enrollment.NodeID)
+			options.logf("info", "Connected to panel %s as node %s", enrollment.URL, enrollment.NodeID)
 			connected()
 			if options.Connected != nil {
 				options.Connected()
@@ -278,7 +275,7 @@ type sessionIdentity struct {
 // commands. Commands run on lifetime, not on the session: a command in flight
 // finishes even when the session drops, and the panel learns its outcome from
 // the node's state.
-func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceClient, identity sessionIdentity, commands *executor,
+func holdSession(attempt, lifetime context.Context, client *nodeapi.Client, identity sessionIdentity, commands *executor,
 	sampler *host.Sampler, dataDir string, inFlight *sync.WaitGroup, connected func(),
 ) error {
 	enrollment := identity.enrollment
@@ -288,14 +285,16 @@ func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceCl
 	if err != nil {
 		return err
 	}
-	handshake := time.AfterFunc(handshakeTimeout, cancel)
+	// A panel that stops answering ends the session, whatever proxies stand
+	// between them.
+	stream.KeepAlive()
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Hello{Hello: &nodeapi.Hello{
 		NodeId: enrollment.NodeID, Protocol: protocol(), BuildVersion: identity.build.Version, Platform: platform(),
 		InstanceId: identity.instanceID,
 	}}}); err != nil {
 		return err
 	}
-	frame, err := stream.Recv()
+	frame, err := stream.RecvWithin(handshakeTimeout)
 	if err != nil {
 		return err
 	}
@@ -311,16 +310,13 @@ func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceCl
 	}}); err != nil {
 		return err
 	}
-	frame, err = stream.Recv()
+	frame, err = stream.RecvWithin(handshakeTimeout)
 	if err != nil {
 		return err
 	}
 	welcome := frame.GetWelcome()
 	if welcome == nil {
 		return errors.New("the panel did not welcome the session")
-	}
-	if !handshake.Stop() {
-		return errors.New("handshake timed out")
 	}
 	var sendMu sync.Mutex
 	send := func(frame *nodeapi.ConnectRequest) error {
@@ -408,15 +404,16 @@ func holdSession(attempt, lifetime context.Context, client nodeapi.NodeServiceCl
 }
 
 // fetchArtifact streams a cached core artifact the panel granted.
-func fetchArtifact(client nodeapi.NodeServiceClient) func(context.Context, string, string, io.Writer) (int64, error) {
+func fetchArtifact(client *nodeapi.Client) func(context.Context, string, string, io.Writer) (int64, error) {
 	return func(ctx context.Context, grant, artifactID string, destination io.Writer) (int64, error) {
 		stream, err := client.FetchArtifact(ctx, &nodeapi.FetchArtifactRequest{Grant: grant, ArtifactId: artifactID})
 		if err != nil {
 			return 0, err
 		}
+		defer stream.Close(nil)
 		var total int64
 		for {
-			chunk, err := stream.Recv()
+			chunk, err := stream.RecvWithin(transferIdleTimeout)
 			if errors.Is(err, io.EOF) {
 				return total, nil
 			}
@@ -432,40 +429,6 @@ func fetchArtifact(client nodeapi.NodeServiceClient) func(context.Context, strin
 	}
 }
 
-// dial prepares a connection to the panel. A pin replaces certificate-chain
-// verification with a check of the panel certificate's public key. A path
-// prefix, the panel's base path, goes before every method path, so a
-// reverse proxy can route the node service beside the Web application.
-func dial(endpoint, path, pin string) (*grpc.ClientConn, error) {
-	config := &tls.Config{MinVersion: tls.VersionTLS13}
-	if pin != "" {
-		// The pin below authenticates the self-signed listener certificate.
-		config.InsecureSkipVerify = true
-		config.VerifyConnection = func(state tls.ConnectionState) error {
-			if len(state.PeerCertificates) == 0 || nodeapi.PublicKeyPin(state.PeerCertificates[0].RawSubjectPublicKeyInfo) != pin {
-				return errors.New("the panel certificate does not match the enrolled pin")
-			}
-			return nil
-		}
-	} else {
-		host, _, err := net.SplitHostPort(endpoint)
-		if err != nil {
-			return nil, err
-		}
-		config.ServerName = host
-	}
-	return grpc.NewClient(endpoint,
-		grpc.WithTransportCredentials(credentials.NewTLS(config)),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: keepaliveInterval, Timeout: keepaliveTimeout, PermitWithoutStream: true}),
-		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
-			return invoke(ctx, path+method, request, reply, connection, options...)
-		}),
-		grpc.WithChainStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, connection *grpc.ClientConn, method string, stream grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
-			return stream(ctx, desc, connection, path+method, options...)
-		}),
-	)
-}
-
 func protocol() *nodeapi.ProtocolVersion {
 	return &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor, Minor: nodeapi.ProtocolMinor}
 }
@@ -474,13 +437,14 @@ func platform() *nodeapi.Platform {
 	return &nodeapi.Platform{Os: runtime.GOOS, Arch: runtime.GOARCH}
 }
 
-// describe renders a gRPC failure as its status code and message.
+// describe renders why an exchange with the panel ended: the panel's own
+// reason when it gave one.
 func describe(err error) string {
-	if err == nil {
+	switch {
+	case err == nil:
 		return "closed"
-	}
-	if value, ok := status.FromError(err); ok {
-		return fmt.Sprintf("%s: %s", value.Code(), value.Message())
+	case errors.Is(err, io.EOF):
+		return "the panel closed the connection"
 	}
 	return err.Error()
 }

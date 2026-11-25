@@ -76,20 +76,21 @@ export function announceRestart(outcome: RestartOutcome, t: TFunction) {
 }
 
 /**
- * The command line's `reboot` once confirmed: a pending line while the panel
- * restarts, then whether it came back. A toast carries the outcome when the
- * line is closed by then; signing out stops it printing into the next session.
+ * The command line's `reboot` once confirmed, as its next result: a pending
+ * line while the panel restarts, then whether it came back. A toast carries
+ * the outcome when the result is out of sight by then, the line closed or the
+ * result replaced; signing out stops it printing into the next session.
  */
 export async function runReboot(run: RestartRun): Promise<void> {
   const session = useCommandSession.getState();
   const { generation } = session;
   const header = logLine('muted', run.t('command.reboot.running'), { pending: true });
-  session.print(header);
+  const shown = session.begin(header);
   const outcome = await restartPanel(run);
   const current = useCommandSession.getState();
   if (current.generation !== generation) return;
   current.settle(header.id);
-  if (outcome.kind === 'restarted') current.print(logLine('success', run.t('command.reboot.done')));
-  else current.print(logLine('danger', outcome.kind === 'busy' ? run.t('command.reboot.busy') : outcome.reason));
-  if (!current.open) announceRestart(outcome, run.t);
+  if (outcome.kind === 'restarted') current.print(shown, logLine('success', run.t('command.reboot.done')));
+  else current.print(shown, logLine('danger', outcome.kind === 'busy' ? run.t('command.reboot.busy') : outcome.reason));
+  if (!current.open || current.result !== shown) announceRestart(outcome, run.t);
 }

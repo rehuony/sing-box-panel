@@ -10,16 +10,14 @@ import (
 	"testing/synctest"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 )
 
 // linkOf is a link enrolled with enrollment, outside any data directory.
 func linkOf(nodeID string) *Link {
 	link := &Link{now: time.Now, changed: make(chan struct{})}
-	link.setLocked(&settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: nodeID})
+	link.setLocked(&settings.Enrollment{URL: "https://panel.example", PanelID: "panel", NodeID: nodeID})
 	return link
 }
 
@@ -60,7 +58,7 @@ func TestReconnectBackoffGrowsToTheMaximumAndStartsOverAfterAHeldSession(t *test
 }
 
 // replacingPanel keeps one session per node, as the panel does: a new
-// session ends the one it replaces with codes.Aborted.
+// session ends the one it replaces with nodeapi.CodeAborted.
 type replacingPanel struct {
 	mu       sync.Mutex
 	current  chan struct{}
@@ -79,7 +77,7 @@ func (panel *replacingPanel) hold(ctx context.Context, _ settings.Enrollment, co
 	connected()
 	select {
 	case <-replaced:
-		return status.Error(codes.Aborted, "a newer session for this node replaced this one")
+		return nodeapi.Errorf(nodeapi.CodeAborted, "a newer session for this node replaced this one")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

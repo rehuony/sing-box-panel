@@ -118,6 +118,72 @@ func (application *Service) MetricsHistory(
 	return application.database.MetricsHistory(ctx, filter)
 }
 
+// RecentMetricsWindow is how far back a node's recent metrics reach: the span
+// a live chart shows, so one opened now starts with what came before it.
+const RecentMetricsWindow = 2 * time.Minute
+
+// RecentMetrics is a node's stored samples of the last RecentMetricsWindow,
+// oldest first, and the parts of it in which no core ran, which hold no
+// samples but are known zero traffic and connections.
+type RecentMetrics struct {
+	From    time.Time             `json:"from"`
+	To      time.Time             `json:"to"`
+	Samples []RecentMetricsSample `json:"samples"`
+	Idle    []RecentIdleSpan      `json:"idle"`
+}
+
+// RecentIdleSpan is a part of the window in which the node's runtime history
+// shows no core running.
+type RecentIdleSpan struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
+// RecentMetricsSample is one stored sample as a live chart draws it. Its
+// rates cover the interval that ends at the sample and are nil when the
+// interval is unknown, as after a first sample or a process change.
+type RecentMetricsSample struct {
+	SampledAt              time.Time `json:"sampled_at"`
+	IntervalSeconds        *float64  `json:"interval_seconds"`
+	UploadBytesPerSecond   *float64  `json:"upload_bytes_per_second"`
+	DownloadBytesPerSecond *float64  `json:"download_bytes_per_second"`
+	ActiveConnections      int64     `json:"active_connections"`
+}
+
+// RecentMetrics returns the node's accepted samples of the last
+// RecentMetricsWindow and the spans in which its core did not run. Samples
+// are stored about every ten seconds whatever the node's live sampling, so
+// they are as far apart; a stopped core stores none.
+func (application *Service) RecentMetrics(ctx context.Context, nodeID string) (RecentMetrics, error) {
+	to := application.now().UTC()
+	from := to.Add(-RecentMetricsWindow)
+	samples, err := application.database.AcceptedTrafficSamplesSince(ctx, nodeID, from)
+	if err != nil {
+		return RecentMetrics{}, err
+	}
+	idle, err := application.database.RuntimeIdleSpans(ctx, nodeID, from, to)
+	if err != nil {
+		return RecentMetrics{}, err
+	}
+	result := RecentMetrics{From: from, To: to, Samples: make([]RecentMetricsSample, 0, len(samples)),
+		Idle: make([]RecentIdleSpan, 0, len(idle))}
+	for _, span := range idle {
+		result.Idle = append(result.Idle, RecentIdleSpan{From: span.From, To: span.To})
+	}
+	for _, sample := range samples {
+		point := RecentMetricsSample{SampledAt: sample.SampledAt, ActiveConnections: sample.ActiveConnections}
+		if sample.IntervalStart != nil && sample.UploadDelta != nil && sample.DownloadDelta != nil {
+			if seconds := sample.SampledAt.Sub(*sample.IntervalStart).Seconds(); seconds > 0 {
+				upload := float64(*sample.UploadDelta) / seconds
+				download := float64(*sample.DownloadDelta) / seconds
+				point.IntervalSeconds, point.UploadBytesPerSecond, point.DownloadBytesPerSecond = &seconds, &upload, &download
+			}
+		}
+		result.Samples = append(result.Samples, point)
+	}
+	return result, nil
+}
+
 // EnforceRetention deletes raw traffic samples older than the sample
 // retention and runtime history older than the runtime history retention.
 // Daily traffic and traffic periods are the long-lived accounting record and

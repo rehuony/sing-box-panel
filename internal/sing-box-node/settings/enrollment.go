@@ -26,24 +26,17 @@ var ErrNotEnrolled = errors.New("this node is not enrolled; enroll it from its c
 // Enrollment is the panel a node is enrolled with and the node's identity
 // key. The key never leaves the node.
 type Enrollment struct {
-	// Endpoint is the panel's address as host:port.
-	Endpoint string
-	// Path is the URL path prefix of the panel's node service.
-	Path string
-	// Pin is the panel certificate's public key pin; empty uses the system's
-	// trusted certificate authorities.
-	Pin     string
+	// URL is the panel's base URL, which nodeapi.ValidPanelURL accepts.
+	URL     string
 	PanelID string
 	NodeID  string
 	Key     ed25519.PrivateKey
 }
 
 type enrollmentFile struct {
-	Endpoint string `json:"endpoint"`
-	Path     string `json:"path"`
-	Pin      string `json:"pin"`
-	PanelID  string `json:"panel_id"`
-	NodeID   string `json:"node_id"`
+	URL     string `json:"url"`
+	PanelID string `json:"panel_id"`
+	NodeID  string `json:"node_id"`
 	// Key is the Ed25519 private key seed in unpadded base64url.
 	Key string `json:"key"`
 }
@@ -68,17 +61,13 @@ func LoadEnrollment(dataDir string) (Enrollment, error) {
 	}
 	var file enrollmentFile
 	if err := jsonstrict.Decode(raw, 64<<10, &file); err != nil {
-		return Enrollment{}, fmt.Errorf("read %s: %w", path, err)
+		return Enrollment{}, fmt.Errorf("read %s: %w; enroll the node again", path, err)
 	}
 	seed, err := base64.RawURLEncoding.DecodeString(file.Key)
-	if err != nil || len(seed) != ed25519.SeedSize || nodeapi.ValidEndpoint(file.Endpoint) != nil ||
-		(file.Path != "" && nodeapi.ValidPathPrefix(file.Path) != nil) || file.PanelID == "" || file.NodeID == "" {
+	if err != nil || len(seed) != ed25519.SeedSize || nodeapi.ValidPanelURL(file.URL) != nil || file.PanelID == "" || file.NodeID == "" {
 		return Enrollment{}, fmt.Errorf("%s is invalid; enroll the node again", path)
 	}
-	return Enrollment{
-		Endpoint: file.Endpoint, Path: file.Path, Pin: file.Pin, PanelID: file.PanelID, NodeID: file.NodeID,
-		Key: ed25519.NewKeyFromSeed(seed),
-	}, nil
+	return Enrollment{URL: file.URL, PanelID: file.PanelID, NodeID: file.NodeID, Key: ed25519.NewKeyFromSeed(seed)}, nil
 }
 
 // SaveEnrollment writes enrollment to dataDir, replacing any previous enrollment.
@@ -87,7 +76,7 @@ func SaveEnrollment(dataDir string, enrollment Enrollment) error {
 		return fmt.Errorf("create node data directory: %w", err)
 	}
 	raw, err := json.MarshalIndent(enrollmentFile{
-		Endpoint: enrollment.Endpoint, Path: enrollment.Path, Pin: enrollment.Pin, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID,
+		URL: enrollment.URL, PanelID: enrollment.PanelID, NodeID: enrollment.NodeID,
 		Key: base64.RawURLEncoding.EncodeToString(enrollment.Key.Seed()),
 	}, "", "  ")
 	if err != nil {

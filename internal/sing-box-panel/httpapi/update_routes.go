@@ -56,6 +56,8 @@ func updateProblem(err error) problemDetails {
 		return problemDetails{http.StatusConflict, "update_unsupported", "Update unsupported", err.Error()}
 	case errors.Is(err, releases.ErrUpdateRunning):
 		return problemDetails{http.StatusConflict, "update_in_progress", "Update in progress", err.Error()}
+	case errors.Is(err, releases.ErrNodeUpdatesRunning):
+		return problemDetails{http.StatusConflict, "node_updates_in_progress", "Node updates in progress", err.Error()}
 	case errors.Is(err, releases.ErrNoUpdate):
 		return problemDetails{http.StatusConflict, "update_not_available", "No update available", err.Error()}
 	default:
@@ -82,6 +84,8 @@ func (handler *Handler) updateNodeRelease(w http.ResponseWriter, request *http.R
 func nodeUpdateProblem(err error) problemDetails {
 	var failure *fleet.NodeUpdateFailure
 	switch {
+	case errors.Is(err, releases.ErrUpdateRunning):
+		return problemDetails{http.StatusConflict, "update_in_progress", "Panel update in progress", err.Error()}
 	case errors.Is(err, releases.ErrUnavailable):
 		return problemDetails{http.StatusConflict, "node_update_unavailable", "Node update unavailable", err.Error()}
 	case errors.Is(err, releases.ErrPlatformUnsupported):

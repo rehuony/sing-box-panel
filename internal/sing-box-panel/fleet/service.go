@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package fleet owns the panel's nodes: the registry, enrollment, the node
-// listener, its authenticated sessions and the commands sent over them.
+// endpoints, their authenticated sessions and the commands sent over them.
 package fleet
 
 import (
@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -40,8 +39,11 @@ const (
 )
 
 var (
-	ErrNameInvalid      = errors.New("node name must be 1 to 64 characters without control characters or surrounding spaces")
-	ErrEndpointRequired = errors.New("set server.external_origin or nodes.endpoint to an address that nodes can reach when server.host is an unspecified address")
+	ErrNameInvalid = errors.New("node name must be 1 to 64 characters without control characters or surrounding spaces")
+	// ErrNodeURLRequired rejects an enrollment code no node elsewhere could
+	// use: nodes reach the panel through HTTPS, which only an external
+	// origin names.
+	ErrNodeURLRequired = errors.New("set server.external_origin to the HTTPS origin of the reverse proxy that nodes reach the panel through")
 )
 
 // Node is one node as the management API shows it.
@@ -120,13 +122,18 @@ type Service struct {
 	statusMu    sync.Mutex
 	statusItems map[string]statusEncoding
 
-	identityMu sync.Mutex
-	identity   *Identity
-	panelID    string
+	// exchanges counts the node exchanges in progress; stopped ends when
+	// Shutdown begins, and exchangesMu orders the two.
+	exchangesMu sync.Mutex
+	exchanges   sync.WaitGroup
+	stopped     context.Context
+	stop        context.CancelFunc
+
+	panelIDMu sync.Mutex
+	panelID   string
 }
 
-// New manages the nodes recorded in database. The node TLS identity lives
-// in the data directory of panelSettings; configs holds each node's
+// New manages the nodes recorded in database. configs holds each node's
 // configuration and cores the archives nodes install from.
 func New(database *store.Store, panelSettings *settings.Service, records *telemetry.Service,
 	configs *nodeconfig.Service, cores *corecache.Service, options Options,
@@ -144,27 +151,14 @@ func New(database *store.Store, panelSettings *settings.Service, records *teleme
 		service.random = options.Random
 	}
 	service.statusFeed = telemetry.NewFeed(StatusStreamInterval, service.collectStatus)
+	service.stopped, service.stop = context.WithCancel(context.Background())
 	return service
-}
-
-// Identity returns the node TLS identity, creating it on first use.
-func (service *Service) Identity() (Identity, error) {
-	service.identityMu.Lock()
-	defer service.identityMu.Unlock()
-	if service.identity == nil {
-		identity, err := LoadOrCreateIdentity(service.settings.Value().DataDir)
-		if err != nil {
-			return Identity{}, err
-		}
-		service.identity = &identity
-	}
-	return *service.identity, nil
 }
 
 // PanelID returns the identity that nodes bind their session proofs to.
 func (service *Service) PanelID(ctx context.Context) (string, error) {
-	service.identityMu.Lock()
-	defer service.identityMu.Unlock()
+	service.panelIDMu.Lock()
+	defer service.panelIDMu.Unlock()
 	if service.panelID == "" {
 		candidate, err := database.NewID(service.random, "panel")
 		if err != nil {
@@ -300,33 +294,21 @@ func (service *Service) DeleteNode(ctx context.Context, id string) (err error) {
 }
 
 // newCode builds an enrollment code with a fresh token for the current
-// server and node settings.
+// server settings.
 func (service *Service) newCode(ctx context.Context) (nodeapi.EnrollmentCode, error) {
 	value, err := service.settings.EffectiveSettings(ctx)
 	if err != nil {
 		return nodeapi.EnrollmentCode{}, err
 	}
-	endpoint := value.NodeEndpoint()
-	host, _, err := net.SplitHostPort(endpoint)
-	if err != nil {
-		return nodeapi.EnrollmentCode{}, err
-	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
-		return nodeapi.EnrollmentCode{}, ErrEndpointRequired
+	panelURL, ok := value.NodeURL()
+	if !ok {
+		return nodeapi.EnrollmentCode{}, ErrNodeURLRequired
 	}
 	raw := make([]byte, nodeapi.TokenSize)
 	if n, err := service.random(raw); err != nil || n != len(raw) {
 		return nodeapi.EnrollmentCode{}, errors.Join(errors.New("generate enrollment token"), err)
 	}
-	code := nodeapi.EnrollmentCode{Endpoint: endpoint, Path: value.Server.BasePath, Token: base64.RawURLEncoding.EncodeToString(raw)}
-	if value.NodeTrust() == settings.NodeTrustPin {
-		identity, err := service.Identity()
-		if err != nil {
-			return nodeapi.EnrollmentCode{}, err
-		}
-		code.Pin = identity.Pin
-	}
-	return code, nil
+	return nodeapi.EnrollmentCode{URL: panelURL, Token: base64.RawURLEncoding.EncodeToString(raw)}, nil
 }
 
 func enrollment(id, name string, code nodeapi.EnrollmentCode, expiresAt time.Time) Enrollment {

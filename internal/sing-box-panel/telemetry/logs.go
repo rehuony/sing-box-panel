@@ -51,6 +51,8 @@ type LogTailRequest struct {
 type LogClearRequest struct {
 	Source store.LogSource
 	Before *time.Time
+	// Scope limits the clearing to the panel's own entries or to one node's.
+	Scope store.LogScope
 }
 
 type LogClearResult struct {
@@ -124,16 +126,18 @@ func (application *Service) TailLogs(ctx context.Context, request LogTailRequest
 
 // ClearLogs deletes the entries the request selects, shrinks the log's files
 // on disk and records one entry saying how many it deleted and how many bytes
-// that freed. ClearLogs and DeleteLog are transport-neutral explicit deletion
-// primitives.
+// that freed, about the node whose entries it cleared, so the record shows
+// where the clearing was asked for. ClearLogs and DeleteLog are
+// transport-neutral explicit deletion primitives.
 func (application *Service) ClearLogs(ctx context.Context, request LogClearRequest) (LogClearResult, error) {
-	before, err := application.database.LogUsage(ctx)
+	before, err := application.database.LogUsage(ctx, store.LogScope{})
 	if err != nil {
 		return LogClearResult{}, err
 	}
 	deleted, err := application.database.ClearLogEntries(ctx, store.LogClearFilter{
 		Source: request.Source,
 		Before: request.Before,
+		Scope:  request.Scope,
 	})
 	if err != nil {
 		return LogClearResult{}, err
@@ -141,21 +145,26 @@ func (application *Service) ClearLogs(ctx context.Context, request LogClearReque
 	if err := application.database.CompactLogs(ctx); err != nil {
 		return LogClearResult{}, err
 	}
-	after, err := application.database.LogUsage(ctx)
+	after, err := application.database.LogUsage(ctx, store.LogScope{})
 	if err != nil {
 		return LogClearResult{}, err
 	}
 	result := LogClearResult{Deleted: deleted, FreedBytes: max(0, before.Bytes-after.Bytes)}
+	metadata := map[string]any{"deleted": result.Deleted, "freed_bytes": result.FreedBytes}
+	if request.Scope.NodeID != "" {
+		metadata["node_id"] = request.Scope.NodeID
+	}
 	application.RecordEvent(LogRecordRequest{
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "logs.cleared", Message: "Panel log cleared",
-		Metadata: LogMetadata(map[string]any{"deleted": result.Deleted, "freed_bytes": result.FreedBytes}),
+		Metadata: LogMetadata(metadata),
 	})
 	return result, nil
 }
 
-// LogUsage reports the log's entries and the size of its files on disk.
-func (application *Service) LogUsage(ctx context.Context) (LogUsage, error) {
-	return application.database.LogUsage(ctx)
+// LogUsage reports the entries the scope selects and the size of the whole
+// log's files on disk.
+func (application *Service) LogUsage(ctx context.Context, scope store.LogScope) (LogUsage, error) {
+	return application.database.LogUsage(ctx, scope)
 }
 
 func (application *Service) DeleteLog(ctx context.Context, entryID string) (LogDeleteResult, error) {

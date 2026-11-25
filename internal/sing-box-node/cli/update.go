@@ -9,23 +9,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
-	nodesystemd "github.com/rehuony/sing-box-panel/internal/sing-box-node/systemd"
 	"github.com/rehuony/sing-box-panel/internal/systemd"
 	"github.com/spf13/cobra"
-)
-
-// The root update helper waits this long for the restarted node to stay
-// active for helperSettle before it restores the previous version.
-const (
-	helperTimeout = 30 * time.Second
-	helperSettle  = 5 * time.Second
 )
 
 // The sources an update comes from: the panel the node is enrolled with,
@@ -58,9 +49,10 @@ access to it. Text output reports progress on stderr.
 The running node keeps its version until it restarts; --restart restarts its
 service now, which briefly interrupts its proxy.
 
---apply-staged --data-dir DIR is the root update helper of the system service:
-it installs the release the service staged in DIR and restarts the service,
-restoring the previous binary if the service does not stay active.`,
+--apply-staged --data-dir DIR is the system unit's install step, which
+systemd runs as root before it starts the service: it installs the release
+the service staged in DIR before it stopped to be started again. Updates go
+one way; the replaced binary is not kept.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if applyStaged != (stagedDataDir != "") {
@@ -117,7 +109,7 @@ restoring the previous binary if the service does not stay active.`,
 		},
 	}
 	command.Flags().BoolVar(&restart, "restart", false, "restart the node's systemd service after installing")
-	command.Flags().BoolVar(&applyStaged, "apply-staged", false, "install the release the system service staged (run by the root update helper)")
+	command.Flags().BoolVar(&applyStaged, "apply-staged", false, "install the release the system service staged (run by its unit before it starts)")
 	command.Flags().StringVar(&stagedDataDir, "data-dir", "", "the system service's data directory, for --apply-staged")
 	return command
 }
@@ -188,25 +180,16 @@ func updateFromPanel(ctx context.Context, updater *selfupdate.Updater, enrollmen
 	return installed, nil
 }
 
-// applyStagedRelease is the root update helper: it installs the release the
-// system service staged and restarts the service.
+// applyStagedRelease is the system unit's install step: it installs the
+// release the system service staged before it stopped.
 func applyStagedRelease(cmd *cobra.Command, state *options, build buildinfo.Info, dataDir string) error {
 	updater := selfupdate.New(selfupdate.Options{Binary: selfupdate.Node})
-	attempt, err := updater.ApplyStaged(cmd.Context(), selfupdate.HelperOptions{
-		DataDir: filepath.Clean(dataDir), Current: build.Version,
-		Restart: func(ctx context.Context) error {
-			manager, err := nodesystemd.New(systemd.Options{})
-			if err != nil {
-				return err
-			}
-			return manager.RestartAndWait(ctx, systemd.ScopeSystem, helperTimeout, helperSettle)
-		},
-	})
+	attempt, err := updater.ApplyStaged(cmd.Context(), selfupdate.HelperOptions{DataDir: filepath.Clean(dataDir), Current: build.Version})
 	switch {
 	case attempt == nil && err == nil:
 		return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{"applied": false}, "No update is staged")
 	case attempt != nil && attempt.Succeeded:
-		return cliui.Write(cmd.OutOrStdout(), state.format, attempt, "Installed sing-box-node "+attempt.Version+" and restarted "+nodesystemd.UnitName)
+		return cliui.Write(cmd.OutOrStdout(), state.format, attempt, "Installed sing-box-node "+attempt.Version)
 	case attempt != nil:
 		return &cliui.Error{Kind: cliui.ErrorDomain, Code: "update_" + attempt.Code, Message: "the staged update to " + attempt.Version + " failed: " + err.Error(), Cause: err}
 	}

@@ -21,14 +21,13 @@ import type { CoreArtifact } from '@/api/api-client';
 import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { ApiRequestError } from '@/api/api-client';
-import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { ListPagination } from '@/components/list-pagination';
 import { RegionError, RegionState } from '@/components/region-state';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
-import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
+import { CardToolbar, StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 
 import { CoreImportDialog } from './core-import-dialog';
 import { useVersionLibrary } from './use-version-library';
@@ -165,24 +164,20 @@ export function CoresPage() {
           <StripSearch className='max-sm:order-last max-sm:basis-full' label={t('cores.filter.search')} onValueChange={setSearch} value={search} />
           <StripDivider className='max-sm:hidden' />
           <div className='flex items-center gap-0.5 max-sm:ms-auto'>
-            <IconAction
+            <StripAction
               disabled={Boolean(pending) || listLoading}
+              icon={<RefreshCw aria-hidden='true' className={listLoading ? 'animate-spin motion-reduce:animate-none' : undefined} data-icon='inline-start' />}
               label={refreshLabel}
               onClick={() => void (tab === 'installed'
                 ? library.refreshInstalled()
                 : library.refreshCatalog(true))}
-              variant='flat'
-            >
-              <RefreshCw aria-hidden='true' className={listLoading ? 'animate-spin motion-reduce:animate-none' : undefined} />
-            </IconAction>
-            <IconAction
+            />
+            <StripAction
               disabled={Boolean(pending) || !canImport}
+              icon={<Upload aria-hidden='true' data-icon='inline-start' />}
               label={t('cores.import.title')}
               onClick={() => setImportOpen(true)}
-              variant='flat'
-            >
-              <Upload aria-hidden='true' />
-            </IconAction>
+            />
           </div>
         </CardToolbar>
         {listError != null && count > 0 && (

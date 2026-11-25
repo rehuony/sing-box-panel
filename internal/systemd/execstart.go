@@ -84,6 +84,13 @@ func flagArgument(args []string, long, short string) (string, bool) {
 // line (legal for Type=oneshot) is reported as not determinable rather than
 // choosing one arbitrarily.
 func effectiveExecStart(unit string) (string, bool) {
+	return effectiveDirective(unit, "ExecStart")
+}
+
+// effectiveDirective returns the single effective value of a command
+// directive such as ExecStart or ExecStartPre in the [Service] section, the
+// way effectiveExecStart reads ExecStart.
+func effectiveDirective(unit, directive string) (string, bool) {
 	var commands []string
 	section := ""
 	for _, line := range logicalUnitLines(unit) {
@@ -96,7 +103,7 @@ func effectiveExecStart(unit string) (string, bool) {
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || strings.TrimSpace(key) != "ExecStart" {
+		if !ok || strings.TrimSpace(key) != directive {
 			continue
 		}
 		value = strings.TrimSpace(value)

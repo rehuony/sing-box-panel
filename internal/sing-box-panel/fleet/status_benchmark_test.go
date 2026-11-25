@@ -56,7 +56,6 @@ func seedReportingFleet(b *testing.B, count int) reportingFleet {
 	now := func() time.Time { return at }
 	value := settings.Defaults()
 	value.DataDir = dataDir
-	value.Nodes.Endpoint = "127.0.0.1:3000"
 	panelSettings := settings.NewService(database, "", value)
 	records := telemetry.New(database, panelSettings, telemetry.Options{Now: now})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})

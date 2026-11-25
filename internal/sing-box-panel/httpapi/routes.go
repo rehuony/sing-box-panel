@@ -106,6 +106,7 @@ var routes = []route{
 	{http.MethodGet, "/nodes/{nodeId}/metrics", "getMetrics", accessNode, (*Handler).currentMetrics},
 	{http.MethodGet, "/nodes/{nodeId}/metrics/stream", "streamMetrics", accessNode, (*Handler).streamMetrics},
 	{http.MethodGet, "/nodes/{nodeId}/metrics/history", "getMetricsHistory", accessNode, (*Handler).metricsHistory},
+	{http.MethodGet, "/nodes/{nodeId}/metrics/recent", "getRecentMetrics", accessNode, (*Handler).recentMetrics},
 	{http.MethodGet, "/nodes/{nodeId}/dashboard/stream", "streamDashboard", accessNode, (*Handler).streamDashboard},
 	{http.MethodGet, "/nodes/{nodeId}/traffic/periods", "listTrafficPeriods", accessNode, (*Handler).listTrafficPeriods},
 	{http.MethodGet, "/nodes/{nodeId}/traffic/periods/{periodId}", "getTrafficPeriod", accessNode, withPathValue("periodId", (*Handler).getTrafficPeriod)},

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -137,7 +138,7 @@ const coreLogStreamLifetime = time.Minute
 const maximumPanelLogQueryBytes = 128 << 10
 
 func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
-	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "node_id", "offset")
+	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "node_id", "scope", "offset")
 	if !ok {
 		return
 	}
@@ -169,8 +170,8 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, 400, "search_too_long", "Invalid search", "Search may contain at most 256 bytes.")
 		return
 	}
-	if len(query.Get("node_id")) > 128 {
-		writeProblem(w, r, 400, "node_id_invalid", "Invalid node", "The node ID may contain at most 128 bytes.")
+	scope, ok := logScope(w, r, query)
+	if !ok {
 		return
 	}
 	var searchCodes []string
@@ -185,7 +186,7 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	result, err := handler.services.Telemetry.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search"), SearchCodes: searchCodes, NodeID: query.Get("node_id")})
+	result, err := handler.services.Telemetry.PanelLogs(r.Context(), store.PanelLogFilter{Cursor: cursor, Limit: limit, Offset: offset, Level: query.Get("level"), Since: since, Until: until, Search: query.Get("search"), SearchCodes: searchCodes, NodeID: scope.NodeID, PanelOnly: scope.Panel})
 	if err != nil {
 		writeProblem(w, r, 503, "panel_logs_unavailable", "Panel logs unavailable", "The panel activity could not be read.")
 		return
@@ -193,11 +194,36 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
+// logScope reads a log request's scope: the panel's own entries with
+// scope=panel, one node's with node_id, never both.
+func logScope(w http.ResponseWriter, r *http.Request, query url.Values) (store.LogScope, bool) {
+	nodeID := query.Get("node_id")
+	if len(nodeID) > 128 {
+		writeProblem(w, r, 400, "node_id_invalid", "Invalid node", "The node ID may contain at most 128 bytes.")
+		return store.LogScope{}, false
+	}
+	scope := query.Get("scope")
+	if scope != "" && scope != "panel" {
+		writeProblem(w, r, 400, "log_scope_invalid", "Invalid log scope", "The scope may only be panel.")
+		return store.LogScope{}, false
+	}
+	if scope != "" && nodeID != "" {
+		writeProblem(w, r, 400, "log_scope_invalid", "Invalid log scope", "Choose the panel scope or one node, not both.")
+		return store.LogScope{}, false
+	}
+	return store.LogScope{NodeID: nodeID, Panel: scope == "panel"}, true
+}
+
 func (handler *Handler) logUsage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := strictCoreQuery(w, r); !ok {
+	query, ok := strictCoreQuery(w, r, "scope", "node_id")
+	if !ok {
 		return
 	}
-	usage, err := handler.services.Telemetry.LogUsage(r.Context())
+	scope, ok := logScope(w, r, query)
+	if !ok {
+		return
+	}
+	usage, err := handler.services.Telemetry.LogUsage(r.Context(), scope)
 	if err != nil {
 		writeProblem(w, r, 503, "records_unavailable", "Records unavailable", "The panel could not read its records. Retry later.")
 		return

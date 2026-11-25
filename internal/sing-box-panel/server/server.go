@@ -17,12 +17,13 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 const (
@@ -37,7 +38,9 @@ const (
 // resource it opens and does not return until the HTTP server has stopped.
 // When the panel is asked to restart, Run stops the server the way a stop
 // does and then runs the panel's program again in this process; it returns
-// only if that fails.
+// only if that fails. When the system service staged an update, Run stops it
+// the same way and returns systemd.ErrRestart, for its unit to install the
+// release and start the panel again.
 func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS) error {
 	return run(ctx, settingsPath, build, assets, execSelf)
 }
@@ -46,15 +49,21 @@ func run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	startedAt := time.Now().UTC()
 	serveContext, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
-	restart, err := newRestart(exec, func() { stop(errRestartRequested) })
+	restart, err := newRestart(exec, stop)
 	if err != nil {
 		return err
 	}
 	if err := serve(serveContext, settingsPath, build, assets, startedAt, restart); err != nil {
 		return err
 	}
-	if ctx.Err() == nil && errors.Is(context.Cause(serveContext), errRestartRequested) {
+	if ctx.Err() != nil {
+		return nil
+	}
+	switch cause := context.Cause(serveContext); {
+	case errors.Is(cause, errRestartRequested):
 		return restart.run()
+	case errors.Is(cause, errExitRequested):
+		return systemd.ErrRestart
 	}
 	return nil
 }
@@ -126,7 +135,10 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 		return errors.New("settings changed data directory during startup; restart with a stable settings file")
 	}
 	output := cliui.ConsoleFrom(ctx)
-	services = app.New(database, configuration, app.Options{Build: build, Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) }})
+	services = app.New(database, configuration, app.Options{
+		Build: build, Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) },
+		Releases: releases.Options{Exit: restart.exitForUpdate},
+	})
 	records := services.Telemetry
 	restart.bind(services.Releases, records, build.Version)
 	defer func() {
@@ -189,14 +201,15 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
-	// Node sessions share the Web listener; see fleet.SplitListener.
-	webListener, nodeListeners := fleet.SplitListener(listener)
-	fleetContext, stopFleet := context.WithCancel(ctx)
-	fleetResult := make(chan error, 1)
-	go func() { fleetResult <- services.Fleet.Serve(fleetContext, nodeListeners) }()
+	// The node endpoints sit beside the Web application under its base path.
+	if err := services.Fleet.Open(ctx); err != nil {
+		_ = listener.Close()
+		return startupError(ctx, "open node endpoints", err)
+	}
 	defer func() {
-		stopFleet()
-		runErr = errors.Join(runErr, <-fleetResult)
+		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		services.Fleet.Shutdown(shutdownContext)
 	}()
 	sweepContext, stopSweep := context.WithCancel(ctx)
 	sweepDone := startArtifactCacheSweep(sweepContext, services.Fleet, records)
@@ -220,7 +233,7 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 	})
 	serveResult := make(chan error, 1)
 	go func() {
-		serveResult <- httpServer.Serve(webListener)
+		serveResult <- httpServer.Serve(listener)
 	}()
 	control.Ready(listener.Addr().String())
 	panelURL := "http://" + listener.Addr().String() + configuration.Server.BasePath + "/"
@@ -241,16 +254,6 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 			return nil
 		}
 		return fmt.Errorf("serve panel HTTP server: %w", err)
-	case err := <-fleetResult:
-		// Report the node service failure once; the deferred wait must not
-		// block on a result that was already received.
-		fleetResult <- nil
-		cancel()
-		stopErr := stopHTTPServer(httpServer, serveResult)
-		if err == nil {
-			return stopErr
-		}
-		return errors.Join(fmt.Errorf("serve node connections: %w", err), stopErr)
 	case <-ctx.Done():
 		return stopHTTPServer(httpServer, serveResult)
 	}

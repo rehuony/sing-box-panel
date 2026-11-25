@@ -3,14 +3,21 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   DashboardStreamSnapshot,
   FleetRuntimeHistoryPage,
   LogClearResult,
+  LogScope,
   LogUsage,
   MetricsSnapshot,
   NodeSettings,
   NodeUpdate,
-  PanelLogPage } from '../api-client';
+  PanelLogPage,
+  RecentMetrics } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 import { readJSONEvents } from './event-stream';
+
+function logScopeQuery(scope?: LogScope) {
+  if (!scope) return {};
+  return 'nodeID' in scope ? { node_id: scope.nodeID } : { scope: 'panel' };
+}
 
 export function createObservabilityHttpApi(context: HttpApiContext) {
   const { baseUrl, buildQuery, fetcher, nodeUrl, openEventStream, request, writeHeaders, writeJSONHeaders } = context;
@@ -53,15 +60,15 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
     listPanelLogs(filter = {}, signal) {
       return request<PanelLogPage>(
         fetcher,
-        `${baseUrl}/logs/panel${buildQuery({ offset: filter.offset, before_time: filter.beforeTime, before_id: filter.beforeID, limit: filter.limit ?? 10, search: filter.search, search_codes: filter.searchCodes?.length ? filter.searchCodes.join(',') : undefined, node_id: filter.nodeID, level: filter.level, since: filter.since, until: filter.until })}`,
+        `${baseUrl}/logs/panel${buildQuery({ offset: filter.offset, before_time: filter.beforeTime, before_id: filter.beforeID, limit: filter.limit ?? 10, search: filter.search, search_codes: filter.searchCodes?.length ? filter.searchCodes.join(',') : undefined, ...logScopeQuery(filter.scope), level: filter.level, since: filter.since, until: filter.until })}`,
         { method: 'GET', signal },
       );
     },
-    getLogUsage(signal) {
-      return request<LogUsage>(fetcher, `${baseUrl}/logs/usage`, { method: 'GET', signal });
+    getLogUsage(scope, signal) {
+      return request<LogUsage>(fetcher, `${baseUrl}/logs/usage${buildQuery(logScopeQuery(scope))}`, { method: 'GET', signal });
     },
-    clearPanelLogs(signal) {
-      return request<LogClearResult>(fetcher, `${baseUrl}/logs`, { method: 'DELETE', headers: writeHeaders(), signal });
+    clearPanelLogs(scope, signal) {
+      return request<LogClearResult>(fetcher, `${baseUrl}/logs${buildQuery(logScopeQuery(scope))}`, { method: 'DELETE', headers: writeHeaders(), signal });
     },
     listFleetRuntimeHistory(filter = {}, signal) {
       return request<FleetRuntimeHistoryPage>(
@@ -112,6 +119,9 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         method: 'GET',
         signal,
       });
+    },
+    getRecentMetrics(signal) {
+      return request<RecentMetrics>(fetcher, `${nodeUrl()}/metrics/recent`, { method: 'GET', signal });
     },
     getNodeSettings(signal) {
       return request<NodeSettings>(fetcher, `${nodeUrl()}/settings`, { method: 'GET', signal });

@@ -203,7 +203,9 @@ default, where an operator can enroll it instead of using `enroll`.
 
 The node dials the panel, so the code must name an address the node can reach:
 the generated loopback listener serves a node on the same host, and a node on
-another host needs `nodes.endpoint` or `server.external_origin`. See
+another host reaches the panel through an HTTPS reverse proxy on the panel host,
+with `server.external_origin` set to its origin; see
+[Behind Nginx](configuration-and-runtime.md#behind-nginx). See
 [Nodes](cli.md#nodes) for the node's settings, data directory and states, and
 [Panel and node architecture](panel-node-architecture.md) for enrollment and
 trust.
@@ -275,7 +277,8 @@ own release, and enrolled nodes never contact GitHub. Restarting a node restarts
 its core, so its proxy is briefly interrupted. From a shell, `sing-box-panel
 update` and `sing-box-node update` do the same; a node that is not enrolled
 updates from the latest stable GitHub release instead. See the
-[CLI reference](cli.md). A system service hands each update to its root update
-helper, described in the [systemd packaging guide](systemd.md#update-helper).
+[CLI reference](cli.md). A system service stages each update and stops; its unit
+installs it and starts the service again, as the [systemd packaging
+guide](systemd.md#updates) describes. Updates go one way.
 After replacing a binary by hand or with the installer, refresh its service
 with `systemd install` before restarting it.

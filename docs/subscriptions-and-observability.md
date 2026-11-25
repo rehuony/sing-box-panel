@@ -560,7 +560,9 @@ options; unsupported cross-format nodes produce diagnostics.
 
 ## Core and panel log views
 
-The Web page has two tabs. **Real-time logs** shows sanitized sing-box output,
+A node's **logs** window has three tabs in this order, kept in the address:
+**Events** (`#logs-events`, where it opens), **Runtime states**
+(`#logs-states`) and **Core log** (`#logs-core`). **Core log** shows sanitized sing-box output,
 with a muted timestamp and the entire remaining message colored by TRACE,
 DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
 the right. The toolbar also shows connection state and controls for live updates,
@@ -580,13 +582,17 @@ clearing the display. Readers send the file generation with their cursor, so a
 clear in another browser resets the display on the next chunk or after resuming.
 Historical deletion requires confirmation, removes only the
 selected managed file, and returns the view to the latest remaining file.
-The panel's **logs** window has two tabs. **Logs** lists the panel log:
-sanitized operation outcomes and panel, security and core events, filtered by
-level, with a Clear action described under [Durable logs](#durable-logs).
-**Runtime states** lists every node's runtime transitions, filtered by state,
-with each transition's node. The address keeps the tab (`?view=states`; the log
-is the default) and a node filter (`?node=`) that applies to both. Rows use
-their API log level for both presentation and filtering. Retry an unsuccessful
+**Events** lists the panel log's entries about the node, such as the
+operations on it and its connections, filtered by level, with a Clear action
+that deletes only those entries. **Runtime states** lists the node's runtime
+transitions, filtered by state. A node overview's recent activity opens the
+events tab.
+
+The panel's **logs** window lists only the panel's own log: sanitized
+operation outcomes and panel and security events about no node, filtered by
+level, with a Clear action that deletes only those entries. Both Clear actions
+are described under [Durable logs](#durable-logs). Rows use their API log level
+for both presentation and filtering. Retry an unsuccessful
 action from its original control; old payloads and temporary uploads are never
 replayed.
 
@@ -711,9 +717,8 @@ These alternatives are ORed with the case-insensitive original message/code
 use the same match conditions. The Web client finds code alternatives from both
 Chinese and English event names, regardless of the current interface language.
 Omitting `search_codes` preserves the original text-search behavior.
-`node_id` (at most 128 bytes) keeps only the entries recorded for that node; a
-node's overview opens its recent activity in the panel log this way, and the log's
-title strip shows the node with an action that clears the filter.
+`node_id` (at most 128 bytes) keeps only the entries recorded for that node,
+which a node's events tab lists, and `scope=panel` keeps only the panel's own.
 
 A runtime state carries only recorded public evidence: `pid`,
 `process_started_at`, `generation`, `activation_bundle_id`, and `uncertain_since`
@@ -744,11 +749,17 @@ authenticates again; `Last-Event-ID` resumes it after the last entry it
 received. Each write has its own deadline.
 
 The panel log is stored in `logs.db` beside `panel.db` and is kept until it is
-cleared. The logs tab's Clear action, `DELETE /api/v1/logs`, deletes every
-entry (the API also takes `source` and `before`), then rewrites `logs.db` and
-empties its write-ahead log so the space returns to the file system, and
-records one `logs.cleared` entry with the number deleted and the bytes freed.
-The confirmation shows what the log holds and takes on disk, from
+cleared. An entry is about a node when its metadata names the node's
+`node_id`; the other entries are the panel's own. `GET /api/v1/logs/panel`,
+`GET /api/v1/logs/usage` and `DELETE /api/v1/logs` take `scope=panel` for the
+panel's own entries or `node_id` for one node's, never both. The panel logs
+window's Clear action sends `scope=panel` and a node's events tab sends its
+`node_id`; `DELETE /api/v1/logs` deletes the entries its filters select (it
+also takes `source` and `before`), then rewrites `logs.db` and empties its
+write-ahead log so the space returns to the file system, and records one
+`logs.cleared` entry with the number deleted and the bytes freed, about the
+node when it cleared one node's entries. The confirmation shows how many
+entries the scope holds and what the whole log takes on disk, from
 `GET /api/v1/logs/usage`; the toast after it reports what clearing freed.
 Clearing locks only the log database and never touches runtime states.
 
@@ -765,7 +776,7 @@ payloads.
 
 Each node reports its own metrics, traffic and runtime transitions over its
 session, and the panel serves them per node under `/api/v1/nodes/{nodeId}`:
-`metrics`, `metrics/stream`, `metrics/history`, `dashboard/stream`,
+`metrics`, `metrics/stream`, `metrics/recent`, `metrics/history`, `dashboard/stream`,
 `traffic/periods` and `core/runtime/history`. A node that is offline keeps its
 recorded history and traffic; its live views show no current sample.
 
@@ -802,8 +813,10 @@ Error feedback has a five-second grace period. Last observations remain visible;
 a history delay is shown locally with its update time, not as a panel disconnect.
 Linux host CPU/memory/disk metrics remain separate from sing-box process samples;
 unsupported hosts report unavailable values. The toolbar retains the localized
-`0s` uptime default. Missing or expired rates show `—`; measured idle and verified
-stopped states show `0 B/s`. Rates expire three seconds after their sample, even
+`0s` uptime default. Missing or expired rates read `0 B/s`, as measured idle and
+verified stopped states do; download and upload values are never a dash.
+The interface colours each download and upload reading as its chart series:
+download cyan, upload magenta, a zero value in secondary text. Rates expire three seconds after their sample, even
 when fresh stream envelopes repeat the same observation; this does not mark
 the entire runtime stream stale before its ten-second threshold.
 
@@ -838,7 +851,13 @@ card over one shared range. That card takes the height the other cards leave,
 so the overview fills the window; below each chart's legible minimum the view
 scrolls instead. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
-time axis. The span starts at the oldest sample it shows, and at least ten
+time axis. The window opens with what `metrics/recent` returns for the last
+two minutes, so re-entering a node or reloading the page shows what came
+before: the node's stored samples, about ten seconds apart and each with the
+rates of the interval ending at it, and the spans in which its runtime history
+shows no core running, drawn as a known zero every ten seconds because a
+stopped core stores no samples. The stream's readings follow at their own
+spacing, and a reading of the same moment replaces the stored one. The span starts at the oldest sample it shows, and at least ten
 seconds before the newest, so no blank strip leads the lines; a time label that
 would run into the vertical axis or past the chart's edge is left out. While
 the node reports its core stopped, each reading is a known zero, so the lines
@@ -847,11 +866,13 @@ leave actual sampling gaps; missing observations are not filled in, and a range
 without any shows empty axes.
 Historical refreshes never replace these samples with bucket averages. The
 one-hour and 24-hour views show only historical one-minute and five-minute
-averages, respectively. Live samples remain in memory
-only and start accumulating again after a page reload. Graph gaps remain gaps.
+averages, respectively. The stream's own readings remain in memory only;
+after a page reload the window starts again from the stored samples. Graph gaps remain gaps.
 The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy and
-carry the same fine hatch as an unknown meter.
+carry the same fine hatch as an unknown meter. Its axis counts back from `-24h`
+to now, and its legend gives each state's total time over the day from the same
+transitions.
 Traffic charts choose a shared B/s, KB/s, MB/s, GB/s, TB/s or PB/s unit from the
 largest displayed upload/download rate. The chart's label, axis and details update
 together when live data or the selected history changes; the vertical range
@@ -861,7 +882,9 @@ bucket at the persistence watermark to subsequent live observations. Explicit
 missing values break the line, and so does a live interval longer than two and
 a half times the stream's usual spacing, never under three seconds, so a
 reconnect or restart shows while a node sampling every few seconds still draws
-a line. Series are monotone cubic curves, which never overshoot their samples;
+a line. A step to or from a stored sample may also reach one and a half of that
+sample's interval, so the stored samples join each other and the stream's first
+reading, while a missing stored sample still breaks the line. Series are monotone cubic curves, which never overshoot their samples;
 small points keep individual live observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;

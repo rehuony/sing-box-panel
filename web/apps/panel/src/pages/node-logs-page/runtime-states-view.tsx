@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
@@ -5,6 +7,7 @@ import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
+import type { PanelLogRecord } from '@/components/panel-log';
 import type { NodeRuntimeTransition, RuntimeTransitionState } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
@@ -15,28 +18,23 @@ import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ListPagination } from '@/components/list-pagination';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
-import { StripDivider, StripSearch, TitleStrip } from '@/components/title-strip';
-
-import type { PanelLogRecord } from './panel-log-details';
-import type { NodeFilter } from './use-panel-log-filters';
-
-import { PanelLogDetails } from './panel-log-details';
-import { RuntimeStateBadge } from './runtime-state-badge';
-import { NodeFilterChip, ViewTabs } from './panel-log-strip';
-import { matchingEventCodes } from './panel-log-presentation';
+import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
+import { matchingEventCodes, PanelLogDetails, RuntimeStateBadge } from '@/components/panel-log';
 
 const columns = [
   { key: 'time', className: 'w-48' },
   { key: 'state', className: 'w-25' },
   { key: 'reason', className: '' },
-  { key: 'node', className: 'w-40' },
   { key: 'actions', className: 'w-30' },
 ] as const;
 
 const states = ['running', 'stopped', 'failed', 'unknown'] as const satisfies readonly RuntimeTransitionState[];
 
-/** Every node's runtime states, newest first, in the log's table and pagination, filtered by state. */
-export function RuntimeStatesView({ node }: { node: NodeFilter }) {
+/**
+ * The node's runtime states, newest first, in the log's table and pagination,
+ * filtered by state, under a toolbar that lead, the window's tabs, starts.
+ */
+export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: string }) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage;
   const [selected, setSelected] = useState<PanelLogRecord | null>(null);
@@ -51,10 +49,10 @@ export function RuntimeStatesView({ node }: { node: NodeFilter }) {
   const [page, setPage] = useState(1);
   const enabled = usePageVisible();
   const history = useQuery({
-    queryKey: ['fleetRuntimeHistory', limit, state, query, node.id, page],
+    queryKey: ['fleetRuntimeHistory', nodeID, limit, state, query, page],
     queryFn: ({ signal }) => client.listFleetRuntimeHistory({
       limit, state: state ? state as RuntimeTransitionState : undefined,
-      search: query || undefined, searchCodes: matchingEventCodes(query), nodeID: node.id || undefined,
+      search: query || undefined, searchCodes: matchingEventCodes(query), nodeID,
       offset: (page - 1) * limit,
     }, signal),
     enabled, staleTime: 5000, refetchInterval: enabled ? 5000 : false, placeholderData: keepPreviousData,
@@ -70,21 +68,11 @@ export function RuntimeStatesView({ node }: { node: NodeFilter }) {
   }
   return (
     <>
-      <TitleStrip>
-        <ViewTabs view='states' />
-        <div className='flex min-w-0 flex-1 items-center gap-2 max-md:basis-full'>
-          <StripDivider className='max-md:hidden' />
-          <NodeFilterChip node={node} onClear={() => setPage(1)} />
-          <StripSearch
-            ref={searchRef}
-            label={t('productLogs.searchStates')}
-            value={search}
-            onValueChange={(value) => {
-              setSearch(value);
-              setPage(1);
-            }}
-          />
-          <StripDivider />
+      {history.error != null && <ErrorNotice error={history.error} title={t('productLogs.statesUnavailable')} />}
+      <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+        <CardToolbar>
+          {lead}
+          <StripDivider className='max-sm:hidden' />
           <SelectField
             active={state !== ''}
             aria-label={t('productLogs.state')}
@@ -97,10 +85,18 @@ export function RuntimeStatesView({ node }: { node: NodeFilter }) {
             }}
             items={[{ value: '', label: t('productLogs.allStates') }, ...states.map(value => ({ value, label: t(`productLogs.states.${value}`) }))]}
           />
-        </div>
-      </TitleStrip>
-      {history.error != null && <ErrorNotice error={history.error} title={t('productLogs.statesUnavailable')} />}
-      <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+          <StripDivider className='max-sm:hidden' />
+          <StripSearch
+            ref={searchRef}
+            className='max-sm:order-last max-sm:basis-full'
+            label={t('productLogs.searchStates')}
+            value={search}
+            onValueChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+          />
+        </CardToolbar>
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
           <table className='workspace-table w-full min-w-195 flex-none table-fixed border-collapse [&_td]:px-4 [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground [&_td:last-child]:text-center [&_th:last-child]:text-center'>
             <thead>
@@ -120,7 +116,6 @@ export function RuntimeStatesView({ node }: { node: NodeFilter }) {
                     <td className='truncate text-muted-foreground'><time dateTime={item.occurred_at}>{formatLogTime(item.occurred_at, language)}</time></td>
                     <td><RuntimeStateBadge state={item.state} /></td>
                     <td><div className='truncate' title={title}>{title}</div></td>
-                    <td><div className='truncate text-muted-foreground' title={item.node_name}>{item.node_name}</div></td>
                     <td>
                       <Button variant='ghost' size='sm' aria-label={`${t('productLogs.details')}: ${title}`} onClick={event => open(item, event.currentTarget)}>
                         {t('productLogs.details')}

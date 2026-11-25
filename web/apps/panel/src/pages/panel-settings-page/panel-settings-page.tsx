@@ -14,9 +14,9 @@ import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
 import { LoadingState } from '@/components/loading-state';
 import { usePanelSettings } from '@/stores/panel-settings.store';
-import { StripDivider, TitleStrip } from '@/components/title-strip';
 import { DEFAULT_APPEARANCE, THEME_PRESETS } from '@/theme/appearance';
 import { SettingsCard, SettingsField } from '@/components/settings-field';
+import { StripAction, StripDivider, TitleStrip } from '@/components/title-strip';
 
 import { PanelBackupSettings } from './panel-backup-settings';
 import { PanelUpdateSettings } from './panel-update-settings';
@@ -83,14 +83,15 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           {changed.size > 0 ? t('panelSettings.unsaved', { count: changed.size }) : null}
         </span>
         {changed.size > 0 && (
-          <IconAction disabled={saving} label={t('panelSettings.revert')} onClick={revert} variant='flat'>
-            <Undo2 aria-hidden='true' />
-          </IconAction>
+          <StripAction disabled={saving} icon={<Undo2 aria-hidden='true' data-icon='inline-start' />} label={t('panelSettings.revert')} onClick={revert} />
         )}
         <StripDivider />
-        <IconAction disabled={saving || !dirty} label={t(saving ? 'panelSettings.saving' : 'panelSettings.save')} onClick={() => void submit()} variant='flat'>
-          <Save aria-hidden='true' />
-        </IconAction>
+        <StripAction
+          disabled={saving || !dirty}
+          icon={<Save aria-hidden='true' data-icon='inline-start' />}
+          label={t(saving ? 'panelSettings.saving' : 'panelSettings.save')}
+          onClick={() => void submit()}
+        />
       </TitleStrip>
       <ScrollArea className='min-h-0 min-w-0 flex-1'>
         <div className='grid items-start gap-3 @5xl:grid-cols-2'>

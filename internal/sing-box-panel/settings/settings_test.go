@@ -146,41 +146,29 @@ func TestValidateRejectsUnsafeBasePath(t *testing.T) {
 	}
 }
 
-func TestNodeEndpointFollowsServerSettings(t *testing.T) {
+func TestNodeURLFollowsServerSettings(t *testing.T) {
 	value := Defaults()
 	value.Auth.Email, value.Auth.PasswordHash = testutil.AdminEmail, testutil.PasswordHash
 	for _, check := range []struct {
-		name            string
-		mutate          func(*Settings)
-		endpoint, trust string
+		name   string
+		mutate func(*Settings)
+		url    string
 	}{
-		{"web listener", func(*Settings) {}, "127.0.0.1:3000", NodeTrustPin},
-		{"https origin", func(value *Settings) { value.Server.ExternalOrigin = "https://www.example.com" }, "www.example.com:443", NodeTrustSystem},
-		{"origin port", func(value *Settings) { value.Server.ExternalOrigin = "https://www.example.com:8443" }, "www.example.com:8443", NodeTrustSystem},
-		{"http origin", func(value *Settings) { value.Server.ExternalOrigin = "http://www.example.com" }, "127.0.0.1:3000", NodeTrustPin},
-		{"override", func(value *Settings) {
-			value.Server.ExternalOrigin = "https://www.example.com"
-			value.Nodes.Endpoint = "203.0.113.7:3000"
-		}, "203.0.113.7:3000", NodeTrustPin},
+		{"loopback listener", func(*Settings) {}, "http://127.0.0.1:3000"},
+		{"https origin", func(value *Settings) {
+			value.Server.ExternalOrigin, value.Server.BasePath = "https://www.example.com:8443", "/panel"
+		}, "https://www.example.com:8443/panel"},
+		{"http origin", func(value *Settings) { value.Server.ExternalOrigin = "http://www.example.com" }, "http://127.0.0.1:3000"},
+		// Nodes elsewhere reach a listener on every address only over HTTPS.
+		{"unspecified listener", func(value *Settings) { value.Server.Host = "0.0.0.0" }, ""},
 	} {
 		next := value
 		check.mutate(&next)
 		if err := next.Validate(); err != nil {
 			t.Fatalf("%s: %v", check.name, err)
 		}
-		if next.NodeEndpoint() != check.endpoint || next.NodeTrust() != check.trust {
-			t.Errorf("%s: endpoint %q trust %q, want %q %q", check.name, next.NodeEndpoint(), next.NodeTrust(), check.endpoint, check.trust)
-		}
-	}
-	for name, nodes := range map[string]Nodes{
-		"endpoint without port":         {Endpoint: "www.example.com"},
-		"system trust without endpoint": {Trust: NodeTrustSystem},
-		"unknown trust":                 {Trust: "none"},
-	} {
-		next := value
-		next.Nodes.Endpoint, next.Nodes.Trust = nodes.Endpoint, nodes.Trust
-		if err := next.Validate(); err == nil || !strings.Contains(err.Error(), "nodes.") {
-			t.Errorf("%s: Validate() = %v", name, err)
+		if got, ok := next.NodeURL(); got != check.url || ok != (check.url != "") {
+			t.Errorf("%s: NodeURL() = %q, %v; want %q", check.name, got, ok, check.url)
 		}
 	}
 }

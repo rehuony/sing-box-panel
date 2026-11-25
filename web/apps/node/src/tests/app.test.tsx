@@ -29,7 +29,7 @@ const unenrolled: ConsoleStatus = {
 };
 const enrolled: ConsoleStatus = {
   connection: { since: '2026-11-05T08:00:00Z', state: 'connected' },
-  enrollment: { node_id: 'node_7c', panel_endpoint: 'panel.example.com:8443', panel_id: 'panel_1', panel_path: '', trust: 'pin' },
+  enrollment: { node_id: 'node_7c', panel_id: 'panel_1', panel_url: 'https://panel.example.com:8443' },
   node,
   ...readings,
 };
@@ -103,7 +103,7 @@ describe('node console', () => {
     expect(terminal).toHaveTextContent('the core reports no counters');
     expect(screen.getByRole('log', { name: 'Terminal output' })).toHaveTextContent('Run enroll with a code from the panel.');
 
-    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'logout{Enter}');
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'exit{Enter}');
     await waitFor(() => expect(screen.getByLabelText('Console password')).toBeInTheDocument());
     expect(requests).toContain('DELETE /api/v1/auth/session');
   });
@@ -135,9 +135,9 @@ describe('node console', () => {
 
     await user.type(await screen.findByRole('combobox', { name: 'Command' }), 'enroll{Enter}');
     await user.type(screen.getByRole('textbox', { name: 'Enrollment code' }), 'fresh-code{Enter}');
-    expect(await screen.findByText('Enrolled with panel.example.com:8443 as node_7c.')).toBeInTheDocument();
+    expect(await screen.findByText('Enrolled with https://panel.example.com:8443 as node_7c.')).toBeInTheDocument();
     const terminal = screen.getByRole('region', { name: 'edge-tokyo' });
-    expect(terminal).toHaveTextContent('panel.example.com:8443');
+    expect(terminal).toHaveTextContent('https://panel.example.com:8443');
     expect(terminal).toHaveTextContent('Connecting');
     const enrollment = requests.filter(request => request.path === '/api/v1/enrollment').at(-1)!;
     expect(new Headers(enrollment.init?.headers).get('X-CSRF-Token')).toBe('csrf');
@@ -161,7 +161,7 @@ describe('node console', () => {
     await user.keyboard('{Tab}');
     const menu = screen.getByRole('listbox', { name: 'Completions' });
     expect(within(menu).getAllByRole('option').map(option => option.firstChild?.textContent))
-      .toEqual(['re-enroll', 'unenroll', 'status', 'clear', 'help', 'logout', 'exit']);
+      .toEqual(['re-enroll', 'unenroll', 'status', 'clear', 'help', 'exit']);
     await user.keyboard('{Tab}{Tab}');
     expect(command).toHaveValue('unenroll');
     expect(within(menu).getByRole('option', { selected: true })).toHaveTextContent('unenroll');
@@ -171,14 +171,14 @@ describe('node console', () => {
     expect(log).not.toHaveTextContent('Unenroll from');
 
     await user.keyboard('{Enter}');
-    expect(log).toHaveTextContent('Unenroll from panel.example.com:8443?');
+    expect(log).toHaveTextContent('Unenroll from https://panel.example.com:8443?');
     await user.type(screen.getByRole('textbox', { name: 'Type y to unenroll' }), 'n{Enter}');
     expect(log).toHaveTextContent('Cancelled.');
     expect(unenrolls()).toHaveLength(0);
 
     await user.type(screen.getByRole('combobox', { name: 'Command' }), 'unenroll{Enter}');
     await user.type(screen.getByRole('textbox', { name: 'Type y to unenroll' }), 'y{Enter}');
-    expect(await screen.findByText('Unenrolled from panel.example.com:8443.')).toBeInTheDocument();
+    expect(await screen.findByText('Unenrolled from https://panel.example.com:8443.')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'edge-tokyo' })).toHaveTextContent('Not enrolled');
     expect(unenrolls()).toHaveLength(1);
   });

@@ -16,12 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
-	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 )
@@ -34,7 +32,7 @@ func enrolledRawNode(t *testing.T, served testFleet, name string, minor uint32, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &rawNode{client: dialRaw(t, served.endpoint, basePath, true), minor: minor, build: build}
+	node := &rawNode{client: dialRaw(t, served.url), minor: minor, build: build}
 	if err := node.enroll(t, enrollment.Code); err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +88,12 @@ func TestFetchReleaseNeedsItsOwnProof(t *testing.T) {
 	_, _, err := node.fetchRelease(t, func(panelID string, nonce []byte) *nodeapi.Proof {
 		return nodeapi.SignProof(node.key, panelID, node.id, nonce)
 	})
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 	other := enrolledRawNode(t, served, "other", 1, "v1.0.0")
 	_, _, err = node.fetchRelease(t, func(panelID string, nonce []byte) *nodeapi.Proof {
 		return nodeapi.SignReleaseProof(other.key, panelID, node.id, nonce)
 	})
-	requireCode(t, err, codes.Unauthenticated)
+	requireCode(t, err, nodeapi.CodeUnauthenticated)
 
 	header, received, err := node.fetchRelease(t, func(panelID string, nonce []byte) *nodeapi.Proof {
 		return nodeapi.SignReleaseProof(node.key, panelID, node.id, nonce)
@@ -159,7 +157,7 @@ func TestUpdateNeedsTheProtocolMinorThatHasIt(t *testing.T) {
 	}
 }
 
-func answerCommand(t *testing.T, stream nodeapi.NodeService_ConnectClient, requestID string, outcome nodeapi.ResultOutcome) {
+func answerCommand(t *testing.T, stream *nodeapi.ConnectClient, requestID string, outcome nodeapi.ResultOutcome) {
 	t.Helper()
 	if err := stream.Send(&nodeapi.ConnectRequest{Frame: &nodeapi.ConnectRequest_Result{Result: &nodeapi.Result{
 		RequestId: requestID, Outcome: outcome,
@@ -171,7 +169,7 @@ func answerCommand(t *testing.T, stream nodeapi.NodeService_ConnectClient, reque
 func TestBatchUpdateRunsOneNodeAtATimeAndStopsAtAFailure(t *testing.T) {
 	served := startFleetWith(t, fleetSetup{version: "v1.1.0", release: map[string][]byte{}})
 	var nodes []*rawNode
-	var streams []nodeapi.NodeService_ConnectClient
+	var streams []*nodeapi.ConnectClient
 	for _, name := range []string{"first", "second", "third"} {
 		node := enrolledRawNode(t, served, name, 1, "v1.0.0")
 		stream, err := node.connect(t, node.key)
@@ -196,7 +194,7 @@ func TestBatchUpdateRunsOneNodeAtATimeAndStopsAtAFailure(t *testing.T) {
 		answerCommand(t, streams[0], frame.GetCommand().GetRequestId(), &nodeapi.Result_Update{Update: &nodeapi.UpdateOutcome{
 			State: nodeapi.UpdateState_UPDATE_STATE_RESTARTING, Version: "v1.1.0",
 		}})
-		_ = streams[0].CloseSend()
+		_ = streams[0].Close(nil)
 		time.Sleep(200 * time.Millisecond)
 		nodes[0].build = "v1.1.0"
 		if _, err := nodes[0].connect(t, nodes[0].key); err != nil {
@@ -239,7 +237,7 @@ func TestBatchUpdateRunsOneNodeAtATimeAndStopsAtAFailure(t *testing.T) {
 }
 
 // TestRetriedUpdateIsNotBlamedForTheLastFailure retries an update soon after
-// the node's helper refused one: until the node comes back, it still reports
+// the node's unit refused one: until the node comes back, it still reports
 // that earlier failure, which is not this update's outcome.
 func TestRetriedUpdateIsNotBlamedForTheLastFailure(t *testing.T) {
 	served := startFleetWith(t, fleetSetup{version: "v1.1.0", release: map[string][]byte{}})
@@ -258,15 +256,15 @@ func TestRetriedUpdateIsNotBlamedForTheLastFailure(t *testing.T) {
 		t.Fatalf("expected an update command, got %v, %v", frame, err)
 	}
 	answerCommand(t, stream, frame.GetCommand().GetRequestId(), &nodeapi.Result_Update{Update: &nodeapi.UpdateOutcome{
-		State: nodeapi.UpdateState_UPDATE_STATE_STAGED, Version: "v1.1.0",
+		State: nodeapi.UpdateState_UPDATE_STATE_RESTARTING, Version: "v1.1.0",
 	}})
-	// The helper applies the retry while the node still reports the failure.
+	// The unit installs the retry while the node still reports the failure.
 	select {
 	case err := <-done:
 		t.Fatalf("the update ended with %v before the node came back", err)
 	case <-time.After(1500 * time.Millisecond):
 	}
-	_ = stream.CloseSend()
+	_ = stream.Close(nil)
 	node.build = "v1.1.0"
 	if _, err := node.connect(t, node.key); err != nil {
 		t.Fatal(err)
@@ -292,7 +290,7 @@ func TestBatchUpdateWaitsForANodeThatRestartedBeforeAnswering(t *testing.T) {
 	if frame, err := stream.Recv(); err != nil || frame.GetCommand().GetUpdateNode() == nil {
 		t.Fatalf("expected an update command, got %v, %v", frame, err)
 	}
-	_ = stream.CloseSend()
+	_ = stream.Close(nil)
 	waitState(t, served.service, node.id, fleet.StateOffline)
 	node.build = "v1.1.0"
 	if _, err := node.connect(t, node.key); err != nil {
@@ -361,8 +359,9 @@ func TestNodeUpdatesItselfFromThePanelsRelease(t *testing.T) {
 	if installed, err := os.ReadFile(executable); err != nil || !bytes.Equal(installed, binary) {
 		t.Fatalf("the executable is not the release: %v", err)
 	}
-	if previous, err := os.ReadFile(executable + selfupdate.PreviousSuffix); err != nil || string(previous) != "old binary" {
-		t.Fatalf("previous executable = %q, %v", previous, err)
+	// Updates go one way: nothing but the executable stays beside it.
+	if entries, err := os.ReadDir(filepath.Dir(executable)); err != nil || len(entries) != 1 {
+		t.Fatalf("beside the executable: %v, %v; want the executable alone", entries, err)
 	}
 	node, err := served.service.Node(t.Context(), enrollment.NodeID)
 	if err != nil || node.LastUpdate == nil || !node.LastUpdate.Succeeded || node.LastUpdate.Version != "v1.1.0" || !node.UpdateAvailable {

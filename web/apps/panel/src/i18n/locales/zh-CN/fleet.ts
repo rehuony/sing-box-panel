@@ -153,8 +153,7 @@ export const node = {
     lastFailed: '升级到 {{version}} 失败（{{code}}）',
     result: {
       restart_required: '{{name}} 已安装 {{version}}，重启节点后生效',
-      restarting: '{{name}} 已安装 {{version}}，正在重启',
-      staged: '{{name}} 已暂存 {{version}}，升级辅助服务将安装它并重启节点',
+      restarting: '{{name}} 正在重启到 {{version}}',
       up_to_date: '{{name}} 已在运行 {{version}}',
     },
     title: '版本',

@@ -31,6 +31,15 @@ func (manager *Manager[T]) Render(scope Scope, executablePath, statePath, dataDi
 	if err != nil {
 		return nil, err
 	}
+	if hasDirective(result, "ExecStartPre=") {
+		preStart, err := manager.preStart(executablePath, dataDir)
+		if err != nil {
+			return nil, err
+		}
+		if result, err = replaceDirective(result, "ExecStartPre=", "ExecStartPre="+preStart); err != nil {
+			return nil, err
+		}
+	}
 	workingDirectory, err := workingDirectoryValue(dataDir)
 	if err != nil {
 		return nil, err
@@ -87,11 +96,35 @@ func (manager *Manager[T]) execStart(executablePath, statePath string) (string, 
 	return executable + " " + manager.definition.Arguments(state), nil
 }
 
+// installStepPrefix makes the install step run with full privileges, as
+// root and outside the unit's sandbox, and lets the service start whatever
+// the step's outcome; the step records a failure for the service to report.
+const installStepPrefix = "-+"
+
+// preStart is the install step's command line: executable with the data
+// directory, run before the service.
+func (manager *Manager[T]) preStart(executablePath, dataDir string) (string, error) {
+	if manager.definition.PreStartArguments == nil {
+		return "", fmt.Errorf("%w: %s has no install step arguments", ErrInvalid, manager.definition.Name)
+	}
+	executable, err := quoteExecArgument(executablePath)
+	if err != nil {
+		return "", err
+	}
+	data, err := quoteExecArgument(dataDir)
+	if err != nil {
+		return "", err
+	}
+	return installStepPrefix + executable + " " + manager.definition.PreStartArguments(data), nil
+}
+
 // unitOutdated reports whether the managed unit in scope runs a command
 // line this release does not write for the same executable and state, as
 // a unit installed by an earlier release with other arguments does: the
-// executable it starts may not accept them. A missing or foreign unit, or
-// one whose command line cannot be read, is not reported.
+// executable it starts may not accept them. A system unit also needs this
+// release's install step, without which a staged update is never
+// installed. A missing or foreign unit, or one whose command line cannot be
+// read, is not reported.
 func (manager *Manager[T]) unitOutdated(scope Scope) bool {
 	unit, err := os.ReadFile(manager.unitPath(scope))
 	if err != nil || !bytes.Contains(unit, []byte(manager.managedMark())) {
@@ -114,7 +147,29 @@ func (manager *Manager[T]) unitOutdated(scope Scope) bool {
 		return true
 	}
 	expected, err := manager.execStart(executable, statePath)
-	return err == nil && expected != command
+	if err != nil {
+		return false
+	}
+	if expected != command {
+		return true
+	}
+	if scope != ScopeSystem || manager.definition.PreStartArguments == nil {
+		return false
+	}
+	preStart, ok := effectiveDirective(string(unit), "ExecStartPre")
+	if !ok {
+		return true
+	}
+	preStartWords, ok := splitExecLine(strings.TrimPrefix(preStart, installStepPrefix))
+	if !ok || len(preStartWords) < 2 {
+		return true
+	}
+	dataDir, ok := flagArgument(preStartWords[1:], "--data-dir", "")
+	if !ok {
+		return true
+	}
+	expectedPreStart, err := manager.preStart(executable, dataDir)
+	return err != nil || expectedPreStart != preStart
 }
 
 // refreshCommand is how an operator rewrites the unit in scope with the
@@ -124,56 +179,6 @@ func (manager *Manager[T]) refreshCommand(scope Scope) string {
 		return "sudo " + manager.definition.Name + " systemd install --scope=system"
 	}
 	return manager.definition.Name + " systemd install --scope=user"
-}
-
-// RenderCompanion returns a companion unit of a system installation that
-// runs executable with its data in dataDir.
-func (manager *Manager[T]) RenderCompanion(companion Companion, executablePath, dataDir string) ([]byte, error) {
-	result := companion.Template
-	var err error
-	if hasDirective(result, "ExecStart=") {
-		if manager.definition.CompanionArguments == nil {
-			return nil, fmt.Errorf("%w: %s has no companion arguments", ErrInvalid, manager.definition.Name)
-		}
-		executable, err := quoteExecArgument(executablePath)
-		if err != nil {
-			return nil, err
-		}
-		data, err := quoteExecArgument(dataDir)
-		if err != nil {
-			return nil, err
-		}
-		if result, err = replaceDirective(result, "ExecStart=", "ExecStart="+executable+" "+manager.definition.CompanionArguments(data)); err != nil {
-			return nil, err
-		}
-	}
-	writable := []string{filepath.Dir(executablePath), dataDir}
-	if hasDirective(result, "ReadWritePaths=") {
-		quoted := make([]string, 0, len(writable))
-		for _, path := range writable {
-			value, err := quotePathDirective(path)
-			if err != nil {
-				return nil, err
-			}
-			quoted = append(quoted, value)
-		}
-		if result, err = replaceDirective(result, "ReadWritePaths=", "ReadWritePaths="+strings.Join(quoted, " ")); err != nil {
-			return nil, err
-		}
-	}
-	if hasDirective(result, "PathExists=") {
-		watched, err := workingDirectoryValue(filepath.Join(dataDir, companion.Watch))
-		if err != nil || companion.Watch == "" {
-			return nil, fmt.Errorf("%w: the watched path cannot be represented losslessly", ErrInvalid)
-		}
-		if result, err = replaceDirective(result, "PathExists=", "PathExists="+watched); err != nil {
-			return nil, err
-		}
-	}
-	if hasDirective(result, "PrivateTmp=") {
-		return bindTemporaryPaths(result, writable[1:])
-	}
-	return result, nil
 }
 
 func hasDirective(source []byte, prefix string) bool {

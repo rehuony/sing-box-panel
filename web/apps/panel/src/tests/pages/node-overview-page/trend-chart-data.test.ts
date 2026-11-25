@@ -30,6 +30,18 @@ describe('live traffic evidence', () => {
     expect(chart.data[1]).toEqual([1, 1, 1, 1, null, 1, 1]);
   });
 
+  it('joins stored samples ten seconds apart to each other and the stream, breaking only where one is missing', () => {
+    const point = (at: number, span?: number): LivePoint => ({
+      at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2, ...(span ? { span } : {}),
+    });
+    const stream = Array.from({ length: 10 }, (_, index) => point(51_000 + index * 1000));
+    const chart = liveTrafficChartData([
+      point(0, 10_000), point(10_000, 10_000), point(20_000, 10_000), point(50_000, 10_000), ...stream,
+    ]);
+    expect(chart.data[0].slice(0, 6)).toEqual([0, 10_000, 20_000, 49_999, 50_000, 51_000]);
+    expect(chart.data[1]).toEqual([1, 1, 1, null, 1, ...stream.map(() => 1)]);
+  });
+
   it('starts the live span at its oldest sample, at least ten seconds before the newest', () => {
     const point = (at: number): LivePoint => ({
       at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2,

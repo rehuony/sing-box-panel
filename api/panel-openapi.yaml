@@ -324,9 +324,10 @@ paths:
         way a stop does and runs its program again in the same process, so
         the connection ends. The answer carries the start of the stopping
         process; getSystemStatus reports a later started_at once the panel is
-        back. Refused while an update of the panel runs or is staged, since
-        the update restarts the panel itself, and where the panel cannot
-        restart itself.
+        back. Refused while an update of the panel runs, since the update
+        restarts the panel itself, while nodes are being updated
+        (node_updates_in_progress), and where the panel cannot restart
+        itself.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -352,12 +353,13 @@ paths:
       operationId: startSystemUpdate
       description: >-
         Starts updating the panel to the newest stable release it knows, in
-        the background. A system service downloads and verifies the release
-        and stages it for its root update helper, which installs it and
-        restarts the panel; a panel that may replace its executable installs
-        it and, under a user unit, restarts, or otherwise waits for a manual
-        restart. Follow the state with getSystemUpdate; the panel restarts,
-        so the connection ends.
+        the background. A system service downloads and verifies the release,
+        stages it and stops; its unit installs it and starts the panel again.
+        A panel that may replace its executable installs it and, under a user
+        unit, restarts, or otherwise waits for a manual restart. Updates go
+        one way: the replaced binary is not kept. Follow the state with
+        getSystemUpdate; the panel restarts, so the connection ends. While
+        nodes are being updated the panel answers node_updates_in_progress.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -1697,10 +1699,8 @@ paths:
           in: query
           schema: {type: string, maxLength: 256}
           description: Case-insensitive substring of the original message or event code. Combined with search_codes using OR.
-        - name: node_id
-          in: query
-          schema: {type: string, maxLength: 128}
-          description: Keeps only the entries about this node, such as the operations on it and its connections.
+        - $ref: '#/components/parameters/LogScope'
+        - $ref: '#/components/parameters/LogNodeID'
         - name: search_codes
           in: query
           description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 128 KiB, allowing the full code range even with percent encoding.
@@ -1721,6 +1721,9 @@ paths:
   /logs/usage:
     get:
       operationId: getLogUsage
+      parameters:
+        - $ref: "#/components/parameters/LogScope"
+        - $ref: "#/components/parameters/LogNodeID"
       responses:
         "200":
           $ref: "#/components/responses/LogUsage"
@@ -1748,11 +1751,14 @@ paths:
       description: >-
         Deletes the log entries the filters select, then shrinks the log
         database's files on disk and records one logs.cleared entry with the
-        number deleted and the bytes freed. Runtime history is not affected.
+        number deleted and the bytes freed, about the node when node_id
+        selected one. Runtime history is not affected.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
         - $ref: "#/components/parameters/LogSource"
         - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/LogScope"
+        - $ref: "#/components/parameters/LogNodeID"
       responses:
         "200":
           $ref: "#/components/responses/LogClearResult"
@@ -1855,6 +1861,17 @@ paths:
           $ref: "#/components/responses/MetricsHistory"
         default:
           $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/metrics/recent:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getRecentMetrics
+      description: The node's accepted stored samples of the last two minutes, oldest first, so a live chart opens with what came before it, and the spans of those two minutes in which the node's runtime history shows no core running, which hold no samples but are known zero traffic and connections. Samples are stored about every ten seconds whatever the node's live sampling. A read failure returns 503 recent_metrics_unavailable.
+      responses:
+        "200":
+          $ref: "#/components/responses/RecentMetrics"
+        default:
+          $ref: "#/components/responses/Problem"
   /traffic/status:
     get:
       operationId: getTrafficStatus
@@ -1910,12 +1927,14 @@ paths:
       description: >-
         Asks the node to update itself to the panel's release, which the
         panel caches and verifies first. The node fetches it from the panel,
-        verifies it with its own release key, and installs it or stages it
-        for its root update helper; restarting the node restarts its core, so
-        its proxy is briefly interrupted. A panel that is not a release build
-        answers node_update_unavailable, a node whose protocol predates
-        updates node_upgrade_required, and a node already updating
-        node_update_in_progress.
+        verifies it with its own release key, and installs it, or a system
+        service stages it and stops for its unit to install it and start the
+        node again; restarting the node restarts its core, so its proxy is
+        briefly interrupted. A panel that is not a release build answers
+        node_update_unavailable, a node whose protocol predates updates
+        node_upgrade_required, a node already updating
+        node_update_in_progress, and a panel that is updating itself
+        update_in_progress.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -2093,6 +2112,18 @@ components:
       schema:
         type: string
         enum: [panel, core, security]
+    LogScope:
+      name: scope
+      in: query
+      description: With panel, keeps only the panel's own entries, about no node. Not combined with node_id.
+      schema:
+        type: string
+        enum: [panel]
+    LogNodeID:
+      name: node_id
+      in: query
+      description: Keeps only the entries about this node, such as the operations on it and its connections. Not combined with scope.
+      schema: {type: string, maxLength: 128}
     PageOffset:
       name: offset
       in: query
@@ -2401,7 +2432,7 @@ components:
       description: Count of deleted log entries and the bytes clearing freed.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogClearResult"}}}
     LogUsage:
-      description: The log's entries and the size of its files on disk.
+      description: The entries the scope selects and the size of the whole log's files on disk.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogUsage"}}}
     LogEntry:
       description: Sanitized durable log entry.
@@ -2418,6 +2449,9 @@ components:
     MetricsHistory:
       description: Bounded, gap-preserving historical metric buckets.
       content: {application/json: {schema: {$ref: "#/components/schemas/MetricsHistory"}}}
+    RecentMetrics:
+      description: The node's stored samples of the last two minutes.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RecentMetrics"}}}
     TrafficPeriodPage:
       description: Traffic periods.
       content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriodPage"}}}
@@ -2608,7 +2642,7 @@ components:
           type: boolean
           description: The node's version differs from the panel's release; always false on a panel that is not a release build.
         last_update:
-          description: The node's last update attempt as it last reported it; after its root update helper's attempt the node reports it once it runs again.
+          description: The node's last update attempt as it last reported it; after its system unit's install step the node reports it once it runs again.
           oneOf:
             - {$ref: '#/components/schemas/UpdateAttempt'}
             - {type: 'null'}
@@ -2621,7 +2655,7 @@ components:
         succeeded: {type: boolean}
         code:
           type: string
-          description: On failure, a short code such as signature_invalid, version_not_newer, service_not_active or helper_unavailable (the root update helper did not take a staged release within two minutes); empty on success.
+          description: On failure, a short code such as signature_invalid, version_not_newer or install_step_missing (the service started again with a staged release its unit did not install, as a unit an earlier release wrote does not); empty on success.
         finished_at:
           type: [string, "null"]
           format: date-time
@@ -2634,13 +2668,12 @@ components:
         version: {type: string, description: The panel's release the node was asked to run.}
         state:
           type: string
-          enum: [up_to_date, restarting, staged, restart_required]
+          enum: [up_to_date, restarting, restart_required]
           description: >-
             up_to_date: the node already runs it. restarting: the node
-            installed it and its service restarts now. staged: the node's
-            system service staged it for its root update helper, which
-            installs it and restarts the node. restart_required: the node
-            installed it and runs it once restarted.
+            restarts into it now, its user unit once it installed it or its
+            system unit, which installs it first. restart_required: the node
+            installed or staged it and runs it once restarted.
     SystemUpdate:
       type: object
       additionalProperties: false
@@ -2658,11 +2691,11 @@ components:
         update_available: {type: boolean}
         state:
           type: string
-          enum: [idle, updating, staged, restarting, restart_required]
+          enum: [idle, updating, restarting, restart_required]
           description: >-
             updating: the release is being downloaded, verified and installed
-            or staged. staged: the root update helper installs it and
-            restarts the panel. restarting: the panel's unit restarts into it.
+            or staged. restarting: the panel restarts into it, its user unit
+            once it installed it or its system unit, which installs it first.
             restart_required: it runs once the panel is restarted.
         target_version: {type: [string, "null"]}
         last_attempt:
@@ -2794,9 +2827,9 @@ components:
         code:
           type: string
           description: >-
-            One-time code naming the panel endpoint and base path, how to trust it
-            and the enrollment token. Shown once; the panel keeps only a hash
-            of the token.
+            One-time code naming the panel URL that nodes connect to and the
+            enrollment token. Shown once; the panel keeps only a hash of the
+            token.
         command:
           type: string
           description: The command that enrolls the node with this code.
@@ -3854,12 +3887,16 @@ components:
       additionalProperties: false
       required: [entries, bytes]
       properties:
-        entries: {type: integer, format: int64, minimum: 0}
+        entries:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Entries in the requested scope.
         bytes:
           type: integer
           format: int64
           minimum: 0
-          description: Size of the log database file and its write-ahead log on disk.
+          description: Size of the whole log database file and its write-ahead log on disk, whatever the scope.
     LogDeleteResult:
       type: object
       additionalProperties: false
@@ -4092,6 +4129,43 @@ components:
           type: array
           maxItems: 512
           items: {$ref: "#/components/schemas/MetricsHistoryBucket"}
+    RecentMetrics:
+      type: object
+      additionalProperties: false
+      required: [from, to, samples, idle]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        samples:
+          type: array
+          items: {$ref: "#/components/schemas/RecentMetricsSample"}
+        idle:
+          type: array
+          description: Ordered, disjoint spans of the window in which no core ran.
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to]
+            properties:
+              from: {type: string, format: date-time}
+              to: {type: string, format: date-time}
+    RecentMetricsSample:
+      type: object
+      additionalProperties: false
+      description: One stored sample. Its rates cover the interval that ends at the sample and are null when that interval is unknown, as after a first sample or a process change.
+      required: [sampled_at, interval_seconds, upload_bytes_per_second, download_bytes_per_second, active_connections]
+      properties:
+        sampled_at: {type: string, format: date-time}
+        interval_seconds:
+          type: [number, "null"]
+          minimum: 0
+        upload_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+        download_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+        active_connections: {type: integer, format: int64, minimum: 0}
     DashboardStreamSnapshot:
       type: object
       additionalProperties: false

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -21,39 +20,23 @@ type updateLock struct {
 	file *os.File
 }
 
+// acquireUpdateLock locks the executable at targetPath itself, so updates of
+// one executable take turns without a lock file beside it. An install
+// replaces the path, not the locked file, so an updater that waited compares
+// the executable's digest under the lock with the one it started from.
 func acquireUpdateLock(ctx context.Context, targetPath string) (*updateLock, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	lockPath := filepath.Join(filepath.Dir(targetPath), "."+filepath.Base(targetPath)+".update.lock")
-	fileDescriptor, err := unix.Open(
-		lockPath,
-		unix.O_CLOEXEC|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_RDWR,
-		0o600,
-	)
+	fileDescriptor, err := unix.Open(targetPath, unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_RDONLY, 0)
 	if err != nil {
-		return nil, fmt.Errorf("open lock file: %w", err)
+		return nil, fmt.Errorf("open executable to lock it: %w", err)
 	}
-	file := os.NewFile(uintptr(fileDescriptor), lockPath)
+	file := os.NewFile(uintptr(fileDescriptor), targetPath)
 	if file == nil {
 		_ = unix.Close(fileDescriptor)
-		return nil, errors.New("open lock file: invalid file descriptor")
+		return nil, errors.New("open executable to lock it: invalid file descriptor")
 	}
-	closeOnError := func(err error) (*updateLock, error) {
-		_ = file.Close()
-		return nil, err
-	}
-	info, err := file.Stat()
-	if err != nil {
-		return closeOnError(fmt.Errorf("inspect lock file: %w", err))
-	}
-	if !info.Mode().IsRegular() {
-		return closeOnError(errors.New("lock path is not a regular file"))
-	}
-	if err := file.Chmod(0o600); err != nil {
-		return closeOnError(fmt.Errorf("secure lock file permissions: %w", err))
-	}
-
 	ticker := time.NewTicker(updateLockRetryInterval)
 	defer ticker.Stop()
 	for {
@@ -62,11 +45,13 @@ func acquireUpdateLock(ctx context.Context, targetPath string) (*updateLock, err
 			return &updateLock{file: file}, nil
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
-			return closeOnError(fmt.Errorf("lock executable: %w", err))
+			_ = file.Close()
+			return nil, fmt.Errorf("lock executable: %w", err)
 		}
 		select {
 		case <-ctx.Done():
-			return closeOnError(ctx.Err())
+			_ = file.Close()
+			return nil, ctx.Err()
 		case <-ticker.C:
 		}
 	}

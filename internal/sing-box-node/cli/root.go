@@ -87,14 +87,13 @@ func newEnrollCommand(deps Dependencies, state *options, service systemdService)
 				return cliui.Fail(cliui.ErrorValidation, "enrollment_invalid", err)
 			}
 			style := cliui.NewStyle(cmd.OutOrStdout(), state.format)
-			panel := enrollment.Endpoint + enrollment.Path
 			text := cliui.Section(style.Success("Enrolled as node "+enrollment.NodeID), cliui.Fields(
-				cliui.Field{Label: "Panel", Value: style.Accent(panel)},
+				cliui.Field{Label: "Panel", Value: style.Accent(enrollment.URL)},
 				cliui.Field{Label: "Settings", Value: style.Path(value.Path())},
 				cliui.Field{Label: "Data directory", Value: style.Path(value.DataDir)},
 			), startHint(cmd.Context(), value, service, style))
 			return cliui.Write(cmd.OutOrStdout(), state.format, map[string]any{
-				"enrolled": true, "node_id": enrollment.NodeID, "panel_id": enrollment.PanelID, "panel": panel,
+				"enrolled": true, "node_id": enrollment.NodeID, "panel_id": enrollment.PanelID, "panel": enrollment.URL,
 			}, text)
 		},
 	}

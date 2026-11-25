@@ -126,3 +126,80 @@ func TestTrafficLedgerAnswersFromMemoryAndFollowsChanges(t *testing.T) {
 		t.Fatalf("latest sample = %+v; want the one stored last", metrics.LatestSample)
 	}
 }
+
+// TestRecentMetricsReturnsTheLastTwoMinutesAsRates reads the stored samples a
+// live chart opens with: those of the last two minutes, each with the rates
+// of the interval ending at it, and none for a sample a new process starts;
+// then the span after the core stopped, which holds no samples.
+func TestRecentMetricsReturnsTheLastTwoMinutesAsRates(t *testing.T) {
+	ctx := t.Context()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	now := time.Date(2026, time.June, 10, 12, 2, 0, 0, time.UTC)
+	records := New(database, nil, Options{Now: func() time.Time { return now }})
+	nodeID := testutil.CreateNode(t, database, "edge")
+	record := func(at time.Time, pid int, connections, upload, download int64) {
+		t.Helper()
+		if err := records.RecordNodeSample(ctx, nodeID, "instance", NodeSample{SampledAt: at, Traffic: &NodeTraffic{
+			ActivationBundleID: "bundle", PID: pid, ProcessStartToken: "start", Connections: connections,
+			UploadTotal: upload, DownloadTotal: download,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := func(minute, second int) time.Time {
+		return time.Date(2026, time.June, 10, 12, minute, second, 0, time.UTC)
+	}
+	record(at(-1, 50), 7, 1, 0, 0) // 11:59:50, before the window
+	record(at(0, 10), 7, 2, 200, 400)
+	record(at(0, 20), 7, 3, 300, 600)
+	record(at(1, 0), 8, 4, 0, 0)
+	if err := database.RecordRuntimeTransition(ctx, store.RuntimeTransitionInput{NodeID: nodeID, InstanceID: "instance",
+		SourceID: 1, State: store.RuntimeTransitionStopped, Reason: "stop_succeeded", OccurredAt: at(1, 30)}); err != nil {
+		t.Fatal(err)
+	}
+
+	recent, err := records.RecentMetrics(ctx, nodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recent.From.Equal(at(0, 0)) || !recent.To.Equal(now) {
+		t.Fatalf("window = %s to %s; want %s to %s", recent.From, recent.To, at(0, 0), now)
+	}
+	value := func(pointer *float64) any {
+		if pointer == nil {
+			return nil
+		}
+		return *pointer
+	}
+	type point struct {
+		at                        time.Time
+		seconds, upload, download any
+		connections               int64
+	}
+	got := make([]point, 0, len(recent.Samples))
+	for _, sample := range recent.Samples {
+		got = append(got, point{sample.SampledAt, value(sample.IntervalSeconds), value(sample.UploadBytesPerSecond),
+			value(sample.DownloadBytesPerSecond), sample.ActiveConnections})
+	}
+	want := []point{
+		{at(0, 10), 20.0, 10.0, 20.0, 2},
+		{at(0, 20), 10.0, 10.0, 20.0, 3},
+		{at(1, 0), nil, nil, nil, 4},
+	}
+	if len(recent.Idle) != 1 || !recent.Idle[0].From.Equal(at(1, 30)) || !recent.Idle[0].To.Equal(now) {
+		t.Fatalf("idle = %+v; want one span from %s to %s", recent.Idle, at(1, 30), now)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("samples = %+v; want %+v", got, want)
+	}
+	for index := range want {
+		if !got[index].at.Equal(want[index].at) || got[index].seconds != want[index].seconds || got[index].upload != want[index].upload ||
+			got[index].download != want[index].download || got[index].connections != want[index].connections {
+			t.Fatalf("sample %d = %+v; want %+v", index, got[index], want[index])
+		}
+	}
+}

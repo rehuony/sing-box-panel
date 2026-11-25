@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/settingsfile"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
@@ -42,26 +41,12 @@ var (
 	sysusersTemplate []byte
 	//go:embed templates/tmpfiles.d/sing-box-panel.conf
 	tmpfilesTemplate []byte
-	//go:embed templates/system/sing-box-panel-update.path
-	updatePathTemplate []byte
-	//go:embed templates/system/sing-box-panel-update.service
-	updateServiceTemplate []byte
 )
 
-// The root update helper of the system service: a path unit that watches
-// the update request in the data directory and the oneshot service it
-// starts, which applies the staged release.
-const (
-	UpdatePathUnit    = Name + "-update.path"
-	UpdateServiceUnit = Name + "-update.service"
-)
-
-func updateCompanions() []systemd.Companion {
-	return []systemd.Companion{
-		{Name: UpdatePathUnit, Template: updatePathTemplate, Watch: selfupdate.UpdatesDir + "/" + selfupdate.RequestName, Enable: true},
-		{Name: UpdateServiceUnit, Template: updateServiceTemplate},
-	}
-}
+// retiredUnits are the root update helper's path unit and service, which
+// system installations by earlier releases kept beside the unit; the unit's
+// install step replaces them.
+var retiredUnits = []string{Name + "-update.path", Name + "-update.service"}
 
 // Manager is the panel's systemd lifecycle; it reports the settings that
 // installing or starting the service created.
@@ -73,10 +58,10 @@ func Definition() systemd.Definition[settings.Settings] {
 		Name: Name, AccountDescription: "Sing-Box Panel service account",
 		SystemUnit: systemUnitTemplate, UserUnit: userUnitTemplate, Sysusers: sysusersTemplate, Tmpfiles: tmpfilesTemplate,
 		SystemStatePath: SystemSettingsPath, StateFlag: "--config", StateShortFlag: "-c", StateLabel: "settings", StateFile: true,
-		Arguments:          func(settingsPath string) string { return "server start --config " + settingsPath },
-		State:              panelState{},
-		Companions:         updateCompanions(),
-		CompanionArguments: func(dataDir string) string { return "update --apply-staged --data-dir " + dataDir },
+		Arguments:         func(settingsPath string) string { return "server start --config " + settingsPath },
+		State:             panelState{},
+		PreStartArguments: func(dataDir string) string { return "update --apply-staged --data-dir " + dataDir },
+		RetiredUnits:      retiredUnits,
 	}
 }
 

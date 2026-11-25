@@ -172,7 +172,7 @@ describe('dashboard evidence', () => {
     expect(within(started).getByText('INFO')).toBeVisible();
     expect(started.querySelector('time')).toHaveAttribute('datetime', activityEntry.time);
     for (const link of within(activity).getAllByRole('link')) {
-      expect(link).toHaveAttribute('href', `/logs?node=${testNode.id}`);
+      expect(link).toHaveAttribute('href', `/nodes/${testNode.id}/logs#logs-events`);
     }
     expect(within(activity).getByRole('link', { name: /Automatic recovery attempt started/ })).toHaveTextContent('WARN');
 
@@ -248,8 +248,9 @@ describe('dashboard evidence', () => {
       new Date(end - (24 - 6 * index) * 3_600_000).toISOString()
     ));
     expect(Array.from(card.querySelectorAll('time'), time => time.dateTime)).toEqual(expectedTicks);
-    expect(card.querySelector('time')).toHaveTextContent('10/15');
-    expect(card.querySelectorAll('time')[4]).toHaveTextContent('10/16');
+    // The marks count back from the snapshot; their times stay exact for assistive technology.
+    expect(card.querySelector('time')).toHaveTextContent('-24h');
+    expect(card.querySelectorAll('time')[4]).toHaveTextContent('now');
 
     const timeline = within(card).getByRole('group', { name: 'Observed runtime state across the selected range' });
     const acrossMidnight = within(timeline).getByRole('button', { name: /10\/15.*23:36.*10\/16.*00:06.*running/ });

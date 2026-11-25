@@ -98,6 +98,7 @@ type LogTailFilter struct {
 type LogClearFilter struct {
 	Source LogSource
 	Before *time.Time
+	Scope  LogScope
 }
 
 func (s *Store) AppendLogEntry(ctx context.Context, entry LogEntry) (LogEntry, error) {
@@ -244,6 +245,14 @@ func (s *Store) ClearLogEntries(ctx context.Context, filter LogClearFilter) (int
 		clauses = append(clauses, "occurred_at < ?")
 		args = append(args, formatTime(filter.Before.UTC()))
 	}
+	scope, scopeArgs, err := filter.Scope.clause()
+	if err != nil {
+		return 0, err
+	}
+	if scope != "" {
+		clauses = append(clauses, scope)
+		args = append(args, scopeArgs...)
+	}
 	result, err := s.logs.ExecContext(
 		ctx,
 		`DELETE FROM log_entries WHERE `+strings.Join(clauses, " AND "),
@@ -266,9 +275,19 @@ type LogUsage struct {
 	Bytes   int64 `json:"bytes"`
 }
 
-func (s *Store) LogUsage(ctx context.Context) (LogUsage, error) {
+// LogUsage counts the entries the scope selects and measures the whole log's
+// files on disk, which the entries of one scope do not have apart.
+func (s *Store) LogUsage(ctx context.Context, scope LogScope) (LogUsage, error) {
 	var usage LogUsage
-	if err := s.logs.QueryRowContext(ctx, `SELECT count(*) FROM log_entries`).Scan(&usage.Entries); err != nil {
+	clause, args, err := scope.clause()
+	if err != nil {
+		return LogUsage{}, err
+	}
+	query := `SELECT count(*) FROM log_entries`
+	if clause != "" {
+		query += ` WHERE ` + clause
+	}
+	if err := s.logs.QueryRowContext(ctx, query, args...).Scan(&usage.Entries); err != nil {
 		return LogUsage{}, fmt.Errorf("count log entries: %w", err)
 	}
 	for _, suffix := range []string{"", "-wal"} {

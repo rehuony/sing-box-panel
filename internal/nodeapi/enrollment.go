@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/url"
 	pathpkg "path"
 	"regexp"
 	"strconv"
@@ -19,21 +20,16 @@ import (
 // TokenSize is the number of random bytes in an enrollment token.
 const TokenSize = 32
 
-const enrollmentCodePrefix = "sbp1."
+const enrollmentCodePrefix = "sbp2."
 
 var ErrEnrollmentCode = errors.New("enrollment code is malformed")
 
 // EnrollmentCode is what an administrator copies to a node to enroll it:
-// where the panel is, how to trust it and the one-time token.
+// where the panel is and the one-time token.
 type EnrollmentCode struct {
-	// Endpoint is the host:port that nodes dial.
-	Endpoint string `json:"endpoint"`
-	// Path is the URL path prefix of the panel's node service, the panel's
-	// base path; empty serves it at the root.
-	Path string `json:"path,omitempty"`
-	// Pin is the PublicKeyPin of the panel's TLS certificate. Empty
-	// selects the system's trusted certificate authorities instead.
-	Pin string `json:"pin,omitempty"`
+	// URL is the panel's base URL, which ValidPanelURL accepts; the node
+	// protocol's endpoints sit under it.
+	URL string `json:"url"`
 	// Token is the one-time enrollment token, TokenSize random bytes in
 	// unpadded base64url.
 	Token string `json:"token"`
@@ -59,27 +55,56 @@ func ParseEnrollmentCode(raw string) (EnrollmentCode, error) {
 	if err := jsonstrict.Decode(decoded, 4096, &code); err != nil {
 		return EnrollmentCode{}, ErrEnrollmentCode
 	}
-	if ValidEndpoint(code.Endpoint) != nil || (code.Path != "" && ValidPathPrefix(code.Path) != nil) ||
-		(code.Pin != "" && !validDigest(code.Pin)) || !validDigest(code.Token) {
+	if ValidPanelURL(code.URL) != nil || !validDigest(code.Token) {
 		return EnrollmentCode{}, ErrEnrollmentCode
 	}
 	return code, nil
 }
 
-// ValidEndpoint checks a host:port address that nodes can dial.
-func ValidEndpoint(endpoint string) error {
-	host, port, err := net.SplitHostPort(endpoint)
+// ValidPanelURL checks a panel base URL that nodes connect to: an https
+// origin, optionally followed by the panel's base path, or the same over
+// plain http to a loopback address. Node traffic never crosses a network
+// unencrypted, so plain http reaches only a panel on the node's own host.
+func ValidPanelURL(raw string) error {
+	parsed, err := url.Parse(raw)
 	if err != nil {
 		return err
 	}
-	number, err := strconv.Atoi(port)
-	if err != nil || number < 1 || number > 65535 {
-		return errors.New("port must be between 1 and 65535")
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" || parsed.RawPath != "" {
+		return errors.New("must be a URL without credentials, query or fragment")
 	}
+	host := parsed.Hostname()
 	if host == "" || len(host) > 253 || strings.ContainsAny(host, " /\\@?#") {
 		return errors.New("host is invalid")
 	}
+	if port := parsed.Port(); port != "" {
+		if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+			return errors.New("port must be between 1 and 65535")
+		}
+	}
+	switch parsed.Scheme {
+	case "https":
+	case "http":
+		if !LoopbackHost(host) {
+			return errors.New("plain http reaches only a panel on this host; use https")
+		}
+	default:
+		return errors.New("scheme must be https")
+	}
+	if parsed.Path != "" && ValidPathPrefix(parsed.Path) != nil {
+		return errors.New("path must be the panel's base path")
+	}
 	return nil
+}
+
+// LoopbackHost reports whether host, a host name or IP address, names this
+// host's loopback interface.
+func LoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 var pathPrefixPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
@@ -94,20 +119,13 @@ func ValidPathPrefix(prefix string) error {
 	return nil
 }
 
-// PublicKeyPin returns the pin of a certificate's public key: the SHA-256 of
-// its DER SubjectPublicKeyInfo in unpadded base64url.
-func PublicKeyPin(subjectPublicKeyInfo []byte) string {
-	digest := sha256.Sum256(subjectPublicKeyInfo)
-	return base64.RawURLEncoding.EncodeToString(digest[:])
-}
-
 // TokenHash is the digest the panel stores for an enrollment token.
 func TokenHash(token string) [32]byte {
 	return sha256.Sum256([]byte(token))
 }
 
 // validDigest reports whether value is 32 bytes in unpadded base64url, the
-// encoding of pins and tokens.
+// encoding of tokens.
 func validDigest(value string) bool {
 	decoded, err := base64.RawURLEncoding.DecodeString(value)
 	return err == nil && len(decoded) == 32

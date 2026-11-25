@@ -21,7 +21,7 @@ func TestLinkStartsOverWhenTheEnrollmentChanges(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: nodeID, Key: key}
+		return settings.Enrollment{URL: "https://panel.example", PanelID: "panel", NodeID: nodeID, Key: key}
 	}
 	if err := settings.SaveEnrollment(dataDir, enrollment("first")); err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestRunningNodeSwitchesToAnEnrollmentSavedWhileItRuns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return settings.Enrollment{Endpoint: "panel.example:443", PanelID: "panel", NodeID: nodeID, Key: key}
+		return settings.Enrollment{URL: "https://panel.example", PanelID: "panel", NodeID: nodeID, Key: key}
 	}
 	if err := settings.SaveEnrollment(dataDir, enrollment("first")); err != nil {
 		t.Fatal(err)

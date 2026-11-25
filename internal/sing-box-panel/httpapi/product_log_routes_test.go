@@ -65,18 +65,46 @@ func TestPanelLogSearchCodesValidationAndMatching(t *testing.T) {
 	}
 }
 
-func TestPanelLogsFilterByNode(t *testing.T) {
+// A log request reads, counts and clears the panel's own entries or one
+// node's; clearing a node's entries leaves the record of it among them.
+func TestPanelLogsScopeToThePanelOrOneNode(t *testing.T) {
 	handler, _ := newCoreHTTPFixture(t)
-	for _, node := range []string{"node-a", "node-b"} {
+	for _, node := range []string{"node-a", "node-b", ""} {
 		handler.services.Telemetry.RecordOperation(t.Context(), "runtime.start", "Core start", nil, telemetry.OperationLogContext{NodeID: node})
 	}
-	response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?node_id=node-a", "", "")
-	var page store.PanelLogPage
-	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil || page.Total != 1 || len(page.Items) != 1 {
-		t.Fatalf("node filter: %d %s", response.Code, response.Body.String())
+	list := func(query string) store.PanelLogPage {
+		t.Helper()
+		response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?"+query, "", "")
+		var page store.PanelLogPage
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil {
+			t.Fatalf("list %s: %d %s", query, response.Code, response.Body.String())
+		}
+		return page
 	}
-	if response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?node_id="+strings.Repeat("a", 129), "", ""); response.Code != http.StatusBadRequest {
-		t.Fatalf("long node ID accepted: %d", response.Code)
+	if page := list("node_id=node-a"); page.Total != 1 {
+		t.Fatalf("node scope: %+v", page)
+	}
+	if page := list("scope=panel"); page.Total != 1 || len(page.Items) != 1 || strings.Contains(string(page.Items[0].Metadata), "node_id") {
+		t.Fatalf("panel scope: %+v", page)
+	}
+	for _, query := range []string{"node_id=" + strings.Repeat("a", 129), "scope=node", "scope=panel&node_id=node-a"} {
+		if response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?"+query, "", ""); response.Code != http.StatusBadRequest {
+			t.Fatalf("%s accepted: %d", query, response.Code)
+		}
+	}
+	usage := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/usage?node_id=node-b", "", "")
+	if usage.Code != http.StatusOK || !strings.Contains(usage.Body.String(), `"entries":1`) {
+		t.Fatalf("node usage: %d %s", usage.Code, usage.Body.String())
+	}
+	cleared := authenticatedRequest(t, handler, http.MethodDelete, "/api/v1/logs?node_id=node-a", "", "")
+	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body.String(), `"deleted":1`) {
+		t.Fatalf("node clear: %d %s", cleared.Code, cleared.Body.String())
+	}
+	if page := list("node_id=node-a"); page.Total != 1 || page.Items[0].Code != "logs.cleared" {
+		t.Fatalf("node-a after clearing: %+v", page)
+	}
+	if list("node_id=node-b").Total != 1 || list("scope=panel").Total != 1 {
+		t.Fatal("clearing one node touched other entries")
 	}
 }
 

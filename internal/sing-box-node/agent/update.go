@@ -41,6 +41,9 @@ type updates struct {
 	options UpdateOptions
 	dataDir string
 	build   buildinfo.Info
+	// exit stops the node so that its system unit installs a staged release
+	// and starts the node again; Run sets it.
+	exit func()
 
 	mu   sync.Mutex
 	last *selfupdate.Attempt
@@ -62,41 +65,20 @@ func (options UpdateOptions) updater() *selfupdate.Updater {
 	return selfupdate.New(selfupdate.Options{Binary: selfupdate.Node, PublicKey: options.PublicKey, Executable: options.Executable})
 }
 
-// load reads the last attempt, which the root update helper may have made
-// while the node was stopped, and removes finished staging.
+// load reads the last attempt, which the system unit's install step may have
+// made before the node started, withdraws a staged release the unit did not
+// install, and removes finished staging.
 func (current *updates) load() {
 	attempt, _, err := selfupdate.TakeAttempt(current.dir())
+	if withdrawn, withdrawErr := selfupdate.WithdrawUnapplied(current.dir(), time.Now()); withdrawErr == nil && withdrawn != nil {
+		attempt, err = withdrawn, nil
+	}
 	if err == nil {
 		current.mu.Lock()
 		current.last = attempt
 		current.mu.Unlock()
 	}
 	_ = selfupdate.CleanUpdates(current.dir())
-}
-
-// watch takes each result the root update helper writes while the node
-// runs, such as its refusal of a staged release, and withdraws a staged
-// release the helper never took, every interval until ctx ends; the next
-// state report carries the attempt.
-func (current *updates) watch(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			attempt, err := selfupdate.TakeFreshAttempt(current.dir())
-			if err == nil && attempt == nil {
-				attempt, err = selfupdate.WithdrawUnclaimed(current.dir(), time.Now())
-			}
-			if err == nil && attempt != nil {
-				current.mu.Lock()
-				current.last = attempt
-				current.mu.Unlock()
-			}
-		}
-	}
 }
 
 // report returns the last attempt for a state report.
@@ -127,9 +109,11 @@ func (current *updates) record(version string, err error) {
 type releaseFetcher func(ctx context.Context, version, dir string) error
 
 // apply updates the node to version: it fetches the release, verifies it
-// with the node's own key and installs it, or stages it for the root update
-// helper of a system service. restart, when set, restarts the node's unit
-// into the new version and must run after the panel has the result.
+// with the node's own key and installs it, or a system service stages it for
+// its unit's install step. restart, when set, restarts the node into the new
+// version and must run after the panel has the result: a user unit restarts,
+// and a system service stops for its unit to install the staged release and
+// start it again.
 func (current *updates) apply(ctx context.Context, version string, fetch releaseFetcher) (state nodeapi.UpdateState, restart func(), err error) {
 	if version == current.build.Version {
 		return nodeapi.UpdateState_UPDATE_STATE_UP_TO_DATE, nil, nil
@@ -145,9 +129,11 @@ func (current *updates) apply(ctx context.Context, version string, fetch release
 		return 0, nil, err
 	}
 	scope, supervised := systemd.RunningScope()
+	waitsForUnit := false
 	defer func() {
-		// The helper reports a staged release's outcome.
-		if state != nodeapi.UpdateState_UPDATE_STATE_STAGED {
+		// The install step records a staged release's outcome, which the
+		// node reports once it runs again.
+		if !waitsForUnit {
 			current.record(version, err)
 		}
 	}()
@@ -167,14 +153,22 @@ func (current *updates) apply(ctx context.Context, version string, fetch release
 	switch {
 	case err != nil:
 		return 0, nil, err
+	case delivery == selfupdate.DeliveryStaged && current.exit != nil:
+		waitsForUnit = true
+		return nodeapi.UpdateState_UPDATE_STATE_RESTARTING, func() {
+			// Sending only hands the result to the transport; give it time to
+			// reach the panel before the node stops.
+			time.Sleep(restartGrace)
+			current.exit()
+		}, nil
 	case delivery == selfupdate.DeliveryStaged:
-		return nodeapi.UpdateState_UPDATE_STATE_STAGED, nil, nil
+		// The unit installs the staged release when the node is restarted.
+		waitsForUnit = true
+		return nodeapi.UpdateState_UPDATE_STATE_RESTART_REQUIRED, nil, nil
 	case !supervised:
 		return nodeapi.UpdateState_UPDATE_STATE_RESTART_REQUIRED, nil, nil
 	}
 	return nodeapi.UpdateState_UPDATE_STATE_RESTARTING, func() {
-		// Sending only hands the result to the transport; give it time to
-		// reach the panel before systemd stops the node.
 		time.Sleep(restartGrace)
 		restartCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -183,6 +177,7 @@ func (current *updates) apply(ctx context.Context, version string, fetch release
 }
 
 // restartGrace separates the result of an update from the restart into it.
+// It also lets the panel read the result before a system service stops.
 const restartGrace = 2 * time.Second
 
 func (current *updates) restart(ctx context.Context, scope systemd.Scope) error {
@@ -204,35 +199,32 @@ func updateFailure(err error) nodeapi.ResultOutcome {
 	return problem("update_"+selfupdate.FailureCode(err), err.Error())
 }
 
-// FetchRelease receives the panel's node release over FetchRelease with the
-// node's enrollment into dir: the binary for this platform, the release's
-// checksum manifest and its signature. want, when set, is the version the
-// panel must send. It returns the release's version; the caller verifies
-// the files with its own key.
+// FetchRelease receives the panel's node release from its release endpoint
+// with the node's enrollment into dir: the binary for this platform, the
+// release's checksum manifest and its signature. want, when set, is the
+// version the panel must send. It returns the release's version; the caller
+// verifies the files with its own key.
 func FetchRelease(ctx context.Context, enrollment settings.Enrollment, build buildinfo.Info, want, dir string) (string, error) {
-	connection, err := dial(enrollment.Endpoint, enrollment.Path, enrollment.Pin)
+	client, err := nodeapi.NewClient(enrollment.URL)
 	if err != nil {
 		return "", err
 	}
-	defer connection.Close()
-	return fetchRelease(ctx, nodeapi.NewNodeServiceClient(connection), enrollment, build, want, dir)
+	defer client.Close()
+	return fetchRelease(ctx, client, enrollment, build, want, dir)
 }
 
-func fetchRelease(ctx context.Context, client nodeapi.NodeServiceClient, enrollment settings.Enrollment, build buildinfo.Info, want, dir string) (string, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+func fetchRelease(ctx context.Context, client *nodeapi.Client, enrollment settings.Enrollment, build buildinfo.Info, want, dir string) (string, error) {
 	stream, err := client.FetchRelease(ctx)
 	if err != nil {
 		return "", releaseUnavailable(err)
 	}
-	handshake := time.AfterFunc(handshakeTimeout, cancel)
-	defer handshake.Stop()
+	defer stream.Close(nil)
 	if err := stream.Send(&nodeapi.FetchReleaseRequest{Frame: &nodeapi.FetchReleaseRequest_Hello{Hello: &nodeapi.Hello{
 		NodeId: enrollment.NodeID, Protocol: protocol(), BuildVersion: build.Version, Platform: platform(),
 	}}}); err != nil {
 		return "", releaseUnavailable(err)
 	}
-	frame, err := stream.Recv()
+	frame, err := stream.RecvWithin(handshakeTimeout)
 	if err != nil {
 		return "", releaseUnavailable(err)
 	}
@@ -245,11 +237,10 @@ func fetchRelease(ctx context.Context, client nodeapi.NodeServiceClient, enrollm
 	}}); err != nil {
 		return "", releaseUnavailable(err)
 	}
-	frame, err = stream.Recv()
+	frame, err = stream.RecvWithin(handshakeTimeout)
 	if err != nil {
 		return "", releaseUnavailable(err)
 	}
-	handshake.Stop()
 	header := frame.GetHeader()
 	digest, digestErr := hex.DecodeString(header.GetSha256())
 	switch {
@@ -274,7 +265,7 @@ func fetchRelease(ctx context.Context, client nodeapi.NodeServiceClient, enrollm
 	hash := sha256.New()
 	var written int64
 	for {
-		frame, err := stream.Recv()
+		frame, err := stream.RecvWithin(transferIdleTimeout)
 		if errors.Is(err, io.EOF) {
 			break
 		}

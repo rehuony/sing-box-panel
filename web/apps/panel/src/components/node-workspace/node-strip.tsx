@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { TrafficDirection } from '@shared/lib/telemetry-format';
 
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -9,9 +10,9 @@ import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { ReadoutParts } from '@shared/components/terminal';
 import { toast } from '@shared/components/ui/toast-manager';
-import { formatRate, formatUptime } from '@shared/lib/telemetry-format';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 import { CircleCheck, Play, RotateCw, Square, TriangleAlert } from 'lucide-react';
+import { formatRate, formatUptime, trafficDirectionText, trafficValueText } from '@shared/lib/telemetry-format';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -97,14 +98,15 @@ function Reading({ children, label, stale = false }: { children: ReactNode[]; la
 }
 
 /** A rate after its arrow, in a slot as wide as the longest rate, so the line stays still as it changes. */
-function Rate({ arrow, label, value }: { arrow: string; label: string; value: number }) {
+/** One rate after its arrow in its direction's colour, which it takes too unless it is zero; not known, it reads 0. */
+function Rate({ direction, label, value }: { direction: TrafficDirection; label: string; value: number | null }) {
   const { i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   return (
     <span>
-      <span aria-hidden='true' className='text-[var(--color-text-secondary)]'>{`${arrow} `}</span>
+      <span aria-hidden='true' className={trafficDirectionText[direction]}>{direction === 'download' ? '↓ ' : '↑ '}</span>
       <span className='sr-only'>{label}</span>
-      <span className='inline-block min-w-[9ch] text-end'>{formatRate(value, locale)}</span>
+      <span className={cn('inline-block min-w-[9ch] text-end', trafficValueText(direction, value))}>{formatRate(value, locale)}</span>
     </span>
   );
 }
@@ -303,8 +305,8 @@ function LiveStrip({ node }: { node: FleetNode }) {
               <StripDivider />
               <Reading label={t('fleet.pane.net')} stale={reconnecting}>
                 {[
-                  traffic.download === null ? null : <Rate arrow='↓' key='download' label={t('telemetry.metric.download')} value={traffic.download} />,
-                  traffic.upload === null ? null : <Rate arrow='↑' key='upload' label={t('telemetry.metric.upload')} value={traffic.upload} />,
+                  <Rate direction='download' key='download' label={t('telemetry.metric.download')} value={traffic.download} />,
+                  <Rate direction='upload' key='upload' label={t('telemetry.metric.upload')} value={traffic.upload} />,
                   <span key='connections'>{t('fleet.pane.connections', { count: traffic.connections })}</span>,
                 ]}
               </Reading>

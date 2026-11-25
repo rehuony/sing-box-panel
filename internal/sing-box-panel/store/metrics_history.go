@@ -324,6 +324,27 @@ func (spans timeSpans) covers(from, to time.Time) bool {
 	return false
 }
 
+// IdleSpan is a part of a range in which a node's runtime history shows no
+// core running.
+type IdleSpan struct {
+	From time.Time
+	To   time.Time
+}
+
+// RuntimeIdleSpans lists the parts of [from, to) in which the node's runtime
+// history shows no core running, oldest first.
+func (s *Store) RuntimeIdleSpans(ctx context.Context, nodeID string, from, to time.Time) ([]IdleSpan, error) {
+	spans, err := runtimeIdleSpans(ctx, s.db, nodeID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]IdleSpan, 0, len(spans))
+	for _, span := range spans {
+		result = append(result, IdleSpan{From: span.from, To: span.to})
+	}
+	return result, nil
+}
+
 // runtimeIdleSpans lists the parts of [from, to) in which the node's runtime
 // history shows no core running: a stopped or failed state that no later
 // uncertainty reaches back over. Before the node's first transition the state
