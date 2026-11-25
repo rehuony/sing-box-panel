@@ -26,6 +26,8 @@ func ClassifyOperationFailure(err error) (string, string, bool) {
 		message string
 	}{
 		{"core_check_failed", coreruntime.ErrCheckFailed, "The core rejected the startup configuration."},
+		{"core_schema_unavailable", ErrCoreSchemaUnavailable, "The core's release line does not print its configuration schema."},
+		{"core_schema_failed", ErrCoreSchemaFailed, "The core did not print its configuration schema within the node's limits."},
 		{"core_health_failed", coreruntime.ErrHealthFailed, "The core failed its health check."},
 		{"core_version_mismatch", coreruntime.ErrVersionMismatch, "The core version does not match the selected artifact."},
 		{"core_termination_failed", coreruntime.ErrTermination, "The core process could not be terminated."},

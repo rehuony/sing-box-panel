@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const contracts = [
-  'src/tests/schemas/generated-validator-browser.test.ts',
   'src/tests/routes/page-loaders-build.test.ts',
 ];
 const browserLogic = [
@@ -12,7 +11,6 @@ const browserLogic = [
   'src/tests/components/app-shell/i18n.test.ts',
 ];
 
-// Package scripts generate local schemas before Vitest loads the test modules.
 export default defineConfig({
   server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../../packages/shared/src', import.meta.url)), fileURLToPath(new URL('../../node_modules', import.meta.url)), fileURLToPath(new URL('../../../internal/configuration', import.meta.url)), fileURLToPath(new URL('../../../internal/sing-box-panel/subscription/templates', import.meta.url))] } },
   plugins: [react()],

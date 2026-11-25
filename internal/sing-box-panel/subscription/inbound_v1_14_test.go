@@ -9,17 +9,12 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
-	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
 func TestInbound114NativeClientConversion(t *testing.T) {
-	for _, version := range singbox.Versions() {
-		if version.InboundFamily != "1.14" {
-			continue
-		}
-		exactVersion := version.ExactVersion
+	// A version of the line converts whether or not it existed when the
+	// converter was written.
+	for _, exactVersion := range []string{"1.14.0", "1.14.4"} {
 		t.Run(exactVersion, func(t *testing.T) {
 			for _, test := range []struct {
 				name, inbound string
@@ -68,7 +63,7 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 					}
 					inbound["tag"], inbound["listen"], inbound["listen_port"] = "real-name", "127.0.0.1", 443
 					input, _ := json.Marshal(map[string]any{"inbounds": []any{inbound}})
-					result, err := NewInboundRegistry().Convert(exactVersion, InboundRequest{FinalStartupJSON: input, PublicHost: "203.0.113.7"})
+					result, err := convertInbounds(exactVersion, InboundRequest{FinalStartupJSON: input, PublicHost: "203.0.113.7"})
 					if err != nil || len(result.Nodes) != 1 || len(result.Diagnostics) != 0 {
 						t.Fatalf("conversion: %+v %v", result, err)
 					}
@@ -89,10 +84,6 @@ func TestInbound114NativeClientConversion(t *testing.T) {
 						}
 					}
 					test.check(t, out)
-					document, _ := json.Marshal(map[string]any{"outbounds": []json.RawMessage{node.Outbound}})
-					if err := schema.ValidateConfiguration(exactVersion, document); err != nil {
-						t.Fatal(err)
-					}
 				})
 			}
 		})

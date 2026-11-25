@@ -2,16 +2,12 @@
 
 package subscription
 
-import ()
-
-var compiledInboundRegistry = NewInboundRegistry()
-
 func (application *Service) convertInboundNodes(
 	exactVersion string,
 	finalStartupJSON []byte,
 	publicHost string,
 ) (InboundResult, error) {
-	return compiledInboundRegistry.Convert(exactVersion, InboundRequest{
+	return convertInbounds(exactVersion, InboundRequest{
 		FinalStartupJSON: finalStartupJSON,
 		PublicHost:       publicHost,
 	})

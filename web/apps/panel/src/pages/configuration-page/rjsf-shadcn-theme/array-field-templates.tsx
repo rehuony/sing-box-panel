@@ -2,9 +2,11 @@ import type { ArrayFieldItemTemplateProps, ArrayFieldTemplateProps, FieldProps, 
 
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+// @rjsf/core's entry also loads its test registry, which imports the Ajv validator.
+import Form from '@rjsf/core/lib/components/Form.js';
 import { createContext, use, useState } from 'react';
-import Form, { getDefaultRegistry } from '@rjsf/core';
 import { Button } from '@shared/components/ui/button';
+import getDefaultRegistry from '@rjsf/core/lib/getDefaultRegistry.js';
 import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';

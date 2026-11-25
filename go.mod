@@ -5,7 +5,6 @@ go 1.26.7
 tool (
 	github.com/bufbuild/buf/cmd/buf
 	github.com/rehuony/sing-box-panel/tools/sign-release
-	github.com/rehuony/sing-box-panel/tools/singbox-support
 	github.com/rehuony/sing-box-panel/tools/third-party-notices
 	github.com/rehuony/sing-box-panel/tools/verify-openapi
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc

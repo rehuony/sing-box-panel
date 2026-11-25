@@ -16,11 +16,10 @@ type inboundOptions struct {
 }
 
 type converter struct {
-	exactVersion string
-	convertible  map[string]struct{}
+	convertible map[string]struct{}
 }
 
-func newInboundConverter(exactVersion string, options inboundOptions) InboundConverter {
+func newInboundConverter(options inboundOptions) converter {
 	convertible := map[string]struct{}{
 		"mixed": {}, "socks": {}, "http": {}, "shadowsocks": {}, "vmess": {},
 		"trojan": {}, "hysteria": {}, "shadowtls": {}, "vless": {}, "tuic": {},
@@ -29,10 +28,8 @@ func newInboundConverter(exactVersion string, options inboundOptions) InboundCon
 	if options.snell {
 		convertible["snell"] = struct{}{}
 	}
-	return converter{exactVersion: exactVersion, convertible: convertible}
+	return converter{convertible: convertible}
 }
-
-func (value converter) ExactVersion() string { return value.exactVersion }
 
 var unpublishableInboundTypes = map[string]struct{}{
 	"direct": {}, "tun": {}, "redirect": {}, "tproxy": {}, "cloudflared": {},

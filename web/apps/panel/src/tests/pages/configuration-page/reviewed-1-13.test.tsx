@@ -3,17 +3,15 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas';
-import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
-import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { ConfigurationSectionEditor } from '@/pages/configuration-page/configuration-section-editor';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -26,7 +24,7 @@ const fixtures = [
   text: readFileSync(resolve(import.meta.dirname, `../../../../../../../internal/sing-box-panel/schema/testdata/configuration-1.13/${name}`), 'utf8'),
 }));
 
-function InboundHarness({ resolution }: { resolution: ReviewedSchemaResolution }) {
+function InboundHarness({ resolution }: { resolution: ConfigurationSchemaResolution }) {
   const [draft, setDraft] = useState<CanonicalDraft>(() => parseCanonicalDraft(fixtures[2].text));
   const inbounds = draft.inbounds as unknown[];
   const section = resolution.schema.properties?.inbounds as RJSFSchema;
@@ -39,7 +37,7 @@ function InboundHarness({ resolution }: { resolution: ReviewedSchemaResolution }
   );
 }
 
-function LogHarness({ resolution, text }: { resolution: ReviewedSchemaResolution; text: string }) {
+function LogHarness({ resolution, text }: { resolution: ConfigurationSchemaResolution; text: string }) {
   const [draft, setDraft] = useState<CanonicalDraft>(() => parseCanonicalDraft(text));
   return (
     <>
@@ -50,7 +48,7 @@ function LogHarness({ resolution, text }: { resolution: ReviewedSchemaResolution
   );
 }
 
-function CollectionHarness({ resolution, text }: { resolution: ReviewedSchemaResolution; text: string }) {
+function CollectionHarness({ resolution, text }: { resolution: ConfigurationSchemaResolution; text: string }) {
   const [draft, setDraft] = useState<CanonicalDraft>(() => parseCanonicalDraft(text));
   return (
     <>
@@ -61,16 +59,10 @@ function CollectionHarness({ resolution, text }: { resolution: ReviewedSchemaRes
   );
 }
 
-beforeAll(async () => {
-  await Promise.all(representativeSchemaVersions('reviewed-1.13').map(version => reviewedSchemaManifest[version].load()));
-});
+describe('reviewed 1.13 editor', () => {
+  const resolution: ConfigurationSchemaResolution = { schema: configurationSchemas['1.13'] };
 
-describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 editor %s', (version) => {
-  it('edits a real TLS inbound without losing inline ACME, transport or other sections', async () => {
-    const loaded = await reviewedSchemaManifest[version].load();
-    const resolution = await resolveReviewedSchema({
-      exact_version: version, schema_sha256: loaded.schemaSHA256, schema: loaded.schema,
-    }, version);
+  it('edits a real TLS inbound without losing inline ACME, transport or other sections', () => {
     render(<InboundHarness resolution={resolution} />);
     const port = screen.getByLabelText('Listen port');
     fireEvent.change(port, { target: { value: '8444' } });
@@ -81,11 +73,7 @@ describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 edit
   });
 
   it.each(['null-sections.json', 'log-defaults.json', 'log-null-fields.json'])(
-    'edits logging in %s without normalizing untouched nulls or defaults', async (name) => {
-      const loaded = await reviewedSchemaManifest[version].load();
-      const resolution = await resolveReviewedSchema({
-        exact_version: version, schema_sha256: loaded.schemaSHA256, schema: loaded.schema,
-      }, version);
+    'edits logging in %s without normalizing untouched nulls or defaults', (name) => {
       const fixture = fixtures.find((candidate) => candidate.name === name)!;
       render(<LogHarness resolution={resolution} text={fixture.text} />);
       const expected = JSON.parse(fixture.text);
@@ -94,16 +82,11 @@ describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 edit
       fireEvent.click(screen.getByRole('switch', { name: 'Include timestamp' }));
       expected.log = { ...expected.log, timestamp: true };
       expect(JSON.parse(screen.getByLabelText('Reviewed draft').textContent ?? '{}')).toEqual(expected);
-      expect(Object.values(loaded.validateFns)[0](expected)).toBe(true);
     },
   );
 
   it('adds to a null collection only after confirmation and preserves other null sections', async () => {
     const user = userEvent.setup();
-    const loaded = await reviewedSchemaManifest[version].load();
-    const resolution = await resolveReviewedSchema({
-      exact_version: version, schema_sha256: loaded.schemaSHA256, schema: loaded.schema,
-    }, version);
     const fixture = fixtures.find((candidate) => candidate.name === 'null-sections.json')!;
     const expected = JSON.parse(fixture.text);
     render(<CollectionHarness resolution={resolution} text={fixture.text} />);
@@ -120,6 +103,5 @@ describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 edit
     await user.click(within(dialog).getByRole('button', { name: 'Add' }));
     expected.outbounds = [{ type: 'direct', tag: 'direct' }];
     expect(JSON.parse(screen.getByLabelText('Reviewed draft').textContent ?? '{}')).toEqual(expected);
-    expect(Object.values(loaded.validateFns)[0](expected)).toBe(true);
   });
 });

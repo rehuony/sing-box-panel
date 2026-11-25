@@ -187,29 +187,6 @@ func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) activateCore(w http.ResponseWriter, request *http.Request) {
-	if _, ok := strictCoreQuery(w, request); !ok {
-		return
-	}
-	var input struct {
-		StartupArtifactID string `json:"startup_artifact_id"`
-		MonitoringTier    string `json:"monitoring_tier"`
-	}
-	if !decodeStrictRequest(w, request, maximumRuntimeRequestBytes, &input) {
-		return
-	}
-	if !store.ValidIdentifier(input.StartupArtifactID) || !validMonitoringTier(input.MonitoringTier) {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "activation_request_invalid", "Activation request invalid", "A startup artifact ID and a supported monitoring tier are required.")
-		return
-	}
-	result, err := handler.services.Fleet.ActivateStartup(request.Context(), requestNodeID(request), input.StartupArtifactID, input.MonitoringTier)
-	if err != nil {
-		writeNodeProblem(w, request, "runtime_activate_failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Request, operation string) {
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
@@ -253,10 +230,4 @@ func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// validMonitoringTier accepts a supported tier or none, which selects the
-// node's default.
-func validMonitoringTier(value string) bool {
-	return value == "" || value == "limited" || value == "process_only"
 }

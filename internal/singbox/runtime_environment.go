@@ -2,12 +2,13 @@
 
 package singbox
 
-// RuntimeCompatibilityEnvironment preserves the reviewed 1.13 legacy DNS forms
-// without rewriting the user's configuration. Later and unreviewed cores must
-// use their own defaults; these upstream switches were removed in 1.14.
+// RuntimeCompatibilityEnvironment keeps the legacy DNS forms of a line that
+// needs them working without rewriting the user's configuration. Other
+// lines use their own defaults; these upstream switches were removed in
+// 1.14.
 func RuntimeCompatibilityEnvironment(exactVersion string) []string {
-	version, found := Lookup(exactVersion)
-	if !found || version.SchemaSource != SchemaSourceReviewed113 {
+	line, found := LineOf(exactVersion)
+	if !found || !line.LegacyDNSEnvironment {
 		return nil
 	}
 	return []string{

@@ -92,21 +92,25 @@ Frames are `oneof` envelopes:
 | Node → panel | `Hello`, `Proof`, `Result { request_id, outcome or problem }`, `Event` (state report, runtime transition, metrics sample with traffic counters) |
 
 The command bodies are typed: check configuration; enable and disable a core;
-check and activate a startup artifact; start, stop, restart and roll back;
-install, remove and list cores; list startup artifacts; read the runtime
-status; browse and resolve filesystem paths; list, read, delete and clear
-core log files; and update the node to the panel's release. A command that uses the configuration carries the node's saved
+check a startup artifact; start, stop, restart and roll back;
+install, remove and list cores; print an installed core's configuration schema;
+read the runtime status; browse and resolve filesystem paths; list, read, delete
+and clear core log files; and update the node to the panel's release. A command that uses the configuration carries the node's saved
 revision: its ID, file revision, SHA-256 and bytes. The panel follows a core log
 by reading it again each second, so the protocol has no follow command.
 
-Panel and node are released together. Within `v1` the contract changes only
-additively, and `Hello` carries a minor protocol version. The panel accepts a
+Panel and node are released together. Within `v1` new commands and fields come
+with a new minor protocol version, the field numbers and names of a removed
+command stay reserved, and `Hello` carries the minor version. The panel accepts a
 node with the same major version and records its build version and minor
 version. Each command belongs to the minor version that added it, and the
 panel refuses to send a command to a node whose session names an older minor
 version, answering `node_upgrade_required` without contacting the node. The
-contract is at minor version 1, which adds `FetchRelease`, `UpdateNode` and the
-state report's last update attempt; every other command is in minor version 0.
+contract is at minor version 2. Minor version 1 adds `FetchRelease`, `UpdateNode`
+and the state report's last update attempt, and minor version 2 adds
+`GetCoreSchema`, which runs the installed core's `sing-box schema` for a core of a
+line that has it and returns its output, at most 3 MiB; every other command is in
+minor version 0.
 A breaking change moves to a new package.
 
 `FetchRelease` authenticates on its own, apart from `Connect`, so the node's
@@ -188,7 +192,7 @@ written before that baseline.
 ## Commands and consistency
 
 - Every command carries a request ID. The node records each result under its request ID for a day, so a repeated request returns the recorded result, and it runs runtime-changing commands through its prepare, perform and complete intent with a generation, so an interrupted command recovers after a node restart.
-- The panel checks a revision against the exact Schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
+- The panel checks a revision against the configuration schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. A revision is sent unchecked when no schema can be had for the core, including an enabled core the panel holds no record of; the node's `sing-box check` still gates it. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
 - A command that can change the node's state keeps only its deadline once sent: a browser that disconnects does not cancel a change the node already started.
 - A management mutation for a node waits for that node's result within the command deadline and returns the completed result.
 - An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. A command without a deadline of its own has two minutes, batches included. A command to a node whose session has not yet reported its state waits for that report within its deadline, follows a session that replaces it, and fails as `node_offline` when the session ends first. Saving a node's configuration stays a panel-local write and works while the node is offline.
@@ -328,7 +332,7 @@ internal/
     releases/            the node release cache of the panel's version and the panel's own updates
     nodeconfig/          per-node editable file, revisions, check and apply through fleet
     corecache/           upstream catalog discovery, artifact cache and distribution
-    schema/              exact-version Schema manifest and assets for the editor
+    schema/              configuration schemas: the reviewed 1.13 schema and preparation of the ones cores print
     subscription/        node pool, sources and parsers, inbound conversion, channels, keys, templates, renderers
     telemetry/           metrics, traffic, runtime history and log relay
     auth/ settings/
@@ -364,18 +368,18 @@ internal/
   Shared domain: both services use these and never import a service
   configuration/         strict, lossless sing-box JSON
   coreartifact/          artifact identities and platform assets
-  singbox/               exact-version support catalog and runtime compatibility
+  singbox/               supported release lines and runtime compatibility
   nodeapi/               generated protocol code, protocol version and session proof
 
   layout/                the dependency-rule test over go list
-tools/                   maintainer commands; singbox-support maintains panel Schema assets
+tools/                   maintainer commands
 web/                     pnpm workspace: apps/panel, apps/node (each embedded by its binary), packages/shared
 ```
 
 `internal/layout` enforces the rules over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, each service
 imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
-embeds neither the panel's Web UI nor Schema assets, and `cmd/sing-box-panel`
+embeds neither the panel's Web UI nor its configuration schema, and `cmd/sing-box-panel`
 does not embed the node console's. Maintainer tools are programs that nothing
 imports and may use any package.
 

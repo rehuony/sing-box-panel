@@ -8,16 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func convert(t *testing.T, document []byte, publicHost string) (InboundResult, error) {
 	t.Helper()
-	return NewInboundRegistry().Convert(
-		"1.13.19",
-		InboundRequest{FinalStartupJSON: document, PublicHost: publicHost},
-	)
+	return convertInbounds("1.13.19", InboundRequest{FinalStartupJSON: document, PublicHost: publicHost})
 }
 
 func TestInbound113ContractRegistry(t *testing.T) {
@@ -40,12 +35,12 @@ func TestInbound113ContractRegistry(t *testing.T) {
 		{typeID: "hysteria2", extra: `,"users":[{"name":"one","password":"pass"}],"tls":{"enabled":true}`},
 		{typeID: "anytls", extra: `,"users":[{"name":"one","password":"pass"}],"tls":{"enabled":true}`},
 	}
-	for _, version := range testutil.Reviewed113Versions(t) {
+	for _, version := range []string{"1.13.19", "1.13.22"} {
 		for _, test := range tests {
 			t.Run(version+"/"+test.typeID, func(t *testing.T) {
 				document := []byte(fmt.Sprintf(`{"inbounds":[{"type":%q,"tag":%q,"listen":"::","listen_port":443%s}]}`,
 					test.typeID, test.typeID, test.extra))
-				result, err := NewInboundRegistry().Convert(version, InboundRequest{FinalStartupJSON: document, PublicHost: "public.example"})
+				result, err := convertInbounds(version, InboundRequest{FinalStartupJSON: document, PublicHost: "public.example"})
 				if err != nil || len(result.Nodes) != 1 || len(result.Diagnostics) != 0 {
 					t.Fatalf("nodes=%+v diagnostics=%+v err=%v", result.Nodes, result.Diagnostics, err)
 				}

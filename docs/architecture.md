@@ -5,7 +5,7 @@ Operator workflows live in the [documentation index](README.md); exact HTTP
 operations and schemas remain in [OpenAPI](../api/panel-openapi.yaml).
 
 - [Repository layout](#repository-layout), [package layout](#package-layout) and [dependency direction](#dependency-direction)
-- [Version support](#adding-a-sing-box-version) and [test ownership](#test-ownership)
+- [Version support](#adding-a-sing-box-release-line) and [test ownership](#test-ownership)
 - [Product contract](#product-contract)
 - [HTTP API and security](#http-api-and-security)
 
@@ -27,7 +27,7 @@ services, their protocol and state ownership are in
 | `api/` | Contracts only: the panel's management HTTP contract (`panel-openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
 | `web/` | The pnpm workspace of the Web applications: the panel's in `apps/panel` and the node console's in `apps/node`, each with the Go package that embeds its production build, and the code both share in `packages/shared` |
 | `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
-| `scripts/` | Installer, isolated release build and native release and core contract tests |
+| `scripts/` | Installer, isolated release build and native release tests |
 | `docs/` | One guide per topic, indexed in [the documentation index](README.md) |
 | `.github/` | Workflows, community and security policies, templates, code ownership and the release trust root |
 
@@ -35,8 +35,8 @@ Each Web application's Go package sits in its own directory under `web/apps/`
 because Go embedding cannot read files from a parent directory. Other embedded assets live in the package that owns
 them: subscription templates in `internal/sing-box-panel/subscription`,
 the configuration field order in `internal/configuration`, each service's systemd
-templates in `internal/sing-box-panel/systemd` and `internal/sing-box-node/systemd`, and Schema assets in
-`internal/sing-box-panel/schema`. The Web editor reads the templates and
+templates in `internal/sing-box-panel/systemd` and `internal/sing-box-node/systemd`, and the reviewed 1.13
+configuration schema in `internal/sing-box-panel/schema`. The Web editor reads the templates and
 field order from the same files.
 
 ## Package layout
@@ -55,9 +55,7 @@ and maps its result to the management API's views, and the node's `service`
 package runs the core. Each service has its own systemd unit: the shared
 `systemd` package runs the lifecycle, and each service's `systemd` package
 supplies its templates and the state that identifies an installation.
-`tools/singbox-support` maintains the panel's Schema assets and inbound
-conversion catalog and so imports panel packages; tools are programs that
-nothing imports.
+Tools under `tools/` are maintainer programs that nothing imports.
 
 | Tree | Package | Responsibility |
 | --- | --- | --- |
@@ -71,7 +69,7 @@ nothing imports.
 | | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
-| | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
+| | `singbox` | The supported sing-box release lines and what each needs: its configuration schema source, inbound family and runtime compatibility switches |
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
 | | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files, and refusing a root start against files that account owns |
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
@@ -93,8 +91,8 @@ nothing imports.
 | | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
 | | `telemetry` | The panel log and operation outcomes, metrics and runtime history, each node's traffic periods and quota, the dashboard projection |
 | | `corecache` | Upstream catalog discovery, staged core uploads and the verified archive cache that nodes install from |
-| | `schema` | The exact-version Schema manifest and assets for the editor and validators |
-| | `nodeconfig` | Each node's editable configuration file, canonical revisions, Schema support, preview and the exact-Schema check before a command |
+| | `schema` | Configuration schema preparation for the editor and the panel's checks: the embedded reviewed 1.13 schema and the schemas nodes' cores print, with the presentation overlay |
+| | `nodeconfig` | Each node's editable configuration file, canonical revisions, a core's configuration schema and its support, preview and the schema check before a command |
 | | `subscription` | The node pool and its synchronization, sources and their parsers, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
 | | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the protocol minor version each needs, batch commands over many nodes, node updates and the release stream they fetch, the shared fleet snapshot and the short-lived grants under which nodes fetch cached archives |
 | | `releases` | The panel's releases: the verified cache of the node release of the panel's version that nodes update from, and the panel's own update checks and updates |
@@ -191,8 +189,6 @@ panel:server       -> buildinfo, console, procctl, panel:app, panel:corecache,
 
 cmd/sing-box-panel        -> buildinfo, panel:cli, panel:server, selfupdate, web/apps/panel
 cmd/sing-box-node         -> buildinfo, node:cli
-tools/singbox-support     -> atomicfile, coreartifact, panel:schema,
-                             panel:subscription, singbox
 tools/third-party-notices -> atomicfile
 tools/sign-release        -> release
 ```
@@ -212,17 +208,17 @@ opens `store`, `settings` and `installation` directly for local maintenance,
 manages nodes through `app`, and starts the server through a function supplied
 by `cmd/sing-box-panel`.
 
-## Adding a sing-box version
+## Adding a sing-box release line
 
-Follow [Maintaining support](core-versions.md#maintaining-support)
-for exact-version review, source and artifact pins, Schema generation and native
-Linux verification. Runtime eligibility, configuration Schema and inbound
-conversion are separate capabilities; unreviewed versions never inherit nearby
-capabilities.
+A new patch or minor release of a supported line needs no change. A new line is
+a row in [`internal/singbox/line.go`](../internal/singbox/line.go): its first
+version, whether its binaries print their configuration schema, its inbound family
+and whether it needs the legacy DNS switches. A new inbound family is a converter
+in `subscription`. Review the release's configuration changes, migration notes and
+inbound types first; see [release lines](core-versions.md#release-lines).
 
-Do not add exact-version forwarding directories. Version identity belongs in
-the catalog; reusable behavior belongs in private family functions of the
-package that owns the capability.
+Do not add version-specific directories. Behavior that differs by line belongs in
+the package that owns the capability and is selected through the line.
 
 ## Test ownership
 
@@ -289,7 +285,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | CORE-02 | Filter assets by deployed OS/CPU architecture; no architecture badge or selector, never browser architecture or unknown→ARM64 | Platform detection, catalog/cache, imported artifact inspection | Cross-architecture assets and rate-limit/cache behavior | implemented |
 | CFG-01 | One editable config.json, version-scoped root sections (13 in 1.14) with flat label/control rows, DNS/route sub-tabs and inline list editing; advanced JSON; floating icon tools and find/replace with case, word and regex matching; preserve unknown fields and numbers | Canonical saved text, version-scoped schema, validated startup artifacts | Lossless round trip; invalid JSON can save, cannot start | implemented |
 | CFG-02 | Save independent of running process; loaded/dirty/restart-required/start-pending states; start/restart checks saved file before replacement | Saved-file identity vs loaded immutable artifact; CAS and runtime transitions | Concurrent edits, failed validation preserves running process, restart loads saved bytes | implemented |
-| CFG-03 | The configuration window copies another node's saved configuration into its draft after a difference view, unsaved until saved; its applied configurations (ready startup artifacts, newest first, paged by cursor, the running one marked) roll back by running a chosen one again after a danger confirmation that names it and says the core restarts and the saved text, which the next start loads, stays as it is; a refusal stays in the confirmation | Configuration file API of the source node; `/config/artifacts` and `/core/activate`; `/core/rollback` stays unused by the interface | Applied-configurations test (paging, confirmation wording, inline refusal); browser review of the copy dialog with a difference | implemented |
+| CFG-03 | The configuration window copies another node's saved configuration into its draft after a difference view, unsaved until saved | Configuration file API of the source node | Browser review of the copy dialog with a difference | implemented |
 | SUB-01 | Pool nodes, sources, channels and keys; URL and file sources with include/exclude name filters and a preview of what they keep; edit settings with a file source's content in one save, refresh, and delete | Source API, SSRF-safe acquisition, strict parsers and one stored content per source | A failed fetch or parse keeps the current content and nodes; invalid filters and unconvertible kept nodes are refused with their location | implemented |
 | NODE-01 | One pool of every published fleet inbound and every kept source node, as cards in a saved order without pagination; display name, origin, protocol, endpoint, TLS/Reality/SNI and transport; whole-card dragging saves the order; the detail edits only the display name | Pool synchronization with origin-derived IDs | Removed nodes leave every channel and grant; new nodes append; a stale order is refused | implemented |
 | NODE-04 | Published addresses, credentials visible and copyable in the node detail, an inbound's detail links to its configuration; the pool cannot delete an inbound | Inbound provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
@@ -378,8 +374,8 @@ underlying core inbound.
 ### Verification workflows
 
 - `make check` runs Go tests and vet, Web lint/tests/build, OpenAPI coverage,
-  protobuf lint and generated-code drift, generated support checks, shell
-  syntax checks and installer scenarios.
+  protobuf lint and generated-code drift, shell syntax checks and installer
+  scenarios.
 - `make test-race` checks concurrent state changes and runtime controls.
 - Store tests cover fresh-schema initialization, reopening the current format,
   rejection of unsupported formats without conversion, transactional saved-file
@@ -387,9 +383,8 @@ underlying core inbound.
 - API tests exercise the single editable file across reopen, including whitespace,
   large numbers, unfinished JSON, stale writes and correction. Removed configuration
   history routes must return 404.
-- `make core-contract` checks reviewed musl artifacts on native Linux amd64/arm64.
-  `make release-smoke` checks packaged startup, persistence and signed self-update
-  on a native Linux runner; both require their documented prerequisites.
+- `make release-smoke` checks packaged startup, persistence and signed self-update
+  on a native Linux runner; it requires its documented prerequisites.
 - Browser review covers responsive layouts, keyboard navigation, editor rendering,
   settings persistence, notifications and observed runtime controls against a
   running panel and node.
@@ -404,13 +399,14 @@ underlying core inbound.
   origin stops yielding it, and a channel publishes only the nodes its groups name.
 - Remote rule files are fetched by the subscribing client, never by the panel.
 - A node's source name is independent from its user-entered name and protocol.
-- Native sing-box channels use the reviewed 1.14 schema. Mihomo templates receive
-  YAML syntax, reserved-field and supported-option validation; a live Mihomo
-  runtime check has not been performed. Unsupported conversions return diagnostics.
+- Sing-box channel templates receive JSON syntax and reserved-field validation;
+  Mihomo templates YAML syntax, reserved-field and supported-option validation. A
+  live client runtime check has not been performed. Unsupported conversions return
+  diagnostics.
 - Native installed-core lifecycle checks require Linux. Host-independent tests
   verify preflight and concurrency controls with controlled executors.
-- The build reports a large precompiled schema-validator chunk. It remains lazily
-  loaded with configuration editing; the warning is not a build failure.
+- The build reports a large configuration-editor chunk. It remains lazily loaded
+  with configuration editing; the warning is not a build failure.
 
 Feedback follows completed operations and observed runtime state rather than
 hardcoded samples.
@@ -631,15 +627,15 @@ seconds (hover/focus pauses the accessible toast timer).
 
 The React application contains its own trusted structured controls. It does
 not load Schema-provided scripts, components, templates, or remote resources.
-Changing the selected artifact clears the previous Schema state before
-resolving the new exact version.
+Changing the selected artifact clears the previous schema state before
+requesting the new artifact's schema.
 
 The editable configuration response includes authoritative `content` text,
 `revision` and `syntax_valid`. The Web editor uses a lossless codec, preserves
 unshown fields, and saves the complete text with the current body revision.
 The version selector contains compatible installed core versions and does not
-enable or replace a core when its selection changes. Exact versions without a
-committed native or reviewed Schema use the Advanced editor and show the reason. With no installed
+enable or replace a core when its selection changes. A version without a release
+line uses the Advanced editor and shows the reason. With no installed
 version, Advanced JSON saving remains available but visual editing and binary
 validation require the operator to install one.
 A `412` response preserves the local draft for review.

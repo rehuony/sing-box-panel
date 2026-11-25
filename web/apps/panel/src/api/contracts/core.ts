@@ -4,7 +4,6 @@ import type {
 } from '../generated';
 
 export type {
-  ActivationSummary,
   CatalogAssetList,
   ConfigurationCompile,
   ConfigurationSchemaContract,
@@ -12,10 +11,8 @@ export type {
   CoreArtifact,
   CoreArtifactPage,
   RuntimeHistoryPage,
-  RuntimeResponse,
   RuntimeStatus,
   RuntimeTransition,
-  StartupArtifactPage,
   StartupArtifactSummary,
 } from '../generated';
 

@@ -2,13 +2,12 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
-import { customizeValidator } from '@rjsf/validator-ajv8';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import i18n from '@/i18n';
 import { uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
@@ -45,10 +44,7 @@ const rootSchema: RJSFSchema = {
   properties: { section: sectionSchema },
 };
 
-const resolution: ReviewedSchemaResolution = {
-  schema: rootSchema,
-  createValidator: () => customizeValidator(),
-};
+const resolution: ConfigurationSchemaResolution = { schema: rootSchema };
 
 function Harness() {
   const [draft, setDraft] = useState<CanonicalDraft>({

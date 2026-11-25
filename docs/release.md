@@ -7,14 +7,12 @@ sing-box core compatibility matrix.
 The release path has one responsibility at each boundary:
 
 1. CI proves that one exact source commit passes repository checks.
-2. Native amd64 and arm64 core contracts pass before the signing environment
-   is accessed.
-3. An Ed25519 signature authenticates the release version and checksum
+2. An Ed25519 signature authenticates the release version and checksum
    manifest.
-4. Native Linux amd64 and arm64 smoke tests exercise the packaged binaries,
+3. Native Linux amd64 and arm64 smoke tests exercise the packaged binaries,
    authenticated self-update and a node update through the panel.
-5. GitHub Actions creates and verifies a Draft Release.
-6. A maintainer reviews and publishes that draft.
+4. GitHub Actions creates and verifies a Draft Release.
+5. A maintainer reviews and publishes that draft.
 
 The workflow never publishes a release automatically. All required checks are
 either reproducible CI/workflow jobs or the maintainer's final draft review.
@@ -32,18 +30,7 @@ The fixture builds exercise the current working tree; the separate isolated
 packaging job still verifies the committed-source build and repository trust
 root.
 
-A separate path-filtered `Core Compatibility` workflow downloads every reviewed
-sing-box archive and runs the raw-configuration and real `sing-box check`
-contract on native amd64 and arm64 runners. A separate Schema reproducibility
-job builds frontend assets from committed backend sources, regenerates native
-Schemas and checks committed-output drift, then checks that the frontend outputs
-still match with `pnpm run schema:check`. Frontend Schema assets are not committed.
-The core job receives no secrets and does not run for unrelated
-documentation changes.
-
-The signed-release workflow calls the same reusable native core contract with
-read-only permissions before `build-sign` can enter the protected `release`
-environment or access its private key. It then adds native amd64 and arm64 smoke
+The signed-release workflow adds native amd64 and arm64 smoke
 tests for the packaged panel binary, HTTP startup, persistent state, and
 authenticated self-update. The shared scenario writes through the current
 editable-file API. It checks exact text (including whitespace and large integers),
@@ -65,8 +52,8 @@ The non-root requirement keeps initialization inside temporary XDG directories
 instead of the root installation's `/var/lib/sing-box-panel`. Each phase and
 failed assertion is named in the log; diagnostic JSON contains only selected
 metadata, never configuration text, credential values, or complete settings.
-`make ci` retains the platform-independent checks; `make release-smoke` and
-`make core-contract` are the additional native Linux gates.
+`make ci` retains the platform-independent checks; `make release-smoke` is the
+additional native Linux gate.
 
 ## Local development build
 
@@ -126,12 +113,10 @@ manifest from being reused for a different version.
 Snapshot and release builds share the implementation in
 `scripts/build.sh`. It exports committed `HEAD` into a
 temporary source tree and builds both Web applications inside that complete
-snapshot with locked dependencies. Keeping `web/` beneath the snapshot's
-`go.mod` is required because `pnpm run generate` prepares OpenAPI types and
-invokes the offline Go Schema exporter before TypeScript checking and Vite
-bundling. The committed backend
-manifest and Schema assets produce `web/apps/panel/src/schemas/.generated/` inside the
-snapshot; no generated frontend files are taken from the caller's working tree.
+snapshot with locked dependencies. `web/` stays beneath the snapshot's `go.mod`
+because each binary embeds its Web build from there. `pnpm run generate` prepares
+OpenAPI types from the snapshot's contracts before TypeScript checking and Vite
+bundling; no generated frontend files are taken from the caller's working tree.
 Go module, build, and package-manager state is isolated from the caller's normal
 caches.
 
@@ -232,19 +217,16 @@ narrower and accepts only a stable `vMAJOR.MINOR.PATCH` version.
 
 Manually dispatch `Release Build` from the default branch and provide
 the stable release version. The workflow freezes the full source commit and
-runs five stages:
+runs four stages:
 
 1. `guard` rejects a non-default branch, an invalid or non-stable version, an
    existing tag or Release, and a source commit whose latest `ci-checks.yml` push run
    did not succeed.
-2. `core-contract` runs every supported exact version on native amd64 and arm64
-   runners. Both reusable workflow jobs must pass before any signing
-   environment or secret is available.
-3. `build-sign` builds the isolated amd64 and arm64 artifacts, verifies their
+2. `build-sign` builds the isolated amd64 and arm64 artifacts, verifies their
    build metadata, checksum set, and committed public key, checks that the
    environment private key matches that public key, and signs the checksum
    manifest.
-4. `smoke` runs independently on native `ubuntu-24.04` and
+3. `smoke` runs independently on native `ubuntu-24.04` and
    `ubuntu-24.04-arm` runners. It verifies the target binary's release version,
    source commit, source date, build metadata, key, checksums, and signature;
    initializes and verifies settings; starts the server; checks the health and
@@ -258,7 +240,7 @@ runs five stages:
    `scripts/test/smoke-release.sh`; neither maintains a separate set of API
    assertions. Each smoke job installs its own Go, Node.js and pinned pnpm
    prerequisites before building the probe's Web distribution.
-5. `draft` obtains `contents: write` only after both smoke jobs pass. It creates
+4. `draft` obtains `contents: write` only after both smoke jobs pass. It creates
    a Draft Release targeted at the frozen commit, generates release notes,
    uploads the four exact assets, downloads them into an empty directory, and
    re-verifies the asset set, bytes, checksums, signature, version, source
@@ -278,8 +260,7 @@ For every release:
 1. Merge the release source into the default branch and wait for all required
    CI checks to pass.
 2. Dispatch `Release Build` with the next stable version.
-3. Wait for both native core contracts, build, signing, and both native smoke
-   jobs to succeed.
+3. Wait for build, signing, and both native smoke jobs to succeed.
 4. Open the generated Draft Release and review its version, target commit,
    generated notes, and six assets.
 5. Publish the draft once. Only a published, non-prerelease GitHub Release is

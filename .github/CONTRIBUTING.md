@@ -48,10 +48,11 @@ update helper, runtime identity, or release behavior.
   Web clients, and user documentation aligned with public contract changes.
 - Run `make notices` when production dependencies change and include the
   resulting `THIRD_PARTY_NOTICES` update.
-- Follow the version-onboarding and release guides for core-version or packaging
+- Follow [adding a sing-box release line](../docs/architecture.md#adding-a-sing-box-release-line)
+  and the [release guide](../docs/release.md) for core-version or packaging
   changes instead of adding compatibility fallbacks.
 - Do not commit settings, databases, generated binaries, `web/apps/*/dist`, frontend
-  outputs under `web/apps/*/src/api/generated` or `web/apps/panel/src/schemas/.generated`, release
+  outputs under `web/apps/*/src/api/generated`, release
   private keys, credentials, tokens, or secret-bearing diagnostics.
 
 ## Validation
@@ -67,10 +68,10 @@ binaries), `check` (ordinary validation), and `fmt` (Go formatting). Plain `make
 lists every target with its usage. To narrow validation, use `make check-backend` for Go
 formatting, modules, vet, and tests; `make check-frontend` for Web build, types, lint,
 tests, and notices; or `make check-contracts` for shell, installer, protocol
-lint and generated-code, OpenAPI, and offline core-support checks. Web package scripts prepare their generated inputs
+lint and generated-code, and OpenAPI checks. Web package scripts prepare their generated inputs
 before typechecking, testing, or building. `make check` shares one Web generation,
 typecheck and production build across its checks; `check-frontend` then runs lint,
-all Vitest projects, Schema consistency and notices checks.
+all Vitest projects and the notices check.
 
 For an individual Go test, build Web assets once with `make build-frontend`, then use
 `go test ./path/to/package`. For individual frontend checks or formatting, use

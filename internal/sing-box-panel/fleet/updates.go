@@ -65,6 +65,8 @@ func commandMinor(body nodeapi.CommandBody) uint32 {
 	switch body.(type) {
 	case *nodeapi.Command_UpdateNode:
 		return 1
+	case *nodeapi.Command_GetCoreSchema:
+		return 2
 	}
 	return 0
 }

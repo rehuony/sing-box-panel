@@ -137,18 +137,12 @@ importers:
       '@rjsf/utils':
         specifier: 6.8.0
         version: 6.8.0(react@19.2.8)
-      '@rjsf/validator-ajv8':
-        specifier: 6.8.0
-        version: 6.8.0(@rjsf/utils@6.8.0(react@19.2.8))
       '@sing-box-panel/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@tanstack/react-query':
         specifier: ^5.104.0
         version: 5.104.0(react@19.2.8)
-      ajv:
-        specifier: 8.20.0
-        version: 8.20.0
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -1015,12 +1009,6 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       react: '>=18'
-
-  '@rjsf/validator-ajv8@6.8.0':
-    resolution: {integrity: sha512-F36I952/miMFZzWSlupwFHbl+j+5bVQ3tR6HtBS+vXV10kY5dT3OwTjbFRo4fQM1KpqrUZC0t3/E5CZRX1o1jA==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      '@rjsf/utils': ^6.8.0
 
   '@rolldown/binding-android-arm-eabi@1.2.5':
     resolution: {integrity: sha512-DLe/i+l8ynIBY7XEQ191TeZvCoowIGa18R+dIV30GW7DiOtp74i/xX8hs8GUjW5ARV7VZuie3d6AumSmCwbeRA==}
@@ -5101,14 +5089,6 @@ snapshots:
       lodash-es: 4.18.1
       react: 19.2.8
       react-is: 18.3.1
-
-  '@rjsf/validator-ajv8@6.8.0(@rjsf/utils@6.8.0(react@19.2.8))':
-    dependencies:
-      '@rjsf/utils': 6.8.0(react@19.2.8)
-      ajv: 8.20.0
-      ajv-formats: 2.1.1(ajv@8.20.0)
-      lodash: 4.18.1
-      lodash-es: 4.18.1
 
   '@rolldown/binding-android-arm-eabi@1.2.5':
     optional: true

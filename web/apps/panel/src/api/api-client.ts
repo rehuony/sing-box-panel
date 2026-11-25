@@ -17,15 +17,12 @@ import type {
   CoreArtifactFilter,
   CoreArtifactPage,
   CoreImportUpload,
-  RuntimeResponse,
   RuntimeStatus,
-  StartupArtifactPage,
 } from './contracts/core';
 import type {
   CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
-  CreatedAtCursor,
   FleetCommand,
   FleetCommandResult,
   FleetCommandSummary,
@@ -75,7 +72,6 @@ export type {
   CatalogRefresh,
   ConfigurationFile,
   ConfigurationFileWrite,
-  CreatedAtCursor,
   FleetCommand,
   FleetCommandResult,
   FleetCommandSummary,
@@ -185,8 +181,6 @@ export interface ApiClient {
   /** Runs one action on several nodes: each node's result as it finishes, then the summary. */
   runFleetCommand: (command: FleetCommand, signal?: AbortSignal) => AsyncIterable<FleetCommandEvent>;
   restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
-  /** The node's ready startup artifacts, newest first, twenty a page after the cursor, with revision and exact core. */
-  listStartupArtifacts: (before?: CreatedAtCursor, signal?: AbortSignal) => Promise<StartupArtifactPage>;
   /** Deletes a rule set and the exit rules that use it. */
   deleteSubscriptionRuleSet: (ruleSetID: string, updatedAt: string, signal?: AbortSignal) => Promise<void>;
   resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
@@ -280,12 +274,6 @@ export interface ApiClient {
     filter?: SubscriptionListFilter & { offset?: number },
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenPage>;
-  /** Runs a checked configuration on the node, verified the way applying a saved file is. */
-  activateStartupArtifact: (
-    startupArtifactID: string,
-    monitoringTier: 'limited' | 'process_only',
-    signal?: AbortSignal,
-  ) => Promise<RuntimeResponse>;
   /** Changes a pool node's display name; updatedAt is the version it was read at. */
   updateSubscriptionNode: (
     id: string,

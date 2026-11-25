@@ -21,7 +21,6 @@ import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
 import { ConfigurationCopyDialog } from './configuration-copy-dialog';
 import { useCanonicalConfiguration } from './use-canonical-configuration';
-import { AppliedConfigurationsDialog } from './applied-configurations-dialog';
 import { useInstalledConfigurationVersions } from './use-installed-configuration-versions';
 
 const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-editor').then(module => ({ default: module.AdvancedConfigurationEditor })));
@@ -155,7 +154,6 @@ export function ConfigurationPage() {
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
             <div className='ms-auto flex max-w-full min-w-0 items-center gap-1'>
-              <AppliedConfigurationsDialog />
               <ConfigurationCopyDialog
                 disabled={locked}
                 draft={canonical.state.content}

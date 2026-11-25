@@ -1,14 +1,13 @@
 # Core versions
 
 Release discovery, installation, visual configuration and inbound conversion are
-separate capabilities. A core without a reviewed Schema can still check and run
-raw JSON. Capabilities are selected by exact `MAJOR.MINOR.PATCH`, never by the
-nearest supported release.
+separate capabilities. Visual configuration and inbound conversion follow the
+core's release line; a core outside every line can still check and run raw JSON.
 
 - [Install and select](#install-and-select-a-version), [choose a build](#multiple-installations-of-one-version), or [import](#import-a-local-archive)
 - [Catalog cache](#catalog-cache), [verification boundaries](#checks-and-recorded-hashes), and [runtime switching](#switching-and-runtime-state)
-- [Exact configuration support](#exact-configuration-support) and [CLI / HTTP migration](#cli-and-http-migration)
-- [Maintaining support](#maintaining-support), [1.14.3 review evidence](#1143-configuration-review), and [1.13 review evidence](#113-configuration-review)
+- [Release lines](#release-lines) and [CLI / HTTP migration](#cli-and-http-migration)
+- [The reviewed 1.13 schema](#reviewed-113-schema)
 
 ## Install and select a version
 
@@ -91,12 +90,10 @@ and exact-version inspection at installation.
 Three other verification boundaries remain intact:
 
 - Configuration snapshot digests bind the checked JSON to the bytes activated.
-- Schema asset digests bind the exact reviewed backend and frontend contracts.
+- A configuration schema's SHA-256 identifies the exact schema the panel serves
+  and checks configurations with.
 - Panel release signatures and updater checks authenticate the panel distribution.
 
-Maintainers also keep size/SHA-256 pins for upstream artifacts used in Schema
-regeneration and native compatibility CI. Those pins make review reproducible;
-they are not prerequisites for an operator installing or running a core.
 Official downloads rely on GitHub HTTPS and the fixed repository/release location.
 Imported cores rely on the administrator's choice. Recorded hashes do not provide
 publisher authenticity or ongoing tamper detection.
@@ -149,44 +146,35 @@ installation; `<data_dir>/artifacts/current` is a relative convenience symlink
 reconciled from that record after startup or recovery. Execution uses the stored
 binary path and safe-file checks, not the convenience link as an authority.
 
-## Exact configuration support
+## Release lines
 
-This table is generated from the support catalog and lists the reviewed exact
-versions and their capabilities.
+A core's exact `MAJOR.MINOR.PATCH` version belongs to the newest line whose first
+version is not above it, so later patch and minor releases need no panel release.
 
-<!-- singbox-support-table:start -->
-<!-- Generated from internal/singbox/catalog.json; DO NOT EDIT. -->
+| Line | First version | Configuration schema | Inbound family |
+| --- | --- | --- | --- |
+| 1.13 | 1.13.19 | [Reviewed schema](#reviewed-113-schema) embedded in the panel | 1.13 |
+| 1.14 | 1.14.0 | The installed binary's `sing-box schema` output | 1.14 |
 
-| Exact releases | Configuration Schema source | Inbound family |
-| --- | --- | --- |
-| 1.13.19, 1.13.20, 1.13.21 | Project-reviewed `reviewed-1.13` source definition | 1.13 |
-| 1.14.0, 1.14.1, 1.14.2, 1.14.3 | Official binary's native `schema` command | 1.14 |
-<!-- singbox-support-table:end -->
+A version below 1.13.19 has no line: it uses Advanced JSON editing, and its
+node's inbounds are not published to subscriptions. Raw checking and running do
+not depend on a line.
 
-Each exact release has its own reviewed manifest entry and official-core contract
-checks. Canonical Schema assets and browser validators are shared by SHA-256 only
-when their contents are identical; sharing files never grants support to another
-version. The three reviewed 1.13 option type definitions are identical and share
-one semantic source. Field provenance, actual musl protocol coverage,
-conditional checks and DNS patch behavior are documented in the
-[1.13 review and field table](#113-configuration-review). Presentation annotations live
-separately from semantic constraints. The 1.13 forms exclude 1.14-only fields.
+For the 1.14 line the panel asks the node for the schema its installed core
+prints, once per archive SHA-256, and keeps up to 16 of them in memory. The node
+must be online and run protocol 1.2 or later for that first request. The panel
+adds its `x-panel` presentation annotations to either schema; they never widen
+accepted fields or values. Before a configuration reaches a node, the panel checks
+it against the core's schema when it can obtain one; the core's own
+`sing-box check` remains authoritative. The browser renders the schema and does
+not validate against it.
 
 The panel supplies the five upstream legacy DNS compatibility switches only for
-these three reviewed 1.13 versions, during both check and run. This preserves old
-DNS servers, FakeIP options, outbound DNS rules, domain strategy and missing
-resolver behavior without changing JSON. Their deprecation warnings remain
-visible. Before upgrading to 1.14, explicitly migrate those forms using the
+the 1.13 line, during both check and run. This preserves old DNS servers, FakeIP
+options, outbound DNS rules, domain strategy and missing resolver behavior without
+changing JSON. Their deprecation warnings remain visible. Before upgrading to
+1.14, explicitly migrate those forms using the
 [upstream migration guidance](https://sing-box.sagernet.org/migration/).
-
-A version without an exact manifest entry uses Advanced JSON editing. Missing
-Schema or inbound-conversion support does not prohibit raw runtime use. No nearby
-version's Schema or converter is substituted. The existing
-[1.14.1 review](https://github.com/SagerNet/sing-box/compare/v1.14.0...v1.14.1)
-retains family 1.14 and independently verifies its native Schema.
-The [1.14.2 review](#1142-configuration-review) and
-[1.14.3 review](#1143-configuration-review) also retain family 1.14,
-with separate exact-version review and native Schema generation.
 
 ## CLI and HTTP migration
 
@@ -200,102 +188,13 @@ ID. The multipart import endpoint no
 longer accepts a `sha256` field and the catalog endpoint no longer accepts an
 `installable` query. Update API clients to the [OpenAPI contract](../api/panel-openapi.yaml).
 
-## Maintaining support
+## Reviewed 1.13 schema
 
-`internal/singbox/catalog.json` locks exact tags, commits, module sums, dual
-architecture release profiles, feature fingerprints and capability sources.
-Add a version only after comparing its exact source, tag documentation, migration
-notes and both Linux musl packages. Reuse an inbound family only after reviewing
-its input and published client fields. Native Schema versions use the official
-`schema` command; pre-1.14 support requires an explicit reviewed source definition,
-never a copy of a neighboring native Schema.
-
-`make support-generate` runs on Linux and independently generates each exact
-version's Schema, updates its manifest entry and stores identical canonical
-contents once per SHA-256. It also regenerates catalog code, the support table
-above and the reviewed field table. `make support-check` validates committed
-outputs offline.
-
-From `web`, `pnpm run generate` exports the committed backend contracts
-offline and compiles one browser validator per distinct Schema. Frontend Schema
-assets and validators are build outputs and are not committed. Web development,
-typecheck, test and build commands prepare them before loading generated imports;
-`make build-frontend` includes this step. Production never fetches Schema definitions
-from the network. Native Linux amd64 and arm64
-`make core-contract` runs the real binaries, including 1.13 positive and negative
-configuration fixtures. `make release-smoke` exercises the panel release flow on
-native Linux as a non-root user. Emulation is supplementary evidence.
-
-The daily Core Version Monitor opens or updates one rolling issue when the latest
-stable upstream release exceeds the highest supported catalog entry. It requests
-manual review, never edits support code or backfills older release lines.
-
-## 1.14.3 configuration review
-
-The [1.14.3 release](https://github.com/SagerNet/sing-box/releases/tag/v1.14.3)
-is pinned to commit `7054cac5124465ffdb145870d7c01885566711b1`.
-The [30-commit comparison with 1.14.2](https://github.com/SagerNet/sing-box/compare/v1.14.2...v1.14.3)
-leaves the `option/`, `cmd/`, `include/` and `release/` source trees unchanged,
-including configuration types, protocol registrations, native Schema generation
-and the `check`, `format` and `merge` commands. The
-[tag's migration notes](https://github.com/SagerNet/sing-box/blob/v1.14.3/docs/migration.md)
-clarify existing 1.14 DNS rule conditions and shorten older explanations; they
-introduce no new 1.14.3 migration requirement.
-
-The reviewed inbound input types and published client fields remain unchanged,
-so 1.14.3 reuses inbound family `1.14`. Runtime changes cover scoped lifecycle
-cleanup, idle connections, DNS/TUN behavior, UDP fragmentation and protocol input
-validation. These fixes remain the exact core's responsibility and do not require
-new form fields or client-conversion rules.
-
-Both official Linux amd64/arm64 **musl** archives were downloaded and checked
-against their release asset sizes and SHA-256 digests. Static Go build metadata
-confirms version 1.14.3, the pinned commit, Go 1.26.8 and the same feature tags as
-1.14.2, including `with_musl`. Exact artifact pins and Go module checksums are in
-[`catalog.json`](../internal/singbox/catalog.json).
-
-The official 1.14.3 binary independently generates its native Schema through the
-normal generation workflow, together with the panel presentation overlay and Web
-validator. Existing catalog-driven tests cover exact-version selection,
-configuration validation and inbound conversion; browser tests cover loading the
-exact Schema. The native Linux amd64/arm64 core contract matrix includes the new
-catalog entry.
-
-## 1.14.2 configuration review
-
-The [1.14.2 release](https://github.com/SagerNet/sing-box/releases/tag/v1.14.2)
-is pinned to commit `af6e64c3b69e6132ebaee0e1a3d24e93903f6709`.
-The [36-commit comparison with 1.14.1](https://github.com/SagerNet/sing-box/compare/v1.14.1...v1.14.2)
-changes no serialized configuration fields, protocol registrations or native Schema
-generator code. The only option-source change adds `STUNServersIsDomain` to
-`Hysteria2Realm`; it does not change its JSON fields. The
-[tag's migration notes](https://github.com/SagerNet/sing-box/blob/v1.14.2/docs/migration.md)
-are unchanged. The existing 1.14 migration requirements still apply when upgrading
-from 1.13.
-
-Inbound conversion was reviewed separately against the input types and published
-client fields, including Hysteria2, Snell, credentials, TLS and transports. Their
-shapes remain unchanged, so 1.14.2 reuses inbound family `1.14`. Runtime fixes to
-DNS initialization, Hysteria2 STUN resolution, WireGuard peers, connection lifetimes
-and transports remain the exact core's responsibility; the panel does not rewrite
-configuration to emulate them. Documentation corrects the default minimum TLS
-version to 1.2 and clarifies that the API dashboard's HTTP client is unused when
-user-provided dashboard files exist; neither change adds a form field.
-
-Both official Linux amd64/arm64 **musl** archives were checked against their
-release asset sizes and SHA-256 digests. Their reported version, commit and build
-tags match the catalog, including `with_musl`. Exact artifact pins and Go module
-checksums are recorded in [`catalog.json`](../internal/singbox/catalog.json).
-The official 1.14.2 binary independently generates its native Schema; the panel's
-presentation overlay and Web validator are produced by the normal generation
-workflow. Tests cover exact-version selection, application validation, inbound
-conversion and browser loading. The existing native Linux amd64/arm64 core
-contract matrix automatically includes the new catalog entry.
-
-## 1.13 configuration review
-
-This review covers only **1.13.19, 1.13.20 and 1.13.21** and their official Linux
-amd64/arm64 musl packages. It does not assign capabilities to other 1.13 releases.
+sing-box 1.13 has no `schema` command, so the panel embeds a reviewed source
+definition, [`1.13.json`](../internal/sing-box-panel/schema/1.13.json), for the
+whole 1.13 line. It follows the option types of the tags below. Their
+configuration fields are identical; later 1.13 patch releases use the same
+schema, and their runtime fixes remain the core's responsibility.
 
 ### Sources and patch comparison
 
@@ -308,10 +207,9 @@ amd64/arm64 musl packages. It does not assign capabilities to other 1.13 release
 All 50 `option/*.go` files are byte-identical across these three tags. The
 [17-commit comparison](https://github.com/SagerNet/sing-box/compare/v1.13.19...v1.13.21)
 adds or removes no configuration fields. The registries under `include/` are also
-unchanged. This supports one shared semantic source definition, with independent
-assets and manifest entries for each version. The current website is auxiliary:
-its newer certificate providers, DNS response actions, protocols and endpoint
-fields must not be copied into this definition.
+unchanged. The current website is auxiliary: its newer certificate providers, DNS
+response actions, protocols and endpoint fields must not be copied into this
+definition.
 
 The 1.13.20 patch fixes inverted DNS rules whose address conditions are deferred
 until after lookup. It also corrects the DNS rule documentation: destination
@@ -323,39 +221,23 @@ selecting another patch version never rewrites a rule to emulate that fix.
 The [1.13.21 changelog](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/changelog.md)
 also records WebSocket/TUN fixes. Their behavior remains the exact core's responsibility.
 
-### Field table and maintenance
+### Constraints and presentation
 
-The [complete field table](../tools/singbox-support/schema-sources/1.13-fields.csv) is generated from
-[`schema-sources/1.13.json`](../tools/singbox-support/schema-sources/1.13.json).
-It records configuration paths, JSON shapes and enum values, branch optionality,
-constraints and exact source line links. Shared `$defs` expand once; later rows
-refer to that definition. `[]` means an array element, `.*` a map value, and
-`{oneOf:N}` / `{allOf:N}` identify union or composed branches. Follow the branch's
-`type`, `action` or `provider` constant to identify a protocol. Source links use
-1.13.21 because the reviewed option files are identical in all three tags.
-
-Optional in this table means that the JSON decoder allows omission. It does not
+Optional in this schema means that the JSON decoder allows omission. It does not
 promise that a runnable instance can omit credentials, a server, a referenced tag,
 a certificate or a route action's effective options. Those contextual requirements
 are summarized below and enforced by the real core. In particular, configuration
 checking does not prove that an external ACME server, DNS resolver or tunnel peer
 is reachable at runtime.
 
-The reviewed 1.13 Schema also accepts explicit `null` for optional top-level
-sections and plain log fields, matching the core's Go decoder. An empty or `null`
-`log.level` uses the core's default level. These values remain unchanged
-through validation and unrelated visual edits; custom nested types keep their
-own decoding constraints. Shared fixtures exercise these cases in the backend,
-browser validator and exact official core checks.
+The schema also accepts explicit `null` for optional top-level sections and plain
+log fields, matching the core's Go decoder. An empty or `null` `log.level` uses
+the core's default level. These values remain unchanged through validation and
+unrelated visual edits; custom nested types keep their own decoding constraints.
 
-The source definition contains semantic JSON constraints and provenance. The
-existing `schema_overlay.go` workflow separately adds `x-panel` presentation
-annotations; it cannot widen accepted fields or values. `make support-generate`
-regenerates the CSV and exact-version manifest entries, sharing identical Schema
-contents by SHA-256. Offline `make support-check` rejects source/output drift.
-`make build-frontend` produces standalone browser validators for the distinct Schema
-contents. These are reviewed schemas, not official
-native-schema output: sing-box 1.13 has no `schema` command.
+The source definition contains semantic JSON constraints and provenance. The panel
+adds its `x-panel` presentation annotations when it prepares the schema; the
+result's SHA-256 is the schema's identity.
 
 ### Section and conditional-field review
 
@@ -364,7 +246,7 @@ native-schema output: sing-box 1.13 has no `schema` command.
 | `log` | Optional object; level is trace/debug/info/warn/error/fatal/panic. Output is a path; disabled/timestamp are booleans. | [log](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/configuration/log/index.md) |
 | `dns.servers[]` | Typed transports and the legacy address format coexist. Missing/empty/legacy `type` selects the legacy decoder. Typed remote transports use server/server_port and their dial/TLS options; a domain-valued server requires an appropriate resolver relationship. | [DNS source](https://github.com/SagerNet/sing-box/blob/v1.13.21/option/dns.go), [legacy servers](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/configuration/dns/server/legacy.md) |
 | `dns.rules[]` | Default or recursive logical rules; logical mode is and/or. Actions are route, route-options, reject, predefined. Route is the omitted action. Server/rule-set/outbound references must resolve. Predefined answers use textual or base64 DNS records; query type accepts numeric RR types or recognized uppercase names. | [DNS rules](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/configuration/dns/rule.md), [actions](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/configuration/dns/rule_action.md) |
-| `dns.fakeip`, `independent_cache`, legacy `outbound` rule items | Retained 1.13 forms. FakeIP ranges must be valid IP prefixes. The five deprecated DNS switches are enabled by the panel only for these three exact versions; warnings remain visible. | [deprecated features](https://github.com/SagerNet/sing-box/blob/v1.13.21/experimental/deprecated/constants.go), [migration](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/migration.md) |
+| `dns.fakeip`, `independent_cache`, legacy `outbound` rule items | Retained 1.13 forms. FakeIP ranges must be valid IP prefixes. The five deprecated DNS switches are enabled by the panel for the 1.13 line; warnings remain visible. | [deprecated features](https://github.com/SagerNet/sing-box/blob/v1.13.21/experimental/deprecated/constants.go), [migration](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/migration.md) |
 | `route.rules[]`, `route.rule_set[]` | Default/logical matching and route, route-options, direct, bypass, reject, hijack-dns, sniff, resolve actions. Inline/local/remote rule sets have a nonempty tag. Logical rules require rules and mode. Non-inline formats are source/binary, inferred from path/URL where supported. Empty route-options are rejected by core. | [route actions](https://github.com/SagerNet/sing-box/blob/v1.13.21/option/rule_action.go), [rule sets](https://github.com/SagerNet/sing-box/blob/v1.13.21/option/rule_set.go) |
 | Reject / TLS fragmentation actions | Reject method is default/drop/reply; drop and no_drop=true cannot combine. `tls_fragment` and `tls_record_fragment` cannot both be true. Dial settings in a direct action do not include detour. | [action decoder](https://github.com/SagerNet/sing-box/blob/v1.13.21/option/rule_action.go) |
 | Shared listen/dial fields | Listen ports are uint16. Listable fields accept one value or an array. Network is tcp/udp. `domain_resolver` accepts a tag string or object with required server. Domain strategy permits as_is/prefer_ipv4/prefer_ipv6/ipv4_only/ipv6_only. Durations, addresses, marks, interfaces and detour/resolver references require core parsing and environment checks. | [listen](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/configuration/shared/listen.md), [dial](https://github.com/SagerNet/sing-box/blob/v1.13.21/docs/configuration/shared/dial.md) |
@@ -401,23 +283,19 @@ ShadowsocksR, DNS outbound and WireGuard outbound are excluded.
 | Endpoints | wireguard, tailscale |
 | Services | resolved, ssm-api, derp, ccm, ocm, oom-killer |
 
-For both architectures all three releases report the same feature set:
+For both architectures 1.13.19, 1.13.20 and 1.13.21 report the same feature set:
 `badlinkname`, `tfogo_checklinkname0`, `with_acme`, `with_ccm`, `with_clash_api`,
 `with_dhcp`, `with_gvisor`, `with_musl`, `with_naive_outbound`, `with_ocm`,
-`with_quic`, `with_tailscale`, `with_utls`, `with_wireguard`. They report Go 1.25.12,
-CGO enabled and their respective pinned commits. Exact package names, URLs,
-sizes and maintenance hashes are in the [support catalog](../internal/singbox/catalog.json).
-Feature presence does not make a protocol work without its required credentials,
-network or operating-system permissions.
+`with_quic`, `with_tailscale`, `with_utls`, `with_wireguard`. They report Go 1.25.12
+and CGO enabled. Feature presence does not make a protocol work without its
+required credentials, network or operating-system permissions.
 
-### Executable acceptance evidence
+### Acceptance fixtures
 
 The shared [configuration fixtures](../internal/sing-box-panel/schema/testdata/configuration-1.13)
 cover every top-level section through representative DNS actions/legacy servers,
 TLS/inline ACME and transports, WireGuard and resolved service configurations.
-They are checked against each exact Schema and each actual Linux binary.
-TLS-disabled fixtures exercise option decoding without issuing certificates;
-this is not a live ACME issuance test. Negative cases cover new protocols,
-field types, port bounds and conflicting action options. Native-core checks are
-supplemented by browser form edits/round trips and per-version inbound conversion
-with server credential stripping. Unknown exact versions remain JSON-only.
+Go tests validate them against the reviewed schema, together with negative cases
+for new protocols, field types, port bounds and conflicting action options. TLS-disabled
+fixtures exercise option decoding without issuing certificates; this is not a live
+ACME issuance test. Web tests edit and round-trip them in the visual editor.

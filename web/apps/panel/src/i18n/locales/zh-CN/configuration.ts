@@ -1,20 +1,4 @@
 export const configuration = {
-  applied: {
-    action: '已应用配置',
-    confirm: '{{time}} 的已应用配置（核心 {{version}}，修订 {{revision}}）会再次运行。核心会重启，{{name}} 的代理会中断。已保存的配置文本不会改变，下次启动或重启时会重新载入已保存的文本。',
-    confirmTitle: '将 {{name}} 回滚到这份已应用配置？',
-    current: '运行中',
-    description: '{{name}} 的已应用配置，最新的在前；正在运行的一份已标出。',
-    done: '{{name}} 已回滚',
-    empty: '此节点还没有已应用配置。',
-    loadFailed: '无法读取已应用配置',
-    loadMore: '加载更多',
-    loading: '正在载入已应用配置…',
-    loadingMore: '正在加载…',
-    rollback: '回滚',
-    rolling: '正在回滚…',
-    title: '已应用配置',
-  },
   copy: {
     action: '从节点复制',
     choose: '选择要复制其已保存配置的节点。',
@@ -231,8 +215,7 @@ export const configuration = {
     noInstalledOption: '暂无版本',
     noInstalledTitle: '尚未安装核心版本',
     error: {
-      contract: '该版本 Schema 与已审查的浏览器 Schema 不同。',
-      notReviewed: '已审查的浏览器清单中不存在该版本 Schema。',
+      contract: '面板返回的配置 Schema 与该核心不符。',
     },
     failClosed: '结构化编辑器不可用',
     noManagedFields: '此精确版本没有可用的结构化托管集合。',

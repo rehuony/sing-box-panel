@@ -17,13 +17,14 @@ import type {
 } from '@rjsf/utils';
 
 import { useTranslation } from 'react-i18next';
-import { getDefaultRegistry } from '@rjsf/core';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { Switch } from '@shared/components/ui/switch';
 import { Textarea } from '@shared/components/ui/textarea';
 import { toast } from '@shared/components/ui/toast-manager';
 import { createContext, isValidElement, use, useId } from 'react';
+// @rjsf/core's entry also loads its test registry, which imports the Ajv validator.
+import getDefaultRegistry from '@rjsf/core/lib/getDefaultRegistry.js';
 import {
   ArrowDown,
   ArrowUp,

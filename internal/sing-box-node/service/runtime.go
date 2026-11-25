@@ -58,34 +58,6 @@ type ActivationPreparation struct {
 	Bundle          store.ActivationBundle `json:"bundle"`
 }
 
-// ActivationSummary is safe for management transports. It deliberately omits
-// startup bytes, rendered subscription content, source credentials, and
-// discovered addresses while retaining every immutable identity and digest an
-// operator needs to audit an apply.
-type ActivationSummary struct {
-	StartupArtifactID   string               `json:"startup_artifact_id"`
-	CanonicalRevisionID string               `json:"canonical_revision_id"`
-	ExactCoreVersion    string               `json:"exact_core_version"`
-	CoreArtifactID      string               `json:"core_artifact_id"`
-	ConfigSHA256        string               `json:"config_sha256"`
-	ActivationBundleID  string               `json:"activation_bundle_id"`
-	ActivationSHA256    string               `json:"activation_sha256"`
-	MonitoringTier      store.MonitoringTier `json:"monitoring_tier"`
-}
-
-func (preparation ActivationPreparation) Summary() ActivationSummary {
-	return ActivationSummary{
-		StartupArtifactID:   preparation.StartupArtifact.ID,
-		CanonicalRevisionID: preparation.StartupArtifact.CanonicalRevisionID,
-		ExactCoreVersion:    preparation.StartupArtifact.ExactCoreVersion,
-		CoreArtifactID:      preparation.StartupArtifact.CoreArtifactID,
-		ConfigSHA256:        preparation.StartupArtifact.ConfigSHA256,
-		ActivationBundleID:  preparation.Bundle.ID,
-		ActivationSHA256:    preparation.Bundle.SHA256,
-		MonitoringTier:      preparation.Bundle.MonitoringTier,
-	}
-}
-
 type RuntimeMaterial struct {
 	Bundle     coreruntime.AppliedBundle
 	Activation store.ActivationBundle

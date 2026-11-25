@@ -119,34 +119,24 @@ for filesystem scope and path semantics.
 Transport types under `src/api/generated/` are build artifacts generated from
 `../../../api/panel-openapi.yaml`. Development, typecheck, test, and build commands refresh
 them automatically; they are not committed or edited by hand. The custom HTTP
-client remains hand-written. `pnpm run generate` prepares both transport types
-and configuration Schema assets; ordinary development and validation commands
-include this step, so no separate preparation command is needed.
+client remains hand-written. `pnpm run generate` prepares the transport types;
+ordinary development and validation commands include this step, so no separate
+preparation command is needed.
 
-Configuration contracts under `src/schemas/.generated/` are exported offline
-from the committed backend Schema assets by `pnpm run generate`. They are
-build outputs and are not committed or edited by hand. Development,
-typecheck, test and build commands run generation before loading their imports;
-Vite itself does not generate them. The generated manifest binds each reviewed
-exact version to its source kind, file and SHA-256 digest. Identical Schema
-contents share one exported asset and one Ajv 2020 browser validator. Generation
-leaves the output directory untouched when all contents already match.
-`pnpm run schema:check` recomputes and compares the expected outputs without
-changing that directory. Generated validators contain no CommonJS `require`.
-Application code imports the stable `src/schemas/index.ts` public entry instead
-of importing generated files directly. This entry reads the manifest and lazily
-loads shared Schema and validator modules with Vite's `import.meta.glob`; the
-generator writes only the manifest and assets.
-The [support table](../docs/core-versions.md#exact-configuration-support)
-lists the reviewed exact versions; sharing a digest does not support another
-version. A version without a committed Schema
-remains available in the Advanced JSON editor; structured editing is enabled
-only when the exact-version local Schema and served digest match. The
-configuration version selector lists compatible installed core versions,
-prefers the enabled version, and otherwise selects the highest installed exact
-version. Without an installed core, Advanced JSON editing and saving remain
-available while structured editing and validation direct the operator to
-version management.
+The application bundles no configuration schema. The visual editor renders the
+schema the panel serves for the selected core, after checking that it names that
+core's version and is an object; it does not validate against it, and its form
+validator only matches values to schema branches. The panel answers
+`configuration_schema_unavailable` for a version outside every
+[release line](../docs/core-versions.md#release-lines), which keeps the visual
+editor tab disabled; any other failure shows a notice with a retry, and the
+Advanced JSON editor stays available either way. The configuration version
+selector lists compatible installed core versions, prefers the enabled version,
+and otherwise selects the highest installed exact version. Without an installed
+core, Advanced JSON editing and saving remain available while structured editing
+and validation direct the operator to version management. The form library is
+imported from its `lib/` modules, because its package entry also loads a test
+registry that needs the Ajv validator.
 
 ## Build output and embedding
 
@@ -190,10 +180,7 @@ to recover Vite's shared CSS/module preload state. A view that fails, such as a
 route module that fails to load without a preload, shows one line in its place
 inside the shell with a reload action, and opening another window leaves it; a
 failure outside the shell shows the router's root fallback with the same
-action. Configuration downloads the
-reviewed Schema/validator modules in parallel with the authenticated Schema
-contract; version, digest and full-schema checks
-still gate structured editing. Subscription lists and their node catalog load
+action. Subscription lists and their node catalog load
 concurrently, and the version library reads runtime status only once on entry.
 Runtime responses are published independently of artifact listings and discarded
 when newer shared runtime evidence arrives while the request is pending.
@@ -538,7 +525,7 @@ choices appear in Basic settings, SSH authentication in Authentication, and deto
 selection in Connection options. One mounted schema form preserves pending fields
 across section changes and retains the protocol as a hidden discriminator so
 generation uses the current protocol and encryption method. See the
-[configuration guide](../docs/configuration-and-runtime.md#reviewed-configuration-schemas)
+[configuration guide](../docs/configuration-and-runtime.md#configuration-schemas)
 for the generated formats.
 ### Previews and unsaved changes
 

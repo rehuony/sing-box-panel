@@ -71,14 +71,6 @@ func (s *runtimeServices) ExecuteRuntime(ctx context.Context, input RuntimeReque
 		intent, err = s.commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentStop, "")
 	case "rollback":
 		intent, err = s.commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentRollback, input.BundleID)
-	case "activate":
-		prepared, prepareErr := s.commands.PrepareActivationBundle(ctx, input.StartupArtifactID, input.MonitoringTier)
-		if prepareErr != nil {
-			return result, prepareErr
-		}
-		summary := prepared.Summary()
-		result.Activation = &summary
-		intent, err = s.commands.PrepareRuntimeIntent(ctx, store.RuntimeIntentApply, prepared.Bundle.ID)
 	case "check":
 		summary, checkErr := s.checkStartup(ctx, input.StartupArtifactID)
 		result.Startup = &summary

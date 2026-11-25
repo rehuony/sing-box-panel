@@ -8,35 +8,22 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
-func NewInboundRegistry() *InboundRegistry {
-	converters := make([]InboundConverter, 0, len(singbox.Versions()))
-	for _, version := range singbox.Versions() {
-		var options inboundOptions
-		switch version.InboundFamily {
-		case "":
-			continue
-		case "1.14":
-			options.snell = true
-		case "1.13":
-		default:
-			panic("sing-box support: unknown inbound family " + version.InboundFamily)
-		}
-		converters = append(converters, newInboundConverter(version.ExactVersion, options))
-	}
-	return MustNewInboundRegistry(converters...)
+// inboundConverters holds the converter of each inbound family.
+var inboundConverters = map[string]converter{
+	"1.13": newInboundConverter(inboundOptions{}),
+	"1.14": newInboundConverter(inboundOptions{snell: true}),
 }
 
-func ValidateFamilies() error {
-	return validateCompiledFamilies(singbox.Versions())
-}
-
-func validateCompiledFamilies(versions []singbox.Version) error {
-	for _, version := range versions {
-		switch version.InboundFamily {
-		case "", "1.13", "1.14":
-		default:
-			return fmt.Errorf("version %s references unknown inbound family %s", version.ExactVersion, version.InboundFamily)
-		}
+// convertInbounds converts a node's inbounds with the converter of the
+// inbound family of its core's release line.
+func convertInbounds(exactVersion string, request InboundRequest) (InboundResult, error) {
+	line, found := singbox.LineOf(exactVersion)
+	if !found {
+		return InboundResult{}, fmt.Errorf("%w: %s", ErrUnsupportedCoreVersion, exactVersion)
 	}
-	return nil
+	converter, found := inboundConverters[line.InboundFamily]
+	if !found {
+		return InboundResult{}, fmt.Errorf("%w: %s", ErrUnsupportedCoreVersion, exactVersion)
+	}
+	return converter.Convert(request)
 }

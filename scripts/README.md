@@ -89,9 +89,6 @@ make snapshot OUT=/absolute/path/to/new-output
 make release VERSION=v0.1.0 OUT=/absolute/path/to/new-output
 make release-verify
 make release-smoke # current working tree; native Linux, non-root user
-make support-generate
-make support-check
-make core-contract # exact binaries plus raw configuration checks; native Linux only
 ```
 
 Their underlying script interface is:
@@ -144,11 +141,8 @@ The script:
 3. installs and builds the Web application inside that complete source
    snapshot using the package-pinned pnpm, frozen lockfile, disabled lifecycle
    scripts, and an isolated store; the explicit build command runs `generate`
-   for OpenAPI types and Schema assets before TypeScript checking and Vite
-   bundling. The Schema exporter uses the snapshot's parent Go module, creating
-   `web/apps/panel/src/schemas/.generated/` from the
-   committed backend manifest and Schema assets without reading generated files
-   from the caller's working tree;
+   for OpenAPI types before TypeScript checking and Vite bundling, without
+   reading generated files from the caller's working tree;
 4. requires each fresh Web distribution, the panel's and the node console's,
    to contain `index.html`, the single public `favicon.svg`, and bundled
    assets before loading the Go package that embeds it;
@@ -190,7 +184,7 @@ metadata and key, checks the embedded release identity, and confirms that
 invalid release versions fail without leaving an output directory.
 
 See [Core versions](../docs/core-versions.md) for
-support generation, native core contracts, and manual version onboarding. See
+the supported sing-box release lines. See
 [Release process](../docs/release.md) for signing-key setup, native
 amd64 and arm64 smoke tests, Draft Release verification, manual publication,
 trust bootstrap, and the release-hardening backlog.

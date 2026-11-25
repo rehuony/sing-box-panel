@@ -29,7 +29,7 @@ func TestPublicHostChangeReportsPublicationChange(t *testing.T) {
 	records := telemetry.New(database, panelSettings, telemetry.Options{})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
 	changes := 0
-	service := fleet.New(database, panelSettings, records, nodeconfig.New(database, cores), cores, fleet.Options{
+	service := fleet.New(database, panelSettings, records, nodeconfig.New(database, cores, nil), cores, fleet.Options{
 		PublicationChanged: func(context.Context) { changes++ },
 	})
 	id := testutil.CreateNode(t, database, "edge")

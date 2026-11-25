@@ -1,20 +1,4 @@
 export const configuration = {
-  applied: {
-    action: 'Applied configurations',
-    confirm: 'The applied configuration of {{time}} with core {{version}} (revision {{revision}}) runs again. The core restarts, which interrupts the proxy on {{name}}. The saved configuration text is not changed, so the next start or restart loads the saved text again.',
-    confirmTitle: 'Roll back {{name}} to this applied configuration?',
-    current: 'Running',
-    description: 'The applied configurations of {{name}}, newest first; the one running now is marked.',
-    done: '{{name}} rolled back',
-    empty: 'This node has no applied configurations yet.',
-    loadFailed: 'Applied configurations unavailable',
-    loadMore: 'Load more',
-    loading: 'Loading applied configurations…',
-    loadingMore: 'Loading…',
-    rollback: 'Roll back',
-    rolling: 'Rolling back…',
-    title: 'Applied configurations',
-  },
   copy: {
     action: 'Copy from node',
     choose: 'Choose the node whose saved configuration to copy.',
@@ -231,8 +215,7 @@ export const configuration = {
     noInstalledOption: 'None',
     noInstalledTitle: 'No core versions installed',
     error: {
-      contract: 'The version Schema differs from the reviewed browser Schema.',
-      notReviewed: 'The version Schema is not present in the reviewed browser manifest.',
+      contract: 'The panel\'s configuration schema does not match this core.',
     },
     failClosed: 'Structured editor is unavailable',
     noManagedFields: 'This exact version exposes no structured managed collections.',

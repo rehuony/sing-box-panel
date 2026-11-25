@@ -26,8 +26,8 @@ import type {
   TrafficPeriod,
 } from '@/api/api-client';
 
-import { reviewedSchemaManifest } from '@/schemas';
 import { DEFAULT_APPEARANCE } from '@/theme/appearance';
+import { configurationSchemaContract } from '@/tests/fixtures/configuration-schemas';
 
 export const testSession: Session = { email: 'admin@example.com', csrfToken: 'csrf-test', expiresAt: '2099-01-01T00:00:00Z', displayName: 'Panel administrator' };
 
@@ -382,15 +382,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     installCore: vi.fn<ApiClient['installCore']>().mockResolvedValue(testArtifacts.items[0]),
     importCoreArchive: vi.fn<ApiClient['importCoreArchive']>().mockResolvedValue(testArtifacts.items[0]),
     removeCoreArtifact: vi.fn<ApiClient['removeCoreArtifact']>().mockResolvedValue(undefined),
-    getConfigurationSchema: vi.fn<ApiClient['getConfigurationSchema']>(async () => {
-      const exactVersion = testArtifacts.items[0].exact_version;
-      const reviewed = await reviewedSchemaManifest[exactVersion].load();
-      return {
-        exact_version: exactVersion,
-        schema_sha256: reviewed.schemaSHA256,
-        schema: reviewed.schema,
-      };
-    }),
+    getConfigurationSchema: vi.fn<ApiClient['getConfigurationSchema']>(async () =>
+      configurationSchemaContract(testArtifacts.items[0].exact_version)),
     compileConfiguration: vi.fn<ApiClient['compileConfiguration']>().mockResolvedValue({
       support,
       artifact: testStartupArtifact,
@@ -471,8 +464,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         else signal?.addEventListener('abort', () => resolve(), { once: true });
       });
     }),
-    listStartupArtifacts: vi.fn<ApiClient['listStartupArtifacts']>().mockResolvedValue({ items: [testStartupArtifact] }),
-    activateStartupArtifact: vi.fn<ApiClient['activateStartupArtifact']>(),
     runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* (command) {
       const ids = command.node_ids ?? [];
       for (const id of ids) yield { result: { node_id: id, ok: true } };

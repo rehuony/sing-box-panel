@@ -156,14 +156,12 @@ func (executor *executor) run(ctx context.Context, command *nodeapi.Command) nod
 			return failure(err)
 		}
 		return &nodeapi.Result_Check{Check: &nodeapi.CheckOutcome{Startup: startupArtifact(startup)}}
-	case *nodeapi.Command_ActivateStartup:
-		response, err := node.ActivateRuntime(ctx, body.ActivateStartup.GetStartupArtifactId(), monitoringTier(body.ActivateStartup.GetMonitoringTier()))
+	case *nodeapi.Command_GetCoreSchema:
+		schema, err := node.CoreSchema(ctx, body.GetCoreSchema.GetArtifactId(), nodeapi.MaximumCoreSchemaBytes)
 		if err != nil {
 			return failure(err)
 		}
-		return &nodeapi.Result_Runtime{Runtime: runtimeOutcome(response)}
-	case *nodeapi.Command_ListStartupArtifacts:
-		return executor.listStartupArtifacts(ctx, body.ListStartupArtifacts)
+		return &nodeapi.Result_CoreSchema{CoreSchema: &nodeapi.CoreSchemaOutcome{Schema: schema}}
 	case *nodeapi.Command_InstallCore:
 		return executor.installCore(ctx, body.InstallCore)
 	case *nodeapi.Command_UpdateNode:
@@ -308,28 +306,6 @@ func (executor *executor) listCores(ctx context.Context, request *nodeapi.ListCo
 	return &nodeapi.Result_Core{Core: outcome}
 }
 
-func (executor *executor) listStartupArtifacts(ctx context.Context, request *nodeapi.ListStartupArtifacts) nodeapi.ResultOutcome {
-	query := service.StartupArtifactListRequest{
-		CanonicalRevisionID: request.GetRevisionId(), ExactCoreVersion: request.GetExactCoreVersion(),
-		CoreArtifactID: request.GetCoreArtifactId(), State: storeStartupState(request.GetState()), Limit: int(request.GetLimit()),
-	}
-	if request.GetBeforeTime() != nil {
-		query.Cursor = &service.StartupArtifactCursor{CreatedAt: request.GetBeforeTime().AsTime(), ID: request.GetBeforeId()}
-	}
-	page, err := executor.node.ListStartupArtifacts(ctx, query)
-	if err != nil {
-		return failure(err)
-	}
-	outcome := &nodeapi.StartupArtifactsOutcome{Items: make([]*nodeapi.StartupArtifact, 0, len(page.Items))}
-	for _, item := range page.Items {
-		outcome.Items = append(outcome.Items, startupArtifact(item))
-	}
-	if page.Next != nil {
-		outcome.NextBeforeTime, outcome.NextBeforeId = timestamppb.New(page.Next.CreatedAt), page.Next.ID
-	}
-	return &nodeapi.Result_StartupArtifacts{StartupArtifacts: outcome}
-}
-
 func failure(err error) nodeapi.ResultOutcome {
 	code, message := service.DescribeFailure(err)
 	return problem(code, message)
@@ -343,11 +319,10 @@ func runtimeResult(status service.RuntimeStatus, err error) nodeapi.ResultOutcom
 	if err != nil {
 		return failure(err)
 	}
-	return &nodeapi.Result_Runtime{Runtime: runtimeOutcome(service.RuntimeResponse{Status: status})}
+	return &nodeapi.Result_Runtime{Runtime: runtimeOutcome(status)}
 }
 
-func runtimeOutcome(response service.RuntimeResponse) *nodeapi.RuntimeOutcome {
-	status := response.Status
+func runtimeOutcome(status service.RuntimeStatus) *nodeapi.RuntimeOutcome {
 	outcome := &nodeapi.RuntimeOutcome{Status: &nodeapi.RuntimeStatus{
 		LoadedRevisionId: status.LoadedCanonicalRevisionID, DesiredRunning: status.DesiredRunning,
 		DesiredBundleId: status.DesiredBundleID, AppliedBundleId: status.AppliedBundleID, RollbackBundleId: status.RollbackBundleID,
@@ -363,17 +338,6 @@ func runtimeOutcome(response service.RuntimeResponse) *nodeapi.RuntimeOutcome {
 			CoreArtifactId: running.CoreArtifactID, ArchiveSha256: running.ArchiveSHA256, BinarySha256: running.BinarySHA256,
 			ActivationBundleId: running.ActivationBundleID, StartedAt: timestamppb.New(running.StartedAt),
 		}
-	}
-	if activation := response.Activation; activation != nil {
-		outcome.Activation = &nodeapi.Activation{
-			StartupArtifactId: activation.StartupArtifactID, RevisionId: activation.CanonicalRevisionID,
-			ExactCoreVersion: activation.ExactCoreVersion, CoreArtifactId: activation.CoreArtifactID,
-			ConfigSha256: activation.ConfigSHA256, ActivationBundleId: activation.ActivationBundleID,
-			ActivationSha256: activation.ActivationSHA256, MonitoringTier: monitoringTierProto(activation.MonitoringTier),
-		}
-	}
-	if response.Startup != nil {
-		outcome.Startup = startupArtifact(*response.Startup)
 	}
 	return outcome
 }
@@ -400,28 +364,6 @@ func startupState(state store.StartupArtifactState) nodeapi.StartupArtifactState
 		return nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_FAILED
 	}
 	return nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_UNSPECIFIED
-}
-
-func storeStartupState(state nodeapi.StartupArtifactState) store.StartupArtifactState {
-	switch state {
-	case nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_PENDING:
-		return store.StartupArtifactPending
-	case nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_READY:
-		return store.StartupArtifactReady
-	case nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_FAILED:
-		return store.StartupArtifactFailed
-	}
-	return ""
-}
-
-func monitoringTier(tier nodeapi.MonitoringTier) store.MonitoringTier {
-	if tier == nodeapi.MonitoringTier_MONITORING_TIER_PROCESS_ONLY {
-		return store.MonitoringProcessOnly
-	}
-	if tier == nodeapi.MonitoringTier_MONITORING_TIER_LIMITED {
-		return store.MonitoringLimited
-	}
-	return ""
 }
 
 func monitoringTierProto(tier store.MonitoringTier) nodeapi.MonitoringTier {

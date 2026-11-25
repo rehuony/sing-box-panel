@@ -3,7 +3,6 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import { expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { customizeValidator } from '@rjsf/validator-ajv8';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -29,7 +28,7 @@ function Harness() {
   return (
     <>
       <ConfigurationSectionEditor disabled={false} draft={draft} name='dns' onChange={setDraft}
-        resolution={{ schema: root, createValidator: () => customizeValidator() }} schema={dns} />
+        resolution={{ schema: root }} schema={dns} />
       <output aria-label='Draft'>{encodeCanonicalValue(draft)}</output>
     </>
   );
@@ -71,7 +70,7 @@ function CollectionHarness({ initial, disabled = false, schema = collectionSchem
   return (
     <>
       <ConfigurationSectionEditor name='http_clients' draft={draft} disabled={disabled} onChange={setDraft} schema={schema}
-        resolution={{ schema: { type: 'object', properties: { http_clients: schema } }, createValidator: () => customizeValidator() }} />
+        resolution={{ schema: { type: 'object', properties: { http_clients: schema } } }} />
       <output aria-label='Draft'>{encodeCanonicalValue(draft)}</output>
     </>
   );

@@ -428,38 +428,6 @@ paths:
                 $ref: "#/components/schemas/Problem"
         default:
           $ref: '#/components/responses/Problem'
-  /nodes/{nodeId}/config/artifacts:
-    parameters:
-      - $ref: '#/components/parameters/NodeID'
-    get:
-      operationId: listStartupArtifacts
-      parameters:
-        - $ref: "#/components/parameters/CanonicalRevisionFilter"
-        - $ref: "#/components/parameters/CoreVersionFilter"
-        - $ref: "#/components/parameters/CoreArtifactFilter"
-        - $ref: "#/components/parameters/StartupStateFilter"
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
-      responses:
-        "200":
-          $ref: "#/components/responses/StartupArtifactPage"
-        default:
-          $ref: "#/components/responses/Problem"
-  /nodes/{nodeId}/config/apply:
-    parameters:
-      - $ref: '#/components/parameters/NodeID'
-    post:
-      operationId: applyStartupArtifact
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        $ref: "#/components/requestBodies/Activation"
-      responses:
-        "200":
-          $ref: "#/components/responses/RuntimeResponse"
-        default:
-          $ref: "#/components/responses/Problem"
   /core/catalog/assets:
     get:
       operationId: listCoreCatalogAssets
@@ -571,9 +539,12 @@ paths:
       - $ref: "#/components/parameters/ArtifactID"
     get:
       operationId: getCoreArtifactConfigurationSupport
+      description: >-
+        The structured editor is available exactly when the artifact's
+        sing-box version belongs to a supported release line.
       responses:
         "200":
-          description: Structured editor availability for the exact sing-box version.
+          description: Structured editor availability for the artifact's sing-box version.
           content:
             application/json:
               schema:
@@ -586,14 +557,22 @@ paths:
       - $ref: "#/components/parameters/ArtifactID"
     get:
       operationId: getCoreArtifactConfigurationSchema
+      description: >-
+        The Draft 2020-12 configuration schema of the artifact's sing-box
+        version with the panel's x-panel presentation annotations: the
+        panel's reviewed schema for the 1.13 line, and for 1.14 and later the
+        schema the core installed on the node prints, which the node must be
+        online to send once. A version without a supported line answers
+        configuration_schema_unavailable; an offline node node_offline, and a
+        node whose protocol predates the command node_upgrade_required.
       parameters:
         - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
-          description: Native Draft 2020-12 schema for the artifact's exact sing-box version.
+          description: Configuration schema of the artifact's sing-box version.
           headers:
             ETag:
-              description: Validator bound to the exact version and Schema digest.
+              description: Validator bound to the exact version and schema digest.
               schema:
                 type: string
           content:
@@ -601,10 +580,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConfigurationSchemaContract"
         "304":
-          description: The exact-version Schema has not changed.
+          description: The schema has not changed.
           headers:
             ETag:
-              description: Validator bound to the exact version and Schema digest.
+              description: Validator bound to the exact version and schema digest.
               schema:
                 type: string
         default:
@@ -707,20 +686,6 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/StartupArtifactSummary"
-        default:
-          $ref: "#/components/responses/Problem"
-  /nodes/{nodeId}/core/activate:
-    parameters:
-      - $ref: '#/components/parameters/NodeID'
-    post:
-      operationId: activateStartupArtifact
-      parameters:
-        - $ref: "#/components/parameters/CSRFToken"
-      requestBody:
-        $ref: "#/components/requestBodies/Activation"
-      responses:
-        "200":
-          $ref: "#/components/responses/RuntimeResponse"
         default:
           $ref: "#/components/responses/Problem"
   /nodes/{nodeId}/core/start:
@@ -2055,28 +2020,6 @@ components:
       schema:
         type: string
         enum: [official, user_verified]
-    CanonicalRevisionFilter:
-      name: canonical_revision_id
-      in: query
-      schema:
-        type: string
-    CoreVersionFilter:
-      name: core_version
-      in: query
-      schema:
-        type: string
-        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
-    CoreArtifactFilter:
-      name: core_artifact_id
-      in: query
-      schema:
-        type: string
-    StartupStateFilter:
-      name: state
-      in: query
-      schema:
-        type: string
-        enum: [pending, ready, failed]
     LogSource:
       name: source
       in: query
@@ -2264,20 +2207,6 @@ components:
             properties:
               startup_artifact_id:
                 type: string
-    Activation:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [startup_artifact_id, monitoring_tier]
-            properties:
-              startup_artifact_id:
-                type: string
-              monitoring_tier:
-                type: string
-                enum: [process_only, limited]
     SubscriptionUser:
       required: true
       content:
@@ -2335,12 +2264,6 @@ components:
     SystemUpdate:
       description: The panel's version, the newest release it knows and the state of its update.
       content: {application/json: {schema: {$ref: "#/components/schemas/SystemUpdate"}}}
-    StartupArtifactPage:
-      description: Page of immutable startup artifacts.
-      content: {application/json: {schema: {$ref: "#/components/schemas/StartupArtifactPage"}}}
-    RuntimeResponse:
-      description: Completed runtime operation and observed process state.
-      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeResponse"}}}
     CatalogAssetList:
       description: Filtered catalog assets.
       content: {application/json: {schema: {$ref: "#/components/schemas/CatalogAssetList"}}}
@@ -3254,34 +3177,6 @@ components:
         state: {type: string, enum: [pending, ready, failed]}
         checked_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
-    StartupArtifactPage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items: {type: array, items: {$ref: "#/components/schemas/StartupArtifactSummary"}}
-        next: {$ref: "#/components/schemas/CreatedAtCursor"}
-    ActivationSummary:
-      type: object
-      additionalProperties: false
-      required: [startup_artifact_id, canonical_revision_id, exact_core_version, core_artifact_id, config_sha256, activation_bundle_id, activation_sha256, monitoring_tier]
-      properties:
-        startup_artifact_id: {type: string}
-        canonical_revision_id: {type: string}
-        exact_core_version: {$ref: "#/components/schemas/ExactCoreVersion"}
-        core_artifact_id: {type: string}
-        config_sha256: {$ref: "#/components/schemas/SHA256"}
-        activation_bundle_id: {type: string}
-        activation_sha256: {$ref: "#/components/schemas/SHA256"}
-        monitoring_tier: {type: string, enum: [process_only, limited]}
-    RuntimeResponse:
-      type: object
-      additionalProperties: false
-      required: [status]
-      properties:
-        status: {$ref: "#/components/schemas/RuntimeStatus"}
-        activation: {$ref: "#/components/schemas/ActivationSummary"}
-        startup: {$ref: "#/components/schemas/StartupArtifactSummary"}
     SubscriptionCursor:
       $ref: "#/components/schemas/CreatedAtCursor"
     SubscriptionUser:

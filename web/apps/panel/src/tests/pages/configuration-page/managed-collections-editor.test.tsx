@@ -1,31 +1,17 @@
-import type { RJSFSchema } from '@rjsf/utils';
-
 import { useState } from 'react';
+import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-collections-editor';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-const reviewedEntry = reviewedSchemaManifest['1.14.0'];
-let resolution: ReviewedSchemaResolution;
-
-beforeAll(async () => {
-  expect(reviewedEntry, 'Missing reviewed 1.14.0 Schema fixture').toBeDefined();
-  const reviewed = await reviewedEntry.load();
-  resolution = {
-    schema: reviewed.schema,
-    createValidator: (sectionSchema: RJSFSchema) =>
-      createPrecompiledValidator(reviewed.validateFns as never, sectionSchema),
-  };
-});
+const resolution: ConfigurationSchemaResolution = { schema: configurationSchemas['1.14'] };
 
 function Harness({ initial, linkedTag, selectedCollection, disabled = false }: {
   initial: CanonicalDraft;
@@ -70,8 +56,6 @@ describe('managedCollectionsEditor', () => {
     await user.click(dialog.getByRole('button', { name: 'Save changes' }));
     const saved = JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}');
     expect(saved.inbounds[0].obfs).toEqual({ type: obfs?.type ?? 'salamander', password: 'new-obfs-password' });
-    const validator = resolution.createValidator(resolution.schema);
-    expect(validator.validateFormData(saved, resolution.schema).errors).toEqual([]);
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     dialog = within(screen.getByRole('dialog'));
     await user.click(dialog.getByRole('tab', { name: 'Transport' }));
@@ -107,8 +91,6 @@ describe('managedCollectionsEditor', () => {
     await user.click(dialog.getByRole('button', { name: 'Save changes' }));
     const saved = JSON.parse(screen.getByLabelText('Canonical draft').textContent ?? '{}');
     expect(saved.inbounds[0].obfs).toEqual({ type: 'salamander', password: 'saved-obfs-password' });
-    const validator = resolution.createValidator(resolution.schema);
-    expect(validator.validateFormData(saved, resolution.schema).errors).toEqual([]);
   });
 
   it('opens existing entries only through Edit and commits dialog changes only on confirmation', async () => {

@@ -46,11 +46,11 @@ import {
 } from '@shared/components/ui/alert-dialog';
 
 import type { JsonObject } from '@/api/api-client';
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 
 import { RegionState } from '@/components/region-state';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from './use-configuration-schema';
 
 import { SchemaDialogLayout } from './rjsf-shadcn-theme';
 import { SchemaSectionForm } from './schema-section-form';
@@ -71,8 +71,8 @@ interface ManagedCollectionsEditorProps {
   disabled?: boolean;
   linkedTag?: string;
   draft: CanonicalDraft;
-  resolution: ReviewedSchemaResolution;
   selectedCollection?: ManagedCollection;
+  resolution: ConfigurationSchemaResolution;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 

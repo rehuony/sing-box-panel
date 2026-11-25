@@ -1,33 +1,21 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { useState } from 'react';
+import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
+import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas';
 import { schemaProperties } from '@/pages/configuration-page/schema-ui';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-const reviewedEntry = reviewedSchemaManifest['1.14.0'];
 const fingerprint = 'client_certificate_public_key_sha256';
-let resolution: ReviewedSchemaResolution;
-let tlsFields: Record<string, RJSFSchema>;
-
-beforeAll(async () => {
-  expect(reviewedEntry, 'Missing reviewed 1.14.0 Schema fixture').toBeDefined();
-  const reviewed = await reviewedEntry.load();
-  resolution = {
-    schema: reviewed.schema,
-    createValidator: (root) => createPrecompiledValidator(reviewed.validateFns as never, root),
-  };
-  tlsFields = schemaProperties({ $ref: '#/$defs/InboundTLSOptions' }, reviewed.schema);
-});
+const resolution: ConfigurationSchemaResolution = { schema: configurationSchemas['1.14'] };
+const tlsFields: Record<string, RJSFSchema> = schemaProperties({ $ref: '#/$defs/InboundTLSOptions' }, resolution.schema);
 
 function Harness({ field, initial, disabled = false }: { field: string; initial: unknown; disabled?: boolean }) {
   const [draft, setDraft] = useState(() => parseCanonicalDraft(

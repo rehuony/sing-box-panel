@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 var rejected113Configurations = map[string]string{
@@ -47,32 +45,32 @@ func reviewed113Fixtures(t *testing.T) map[string][]byte {
 }
 
 func TestReviewed113ConfigurationContract(t *testing.T) {
-	for _, version := range testutil.Reviewed113Versions(t) {
-		t.Run(version, func(t *testing.T) {
-			for name, data := range reviewed113Fixtures(t) {
-				t.Run(name, func(t *testing.T) {
-					if err := ValidateConfiguration(version, data); err != nil {
-						t.Fatal(err)
-					}
-					var decoded any
-					if err := json.Unmarshal(data, &decoded); err != nil {
-						t.Fatal(err)
-					}
-					roundTrip, err := json.Marshal(decoded)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := ValidateConfiguration(version, roundTrip); err != nil {
-						t.Fatalf("JSON round trip: %v", err)
-					}
-				})
+	contract, err := Reviewed113()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range reviewed113Fixtures(t) {
+		t.Run(name, func(t *testing.T) {
+			if err := contract.Validate(data); err != nil {
+				t.Fatal(err)
 			}
-			for name, data := range rejected113Configurations {
-				t.Run(name, func(t *testing.T) {
-					if err := ValidateConfiguration(version, []byte(data)); err == nil {
-						t.Fatalf("accepted unsupported configuration: %s", data)
-					}
-				})
+			var decoded any
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			roundTrip, err := json.Marshal(decoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := contract.Validate(roundTrip); err != nil {
+				t.Fatalf("JSON round trip: %v", err)
+			}
+		})
+	}
+	for name, data := range rejected113Configurations {
+		t.Run(name, func(t *testing.T) {
+			if err := contract.Validate([]byte(data)); err == nil {
+				t.Fatalf("accepted unsupported configuration: %s", data)
 			}
 		})
 	}

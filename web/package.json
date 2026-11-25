@@ -8,7 +8,6 @@
     "generate": "pnpm --recursive --filter './apps/*' run generate",
     "build": "pnpm --recursive --filter './apps/*' run build",
     "typecheck": "pnpm --recursive --filter './apps/*' run typecheck",
-    "schema:check": "pnpm --filter @sing-box-panel/panel run schema:check",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "test": "pnpm run generate && pnpm --recursive run test"

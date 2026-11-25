@@ -66,9 +66,9 @@ func (handler *Handler) coreConfigurationSchema(w http.ResponseWriter, request *
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
 	}
-	result, err := handler.services.Configs.ConfigurationSchema(request.Context(), identifier)
+	result, err := handler.services.Configs.ConfigurationSchema(request.Context(), requestNodeID(request), identifier)
 	if err != nil {
-		writeConfigurationProblem(w, request, "configuration_schema_failed", err)
+		writeNodeProblem(w, request, "configuration_schema_failed", err)
 		return
 	}
 	etag := configurationSchemaETag(result)

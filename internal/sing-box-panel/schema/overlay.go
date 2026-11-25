@@ -1,35 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package main
+package schema
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 )
 
-// applyConfigurationSchemaPresentationOverlay adds only panel-owned x-panel
-// annotations. It never adds configuration properties, branches, required
+// applyPresentationOverlay adds only panel-owned x-panel annotations to a
+// decoded schema. It never adds configuration properties, branches, required
 // fields, or other keywords that could change the upstream constraints.
-func applyConfigurationSchemaPresentationOverlay(raw []byte) ([]byte, error) {
-	var schema map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&schema); err != nil {
-		return nil, err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("schema contains multiple JSON values")
-		}
-		return nil, err
-	}
+func applyPresentationOverlay(schema map[string]any) error {
 	properties, ok := schema["properties"].(map[string]any)
 	if !ok {
-		return nil, errors.New("upstream root schema has no properties object")
+		return errors.New("upstream root schema has no properties object")
 	}
 	sections := []struct {
 		name       string
@@ -65,23 +49,23 @@ func applyConfigurationSchemaPresentationOverlay(raw []byte) ([]byte, error) {
 			metadata["display-field"] = "tag"
 		}
 		if err := addPanelAnnotation(node, metadata); err != nil {
-			return nil, fmt.Errorf("section %s: %w", section.name, err)
+			return fmt.Errorf("section %s: %w", section.name, err)
 		}
 	}
 	if err := addWhitelistedFieldOverlays(schema); err != nil {
-		return nil, err
+		return err
 	}
 	if err := addSensitiveFieldOverlays(schema); err != nil {
-		return nil, err
+		return err
 	}
 	if err := addPanelAnnotation(schema, map[string]any{
 		"section": "configuration",
 		"order":   0,
 		"label":   bilingualLabel("Configuration", "配置"),
 	}); err != nil {
-		return nil, fmt.Errorf("root: %w", err)
+		return fmt.Errorf("root: %w", err)
 	}
-	return json.Marshal(schema)
+	return nil
 }
 
 func addPanelAnnotation(schema map[string]any, metadata map[string]any) error {

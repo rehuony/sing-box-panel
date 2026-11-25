@@ -5,9 +5,8 @@ import { getSchemaType } from '@rjsf/utils';
 import { useTranslation } from 'react-i18next';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
-
 import type { CanonicalDraft } from './use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from './use-configuration-schema';
 
 import { SchemaSectionForm } from './schema-section-form';
 import { resolvedSchema, schemaProperties, uiSchemaFromPanel } from './schema-ui';
@@ -17,7 +16,7 @@ interface ConfigurationSectionEditorProps {
   disabled: boolean;
   schema: RJSFSchema;
   draft: CanonicalDraft;
-  resolution: ReviewedSchemaResolution;
+  resolution: ConfigurationSchemaResolution;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 

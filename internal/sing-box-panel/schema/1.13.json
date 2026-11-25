@@ -1,5 +1,5 @@
 {
-  "$comment": "Project-reviewed configuration schema for sing-box 1.13.19, 1.13.20 and 1.13.21 Linux musl releases. Constraints are maintained here; x-panel presentation annotations are added separately. Complex address, certificate, reference and platform checks remain the exact core check command's responsibility. Optional top-level sections and plain log fields accept null as in the Go options decoder; custom nested decoders retain their own constraints.",
+  "$comment": "Project-reviewed configuration schema for the sing-box 1.13 line: every 1.13 Linux musl release from 1.13.19 on. Constraints are maintained here; x-panel presentation annotations are added separately. Complex address, certificate, reference and platform checks remain the exact core check command's responsibility. Optional top-level sections and plain log fields accept null as in the Go options decoder; custom nested decoders retain their own constraints.",
   "$defs": {
     "ACMEDNS01ChallengeOptions": {
       "$comment": "Source: option/tls_acme.go#L37 in v1.13.19, v1.13.20 and v1.13.21.",

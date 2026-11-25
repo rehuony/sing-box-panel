@@ -159,18 +159,18 @@ then reloads the pool. Otherwise the last saved order wins.
 Each fleet node contributes the inbounds of the configuration of the bundle it
 reports running: the panel finds that revision among the node's revisions,
 checks its bytes against the digest the node reported, and converts its inbounds
-with the exact core version of the bundle. Draft, failed and unapplied
+with the inbound family of the bundle's core version. Draft, failed and unapplied
 configuration is never published, and a rollback changes the applied bundle and
 therefore the inbounds. A node whose revision the panel no longer holds or whose
-digest differs, whose core version has no converter, whose configuration cannot
+digest differs, whose core version has no release line, whose configuration cannot
 be read, or that has neither a public host nor a reported public IP contributes
 no nodes and adds a diagnostic naming it; its earlier nodes leave the pool with
 the next synchronization, and the other nodes publish as usual.
 
-The inbound registry accepts only the exact reviewed releases with an inbound
-family in the [support table](core-versions.md#exact-configuration-support);
-other versions fail closed. Each converter publishes only the client-usable
-inbound types available in that release and reports stable diagnostics for
+A core version uses the inbound family of its
+[release line](core-versions.md#release-lines); a version without a line fails
+closed. Each converter publishes only the client-usable
+inbound types available in that family and reports stable diagnostics for
 server-only or unsupported types. A node's public host, set in its settings, or
 else the public IP it reports combines with each inbound `listen_port`; server
 certificate private keys, ACME configuration and listen-side fields are never
@@ -181,9 +181,9 @@ copied.
 | `1.13` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
 | `1.14` | All family 1.13 types plus `snell` |
 
-For these versions, `direct`, `tun`, `redirect`, `tproxy` and `cloudflared` are
+In both families, `direct`, `tun`, `redirect`, `tproxy` and `cloudflared` are
 explicitly unpublishable. Any other inbound type produces an unsupported-type
-diagnostic; it is not guessed from a nearby version.
+diagnostic.
 
 ## Subscription sources
 
@@ -433,7 +433,7 @@ and their effective URL, format and behavior become one provider; a later one
 with the same name but other metadata takes the name with the next free suffix,
 `-2`, `-3` and so on. Loon emits one remote rule per such provider, with the
 policy of the first exit rule that uses it. Sing-box remote sets use an inline `http_client` with
-`detour: direct`, matching the native 1.14 Schema. Loon uses native URL-based remote rules and emits the configured rule-set name
+`detour: direct`, matching the 1.14 configuration format. Loon uses native URL-based remote rules and emits the configured rule-set name
 as `tag` alongside `policy` and `enabled`, escaping quoted values when necessary.
 This development contract change has no legacy interval migration or compatibility
 reader; requests containing the removed field are rejected.
@@ -519,10 +519,8 @@ saving; a failed preview never falls back to an unvalidated save.
 New Loon channels support
 the same editing workflow as sing-box and Mihomo, even without a saved template.
 
-Sing-box templates and final output are schema-checked against reviewed 1.14.0,
-independently of the server's selected core. Mihomo and Loon check native
-structure and reserved fields; client runtime validation remains the subscriber's
-responsibility. Diagnostics report field paths and fixed error codes without
+Templates of every format are checked for structure and reserved fields; client
+runtime validation remains the subscriber's responsibility. Diagnostics report field paths and fixed error codes without
 reflecting submitted secrets.
 
 Authenticated preview can validate an unsaved draft with an empty pool

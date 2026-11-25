@@ -281,8 +281,8 @@ function presentationAnyOf(schema: RJSFSchema, root: RJSFSchema, seen = new Set<
 }
 
 // RJSF needs a discriminator hint for native unions whose branches differ by
-// single-value enums. These presentation annotations never alter the reviewed
-// schema used by the precompiled validator or the canonical configuration.
+// single-value enums. These presentation annotations never alter the schema
+// the panel served or the canonical configuration.
 const annotatedSchemas = new WeakMap<RJSFSchema, RJSFSchema>();
 function withDiscriminators(schema: RJSFSchema, root: RJSFSchema, context: string[] = []): RJSFSchema {
   const result = { ...schema };

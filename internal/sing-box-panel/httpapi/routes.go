@@ -78,8 +78,6 @@ var routes = []route{
 	{http.MethodPut, "/nodes/{nodeId}/config/file", "saveConfigurationFile", accessNode, (*Handler).saveConfigurationFile},
 	{http.MethodPost, "/nodes/{nodeId}/config/preview", "previewConfiguration", accessNode, (*Handler).previewConfiguration},
 	{http.MethodPost, "/nodes/{nodeId}/config/compile", "compileConfiguration", accessNode, (*Handler).compileConfiguration},
-	{http.MethodGet, "/nodes/{nodeId}/config/artifacts", "listStartupArtifacts", accessNode, (*Handler).listStartupArtifacts},
-	{http.MethodPost, "/nodes/{nodeId}/config/apply", "applyStartupArtifact", accessNode, (*Handler).activateCore},
 
 	{http.MethodGet, "/nodes/{nodeId}/core/artifacts", "listCoreArtifacts", accessNode, (*Handler).listCoreArtifacts},
 	{http.MethodGet, "/nodes/{nodeId}/core/artifacts/{artifactId}", "getCoreArtifact", accessNode, withCoreArtifactID((*Handler).getCoreArtifact)},
@@ -93,7 +91,6 @@ var routes = []route{
 	{http.MethodGet, "/nodes/{nodeId}/core/status", "getCoreRuntimeStatus", accessNode, (*Handler).coreRuntimeStatus},
 	{http.MethodGet, "/nodes/{nodeId}/core/runtime/history", "getCoreRuntimeHistory", accessNode, (*Handler).coreRuntimeHistory},
 	{http.MethodPost, "/nodes/{nodeId}/core/check", "checkStartupArtifact", accessNode, (*Handler).checkStartup},
-	{http.MethodPost, "/nodes/{nodeId}/core/activate", "activateStartupArtifact", accessNode, (*Handler).activateCore},
 	{http.MethodPost, "/nodes/{nodeId}/core/start", "startCoreRuntime", accessNode, runtimeLifecycle("start")},
 	{http.MethodPost, "/nodes/{nodeId}/core/stop", "stopCoreRuntime", accessNode, runtimeLifecycle("stop")},
 	{http.MethodPost, "/nodes/{nodeId}/core/restart", "restartCoreRuntime", accessNode, runtimeLifecycle("restart")},
