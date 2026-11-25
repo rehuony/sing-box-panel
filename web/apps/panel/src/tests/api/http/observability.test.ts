@@ -186,4 +186,18 @@ describe('native output and panel activity', () => {
     });
     expect(fetcher.mock.calls[0][0]).toContain('search=a%26b');
   });
+  it('sends a log scope as the panel or one node', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }),
+    );
+    const client = createHttpApiClient({ fetcher });
+    await client.listPanelLogs({ scope: { panel: true } });
+    await client.getLogUsage({ nodeID: 'node_a' });
+    await client.clearPanelLogs({ nodeID: 'node_a' });
+    expect(fetcher.mock.calls.map(call => String(call[0]))).toEqual([
+      expect.stringContaining('/logs/panel?limit=10&scope=panel'),
+      expect.stringMatching(/\/logs\/usage\?node_id=node_a$/),
+      expect.stringMatching(/\/logs\?node_id=node_a$/),
+    ]);
+  });
 });

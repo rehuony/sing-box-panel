@@ -1,20 +1,24 @@
+import { cn } from '@shared/lib/utils';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useMemo, useState } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
+import { formatDuration } from '@shared/lib/telemetry-format';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 
+import type { RuntimeHistoryPage, RuntimeTransitionState } from '@/api/api-client';
+
+import { nodePath } from '@/utils/node-path';
 import { percentOf } from '@/utils/fleet-summary';
 import { ErrorNotice } from '@/components/error-notice';
-import { PanelLogLevel } from '@/components/panel-log-level';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { KeyFigure, KeyFigures } from '@/components/key-figures';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/node-workspace';
 
 import { TrendChart } from './trend-chart';
-import { buildRuntimeSlots } from './runtime-timeline';
+import { buildRuntimeSlots, buildRuntimeTimeline } from './runtime-timeline';
 import { liveConnectionsChartData, liveTrafficChartData, trendChartData } from './trend-chart-data';
 
 const emptyTail: import('@/components/node-workspace').LivePoint[] = [];
@@ -38,21 +42,29 @@ function gibibytes(value: number | undefined, locale: string): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value / 2 ** 30);
 }
 // Axis labels at 0, 6, 12, 18 and 24 hours; narrow cards keep the ends and the middle.
-const axisTime: Record<number, string> = {
-  0: 'col-start-1 row-start-1 flex w-max gap-1 whitespace-nowrap',
-  6: 'col-start-2 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[650px]:hidden',
-  12: 'col-start-3 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[650px]:col-start-2',
-  18: 'col-start-4 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[650px]:hidden',
-  24: 'col-start-4 row-start-1 flex w-max gap-1 justify-self-end whitespace-nowrap @max-[650px]:col-start-2',
+const timelineStates = ['running', 'failed', 'stopped', 'unknown'] as const satisfies readonly RuntimeTransitionState[];
+/** Where each mark of the axis sits under the bar's quarters; on a narrow card only the ends and the middle. */
+const axisMark: Record<number, string> = {
+  24: 'col-start-1 row-start-1 w-max whitespace-nowrap',
+  18: 'col-start-2 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[26rem]:hidden',
+  12: 'col-start-3 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[26rem]:col-start-2',
+  6: 'col-start-4 row-start-1 w-max -translate-x-1/2 whitespace-nowrap @max-[26rem]:hidden',
+  0: 'col-start-4 row-start-1 w-max justify-self-end whitespace-nowrap @max-[26rem]:col-start-2',
 };
-const legendSwatch = {
+const stateSwatch: Record<RuntimeTransitionState, string> = {
   running: 'bg-[var(--color-success)]',
   failed: 'bg-[var(--color-danger)]',
   stopped: 'bg-muted-foreground',
   // The unknown state's fine hatch, as in a cell meter, so a gap in the record never reads as a state.
   unknown: 'bg-[repeating-linear-gradient(135deg,var(--color-border-strong)_0_1px,var(--color-surface-raised)_0_3px)]',
-} as const;
-/** A card's title bar, as on settings cards: its title, then what it says or offers at the end, over a hairline. */
+};
+/** A log line's level in its tone; only what needs attention takes a colour. */
+const levelText: Partial<Record<string, string>> = {
+  warn: 'text-[var(--color-warning-text)]',
+  error: 'text-[var(--color-danger-text)]',
+  fatal: 'text-[var(--color-danger-text)]',
+};
+
 const titleBar = 'flex h-11 flex-none items-center gap-2 border-b ps-4 pe-2';
 const card = 'relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
 
@@ -232,12 +244,57 @@ function formatActivityTime(value: string, locale: string, today: Date): string 
   }).format(date);
 }
 
+function useDurationUnits() {
+  const { t } = useTranslation();
+  return { day: t('telemetry.unit.day'), hour: t('telemetry.unit.hour'), minute: t('telemetry.unit.minute'), second: t('telemetry.unit.second') };
+}
+
+type StateTotals = Record<RuntimeTransitionState, number>;
+
+/** How long each runtime state held within the window, from its exact segments. */
+function stateTotals(history: RuntimeHistoryPage | null, from: number, to: number): StateTotals {
+  const totals: StateTotals = { failed: 0, running: 0, stopped: 0, unknown: 0 };
+  for (const segment of buildRuntimeTimeline(history, from, to)) {
+    totals[segment.state] += Math.max(0, Math.min(to, segment.end) - Math.max(from, segment.start));
+  }
+  return totals;
+}
+
+/** The timeline's legend: each state's swatch, name and, where there is room, how long it held. */
+function TimelineLegend({ className, durationClassName, totals }: {
+  totals: StateTotals | null;
+  className?: string;
+  durationClassName?: string;
+}) {
+  const { t } = useTranslation();
+  const units = useDurationUnits();
+  return (
+    <ul className={cn('m-0 flex list-none gap-x-3 gap-y-1 p-0 font-[family-name:var(--font-data)] text-xs whitespace-nowrap text-muted-foreground', className)}>
+      {timelineStates.map(state => (
+        <li className='flex items-center gap-1.5' key={state}>
+          <i aria-hidden='true' className={cn('h-3 w-2 flex-none rounded-[2px]', stateSwatch[state])} />
+          {t(`dashboard.timeline.state.${state}`)}
+          {totals === null
+            ? null
+            : <span className={cn('text-[var(--color-text-secondary)] tabular-nums', durationClassName)}>{formatDuration(totals[state], units)}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The runtime of the last day as a bar of 48 cells between brackets, the
+ * legend in the title bar carrying each state's total, and the activity
+ * beside it as log lines. Both cards are compact, so the charts above take
+ * the room.
+ */
 function DashboardHistory() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const current = useOptionalSharedTelemetry(s => s.dashboardSnapshot);
   const node = useCurrentNode();
-  const logs = `/logs?node=${encodeURIComponent(node.id)}`;
+  const logs = `${nodePath(node.id, 'logs')}#logs-events`;
   const [initialEnd] = useState(() => Date.now());
   const [today, setToday] = useState(() => new Date(initialEnd));
   const end = current ? Date.parse(current.collected_at) : initialEnd;
@@ -248,60 +305,57 @@ function DashboardHistory() {
     const timer = setTimeout(() => setToday(new Date()), Math.max(0, tomorrow.getTime() - Date.now()));
     return () => clearTimeout(timer);
   }, [today]);
-  const slots = useMemo(
-    () => buildRuntimeSlots(current?.runtime_24h ?? null, start, end), [current?.runtime_24h, start, end],
-  );
-  const timeFormat = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  const endpointFormat = new Intl.DateTimeFormat(locale, {
-    ...(new Date(start).getFullYear() !== new Date(end).getFullYear() ? { year: 'numeric' } as const : {}),
-    month: '2-digit', day: '2-digit',
-  });
+  const history = current?.runtime_24h ?? null;
+  const slots = useMemo(() => buildRuntimeSlots(history, start, end), [history, start, end]);
+  const totals = useMemo(() => current ? stateTotals(history, start, end) : null, [current, history, start, end]);
+  const bar = 'flex h-11 flex-none items-center gap-3 border-b px-4';
   return (
-    <div className='grid min-h-45 flex-none grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[650px]:grid-cols-1'>
+    <div className='grid flex-none grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[650px]:grid-cols-1'>
       <section
-        className={`${card} @container min-h-45`}
+        className={`${card} @container`}
         aria-label={t('dashboard.timeline.title')}
         aria-busy={current === null}
       >
-        <div className={`${titleBar} pe-4`}>
+        <div className={bar}>
           <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{t('dashboard.timeline.title')}</h2>
-          <small className='text-xs text-muted-foreground'>{t('dashboard.metric.lastDay')}</small>
+          <TimelineLegend className='flex-none @max-[26rem]:hidden' durationClassName='@max-[40rem]:hidden' totals={totals} />
         </div>
-        <div className='grid gap-2 px-4 pt-4'>
-          <div className='grid h-6 grid-cols-[repeat(48,minmax(0,1fr))] gap-0.5' role='group' aria-label={t('dashboard.timeline.ariaLabel')}>
-            {slots.map((slot) => {
-              const from = formatLogTime(new Date(slot.start).toISOString(), locale);
-              const to = formatLogTime(new Date(slot.end).toISOString(), locale);
-              const label = `${from} – ${to} · ${t(`dashboard.timeline.state.${slot.state}`)}`;
-              return (
-                <Tooltip key={slot.id}>
-                  <TooltipTrigger
-                    className='min-w-0 rounded-[2px] border-0 bg-muted-foreground p-0 outline-offset-3 hover:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:outline-2 focus-visible:outline-ring data-[state=failed]:bg-[var(--color-danger)] data-[state=running]:bg-[var(--color-success)] data-[state=unknown]:bg-[repeating-linear-gradient(135deg,var(--color-border-strong)_0_1px,var(--color-surface-raised)_0_3px)]'
-                    data-state={slot.state}
-                    aria-label={label}
-                    disabled={current === null}
-                  />
-                  <TooltipContent role='tooltip'>{label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </div>
-          <div className='grid grid-cols-4 items-start text-xs text-muted-foreground tabular-nums @max-[650px]:grid-cols-2'>
-            {[0, 6, 12, 18, 24].map((hour) => {
-              const at = new Date(start + hour * 3_600_000);
-              const endpoint = hour === 0 || hour === 24;
-              return (
+        <div className='flex flex-1 flex-col justify-center gap-1.5 px-4 py-3 font-[family-name:var(--font-data)]'>
+          {/* Short of room in the title bar, the legend takes a line of its own. */}
+          <TimelineLegend className='hidden flex-wrap @max-[26rem]:flex' totals={totals} />
+          <div className='grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1 text-compact text-[var(--color-text-faint)]'>
+            <span aria-hidden='true'>[</span>
+            <div className='grid h-4 grid-cols-[repeat(48,minmax(0,1fr))] gap-0.5' role='group' aria-label={t('dashboard.timeline.ariaLabel')}>
+              {slots.map((slot) => {
+                const from = formatLogTime(new Date(slot.start).toISOString(), locale);
+                const to = formatLogTime(new Date(slot.end).toISOString(), locale);
+                const label = `${from} – ${to} · ${t(`dashboard.timeline.state.${slot.state}`)}`;
+                return (
+                  <Tooltip key={slot.id}>
+                    <TooltipTrigger
+                      className={cn('min-w-0 rounded-[2px] border-0 p-0 outline-offset-2 hover:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:outline-2 focus-visible:outline-ring', stateSwatch[slot.state])}
+                      data-state={slot.state}
+                      aria-label={label}
+                      disabled={current === null}
+                    />
+                    <TooltipContent role='tooltip'>{label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+            <span aria-hidden='true'>]</span>
+            {/* The axis counts back from now, so its marks read the same whenever the window is opened. */}
+            <div className='col-start-2 grid grid-cols-4 text-2xs tabular-nums @max-[26rem]:grid-cols-2'>
+              {[24, 18, 12, 6, 0].map(hours => (
                 <time
-                  className={axisTime[hour]}
-                  key={hour}
-                  dateTime={at.toISOString()}
+                  className={axisMark[hours]}
+                  dateTime={new Date(end - (hours * 3_600_000)).toISOString()}
+                  key={hours}
                 >
-                  {endpoint ? <span>{endpointFormat.format(at)}</span> : null}
-                  {endpoint ? ' ' : null}
-                  <span>{timeFormat.format(at)}</span>
+                  {hours === 0 ? t('dashboard.timeline.now') : `-${hours}h`}
                 </time>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
         {current === null
@@ -312,38 +366,33 @@ function DashboardHistory() {
               </div>
             )
           : null}
-        <div className='flex flex-wrap gap-4 px-4 pt-3 pb-4'>
-          {(['running', 'failed', 'stopped', 'unknown'] as const).map((state) => (
-            <span className='flex items-center gap-1.5 text-xs text-muted-foreground' key={state}>
-              <i aria-hidden className={`size-2.5 rounded-[2px] ${legendSwatch[state]}`} />
-              {t(`dashboard.timeline.state.${state}`)}
-            </span>
-          ))}
-        </div>
       </section>
       <section
-        className={`${card} @container min-h-45`}
+        className={`${card} @container`}
         aria-label={t('dashboard.activity.title')}
         aria-busy={current === null}
       >
-        <div className={`${titleBar} pe-4`}>
+        <div className={bar}>
           <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{t('dashboard.activity.title')}</h2>
-          <Link className='text-xs text-muted-foreground hover:text-foreground' to={logs}>{t('dashboard.activity.viewAll')}</Link>
+          <Link className='font-[family-name:var(--font-data)] text-xs text-muted-foreground hover:text-foreground' to={logs}>
+            {t('dashboard.activity.viewAll')}
+          </Link>
         </div>
-        <div className='relative min-h-22 flex-1 px-2 py-1'>
-          <ol className='m-0 list-none p-0 [&>li+li]:border-t'>
+        {/* Two log lines' height whatever the activity holds, so the row keeps its size while it loads. */}
+        <div className='relative min-h-[calc(2*1.75rem+0.75rem)] flex-1 px-2 py-1.5'>
+          <ol className='m-0 grid list-none grid-cols-[max-content_max-content_minmax(0,1fr)] p-0 font-[family-name:var(--font-data)] text-compact'>
             {current?.activity.items.map((entry) => {
               const title = logTitle(entry, t);
               const fullTime = formatLogTime(entry.time, locale);
               return (
-                <li key={entry.id}>
+                <li className='col-span-3 grid grid-cols-subgrid' key={entry.id}>
                   <Tooltip>
-                    <TooltipTrigger render={<Link className='grid min-h-11 grid-cols-[54px_minmax(0,1fr)_max-content] items-center gap-3 rounded-[var(--radius-control)] p-2 text-compact transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none @max-[650px]:gap-2 @max-[650px]:px-0' to={logs} />}>
-                      <span className='flex justify-center'><PanelLogLevel level={entry.level} /></span>
-                      <span className='min-w-0 truncate'>{title}</span>
-                      <time className='text-end text-xs whitespace-nowrap text-muted-foreground tabular-nums' dateTime={entry.time} aria-label={fullTime}>
+                    <TooltipTrigger render={<Link className='col-span-3 grid min-h-7 grid-cols-subgrid items-baseline gap-x-3 rounded-[var(--radius-control)] px-2 py-1 transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none' to={logs} />}>
+                      <time className='whitespace-nowrap text-[var(--color-text-faint)] tabular-nums' dateTime={entry.time} aria-label={fullTime}>
                         {formatActivityTime(entry.time, locale, today)}
                       </time>
+                      <span className={levelText[entry.level] ?? 'text-muted-foreground'}>{entry.level.toUpperCase()}</span>
+                      <span className='min-w-0 truncate font-[family-name:var(--font-body)]'>{title}</span>
                     </TooltipTrigger>
                     <TooltipContent role='tooltip'>
                       <span className='grid gap-1 wrap-anywhere'>

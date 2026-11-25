@@ -16,7 +16,7 @@ import (
 )
 
 func (handler *Handler) clearDurableLogs(w http.ResponseWriter, request *http.Request) {
-	query, ok := strictCoreQuery(w, request, "source", "before")
+	query, ok := strictCoreQuery(w, request, "source", "before", "scope", "node_id")
 	if !ok || !requireEmptyCoreBody(w, request) {
 		return
 	}
@@ -24,9 +24,14 @@ func (handler *Handler) clearDurableLogs(w http.ResponseWriter, request *http.Re
 	if !ok {
 		return
 	}
+	scope, ok := logScope(w, request, query)
+	if !ok {
+		return
+	}
 	result, err := handler.services.Telemetry.ClearLogs(request.Context(), telemetry.LogClearRequest{
 		Source: store.LogSource(query.Get("source")),
 		Before: before,
+		Scope:  scope,
 	})
 	if err != nil {
 		writeQueryProblem(w, request, "log_clear_filter_invalid", "Log clear filter invalid", err)

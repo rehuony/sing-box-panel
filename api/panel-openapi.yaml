@@ -1699,10 +1699,8 @@ paths:
           in: query
           schema: {type: string, maxLength: 256}
           description: Case-insensitive substring of the original message or event code. Combined with search_codes using OR.
-        - name: node_id
-          in: query
-          schema: {type: string, maxLength: 128}
-          description: Keeps only the entries about this node, such as the operations on it and its connections.
+        - $ref: '#/components/parameters/LogScope'
+        - $ref: '#/components/parameters/LogNodeID'
         - name: search_codes
           in: query
           description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 128 KiB, allowing the full code range even with percent encoding.
@@ -1723,6 +1721,9 @@ paths:
   /logs/usage:
     get:
       operationId: getLogUsage
+      parameters:
+        - $ref: "#/components/parameters/LogScope"
+        - $ref: "#/components/parameters/LogNodeID"
       responses:
         "200":
           $ref: "#/components/responses/LogUsage"
@@ -1750,11 +1751,14 @@ paths:
       description: >-
         Deletes the log entries the filters select, then shrinks the log
         database's files on disk and records one logs.cleared entry with the
-        number deleted and the bytes freed. Runtime history is not affected.
+        number deleted and the bytes freed, about the node when node_id
+        selected one. Runtime history is not affected.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
         - $ref: "#/components/parameters/LogSource"
         - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/LogScope"
+        - $ref: "#/components/parameters/LogNodeID"
       responses:
         "200":
           $ref: "#/components/responses/LogClearResult"
@@ -2108,6 +2112,18 @@ components:
       schema:
         type: string
         enum: [panel, core, security]
+    LogScope:
+      name: scope
+      in: query
+      description: With panel, keeps only the panel's own entries, about no node. Not combined with node_id.
+      schema:
+        type: string
+        enum: [panel]
+    LogNodeID:
+      name: node_id
+      in: query
+      description: Keeps only the entries about this node, such as the operations on it and its connections. Not combined with scope.
+      schema: {type: string, maxLength: 128}
     PageOffset:
       name: offset
       in: query
@@ -2416,7 +2432,7 @@ components:
       description: Count of deleted log entries and the bytes clearing freed.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogClearResult"}}}
     LogUsage:
-      description: The log's entries and the size of its files on disk.
+      description: The entries the scope selects and the size of the whole log's files on disk.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogUsage"}}}
     LogEntry:
       description: Sanitized durable log entry.
@@ -3871,12 +3887,16 @@ components:
       additionalProperties: false
       required: [entries, bytes]
       properties:
-        entries: {type: integer, format: int64, minimum: 0}
+        entries:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Entries in the requested scope.
         bytes:
           type: integer
           format: int64
           minimum: 0
-          description: Size of the log database file and its write-ahead log on disk.
+          description: Size of the whole log database file and its write-ahead log on disk, whatever the scope.
     LogDeleteResult:
       type: object
       additionalProperties: false

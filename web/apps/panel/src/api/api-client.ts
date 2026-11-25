@@ -17,6 +17,7 @@ import type {
   FleetRuntimeHistoryFilter,
   FleetRuntimeHistoryPage,
   LogClearResult,
+  LogScope,
   LogUsage,
   MetricsSnapshot,
   NodeSettings,
@@ -120,8 +121,6 @@ export interface ApiClient {
   /** Returns a client that addresses the resources of nodeID. */
   forNode: (nodeID: string) => ApiClient;
   logout: (signal?: AbortSignal) => Promise<void>;
-  /** The log's entries and the size of its files on disk. */
-  getLogUsage: (signal?: AbortSignal) => Promise<LogUsage>;
   /** Asks this client's node to update itself to the panel's release. */
   updateNode: (signal?: AbortSignal) => Promise<NodeUpdate>;
   getSession: (signal?: AbortSignal) => Promise<Session | null>;
@@ -132,22 +131,20 @@ export interface ApiClient {
   /** Asks the panel to restart; it answers with the start of the process that stops. */
   restartPanel: (signal?: AbortSignal) => Promise<SystemRestart>;
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-
   getNodeSettings: (signal?: AbortSignal) => Promise<NodeSettings>;
+
   /** The panel's build and platform, and when its process started. */
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
   /** The panel's version, the newest release it knows and the state of its update. */
   getSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  /** Deletes every log entry and shrinks the log's files; runtime states stay. */
-  clearPanelLogs: (signal?: AbortSignal) => Promise<LogClearResult>;
   exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
-
   /** Asks GitHub for the newest stable release now. */
   checkSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
   /** The node's stored samples of the last two minutes, oldest first, which the live chart opens with. */
   getRecentMetrics: (signal?: AbortSignal) => Promise<RecentMetrics>;
+
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   /** Starts updating the panel in the background; the panel then restarts. */
   startSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
@@ -157,6 +154,8 @@ export interface ApiClient {
   login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
+  /** The entries in scope and the size of the whole log's files on disk. */
+  getLogUsage: (scope: LogScope, signal?: AbortSignal) => Promise<LogUsage>;
   listFleetNodes: (signal?: AbortSignal) => Promise<{ items: FleetNode[] }>;
   getConfigurationFile: (signal?: AbortSignal) => Promise<ConfigurationFile>;
   /** Issues a new node's one-time enrollment code; the node exists once a host enrolls with it. */
@@ -173,10 +172,12 @@ export interface ApiClient {
   /** The subscription node pool in its saved order, with the fleet nodes that publish nothing. */
   listSubscriptionNodes: (signal?: AbortSignal) => Promise<SubscriptionNodeList>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
-
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
+
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
   disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
+  /** Deletes the log entries in scope and shrinks the log's files; runtime states stay. */
+  clearPanelLogs: (scope: LogScope, signal?: AbortSignal) => Promise<LogClearResult>;
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
   renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;

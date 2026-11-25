@@ -114,7 +114,7 @@ describe('panel logs', () => {
     );
   });
 
-  it('clears every entry after confirming what it frees, then lists the entry the clearing recorded', async () => {
+  it('clears the panel\'s own entries after confirming what they hold, then lists the entry the clearing recorded', async () => {
     const user = userEvent.setup();
     const notify = vi.spyOn(toast, 'add');
     const cleared: LogEntry = {
@@ -125,16 +125,20 @@ describe('panel logs', () => {
       clearPanelLogs: vi.fn().mockResolvedValue({ deleted: 3, freed_bytes: 12_288 }),
       getLogUsage: vi.fn().mockResolvedValue({ entries: 3, bytes: 20_480 }),
       listPanelLogs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-    }), '/logs?node=node_edge');
+    }));
+    await waitFor(() => expect(client.listPanelLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: { panel: true } }), expect.any(AbortSignal),
+    ));
     await user.click(await screen.findByRole('combobox', { name: 'Log level' }));
     await user.click(await screen.findByRole('option', { name: 'ERROR' }));
     await user.click(screen.getByRole('button', { name: 'Clear' }));
-    const dialog = await screen.findByRole('alertdialog', { name: 'Clear logs' });
-    expect(await within(dialog).findByText('This deletes all 3 log entries, which take 20 KB on disk.')).toBeVisible();
+    const dialog = await screen.findByRole('alertdialog', { name: 'Clear panel logs' });
+    expect(await within(dialog).findByText('This deletes the panel\'s 3 own log entries; node events stay. All logs take 20 KB on disk.')).toBeVisible();
+    expect(client.getLogUsage).toHaveBeenCalledWith({ panel: true }, expect.any(AbortSignal));
     expect(within(dialog).getByText('Runtime states are not affected. This cannot be undone.')).toBeVisible();
     vi.mocked(client.listPanelLogs).mockResolvedValue({ items: [cleared], total: 1 });
-    await user.click(within(dialog).getByRole('button', { name: 'Clear logs' }));
-    expect(client.clearPanelLogs).toHaveBeenCalledTimes(1);
+    await user.click(within(dialog).getByRole('button', { name: 'Clear' }));
+    expect(client.clearPanelLogs).toHaveBeenCalledExactlyOnceWith({ panel: true });
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Cleared 3 log entries, freed 12 KB', type: 'success' }));
     expect(await screen.findByRole('cell', { name: 'Logs cleared' })).toBeVisible();

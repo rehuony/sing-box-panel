@@ -37,12 +37,8 @@ describe('runtime evidence helpers', () => {
     expect(formatDuration(26 * 3_600_000, labels, 1)).toBe('1d');
   });
 
-  it.each([null, Number.NaN, Number.POSITIVE_INFINITY, -1])('keeps an unavailable rate (%s) distinct from zero', value => {
-    expect(formatRate(value)).toBe('—');
-  });
-
-  it('formats a measured zero rate with its unit', () => {
-    expect(formatRate(0)).toBe('0 B/s');
+  it.each([0, null, Number.NaN, Number.POSITIVE_INFINITY, -1])('reads a rate of %s as zero, never a dash', value => {
+    expect(formatRate(value)).toBe('0 B/s');
   });
 
   it('requires a new process token when verifying a restart', () => {

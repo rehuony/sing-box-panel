@@ -1,5 +1,5 @@
-import type { MeterLimits } from '@shared/lib/telemetry-format';
 import type { MouseEvent, PointerEvent, ReactNode } from 'react';
+import type { MeterLimits, TrafficDirection } from '@shared/lib/telemetry-format';
 
 import { cn } from '@shared/lib/utils';
 import { Link } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { CellMeter } from '@shared/components/cell-meter';
 import { ReadoutParts, ReadoutRow } from '@shared/components/terminal';
 import { formatRelativeTime, formatShortDateTime } from '@shared/lib/format-time';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
-import { EM_DASH, formatBytes, formatDuration, formatRate, shareTone } from '@shared/lib/telemetry-format';
+import { EM_DASH, formatBytes, formatDuration, formatRate, shareTone, trafficDirectionText, trafficValueText } from '@shared/lib/telemetry-format';
 
 import type { NodeStatus } from '@/utils/fleet-summary';
 
@@ -131,15 +131,18 @@ function rateParts(value: number | null, locale: string): [string, string] {
   return at < 0 ? [text, ''] : [text.slice(0, at), text.slice(at + 1)];
 }
 
-/** One live rate after its arrow: the number large, a known zero in secondary text, the unit small. */
-function Rate({ arrow, label, value }: { arrow: string; label: string; value: number | null }) {
+/**
+ * One live rate after its arrow in its direction's colour: the number large,
+ * in that colour unless it is zero, reading 0 when not known; the unit small.
+ */
+function Rate({ direction, label, value }: { direction: TrafficDirection; label: string; value: number | null }) {
   const locale = useLocale();
   const [amount, unit] = rateParts(value, locale);
   return (
     <span className='min-w-0'>
-      <span aria-hidden='true' className='mr-1 text-[var(--color-text-secondary)]'>{arrow}</span>
+      <span aria-hidden='true' className={cn('mr-1', trafficDirectionText[direction])}>{direction === 'download' ? '↓' : '↑'}</span>
       <span className='sr-only'>{label}</span>
-      <span className={cn('text-xl font-semibold tabular-nums', value === null && 'text-muted-foreground', value === 0 && 'text-[var(--color-text-secondary)]')}>
+      <span className={cn('text-xl font-semibold tabular-nums', trafficValueText(direction, value))}>
         {amount}
       </span>
       {unit ? <span className='ml-1 text-xs text-muted-foreground'>{unit}</span> : null}
@@ -184,8 +187,8 @@ function Headline({ item, now }: { item: NodeStatus; now: number }) {
   return (
     <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
       <span className='flex min-w-0 items-baseline gap-4 overflow-hidden'>
-        <Rate arrow='↓' label={t('telemetry.metric.download')} value={rates.download} />
-        <Rate arrow='↑' label={t('telemetry.metric.upload')} value={rates.upload} />
+        <Rate direction='download' label={t('telemetry.metric.download')} value={rates.download} />
+        <Rate direction='upload' label={t('telemetry.metric.upload')} value={rates.upload} />
       </span>
       {connections === null ? null : <span className='flex-none text-xs text-[var(--color-text-secondary)]'>{t('fleet.pane.connections', { count: connections })}</span>}
     </div>
@@ -211,14 +214,14 @@ function CoreLine({ item, now }: { item: NodeStatus; now: number }) {
           version,
           <span key='download'>
             <span className='text-muted-foreground'>{`${t('fleet.pane.period')} `}</span>
-            <span aria-hidden='true'>↓ </span>
+            <span aria-hidden='true' className={trafficDirectionText.download}>↓ </span>
             <span className='sr-only'>{t('telemetry.metric.download')}</span>
-            {formatBytes(period.inbound_bytes, locale)}
+            <span className={trafficValueText('download', period.inbound_bytes)}>{formatBytes(period.inbound_bytes, locale)}</span>
           </span>,
           <span key='upload'>
-            <span aria-hidden='true'>↑ </span>
+            <span aria-hidden='true' className={trafficDirectionText.upload}>↑ </span>
             <span className='sr-only'>{t('telemetry.metric.upload')}</span>
-            {formatBytes(period.outbound_bytes, locale)}
+            <span className={trafficValueText('upload', period.outbound_bytes)}>{formatBytes(period.outbound_bytes, locale)}</span>
           </span>,
         ]}
       </ReadoutParts>

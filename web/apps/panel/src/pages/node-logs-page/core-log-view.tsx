@@ -1,0 +1,266 @@
+import type { ReactNode } from 'react';
+
+import { cn } from '@shared/lib/utils';
+import { useTranslation } from 'react-i18next';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
+import { Eraser, ListEnd, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@shared/components/ui/alert-dialog';
+
+import { IconAction } from '@/components/icon-action';
+import { ErrorNotice } from '@/components/error-notice';
+import { SelectField } from '@/components/select-field';
+import { LoadingState } from '@/components/loading-state';
+import { RegionError, RegionState } from '@/components/region-state';
+import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
+
+import type { CoreLevel } from './core-log-lines';
+
+import { useCoreLogs } from './use-core-logs';
+import { coreLevels, parseCoreLines } from './core-log-lines';
+
+const levelText: Record<CoreLevel | 'unknown', string> = {
+  trace: 'text-[var(--color-text-faint)]',
+  debug: 'text-muted-foreground',
+  info: 'text-[var(--color-info-text)]',
+  warn: 'text-[var(--color-warning-text)]',
+  error: 'text-[var(--color-danger-text)]',
+  fatal: 'text-[var(--color-danger-text)]',
+  panic: 'text-[var(--color-danger-text)]',
+  unknown: 'text-[var(--color-text-faint)]',
+};
+
+/**
+ * The node's core log: today's file follows live, earlier files read as
+ * history, under a toolbar that lead, the window's tabs, starts.
+ */
+export function CoreLogView({ lead }: { lead: ReactNode }) {
+  const { t } = useTranslation();
+  const log = useCoreLogs(true);
+  const [level, setLevel] = useState('');
+  const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const [clearTarget, setClearTarget] = useState('');
+  const [clearError, setClearError] = useState<unknown>(null);
+  const [clearedFile, setClearedFile] = useState('');
+  const cleared = clearedFile === log.file && log.file !== '';
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  const lines = useMemo(
+    () =>
+      parseCoreLines({ first: log.firstLine, text: log.text }).filter(
+        (line) =>
+          (!level || line.level === level)
+          && `${line.prefix}${line.message}`.toLowerCase().includes(search.toLowerCase()),
+      ),
+    [log.firstLine, log.text, level, search],
+  );
+  useEffect(() => {
+    followRef.current = true;
+  }, [log.file]);
+  useEffect(() => {
+    const target = viewportRef.current;
+    if (target && followRef.current) target.scrollTop = target.scrollHeight;
+  }, [lines]);
+  const state = log.paused
+    ? 'paused'
+    : log.connected
+      ? 'live'
+      : log.current
+        ? 'connecting'
+        : 'archive';
+  const canToggle = log.current || log.paused;
+  const mutating = deleting || log.clearing;
+  async function clearFile() {
+    setClearError(null);
+    try {
+      await log.clear(clearTarget);
+      setClearedFile(clearTarget);
+      setClearTarget('');
+      followRef.current = true;
+    } catch (reason) {
+      setClearError(reason);
+    }
+  }
+  async function deleteFile() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await log.deleteFile(deleteTarget);
+      setDeleteTarget('');
+    } catch (reason) {
+      setDeleteError(reason);
+    } finally {
+      setDeleting(false);
+    }
+  }
+  return (
+    <>
+      {log.error != null && lines.length > 0 && <ErrorNotice error={log.error} title={t('productLogs.unavailable')} />}
+      {deleteError != null && <ErrorNotice error={deleteError} title={t('productLogs.deleteFailed')} />}
+      {clearError != null && <ErrorNotice error={clearError} title={t('productLogs.clearFailed')} />}
+      <AlertDialog open={Boolean(clearTarget)} onOpenChange={(open) => {
+        if (!open && !log.clearing) setClearTarget('');
+      }}>
+        <AlertDialogContent showCloseButton={!log.clearing}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('productLogs.clear')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('productLogs.clearConfirmation', { file: clearTarget })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={log.clearing}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant='destructive' disabled={log.clearing} onClick={() => void clearFile()}>
+              {t(log.clearing ? 'productLogs.clearing' : 'productLogs.clear')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {
+        if (!open && !deleting) setDeleteTarget('');
+      }}>
+        <AlertDialogContent showCloseButton={!deleting}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('productLogs.deleteFile')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('productLogs.deleteDescription', { file: deleteTarget })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant='destructive' disabled={deleting} onClick={() => void deleteFile()}>
+              {t(deleting ? 'productLogs.deleting' : 'productLogs.deleteFile')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <div className='relative flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+        <CardToolbar>
+          {lead}
+          <StripDivider className='max-sm:hidden' />
+          {/* What the view shows: the file, led by whether it is live, then its level. */}
+          <div className='flex min-w-0 flex-none items-center'>
+            <Tooltip>
+              <TooltipTrigger render={(
+                <span
+                  className='inline-flex h-(--control-height-sm) w-4 flex-none items-center justify-center rounded-[var(--radius-control)] text-muted-foreground data-[state=live]:text-[var(--color-success)]'
+                  data-state={state}
+                  role='status'
+                  aria-label={t(`productLogs.${state}`)}
+                  tabIndex={0}
+                />
+              )}>
+                <i aria-hidden='true' className='size-2 rounded-full bg-current' />
+              </TooltipTrigger>
+              <TooltipContent>{t(`productLogs.${state}`)}</TooltipContent>
+            </Tooltip>
+            <SelectField
+              aria-label={t('productLogs.file')}
+              className='-ms-1 max-w-56 min-w-0 flex-none'
+              disabled={mutating}
+              items={log.files.length ? log.files.map((file) => ({ value: file.name, label: `${file.name.slice(0, 10)} · ${(file.size / 1048576).toFixed(1)} MB` })) : [{ value: '', label: t('productLogs.noFiles') }]}
+              onValueChange={log.selectFile}
+              value={log.file}
+              variant='flat'
+            />
+          </div>
+          <SelectField
+            active={level !== ''}
+            aria-label={t('productLogs.level')}
+            className='min-w-0 flex-none'
+            items={[{ value: '', label: t('productLogs.allLevels') }, ...coreLevels.map((value) => ({ value, label: value.toUpperCase() }))]}
+            onValueChange={setLevel}
+            value={level}
+            variant='flat'
+          />
+          <StripDivider className='max-sm:hidden' />
+          <StripSearch className='max-sm:order-last max-sm:basis-full' label={t('productLogs.search')} onValueChange={setSearch} value={search} />
+          <StripDivider className='max-sm:hidden' />
+          <div className='flex items-center gap-0.5 max-sm:ms-auto' role='group' aria-label={t('productLogs.actions')}>
+            <IconAction
+              aria-pressed={canToggle && !log.paused}
+              disabled={!canToggle || mutating}
+              label={t('productLogs.liveUpdates')}
+              onClick={() => log.setPaused(!log.paused)}
+              variant='flat'
+            >
+              {canToggle && !log.paused ? <Pause aria-hidden='true' /> : <Play aria-hidden='true' />}
+            </IconAction>
+            <IconAction
+              disabled={!lines.length}
+              label={t('productLogs.scrollToBottom')}
+              onClick={() => {
+                followRef.current = true;
+                const target = viewportRef.current;
+                if (target) target.scrollTop = target.scrollHeight;
+              }}
+              variant='flat'
+            >
+              <ListEnd aria-hidden='true' />
+            </IconAction>
+            {/* Icons named by their tooltips: the view's controls, then after a divider the file's. */}
+            <StripDivider className='mx-1' />
+            <IconAction
+              disabled={!log.file || mutating}
+              label={t('productLogs.clearDescription')}
+              onClick={() => {
+                setClearError(null);
+                setClearTarget(log.file);
+              }}
+              variant='flat'
+            >
+              <Eraser aria-hidden='true' />
+            </IconAction>
+            {log.deletable && (
+              <IconAction
+                disabled={mutating}
+                label={t('productLogs.deleteFile')}
+                onClick={() => setDeleteTarget(log.file)}
+                variant='flat'
+              >
+                <Trash2 aria-hidden='true' />
+              </IconAction>
+            )}
+          </div>
+        </CardToolbar>
+        <ScrollArea
+          className='flex-1'
+          viewportClassName={cn('flex flex-col', lines.length ? 'px-4 pt-3 pb-4' : 'p-12')}
+          viewportProps={{
+            'aria-label': t('productLogs.core'),
+            'onScroll': (event) => {
+              const node = event.currentTarget;
+              followRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+            },
+            'role': 'region',
+            'tabIndex': 0,
+          }}
+          viewportRef={viewportRef}
+        >
+          {!lines.length
+            ? log.loading
+              ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
+              : log.error != null
+                ? <RegionError error={log.error} reload={log.retry} title={t('productLogs.regionUnavailable')} />
+                : (
+                    <RegionState
+                      icon={!log.files.length ? SquareTerminal : SearchX}
+                      title={t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
+                    />
+                  )
+            : (
+                <pre className='m-0 flex-none font-mono text-compact [tab-size:2] whitespace-pre'>
+                  {lines.map((line) => (
+                    <span className={levelText[line.level]} key={line.id}>
+                      <span className='text-muted-foreground'>{line.prefix}</span>
+                      {line.message}
+                      {'\n'}
+                    </span>
+                  ))}
+                </pre>
+              )}
+        </ScrollArea>
+      </div>
+    </>
+  );
+}

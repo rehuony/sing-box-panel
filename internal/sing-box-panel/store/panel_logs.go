@@ -19,6 +19,28 @@ type PanelLogFilter struct {
 	SearchCodes  []string
 	// NodeID keeps only the entries about one node.
 	NodeID string
+	// PanelOnly keeps only the panel's own entries, about no node.
+	PanelOnly bool
+}
+
+// LogScope selects the entries about one node, or with Panel those about no
+// node; the zero scope selects every entry.
+type LogScope struct {
+	NodeID string
+	Panel  bool
+}
+
+// clause is the scope's condition on log_entries, or "" for every entry.
+func (scope LogScope) clause() (string, []any, error) {
+	switch {
+	case scope.Panel && scope.NodeID != "":
+		return "", nil, invalidQuery("a log scope is the panel or one node, not both")
+	case scope.Panel:
+		return "COALESCE(json_extract(metadata_json, '$.node_id'), '') = ''", nil, nil
+	case scope.NodeID != "":
+		return "json_extract(metadata_json, '$.node_id') = ?", []any{scope.NodeID}, nil
+	}
+	return "", nil, nil
 }
 
 // MaximumPanelLogSearchCodes bounds the exact-code alternatives of a search:
@@ -64,9 +86,13 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 		clauses = append(clauses, "level = ?")
 		args = append(args, filter.Level)
 	}
-	if filter.NodeID != "" {
-		clauses = append(clauses, "json_extract(metadata_json, '$.node_id') = ?")
-		args = append(args, filter.NodeID)
+	scope, scopeArgs, err := LogScope{NodeID: filter.NodeID, Panel: filter.PanelOnly}.clause()
+	if err != nil {
+		return PanelLogPage{}, err
+	}
+	if scope != "" {
+		clauses = append(clauses, scope)
+		args = append(args, scopeArgs...)
 	}
 	if filter.Since != nil {
 		clauses = append(clauses, "occurred_at >= ?")

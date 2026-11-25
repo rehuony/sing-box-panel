@@ -3,22 +3,18 @@ import { toast } from '@shared/components/ui/toast-manager';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { LogEntry, NodeRuntimeTransition } from '@/api/api-client';
+import type { LogEntry } from '@/api/api-client';
 
 import i18n from '@/i18n';
 import { TestRouter } from '@/tests/test-router';
+import { matchingEventCodes } from '@/components/panel-log';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelLogsPage } from '@/pages/panel-logs-page/panel-logs-page';
-import { matchingEventCodes } from '@/pages/panel-logs-page/panel-log-presentation';
 
 const item: LogEntry = {
   id: 'log:one', time: '2026-09-24T01:16:57.123456Z', source: 'panel', level: 'info',
   code: 'runtime.start.completed', message: 'Core start completed', metadata: {},
-};
-const transition: NodeRuntimeTransition = {
-  id: 2, node_id: 'node_edge', node_name: 'edge-tokyo', state: 'running', reason: 'start_succeeded',
-  occurred_at: item.time, pid: 123, process_started_at: item.time, activation_bundle_id: 'bundle_current',
 };
 function show(client = createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 1 }) }), entry = '/logs') {
   render(
@@ -37,37 +33,12 @@ afterEach(async () => {
 });
 
 describe('panel log presentation and details', () => {
-  it('keeps the entries about one node until its filter is cleared', async () => {
-    const user = userEvent.setup();
-    const client = show(undefined, '/logs?node=node_unknown');
-    const lastFilter = () => client.listPanelLogs.mock.lastCall?.[0];
-    await waitFor(() => expect(lastFilter()).toEqual(expect.objectContaining({ nodeID: 'node_unknown' })));
-    await user.click(screen.getByRole('button', { name: 'Clear node filter: node_unknown' }));
-    await waitFor(() => expect(lastFilter()).toEqual(expect.objectContaining({ nodeID: undefined })));
-  });
-  it('localizes known events without confusing action completion with runtime state', async () => {
+  it('localizes known events and keeps unknown ones as recorded', async () => {
     show(createMockApiClient({
-      listFleetRuntimeHistory: vi.fn().mockResolvedValue({ items: [transition], total: 1 }),
       listPanelLogs: vi.fn().mockResolvedValue({ items: [item, { ...item, id: 'log:3', code: 'future.event', message: 'A future event' }], total: 2 }),
     }));
     expect(await screen.findByText('Core start operation completed')).toBeVisible();
     expect(screen.getByText('A future event')).toBeVisible();
-    await userEvent.click(screen.getByRole('tab', { name: 'Runtime states' }));
-    expect(await screen.findByRole('cell', { name: 'Core started' })).toBeVisible();
-    expect(screen.getByRole('cell', { name: 'Running' })).toBeVisible();
-    expect(screen.getByRole('cell', { name: 'edge-tokyo' })).toBeVisible();
-    expect(screen.queryByText(/bundle_current/)).not.toBeInTheDocument();
-    await act(() => i18n.changeLanguage('zh-CN'));
-    expect(screen.getByText('核心已启动')).toBeVisible();
-    expect(screen.queryByText('start_succeeded')).not.toBeInTheDocument();
-    expect(screen.getByRole('table').querySelector('time')).toHaveAttribute('datetime', transition.occurred_at);
-    await userEvent.click(screen.getByRole('button', { name: '查看详情: 核心已启动' }));
-    const dialog = screen.getByRole('dialog', { name: '运行状态详情' });
-    expect(within(dialog).getByText('edge-tokyo')).toBeVisible();
-    const context = within(dialog).getByRole('region', { name: '事件上下文' });
-    expect(within(context).getByText('进程 ID')).toBeVisible();
-    expect(within(context).getByText('123')).toBeVisible();
-    expect(within(context).getByText('bundle_current')).toBeVisible();
   });
 
   it('shows complete context and raw data, copies the original record and restores focus', async () => {
