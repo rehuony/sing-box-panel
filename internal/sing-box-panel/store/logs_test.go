@@ -5,10 +5,13 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/logredact"
 )
 
@@ -52,7 +55,7 @@ func TestAppendLogEntrySanitizesSecretsAndBodiesBeforePersistence(t *testing.T) 
 	}
 
 	var persistedMessage, persistedMetadata string
-	if err := database.db.QueryRowContext(
+	if err := database.logs.QueryRowContext(
 		ctx,
 		`SELECT message, metadata_json FROM log_entries WHERE id = ?`,
 		entry.ID,
@@ -207,3 +210,102 @@ func logIDs(entries []LogEntry) []string {
 }
 
 func timePointer(value time.Time) *time.Time { return &value }
+
+// A panel database of the previous schema holds the log; opening it moves
+// every entry to the log database, also when an earlier start copied them
+// and stopped before dropping the old table.
+func TestOpenMovesLogEntriesOfThePreviousSchema(t *testing.T) {
+	ctx := testContext(t)
+	schema, err := Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := database.Schema{ApplicationID: ApplicationID, Migrations: schema.Migrations[:1]}
+	entries := []LogEntry{logFixture("log_first", time.Now().Add(-time.Hour), LogSourcePanel, LogLevelInfo), logFixture("log_second", time.Now(), LogSourceCore, LogLevelWarn)}
+	for _, interrupted := range []bool{false, true} {
+		t.Run(fmt.Sprintf("interrupted=%t", interrupted), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "panel.db")
+			old, err := database.Open(ctx, path, previous, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if _, err := old.ExecContext(ctx, `INSERT INTO log_entries(id, occurred_at, source, level, code, message, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					entry.ID, formatTime(entry.Time), entry.Source, entry.Level, entry.Code, entry.Message, string(entry.Metadata)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := old.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if interrupted {
+				// The upgrade set the table aside and the copy committed; the drop did not run.
+				panel, err := database.Open(ctx, path, schema, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				logSchema, err := LogSchema()
+				if err != nil {
+					t.Fatal(err)
+				}
+				logs, err := database.OpenBeside(ctx, panel, LogsFile, logSchema)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					if _, err := logs.ExecContext(ctx, `INSERT INTO log_entries(id, occurred_at, source, level, code, message, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+						entry.ID, formatTime(entry.Time), entry.Source, entry.Level, entry.Code, entry.Message, string(entry.Metadata)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := errors.Join(logs.Close(), panel.Close()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			upgraded, err := Open(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer upgraded.Close()
+			page, err := upgraded.ListLogEntries(ctx, LogListFilter{})
+			if err != nil || strings.Join(logIDs(page.Items), ",") != "log_second,log_first" {
+				t.Fatalf("moved entries = %v, %v", logIDs(page.Items), err)
+			}
+			if page.Items[0].Code != entries[1].Code || string(page.Items[0].Metadata) != string(entries[1].Metadata) {
+				t.Fatalf("moved entry changed: %+v", page.Items[0])
+			}
+			var left int
+			if err := upgraded.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE name LIKE 'log_entries%'`).Scan(&left); err != nil || left != 0 {
+				t.Fatalf("log objects left in the panel database: %d, %v", left, err)
+			}
+		})
+	}
+}
+
+func TestClearingTheLogShrinksItsFiles(t *testing.T) {
+	ctx := testContext(t)
+	db := openTestStore(t, ctx)
+	message := strings.Repeat("A long diagnostic message. ", 120)
+	base := time.Now().Add(-time.Hour)
+	for index := range 2000 {
+		entry := logFixture(fmt.Sprintf("log_%04d", index), base.Add(time.Duration(index)*time.Millisecond), LogSourcePanel, LogLevelInfo)
+		entry.Message = message
+		if _, err := db.AppendLogEntry(ctx, entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := db.LogUsage(ctx)
+	if err != nil || before.Entries != 2000 {
+		t.Fatalf("usage before = %+v, %v", before, err)
+	}
+	if deleted, err := db.ClearLogEntries(ctx, LogClearFilter{}); err != nil || deleted != 2000 {
+		t.Fatalf("cleared %d, %v", deleted, err)
+	}
+	if err := db.CompactLogs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.LogUsage(ctx)
+	if err != nil || after.Entries != 0 || after.Bytes >= before.Bytes/10 {
+		t.Fatalf("usage after = %+v (before %+v), %v", after, before, err)
+	}
+}

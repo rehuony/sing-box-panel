@@ -4,6 +4,7 @@
 package httpapi
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -23,10 +24,12 @@ const (
 	sessionCookie     = "sbp_session"
 )
 
-// SystemStatus describes the panel's own build and platform.
+// SystemStatus describes the panel's own build and platform, and when this
+// panel process started.
 type SystemStatus struct {
 	Platform     SystemPlatform `json:"platform"`
 	PanelVersion string         `json:"panel_version"`
+	StartedAt    time.Time      `json:"started_at"`
 }
 
 // Platform describes the deployed panel binary, never the browser's machine.
@@ -40,15 +43,22 @@ type HandlerOptions struct {
 	Build    buildinfo.Info
 	Assets   fs.FS
 	Services app.Services
+	// StartedAt is when the panel process started; zero is now.
+	StartedAt time.Time
+	// Restart asks the panel to restart once the request that asked has
+	// been answered; nil where the panel cannot restart itself.
+	Restart func(context.Context) error
 }
 
 type Handler struct {
-	settings settings.Settings
-	build    buildinfo.Info
-	logins   *webauth.LoginLimiter
-	services app.Services
-	assetFS  fs.FS
-	assets   http.Handler
+	settings  settings.Settings
+	build     buildinfo.Info
+	logins    *webauth.LoginLimiter
+	services  app.Services
+	assetFS   fs.FS
+	assets    http.Handler
+	startedAt time.Time
+	restart   func(context.Context) error
 }
 
 func NewHandler(options HandlerOptions) *Handler {
@@ -56,13 +66,19 @@ func NewHandler(options HandlerOptions) *Handler {
 	if options.Assets != nil {
 		assets = http.FileServer(http.FS(options.Assets))
 	}
+	startedAt := options.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
 	return &Handler{
-		settings: options.Settings,
-		build:    options.Build,
-		logins:   webauth.NewLoginLimiter(time.Now),
-		services: options.Services,
-		assetFS:  options.Assets,
-		assets:   assets,
+		settings:  options.Settings,
+		build:     options.Build,
+		logins:    webauth.NewLoginLimiter(time.Now),
+		services:  options.Services,
+		assetFS:   options.Assets,
+		assets:    assets,
+		startedAt: startedAt.UTC(),
+		restart:   options.Restart,
 	}
 }
 

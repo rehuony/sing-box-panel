@@ -1,8 +1,7 @@
 import type { TFunction } from 'i18next';
 
-import type { PanelLog } from '@/api/api-client';
-
-export function logTitle(item: PanelLog, t: TFunction): string {
+/** A log entry's or a runtime transition's translated event name, else its own message or code. */
+export function logTitle(item: { code: string; message?: string }, t: TFunction): string {
   return t(`productLogs.events.${item.code}`, { defaultValue: item.message || item.code });
 }
 

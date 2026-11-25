@@ -580,11 +580,15 @@ clearing the display. Readers send the file generation with their cursor, so a
 clear in another browser resets the display on the next chunk or after resuming.
 Historical deletion requires confirmation, removes only the
 selected managed file, and returns the view to the latest remaining file.
-**Panel logs** combines sanitized operation outcomes with panel, security and
-runtime events. The table shows time, message, log level and source, without an
-actions column or operation detail dialogs. Rows use their API log level for both
-presentation and filtering. Retry an unsuccessful action from its original control;
-old payloads and temporary uploads are never replayed.
+The panel's **logs** window has two tabs. **Logs** lists the panel log:
+sanitized operation outcomes and panel, security and core events, filtered by
+level, with a Clear action described under [Durable logs](#durable-logs).
+**Runtime states** lists every node's runtime transitions, filtered by state,
+with each transition's node. The address keeps the tab (`?view=states`; the log
+is the default) and a node filter (`?node=`) that applies to both. Rows use
+their API log level for both presentation and filtering. Retry an unsuccessful
+action from its original control; old payloads and temporary uploads are never
+replayed.
 
 `/api/v1/nodes/{nodeId}/core/logs/files`, `/api/v1/nodes/{nodeId}/core/logs/content` and
 `/api/v1/nodes/{nodeId}/core/logs/stream` expose only the node's managed file names and
@@ -656,13 +660,13 @@ chunks are bounded; ANSI sequences and known credentials
 are sanitized. The browser resumes from the received cursor, freezes the selected
 file while paused and polls for rotation. Streaming uses write deadlines and
 closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
-provides the combined panel view. The legacy log API below remains available.
+lists the panel log and `/api/v1/fleet/runtime/history` the runtime states.
 Each initial file read loads the last 64 KiB; the browser retains at most 2,000
 lines and searches/filters only this buffer. File lists refresh every 10 seconds
 without overlapping requests and refresh when the page becomes visible again;
 the output stream checks for appended content every second. Core capture
-retention applies only to sing-box capture files; panel events follow
-`logs.panel_retention_days`, described under [Durable logs](#durable-logs).
+retention applies only to sing-box capture files; the panel log and runtime
+states are described under [Durable logs](#durable-logs).
 The neutral status dot and icon buttons float over the output in the same softly
 bordered, translucent toolbar used by the Advanced JSON editor. Status tooltips
 and the pause/resume icon identify the current state without changing the toolbar's
@@ -674,20 +678,21 @@ search and level filters with no matches. It returns when output is visible.
 Clearing while paused preserves that state and offers Resume live output in the
 empty message so streaming can continue without the floating controls.
 
-Panel-log and subscription-key lists support `offset` with `limit` for numbered
-pages and return `total` before pagination. Panel-log totals include the active
-level, search, and time filters. Counts and rows come from one database snapshot;
+The panel log, runtime states and subscription-key lists support `offset` with
+`limit` for numbered pages and return `total` before pagination. Totals include
+the active filters. Counts and rows come from one database snapshot;
 live inserts or deletions may shift rows between requests. Existing `before_time`
 and `before_id` cursors remain supported and cannot be combined with `offset`.
 The Web footer supports direct page entry and 5, 10, or 50 items per page.
 
 ### Panel log details and search
 
-Panel logs use five centered, single-line columns: occurrence time, level, event
-summary, event source, and View details. Known events have Chinese and English
-names; the original message remains available in the collapsible JSON record. Action
-completion and observed runtime state changes remain separate records. The list
-shows only the event name; process IDs and other context are available in details.
+The log tab uses five centered, single-line columns: occurrence time, level, event
+summary, event source, and View details. The runtime states tab uses occurrence
+time, state, the runtime state's name, node, and View details. Known events and
+reasons have Chinese and English names; the original message remains available
+in the collapsible JSON record. The list shows only the name; process IDs and
+other context are available in details.
 Long names are truncated in the list and readable in full in details.
 The modal contains the event identifiers, precise local time and timezone,
 recorded context and collapsible JSON. Basic information and
@@ -696,9 +701,11 @@ complete sanitized API record. Refreshing the list does not replace the record
 being inspected.
 
 `GET /api/v1/logs/panel` accepts `search_codes`, a comma-separated list of up to
-128 exact codes (each at most 128 ASCII characters matching `[a-z][a-z0-9_.-]*`).
-The complete encoded query may be up to 64 KiB, including percent-escaped codes
+256 exact codes (each at most 128 ASCII characters matching `[a-z][a-z0-9_.-]*`).
+The complete encoded query may be up to 128 KiB, including percent-escaped codes
 and other filters; other endpoints retain their own query limits.
+`GET /api/v1/fleet/runtime/history` takes the same `search_codes` as exact
+reasons, ORed with `search`, which matches part of a node's name or of a reason.
 These alternatives are ORed with the case-insensitive original message/code
 `search`, then intersected with level and time filters. Totals, cursors and offsets
 use the same match conditions. The Web client finds code alternatives from both
@@ -708,7 +715,7 @@ Omitting `search_codes` preserves the original text-search behavior.
 node's overview opens its recent activity in the panel log this way, and the log's
 title strip shows the node with an action that clears the filter.
 
-Runtime-transition metadata includes only recorded public evidence: `pid`,
+A runtime state carries only recorded public evidence: `pid`,
 `process_started_at`, `generation`, `activation_bundle_id`, and `uncertain_since`
 when available. Internal process identity tokens are excluded. Runtime controls
 and core-log clear/delete actions also record bounded target identifiers and
@@ -721,7 +728,7 @@ check phase, including when execution subsequently fails. All operation context
 still passes through the durable log sanitizer.
 Historical events without additional context remain readable and explicitly show
 that no extra context was recorded; current runtime state is not used to fill
-historical gaps. This is an additive API change with no database migration.
+historical gaps.
 
 ## Durable logs
 
@@ -736,14 +743,21 @@ minute with a `control` event of type `reconnect`, so a client reconnects and
 authenticates again; `Last-Event-ID` resumes it after the last entry it
 received. Each write has its own deadline.
 
-Panel events and each node's runtime history follow
-`logs.panel_retention_days` (1–3650 days, 90 by default, and 90 for a settings
-file without the field). The retention pass that also removes expired raw
-traffic samples deletes older entries during startup, every 24 hours and after
-a settings save; it keeps the newest runtime transition of each node instance,
-which gives the state a timeline starts in and where the node's next session
-resumes its history. Explicit log clear/delete API operations remain
-available. Configuration bytes, subscription bodies, token
+The panel log is stored in `logs.db` beside `panel.db` and is kept until it is
+cleared. The logs tab's Clear action, `DELETE /api/v1/logs`, deletes every
+entry (the API also takes `source` and `before`), then rewrites `logs.db` and
+empties its write-ahead log so the space returns to the file system, and
+records one `logs.cleared` entry with the number deleted and the bytes freed.
+The confirmation shows what the log holds and takes on disk, from
+`GET /api/v1/logs/usage`; the toast after it reports what clearing freed.
+Clearing locks only the log database and never touches runtime states.
+
+Each node's runtime history follows `nodes.runtime_history_retention_days`
+(1–3650 days, 90 by default). The retention pass that also removes expired raw
+traffic samples deletes older transitions during startup, every 24 hours and
+after a settings save; it keeps the newest runtime transition of each node
+instance, which gives the state a timeline starts in and where the node's next
+session resumes its history. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
 

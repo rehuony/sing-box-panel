@@ -6,11 +6,10 @@ import { appendEntries, settleEntry } from '@shared/components/terminal';
 import type { FleetCommand } from '@/api/api-client';
 import type { NodeStatus } from '@/utils/fleet-summary';
 
-/** A batch the command line asks `[y/N]` about before it runs. */
-interface PendingBatch {
-  nodes: readonly NodeStatus[];
-  action: FleetCommand['action'];
-}
+/** What the command line asks `[y/N]` about before it runs: a batch, or restarting the panel. */
+export type PendingConfirmation
+  = | { kind: 'batch'; nodes: readonly NodeStatus[]; action: FleetCommand['action'] }
+    | { kind: 'reboot' };
 
 interface CommandSessionState {
   /** Lines kept beyond the terminal's limit, so the largest batch's output stays whole. */
@@ -26,15 +25,15 @@ interface CommandSessionState {
   entries: LogLine[];
   /** Counts sign-outs, so a batch that outlives its session stops printing into the next one. */
   generation: number;
-  /** The batch the line asks to confirm; the prompt reads `[y/N]` meanwhile. */
-  pending: PendingBatch | null;
   settle: (id: number) => void;
   /** Keeps room for a batch's one line a node. */
   reserve: (lines: number) => void;
   setOpen: (open: boolean) => void;
+  /** What the line asks to confirm; the prompt reads `[y/N]` meanwhile. */
+  pending: PendingConfirmation | null;
   print: (...lines: LogLine[]) => void;
   setRunning: (running: boolean) => void;
-  setPending: (pending: PendingBatch | null) => void;
+  setPending: (pending: PendingConfirmation | null) => void;
 }
 
 /** Earlier command lines, kept while the line closes and opens again. */

@@ -1,4 +1,17 @@
 import type { LogEntry } from '../generated';
+import type { RuntimeTransitionState } from './core';
+
+export type {
+  CoreLogChunk,
+  CoreLogFile,
+  FleetRuntimeHistoryPage,
+  LogClearResult,
+  LogUsage,
+  NodeRuntimeTransition,
+  PanelLogPage,
+} from '../generated';
+
+export type LogLevel = LogEntry['level'];
 
 export type {
   DashboardStreamSnapshot,
@@ -10,9 +23,17 @@ export type {
   TrafficSample,
 } from '../generated';
 
-export type LogLevel = LogEntry['level'];
-
-export type { CoreLogChunk, CoreLogFile, PanelLog, PanelLogPage } from '../generated';
+export interface FleetRuntimeHistoryFilter {
+  limit?: number;
+  /** Keeps only this node's transitions. */
+  nodeID?: string;
+  offset?: number;
+  /** Part of a node's name or of a reason. */
+  search?: string;
+  /** Reasons whose translated names match the search. */
+  searchCodes?: string[];
+  state?: RuntimeTransitionState;
+}
 export interface PanelLogFilter {
   limit?: number;
   since?: string;

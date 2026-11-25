@@ -48,9 +48,12 @@ var knownDataPaths = []struct{ name, role string }{
 	{"imports", "staged core uploads"},
 	{fleet.IdentityFile, "TLS key and certificate for direct node connections"},
 	{procctl.SocketName, "local process control"},
+	{store.LogsFile + "-shm", "log database shared memory"},
+	{store.LogsFile + "-wal", "log database write-ahead log"},
+	{store.LogsFile, "log database (the panel log)"},
 	{"panel.db-shm", "database shared memory"},
 	{"panel.db-wal", "database write-ahead log"},
-	{"panel.db", "database (nodes and their configurations, panel logs and product state)"},
+	{"panel.db", "database (nodes and their configurations, runtime history and product state)"},
 	{procctl.LeaseFileName, "process ownership lock"},
 }
 

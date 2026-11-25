@@ -116,7 +116,7 @@ func TestDashboardSnapshotEncodingPreservesSmallSnapshots(t *testing.T) {
 
 func TestDashboardSnapshotEncodingRejectsUnshrinkableFrames(t *testing.T) {
 	snapshot := telemetry.DashboardStreamSnapshot{
-		Activity: store.PanelLogPage{Items: []store.PanelLog{{Message: strings.Repeat("x", dashboardFrameLimit)}}},
+		Activity: store.PanelLogPage{Items: []store.LogEntry{{Message: strings.Repeat("x", dashboardFrameLimit)}}},
 	}
 	if _, err := encodeDashboardSnapshot(snapshot); err == nil {
 		t.Fatal("unshrinkable snapshot exceeded the frame limit without an error")

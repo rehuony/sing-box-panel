@@ -60,7 +60,7 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     'radius': activeAppearance.radius !== initialAppearance.radius,
     'language': preferencesDraft.language !== initialPreferences.language,
     'sample-retention': service.sample_retention_days !== is.sample_retention_days,
-    'panel-log-retention': service.panel_log_retention_days !== is.panel_log_retention_days,
+    'runtime-history-retention': service.runtime_history_retention_days !== is.runtime_history_retention_days,
     'core-log-retention': service.core_log_retention_days !== is.core_log_retention_days,
     'core-log-max-files': service.core_log_max_files !== is.core_log_max_files,
     'core-log-size': service.core_log_max_file_size_mib !== is.core_log_max_file_size_mib,

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -104,7 +105,7 @@ func (s *Store) AppendLogEntry(ctx context.Context, entry LogEntry) (LogEntry, e
 	if err != nil {
 		return LogEntry{}, err
 	}
-	if _, err := s.db.ExecContext(
+	if _, err := s.logs.ExecContext(
 		ctx,
 		`INSERT INTO log_entries(
             id, occurred_at, source, level, code, message, metadata_json
@@ -126,7 +127,7 @@ func (s *Store) GetLogEntry(ctx context.Context, entryID string) (LogEntry, erro
 	if err := validateLogID(entryID); err != nil {
 		return LogEntry{}, err
 	}
-	return getLogEntry(ctx, s.db, entryID)
+	return getLogEntry(ctx, s.logs, entryID)
 }
 
 func (s *Store) ListLogEntries(ctx context.Context, filter LogListFilter) (LogPage, error) {
@@ -147,7 +148,7 @@ func (s *Store) ListLogEntries(ctx context.Context, filter LogListFilter) (LogPa
 		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
 	}
 	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(
+	rows, err := s.logs.QueryContext(
 		ctx,
 		`SELECT id, occurred_at, source, level, code, message, metadata_json
            FROM log_entries
@@ -199,7 +200,7 @@ func (s *Store) TailLogEntries(ctx context.Context, filter LogTailFilter) ([]Log
 		args = append(args, cursorTime, cursorTime, filter.After.ID)
 	}
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(
+	rows, err := s.logs.QueryContext(
 		ctx,
 		`SELECT id, occurred_at, source, level, code, message, metadata_json
            FROM log_entries
@@ -243,7 +244,7 @@ func (s *Store) ClearLogEntries(ctx context.Context, filter LogClearFilter) (int
 		clauses = append(clauses, "occurred_at < ?")
 		args = append(args, formatTime(filter.Before.UTC()))
 	}
-	result, err := s.db.ExecContext(
+	result, err := s.logs.ExecContext(
 		ctx,
 		`DELETE FROM log_entries WHERE `+strings.Join(clauses, " AND "),
 		args...,
@@ -258,11 +259,49 @@ func (s *Store) ClearLogEntries(ctx context.Context, filter LogClearFilter) (int
 	return count, nil
 }
 
+// LogUsage is the size of the panel log: its entries and the bytes its
+// database file and write-ahead log take on disk.
+type LogUsage struct {
+	Entries int64 `json:"entries"`
+	Bytes   int64 `json:"bytes"`
+}
+
+func (s *Store) LogUsage(ctx context.Context) (LogUsage, error) {
+	var usage LogUsage
+	if err := s.logs.QueryRowContext(ctx, `SELECT count(*) FROM log_entries`).Scan(&usage.Entries); err != nil {
+		return LogUsage{}, fmt.Errorf("count log entries: %w", err)
+	}
+	for _, suffix := range []string{"", "-wal"} {
+		info, err := os.Stat(s.logsHandle.Path() + suffix)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return LogUsage{}, fmt.Errorf("inspect log database: %w", err)
+		}
+		usage.Bytes += info.Size()
+	}
+	return usage, nil
+}
+
+// CompactLogs rebuilds the log database without the pages its deleted
+// entries left free and empties its write-ahead log, so that space returns to
+// the file system. It locks only the log database while it runs.
+func (s *Store) CompactLogs(ctx context.Context) error {
+	if _, err := s.logs.ExecContext(ctx, `VACUUM`); err != nil {
+		return fmt.Errorf("compact log database: %w", err)
+	}
+	if _, err := s.logs.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("empty log write-ahead log: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) DeleteLogEntry(ctx context.Context, entryID string) error {
 	if err := validateLogID(entryID); err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM log_entries WHERE id = ?`, entryID)
+	result, err := s.logs.ExecContext(ctx, `DELETE FROM log_entries WHERE id = ?`, entryID)
 	if err != nil {
 		return fmt.Errorf("delete log entry: %w", err)
 	}

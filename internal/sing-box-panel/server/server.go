@@ -35,7 +35,31 @@ const (
 
 // Run loads process settings and serves until ctx is canceled. It owns every
 // resource it opens and does not return until the HTTP server has stopped.
-func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS) (runErr error) {
+// When the panel is asked to restart, Run stops the server the way a stop
+// does and then runs the panel's program again in this process; it returns
+// only if that fails.
+func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS) error {
+	return run(ctx, settingsPath, build, assets, execSelf)
+}
+
+func run(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS, exec execFunc) error {
+	startedAt := time.Now().UTC()
+	serveContext, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
+	restart, err := newRestart(exec, func() { stop(errRestartRequested) })
+	if err != nil {
+		return err
+	}
+	if err := serve(serveContext, settingsPath, build, assets, startedAt, restart); err != nil {
+		return err
+	}
+	if ctx.Err() == nil && errors.Is(context.Cause(serveContext), errRestartRequested) {
+		return restart.run()
+	}
+	return nil
+}
+
+func serve(ctx context.Context, settingsPath string, build buildinfo.Info, assets fs.FS, startedAt time.Time, restart *restart) (runErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	configuration, err := installation.PrepareDataLocation(ctx, settingsPath)
@@ -91,6 +115,9 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	if err := services.Settings.RecoverPanelSettingsFile(ctx); err != nil {
 		return startupError(ctx, "recover interrupted panel settings save", err)
 	}
+	if err := settings.UpgradeFile(ctx, settingsPath); err != nil {
+		return startupError(ctx, "rewrite panel settings in the current shape", err)
+	}
 	configuration, err = services.Settings.EffectiveSettings(ctx)
 	if err != nil {
 		return startupError(ctx, "load shared panel settings", err)
@@ -101,6 +128,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 	output := cliui.ConsoleFrom(ctx)
 	services = app.New(database, configuration, app.Options{Build: build, Observe: func(entry store.LogEntry) { output.Event(entry.Time, string(entry.Level), entry.Code, entry.Message) }})
 	records := services.Telemetry
+	restart.bind(services.Releases, records, build.Version)
 	defer func() {
 		level, code, message := store.LogLevelInfo, "panel.stopped", "Panel server stopped"
 		if runErr != nil {
@@ -137,12 +165,17 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		stopRetention()
 		<-retentionDone
 	}()
-	handler := httpapi.NewHandler(httpapi.HandlerOptions{
-		Settings: configuration,
-		Build:    build,
-		Assets:   assets,
-		Services: services,
-	})
+	handlerOptions := httpapi.HandlerOptions{
+		Settings:  configuration,
+		Build:     build,
+		Assets:    assets,
+		Services:  services,
+		StartedAt: startedAt,
+	}
+	if restartSupported {
+		handlerOptions.Restart = restart.request
+	}
+	handler := httpapi.NewHandler(handlerOptions)
 	listener, err := net.Listen("tcp", net.JoinHostPort(configuration.Server.Host, fmt.Sprint(configuration.Server.Port)))
 	if err != nil {
 		return fmt.Errorf("listen for panel HTTP server: %w", err)
@@ -198,7 +231,7 @@ func Run(ctx context.Context, settingsPath string, build buildinfo.Info, assets 
 		{Label: "Data directory", Value: style.Path(configuration.DataDir)},
 	}, "Press Ctrl+C to stop. View logs in the panel.", map[string]string{
 		"event": "server_ready", "panel_url": panelURL, "settings_path": settingsPath,
-		"data_dir": configuration.DataDir, "panel_logs": filepath.Join(configuration.DataDir, "panel.db"),
+		"data_dir": configuration.DataDir, "panel_logs": filepath.Join(configuration.DataDir, store.LogsFile),
 	})
 
 	select {

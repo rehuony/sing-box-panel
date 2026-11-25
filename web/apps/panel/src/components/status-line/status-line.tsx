@@ -5,10 +5,10 @@ import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { setAppLanguage } from '@shared/i18n/language';
-import { useId, useLayoutEffect, useRef } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { LanguageMenu } from '@shared/components/language-menu';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { buttonVariants } from '@shared/components/ui/button-variants';
 import { ThemeCycleButton } from '@shared/components/theme-cycle-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
@@ -62,6 +62,7 @@ import type { ShellScopeState } from './use-shell-scope';
 import { useSignOut } from './use-sign-out';
 import { CommandMode } from './command-mode';
 import { BatchActions } from './batch-actions';
+import { ReadoutSlot, RestartPanelAction, RestartPanelDialog, RestartPanelMenuItem } from './restart-panel';
 
 const windowIcons: Record<NodeWindow | PanelWindow, LucideIcon> = {
   configuration: FileJson,
@@ -309,7 +310,7 @@ function useSelectedNodes({ items, scope }: ShellScopeState): NodeStatus[] {
   return items.filter(item => selected.has(item.node.id));
 }
 
-/** The desktop line: command action, scope, windows, then the fleet readout and the session's actions. */
+/** The desktop line: command action, scope, windows, then the fleet readout and the session's and panel's actions. */
 function DesktopLine({ shell }: { shell: ShellScopeState }) {
   const { cycleTheme, preference } = useTheme();
   const selection = useSelectedNodes(shell);
@@ -328,49 +329,58 @@ function DesktopLine({ shell }: { shell: ShellScopeState }) {
           )}
       <span className='flex-1' />
       <PanelUpdateHint />
-      <FleetReadout items={shell.items} />
+      <ReadoutSlot><FleetReadout items={shell.items} /></ReadoutSlot>
       <Divider />
       <ThemeCycleButton onCycle={cycleTheme} preference={preference} size='icon-xs' />
       <LanguageMenu size='icon-xs' />
+      <RestartPanelAction />
       <SignOutAction />
     </div>
   );
 }
 
-/** The phone's "more" menu: theme, language and signing out. */
+/** The phone's "more" menu: theme, language, restarting the panel and signing out. */
 function MoreMenu({ className }: { className: string }) {
   const { i18n, t } = useTranslation();
   const { preference, setPreference } = useTheme();
   const { signOut } = useSignOut();
+  const [restartOpen, setRestartOpen] = useState(false);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<button aria-label={t('shell.bar.more')} className={className} type='button' />}>
-        <Ellipsis aria-hidden='true' className='size-5' />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align='end' side='top' sideOffset={8}>
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t('theme.label')}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={value => setPreference(value as typeof preference)} value={preference}>
-            {(['light', 'dark', 'system'] as const).map(value => (
-              <DropdownMenuRadioItem closeOnClick key={value} value={value}>{t(`theme.preference.${value}`)}</DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t('language.label')}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={value => void setAppLanguage(value as typeof supportedLanguages[number])} value={i18n.resolvedLanguage ?? 'en'}>
-            <DropdownMenuRadioItem closeOnClick value='en'>{t('language.english')}</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem closeOnClick value='zh-CN'>{t('language.simplifiedChinese')}</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={signOut}>
-          <LogOut aria-hidden='true' />
-          {t('account.signOut')}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<button aria-label={t('shell.bar.more')} className={className} type='button' />}>
+          <Ellipsis aria-hidden='true' className='size-5' />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end' side='top' sideOffset={8}>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t('theme.label')}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              onValueChange={value => setPreference(value as typeof preference)}
+              value={preference}
+            >
+              {(['light', 'dark', 'system'] as const).map(value => (
+                <DropdownMenuRadioItem closeOnClick key={value} value={value}>{t(`theme.preference.${value}`)}</DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t('language.label')}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup onValueChange={value => void setAppLanguage(value as typeof supportedLanguages[number])} value={i18n.resolvedLanguage ?? 'en'}>
+              <DropdownMenuRadioItem closeOnClick value='en'>{t('language.english')}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem closeOnClick value='zh-CN'>{t('language.simplifiedChinese')}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <RestartPanelMenuItem onSelect={() => setRestartOpen(true)} />
+          <DropdownMenuItem onClick={signOut}>
+            <LogOut aria-hidden='true' />
+            {t('account.signOut')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <RestartPanelDialog onOpenChange={setRestartOpen} open={restartOpen} />
+    </>
   );
 }
 

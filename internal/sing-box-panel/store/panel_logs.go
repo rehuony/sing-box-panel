@@ -4,22 +4,11 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
 
-type PanelLog struct {
-	ID       string          `json:"id"`
-	Time     time.Time       `json:"time"`
-	Source   string          `json:"source"`
-	Level    string          `json:"level"`
-	Code     string          `json:"code"`
-	Message  string          `json:"message"`
-	Status   string          `json:"status"`
-	Metadata json.RawMessage `json:"metadata"`
-}
 type PanelLogFilter struct {
 	Cursor       *LogCursor
 	Limit        int
@@ -32,7 +21,10 @@ type PanelLogFilter struct {
 	NodeID string
 }
 
-const MaximumPanelLogSearchCodes = 128
+// MaximumPanelLogSearchCodes bounds the exact-code alternatives of a search:
+// about twice the event names the interface translates, so a one-letter
+// search that matches every name stays within it.
+const MaximumPanelLogSearchCodes = 256
 
 // ValidatePanelLogSearchCodes bounds the exact-code alternatives to a text search.
 func ValidatePanelLogSearchCodes(codes []string) error {
@@ -47,8 +39,10 @@ func ValidatePanelLogSearchCodes(codes []string) error {
 	return nil
 }
 
+// PanelLogPage is one page of the panel log with the number of entries the
+// filter matches.
 type PanelLogPage struct {
-	Items []PanelLog `json:"items"`
+	Items []LogEntry `json:"items"`
 	Next  *LogCursor `json:"next,omitempty"`
 	Total int        `json:"total"`
 }
@@ -98,46 +92,33 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	if len(searchClauses) > 0 {
 		clauses = append(clauses, "("+strings.Join(searchClauses, " OR ")+")")
 	}
-	const combined = `WITH combined AS (
- SELECT 'log:'||id AS id,occurred_at,source,level,code,message,'' AS status,metadata_json FROM log_entries
- UNION ALL
- SELECT 'runtime:'||id,occurred_at,'runtime',CASE WHEN state='failed' THEN 'error' ELSE 'info' END,reason,reason,state,
- json_patch('{}', json_object('node_id',node_id,'pid',pid,'process_started_at',process_started_at,
- 'generation',generation,'activation_bundle_id',activation_bundle_id,'uncertain_since',uncertain_since))
- FROM runtime_transitions
- ) `
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	where := strings.Join(clauses, " AND ")
+	tx, err := s.logs.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return PanelLogPage{}, err
 	}
 	defer tx.Rollback()
-	result := PanelLogPage{Items: []PanelLog{}}
-	if err := tx.QueryRowContext(ctx, combined+`SELECT COUNT(*) FROM combined WHERE `+strings.Join(clauses, " AND "), args...).Scan(&result.Total); err != nil {
+	result := PanelLogPage{Items: []LogEntry{}}
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM log_entries WHERE `+where, args...).Scan(&result.Total); err != nil {
 		return PanelLogPage{}, fmt.Errorf("count panel logs: %w", err)
 	}
 	if filter.Cursor != nil {
-		clauses = append(clauses, "(occurred_at < ? OR (occurred_at = ? AND id < ?))")
+		where += " AND (occurred_at < ? OR (occurred_at = ? AND id < ?))"
 		args = append(args, formatTime(filter.Cursor.Time), formatTime(filter.Cursor.Time), filter.Cursor.ID)
 	}
 	args = append(args, limit+1, filter.Offset)
-	rows, err := tx.QueryContext(ctx, combined+`SELECT id,occurred_at,source,level,code,message,status,metadata_json FROM combined WHERE `+strings.Join(clauses, " AND ")+` ORDER BY occurred_at DESC,id DESC LIMIT ? OFFSET ?`, args...)
-
+	rows, err := tx.QueryContext(ctx, `SELECT id, occurred_at, source, level, code, message, metadata_json
+           FROM log_entries WHERE `+where+` ORDER BY occurred_at DESC, id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return PanelLogPage{}, fmt.Errorf("query panel log: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var item PanelLog
-		var at, metadata string
-		if err := rows.Scan(&item.ID, &at, &item.Source, &item.Level, &item.Code, &item.Message, &item.Status, &metadata); err != nil {
-			return PanelLogPage{}, err
-		}
-		item.Time, err = time.Parse(time.RFC3339Nano, at)
+		entry, err := scanLogEntry(rows)
 		if err != nil {
 			return PanelLogPage{}, err
 		}
-		item.Metadata = json.RawMessage(metadata)
-		result.Items = append(result.Items, item)
+		result.Items = append(result.Items, entry)
 	}
 	if err := rows.Err(); err != nil {
 		return PanelLogPage{}, err

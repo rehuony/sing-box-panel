@@ -160,7 +160,7 @@ func TestNodeEndpointFollowsServerSettings(t *testing.T) {
 		{"http origin", func(value *Settings) { value.Server.ExternalOrigin = "http://www.example.com" }, "127.0.0.1:3000", NodeTrustPin},
 		{"override", func(value *Settings) {
 			value.Server.ExternalOrigin = "https://www.example.com"
-			value.Nodes = Nodes{Endpoint: "203.0.113.7:3000"}
+			value.Nodes.Endpoint = "203.0.113.7:3000"
 		}, "203.0.113.7:3000", NodeTrustPin},
 	} {
 		next := value
@@ -178,7 +178,7 @@ func TestNodeEndpointFollowsServerSettings(t *testing.T) {
 		"unknown trust":                 {Trust: "none"},
 	} {
 		next := value
-		next.Nodes = nodes
+		next.Nodes.Endpoint, next.Nodes.Trust = nodes.Endpoint, nodes.Trust
 		if err := next.Validate(); err == nil || !strings.Contains(err.Error(), "nodes.") {
 			t.Errorf("%s: Validate() = %v", name, err)
 		}
@@ -217,6 +217,54 @@ func TestExternalOriginNeedsNoCookieSetting(t *testing.T) {
 		if err != nil || string(after) != input {
 			t.Fatal("failed load changed settings", err)
 		}
+	}
+}
+
+// A file of the previous release kept the runtime history for
+// logs.panel_retention_days; that value carries over, and the file is
+// written in the current shape.
+func TestPanelLogRetentionCarriesOverToRuntimeHistory(t *testing.T) {
+	value := Defaults()
+	value.Auth.Email = testutil.AdminEmail
+	value.Auth.PasswordHash = testutil.PasswordHash
+	value.DataDir = t.TempDir()
+	raw, _ := json.Marshal(value)
+	var previous map[string]any
+	if err := json.Unmarshal(raw, &previous); err != nil {
+		t.Fatal(err)
+	}
+	delete(previous["nodes"].(map[string]any), "runtime_history_retention_days")
+	previous["logs"].(map[string]any)["panel_retention_days"] = 30
+	raw, _ = json.Marshal(previous)
+	path := filepath.Join(t.TempDir(), "setting.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil || loaded.Nodes.RuntimeHistoryRetentionDays != 30 {
+		t.Fatalf("previous file loads with %d, %v", loaded.Nodes.RuntimeHistoryRetentionDays, err)
+	}
+	if err := UpgradeFile(t.Context(), path); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(upgraded), "panel_retention_days") || !strings.Contains(string(upgraded), `"runtime_history_retention_days": 30`) {
+		t.Fatalf("upgraded file:\n%s", upgraded)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetField(t.Context(), path, "server.port", "9090"); err != nil {
+		t.Fatal(err)
+	}
+	if written, err := Load(path); err != nil || written.Nodes.RuntimeHistoryRetentionDays != 30 || written.Server.Port != 9090 {
+		t.Fatalf("config set on a previous file: %+v, %v", written.Nodes, err)
+	}
+	if written, _ := os.ReadFile(path); strings.Contains(string(written), "panel_retention_days") {
+		t.Fatalf("config set kept the previous field:\n%s", written)
 	}
 }
 

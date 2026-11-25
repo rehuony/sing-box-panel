@@ -8,7 +8,7 @@ import type { NodeWindow, PanelWindow } from './shell-windows';
 import { nodeWindows, panelWindows } from './shell-windows';
 
 /** The commands the panel's command line takes, in the order help lists them. */
-export const commandVerbs = ['help', 'open', 'goto', 'filter', 'start', 'stop', 'restart', 'update', 'clear', 'logout', 'exit'] as const;
+export const commandVerbs = ['help', 'open', 'goto', 'filter', 'start', 'stop', 'restart', 'update', 'reboot', 'clear', 'logout', 'exit'] as const;
 export type CommandVerb = typeof commandVerbs[number];
 
 /** The runtime and update commands, which act on one or more nodes. */
@@ -30,6 +30,8 @@ export type PanelCommand
     /** An empty filter clears every part. */
     | { kind: 'filter'; state: StateFilter | null; tag: string | null; text: string }
     | { kind: 'batch'; verb: BatchVerb; target: string }
+    /** Restarts the panel itself. */
+    | { kind: 'reboot' }
     /** The verb is known but its arguments are not. */
     | { kind: 'usage'; verb: CommandVerb }
     | { kind: 'notFound'; name: string };
@@ -53,6 +55,8 @@ export function parseCommand(line: string): PanelCommand | null {
     case 'logout':
     case 'exit':
       return { kind: 'logout' };
+    case 'reboot':
+      return rest.length === 0 ? { kind: 'reboot' } : { kind: 'usage', verb };
     case 'open': {
       const window = rest[0]?.toLowerCase() ?? '';
       return rest.length === 1 && isOneOf(panelWindows, window) ? { kind: 'open', window } : { kind: 'usage', verb };

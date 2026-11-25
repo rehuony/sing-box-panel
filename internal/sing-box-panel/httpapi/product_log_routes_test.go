@@ -45,7 +45,7 @@ func TestPanelLogSearchCodesValidationAndMatching(t *testing.T) {
 	for _, query := range []string{
 		"search_codes=", "search_codes=runtime.start.completed,", "search_codes=INVALID",
 		"search_codes=a&search_codes=b", "search_codes=a%27OR1", "search_codes=" + strings.Repeat("a", 129),
-		"search_codes=" + strings.Repeat("a,", 128) + "a",
+		"search_codes=" + strings.Repeat("a,", store.MaximumPanelLogSearchCodes) + "a",
 		"search_codes=" + strings.Repeat("a", store.MaximumPanelLogSearchCodes*(store.MaximumLogCodeBytes+1)+1),
 	} {
 		response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?"+query, "", "")
@@ -105,7 +105,7 @@ func TestPanelLogSearchCodesAcceptsFullDocumentedRange(t *testing.T) {
 			t.Fatalf("documented search range rejected: %d %s", response.Code, response.Body.String())
 		}
 	}
-	response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?search_codes="+strings.Repeat("a", 64<<10), "", "")
+	response := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/logs/panel?search_codes="+strings.Repeat("a", maximumPanelLogQueryBytes), "", "")
 	assertCoreHTTPProblem(t, response, http.StatusBadRequest, "query_invalid")
 }
 

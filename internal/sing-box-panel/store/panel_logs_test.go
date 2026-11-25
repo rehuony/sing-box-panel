@@ -3,7 +3,6 @@ package store
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 )
@@ -21,11 +20,11 @@ func TestPanelLogsPreserveEventsAndCursor(t *testing.T) {
 		}
 	}
 	first, err := db.ListPanelLogs(ctx, PanelLogFilter{Limit: 1, Since: &now})
-	if err != nil || len(first.Items) != 1 || first.Items[0].ID != "log:separate" || first.Next == nil {
+	if err != nil || len(first.Items) != 1 || first.Items[0].ID != "separate" || first.Next == nil {
 		t.Fatal(first, err)
 	}
 	second, err := db.ListPanelLogs(ctx, PanelLogFilter{Limit: 1, Cursor: first.Next, Since: &now})
-	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "log:worker" || second.Next != nil {
+	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "worker" || second.Next != nil {
 		t.Fatal(second, err)
 	}
 	filtered, err := db.ListPanelLogs(ctx, PanelLogFilter{Search: "authentication", Level: "warn"})
@@ -52,17 +51,17 @@ func TestPanelLogsSearchAlternativesShareTotalsAndPagination(t *testing.T) {
 	until := now.Add(4 * time.Second)
 	filter := PanelLogFilter{Search: "核心启动", SearchCodes: []string{"runtime.start.completed"}, Level: "info", Since: &now, Until: &until, Limit: 1}
 	first, err := db.ListPanelLogs(ctx, filter)
-	if err != nil || first.Total != 2 || len(first.Items) != 1 || first.Items[0].ID != "log:text-match" || first.Next == nil {
+	if err != nil || first.Total != 2 || len(first.Items) != 1 || first.Items[0].ID != "text-match" || first.Next == nil {
 		t.Fatalf("first page: %+v, %v", first, err)
 	}
 	filter.Offset = 1
 	second, err := db.ListPanelLogs(ctx, filter)
-	if err != nil || second.Total != 2 || len(second.Items) != 1 || second.Items[0].ID != "log:code-match" {
+	if err != nil || second.Total != 2 || len(second.Items) != 1 || second.Items[0].ID != "code-match" {
 		t.Fatalf("offset page: %+v, %v", second, err)
 	}
 	filter.Offset, filter.Cursor = 0, first.Next
 	second, err = db.ListPanelLogs(ctx, filter)
-	if err != nil || second.Total != 2 || len(second.Items) != 1 || second.Items[0].ID != "log:code-match" {
+	if err != nil || second.Total != 2 || len(second.Items) != 1 || second.Items[0].ID != "code-match" {
 		t.Fatalf("cursor page: %+v, %v", second, err)
 	}
 	filter.Cursor, filter.Search, filter.SearchCodes = nil, "CORE START", nil
@@ -77,43 +76,34 @@ func TestPanelLogsSearchAlternativesShareTotalsAndPagination(t *testing.T) {
 	}
 }
 
-func TestPanelLogsExposeHistoricalPublicRuntimeContext(t *testing.T) {
+func TestFleetRuntimeHistoryNamesNodesAndFilters(t *testing.T) {
 	ctx := testContext(t)
 	db := openTestStore(t, ctx)
-	now := time.Now().UTC().Add(time.Minute)
-	bundle := trafficBundle{ID: "bundle-panel-logs"}
+	if _, err := enrollTestNode(ctx, db, "node_other", "edge-tokyo", nil); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Add(-time.Hour)
 	observation := runtimeProcess{PID: 4242, StartedAt: now}
-	now = observation.StartedAt.Add(time.Minute)
-	input := runtimeTransitionTestInput(2, RuntimeTransitionUnknown, "termination_result_uncertain", bundle.ID, observation, now.Add(time.Second))
-	input.UncertainSince = &now
-	if err := db.RecordRuntimeTransition(ctx, input); err != nil {
-		t.Fatal(err)
+	for index, input := range []RuntimeTransitionInput{
+		runtimeTransitionTestInput(1, RuntimeTransitionRunning, "start_requested", "bundle-a", observation, now.Add(time.Second)),
+		runtimeTransitionTestInput(2, RuntimeTransitionFailed, "process_exited", "bundle-a", observation, now.Add(2*time.Second)),
+		{NodeID: "node_other", InstanceID: "instance-b", SourceID: 1, State: RuntimeTransitionStopped, Reason: "stop_requested", OccurredAt: now.Add(3 * time.Second)},
+	} {
+		if err := db.RecordRuntimeTransition(ctx, input); err != nil {
+			t.Fatalf("transition %d: %v", index, err)
+		}
 	}
-	page, err := db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{input.Reason}, NodeID: testNodeID})
-	if err != nil || len(page.Items) != 1 {
-		t.Fatalf("panel logs: %+v, %v", page, err)
+	page, err := db.ListFleetRuntimeTransitions(ctx, FleetRuntimeHistoryFilter{Limit: 2})
+	if err != nil || page.Total != 3 || len(page.Items) != 2 || page.Items[0].NodeName != "edge-tokyo" || page.Items[1].Reason != "process_exited" {
+		t.Fatalf("newest first: %+v, %v", page, err)
 	}
-	item := page.Items[0]
-	var metadata map[string]any
-	if err := json.Unmarshal(item.Metadata, &metadata); err != nil {
-		t.Fatal(err)
+	if page, err = db.ListFleetRuntimeTransitions(ctx, FleetRuntimeHistoryFilter{Limit: 2, Offset: 2}); err != nil || len(page.Items) != 1 || page.Items[0].PID != observation.PID {
+		t.Fatalf("second page: %+v, %v", page, err)
 	}
-	if item.Source != "runtime" || item.Status != "unknown" || len(metadata) != 6 || metadata["node_id"] != testNodeID ||
-		metadata["activation_bundle_id"] != bundle.ID || metadata["pid"] != float64(observation.PID) ||
-		metadata["generation"] != float64(input.Generation) || metadata["process_started_at"] != formatTime(*input.ProcessStartedAt) ||
-		metadata["uncertain_since"] != formatTime(now) {
-		t.Fatalf("historical context: %+v, %s", item, item.Metadata)
+	if page, err = db.ListFleetRuntimeTransitions(ctx, FleetRuntimeHistoryFilter{Search: "TOKYO"}); err != nil || page.Total != 1 || page.Items[0].NodeID != "node_other" {
+		t.Fatalf("node name search: %+v, %v", page, err)
 	}
-	if other, err := db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{input.Reason}, NodeID: "node_other"}); err != nil || len(other.Items) != 0 {
-		t.Fatalf("another node's logs: %+v, %v", other, err)
-	}
-	marker := RuntimeTransitionInput{NodeID: testNodeID, InstanceID: "instance-a", SourceID: 1, State: RuntimeTransitionUnknown,
-		Reason: "history_initialized", OccurredAt: now, UncertainSince: &now}
-	if err := db.RecordRuntimeTransition(ctx, marker); err != nil {
-		t.Fatal(err)
-	}
-	page, err = db.ListPanelLogs(ctx, PanelLogFilter{SearchCodes: []string{"history_initialized"}})
-	if err != nil || len(page.Items) != 1 || strings.Contains(string(page.Items[0].Metadata), `"pid"`) {
-		t.Fatalf("missing historical evidence fabricated: %+v, %v", page, err)
+	if page, err = db.ListFleetRuntimeTransitions(ctx, FleetRuntimeHistoryFilter{NodeID: testNodeID, State: RuntimeTransitionFailed, SearchCodes: []string{"process_exited"}}); err != nil || page.Total != 1 {
+		t.Fatalf("node, state and reason: %+v, %v", page, err)
 	}
 }

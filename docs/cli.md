@@ -489,6 +489,20 @@ systemd owns its background lifecycle and restart policy.
 The unit sets a panel-specific supervisor marker; an invocation environment
 inherited from a terminal service does not make a manual panel systemd-managed.
 
+## Restarting the panel
+
+Restart panel in the interface's status line, or `reboot` in its command line,
+restarts a running panel without a service manager. The panel stops the way
+`server stop` stops it, then runs its program again in the same process: the
+executable path it started from, with the same arguments and environment. It
+keeps its process ID, so this works in a terminal, in a container and under a
+system or user unit alike, and the binary an update replaced is the one that
+runs. Nodes and their cores keep running, and reconnect once the panel is back.
+A restart is refused while an update of the panel runs or is staged, since the
+update restarts the panel itself. If running the program again fails, the panel
+exits with an error for its supervisor to act on. `GET /api/v1/system/status`
+reports `started_at`, which changes with every restart.
+
 ## Instance files and cleanup
 
 ```sh

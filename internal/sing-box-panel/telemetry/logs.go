@@ -55,7 +55,11 @@ type LogClearRequest struct {
 
 type LogClearResult struct {
 	Deleted int64 `json:"deleted"`
+	// FreedBytes is how much smaller the log's files on disk became.
+	FreedBytes int64 `json:"freed_bytes"`
 }
+
+type LogUsage = store.LogUsage
 
 type LogDeleteResult struct {
 	ID      string `json:"id"`
@@ -118,8 +122,15 @@ func (application *Service) TailLogs(ctx context.Context, request LogTailRequest
 	})
 }
 
-// ClearLogs and DeleteLog are transport-neutral explicit deletion primitives.
+// ClearLogs deletes the entries the request selects, shrinks the log's files
+// on disk and records one entry saying how many it deleted and how many bytes
+// that freed. ClearLogs and DeleteLog are transport-neutral explicit deletion
+// primitives.
 func (application *Service) ClearLogs(ctx context.Context, request LogClearRequest) (LogClearResult, error) {
+	before, err := application.database.LogUsage(ctx)
+	if err != nil {
+		return LogClearResult{}, err
+	}
 	deleted, err := application.database.ClearLogEntries(ctx, store.LogClearFilter{
 		Source: request.Source,
 		Before: request.Before,
@@ -127,7 +138,24 @@ func (application *Service) ClearLogs(ctx context.Context, request LogClearReque
 	if err != nil {
 		return LogClearResult{}, err
 	}
-	return LogClearResult{Deleted: deleted}, nil
+	if err := application.database.CompactLogs(ctx); err != nil {
+		return LogClearResult{}, err
+	}
+	after, err := application.database.LogUsage(ctx)
+	if err != nil {
+		return LogClearResult{}, err
+	}
+	result := LogClearResult{Deleted: deleted, FreedBytes: max(0, before.Bytes-after.Bytes)}
+	application.RecordEvent(LogRecordRequest{
+		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "logs.cleared", Message: "Panel log cleared",
+		Metadata: LogMetadata(map[string]any{"deleted": result.Deleted, "freed_bytes": result.FreedBytes}),
+	})
+	return result, nil
+}
+
+// LogUsage reports the log's entries and the size of its files on disk.
+func (application *Service) LogUsage(ctx context.Context) (LogUsage, error) {
+	return application.database.LogUsage(ctx)
 }
 
 func (application *Service) DeleteLog(ctx context.Context, entryID string) (LogDeleteResult, error) {

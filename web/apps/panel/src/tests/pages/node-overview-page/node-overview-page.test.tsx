@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { TelemetryState } from '@/components/node-workspace';
-import type { DashboardStreamSnapshot, MetricsSnapshot, PanelLog } from '@/api/api-client';
+import type { DashboardStreamSnapshot, LogEntry, MetricsSnapshot } from '@/api/api-client';
 
 import i18n from '@/i18n';
 import { CurrentNodeContext } from '@/stores/current-node.store';
@@ -17,10 +17,10 @@ import {
   testRuntimeStatus,
 } from '@/tests/api/mock-api-client';
 
-const activityEntry: PanelLog = {
-  id: 'runtime:recovered', time: new Date(2026, 9, 16, 16, 20).toISOString(),
-  source: 'runtime', level: 'info', code: 'recovery_succeeded', message: 'recovery_succeeded',
-  status: 'running', metadata: {},
+const activityEntry: LogEntry = {
+  id: 'log_started', time: new Date(2026, 9, 16, 16, 20).toISOString(),
+  source: 'panel', level: 'info', code: 'runtime.start.completed', message: 'Core start completed',
+  metadata: { node_id: 'node_edge' },
 };
 
 afterEach(async () => {
@@ -168,16 +168,16 @@ describe('dashboard evidence', () => {
       ], total: 2 },
     } });
     const activity = screen.getByRole('region', { name: 'Recent activity' });
-    const recovered = within(activity).getByRole('link', { name: /Core recovered/ });
-    expect(within(recovered).getByText('INFO')).toBeVisible();
-    expect(recovered.querySelector('time')).toHaveAttribute('datetime', activityEntry.time);
+    const started = within(activity).getByRole('link', { name: /Core start operation completed/ });
+    expect(within(started).getByText('INFO')).toBeVisible();
+    expect(started.querySelector('time')).toHaveAttribute('datetime', activityEntry.time);
     for (const link of within(activity).getAllByRole('link')) {
       expect(link).toHaveAttribute('href', `/logs?node=${testNode.id}`);
     }
     expect(within(activity).getByRole('link', { name: /Automatic recovery attempt started/ })).toHaveTextContent('WARN');
 
     await act(() => i18n.changeLanguage('zh-CN'));
-    expect(within(activity).getByRole('link', { name: /核心已恢复/ })).toBeVisible();
+    expect(within(activity).getByRole('link', { name: /核心启动操作完成/ })).toBeVisible();
     expect(within(activity).getByRole('link', { name: /开始尝试自动恢复核心/ })).toBeVisible();
     act(() => store.setState({ dashboardSnapshot: {
       ...testDashboardSnapshot,
@@ -198,7 +198,7 @@ describe('dashboard evidence', () => {
       ...testDashboardSnapshot,
       activity: { items: [{ ...activityEntry, time }], total: 1 },
     } });
-    const link = screen.getByRole('link', { name: /Core recovered/ });
+    const link = screen.getByRole('link', { name: /Core start operation completed/ });
     expect(link.querySelector('time')).toHaveAttribute('datetime', time);
     expect(link.querySelector('time')?.textContent).toBe(label);
   });
@@ -211,7 +211,7 @@ describe('dashboard evidence', () => {
       collected_at: new Date(2026, 9, 16, 16, 21).toISOString(),
       activity: { items: [activityEntry], total: 1 },
     } });
-    const time = screen.getByRole('link', { name: /Core recovered/ }).querySelector('time');
+    const time = screen.getByRole('link', { name: /Core start operation completed/ }).querySelector('time');
     const timeline = screen.getByRole('region', { name: 'Runtime timeline' });
     const ticks = Array.from(timeline.querySelectorAll('time'), tick => tick.dateTime);
     expect(time?.textContent).toBe('16:20');

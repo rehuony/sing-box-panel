@@ -316,6 +316,26 @@ paths:
           $ref: "#/components/responses/SystemStatus"
         default:
           $ref: "#/components/responses/Problem"
+  /system/restart:
+    post:
+      operationId: restartSystem
+      description: >-
+        Restarts the panel: once this request is answered the panel stops the
+        way a stop does and runs its program again in the same process, so
+        the connection ends. The answer carries the start of the stopping
+        process; getSystemStatus reports a later started_at once the panel is
+        back. Refused while an update of the panel runs or is staged, since
+        the update restarts the panel itself, and where the panel cannot
+        restart itself.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "202":
+          $ref: "#/components/responses/SystemRestart"
+        "409":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
   /system/update:
     get:
       operationId: getSystemUpdate
@@ -838,6 +858,41 @@ paths:
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
+  /fleet/runtime/history:
+    get:
+      operationId: listFleetRuntimeHistory
+      summary: Every node's runtime transitions, newest first
+      description: The runtime history the nodes reported, with each transition's node, paged by offset.
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/RuntimeTransitionStateFilter"
+        - name: node_id
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 128}
+          description: Keeps only this node's transitions.
+        - name: search
+          in: query
+          schema: {type: string, maxLength: 256}
+          description: Case-insensitive substring of the node's name or of the reason. Combined with search_codes using OR.
+        - name: search_codes
+          in: query
+          description: Exact reasons matching translated reason names. ORed with search, then intersected with the other filters before counting and pagination.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 256
+            items: {type: string, maxLength: 128, pattern: '^[a-z][a-z0-9_.-]*$'}
+      responses:
+        "200":
+          description: A page of the runtime history across nodes.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FleetRuntimeHistoryPage'}
+        default:
+          $ref: "#/components/responses/Problem"
   /nodes:
     get:
       operationId: listNodes
@@ -1625,7 +1680,7 @@ paths:
   /logs/panel:
     get:
       operationId: listPanelLogs
-      summary: Panel events and runtime transitions, newest first
+      summary: Panel log entries, newest first
       parameters:
         - $ref: "#/components/parameters/PageOffset"
         - $ref: '#/components/parameters/LogLevel'
@@ -1645,24 +1700,32 @@ paths:
         - name: node_id
           in: query
           schema: {type: string, maxLength: 128}
-          description: Keeps only the entries about this node, such as its runtime transitions and the operations on it.
+          description: Keeps only the entries about this node, such as the operations on it and its connections.
         - name: search_codes
           in: query
-          description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 64 KiB, allowing the full code range even with percent encoding.
+          description: Exact event codes matching translated event names. ORed with search, then intersected with other filters before counting and pagination. The complete encoded query is limited to 128 KiB, allowing the full code range even with percent encoding.
           style: form
           explode: false
           schema:
             type: array
             minItems: 1
-            maxItems: 128
+            maxItems: 256
             items: {type: string, maxLength: 128, pattern: '^[a-z][a-z0-9_.-]*$'}
       responses:
         '200':
-          description: Panel activity and runtime transition history.
+          description: A page of the panel log.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/PanelLogPage'}
         default: {$ref: '#/components/responses/Problem'}
+  /logs/usage:
+    get:
+      operationId: getLogUsage
+      responses:
+        "200":
+          $ref: "#/components/responses/LogUsage"
+        default:
+          $ref: "#/components/responses/Problem"
   /logs:
     get:
       operationId: listLogs
@@ -1682,6 +1745,10 @@ paths:
           $ref: "#/components/responses/Problem"
     delete:
       operationId: clearLogs
+      description: >-
+        Deletes the log entries the filters select, then shrinks the log
+        database's files on disk and records one logs.cleared entry with the
+        number deleted and the bytes freed. Runtime history is not affected.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
         - $ref: "#/components/parameters/LogSource"
@@ -2259,8 +2326,11 @@ components:
       description: Current management session.
       content: {application/json: {schema: {$ref: "#/components/schemas/Session"}}}
     SystemStatus:
-      description: The panel's build and platform.
+      description: The panel's build and platform, and when its process started.
       content: {application/json: {schema: {$ref: "#/components/schemas/SystemStatus"}}}
+    SystemRestart:
+      description: The restart is requested; the panel stops once this answer is sent.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SystemRestart"}}}
     SystemUpdate:
       description: The panel's version, the newest release it knows and the state of its update.
       content: {application/json: {schema: {$ref: "#/components/schemas/SystemUpdate"}}}
@@ -2328,8 +2398,11 @@ components:
       description: Page of sanitized durable logs.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogPage"}}}
     LogClearResult:
-      description: Count of deleted log entries.
+      description: Count of deleted log entries and the bytes clearing freed.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogClearResult"}}}
+    LogUsage:
+      description: The log's entries and the size of its files on disk.
+      content: {application/json: {schema: {$ref: "#/components/schemas/LogUsage"}}}
     LogEntry:
       description: Sanitized durable log entry.
       content: {application/json: {schema: {$ref: "#/components/schemas/LogEntry"}}}
@@ -2792,16 +2865,16 @@ components:
           minimum: 1
           maximum: 1024
           default: 32
-        panel_log_retention_days:
+        runtime_history_retention_days:
           type: integer
           minimum: 1
           maximum: 3650
           default: 90
           description: >-
-            Days the panel keeps its log entries and each node's runtime
-            history; a daily pass deletes older ones, keeping each node
-            instance's newest runtime transition. Omitted writes preserve the
-            saved policy.
+            Days the panel keeps each node's runtime history; a daily pass
+            deletes older transitions, keeping each node instance's newest.
+            The panel log is kept until it is cleared. Omitted writes preserve
+            the saved policy.
     PanelSettingsView:
       type: object
       additionalProperties: false
@@ -2898,7 +2971,7 @@ components:
     SystemStatus:
       type: object
       additionalProperties: false
-      required: [platform, panel_version]
+      required: [platform, panel_version, started_at]
       properties:
         platform:
           type: object
@@ -2908,6 +2981,19 @@ components:
             os: {type: string}
             arch: {type: string}
         panel_version: {type: string}
+        started_at:
+          type: string
+          format: date-time
+          description: When this panel process started; a restart changes it.
+    SystemRestart:
+      type: object
+      additionalProperties: false
+      required: [started_at]
+      properties:
+        started_at:
+          type: string
+          format: date-time
+          description: When the process that is stopping started.
     CreatedAtCursor:
       type: object
       additionalProperties: false
@@ -2991,6 +3077,29 @@ components:
         next: {$ref: "#/components/schemas/RuntimeTransitionCursor"}
         preceding: {$ref: "#/components/schemas/RuntimeTransition"}
         history_started_at: {type: string, format: date-time}
+    NodeRuntimeTransition:
+      type: object
+      additionalProperties: false
+      required: [node_id, node_name, id, state, reason, occurred_at]
+      properties:
+        node_id: {type: string}
+        node_name: {type: string}
+        id: {type: integer, format: int64, minimum: 1}
+        state: {type: string, enum: [running, stopped, failed, unknown]}
+        reason: {type: string}
+        activation_bundle_id: {type: string}
+        generation: {type: integer, format: int64, minimum: 0}
+        pid: {type: integer, minimum: 1}
+        process_started_at: {type: string, format: date-time}
+        occurred_at: {type: string, format: date-time}
+        uncertain_since: {type: string, format: date-time}
+    FleetRuntimeHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        total: {type: integer, minimum: 0, description: Total matching transitions before offset pagination.}
+        items: {type: array, items: {$ref: '#/components/schemas/NodeRuntimeTransition'}}
     ExactCoreVersion:
       type: string
       pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -3695,28 +3804,13 @@ components:
           description: If true, discard the previous display; this chunk starts at byte zero of a new generation.
         next_offset: {type: integer, format: int64, minimum: 0}
         size: {type: integer, format: int64, minimum: 0}
-    PanelLog:
-      type: object
-      additionalProperties: false
-      required: [id, time, source, level, code, message, status, metadata]
-      properties:
-        id: {type: string}
-        time: {type: string, format: date-time}
-        source: {type: string, enum: [runtime, panel, core, security]}
-        level: {type: string, enum: [trace, debug, info, warn, error, fatal]}
-        code: {type: string}
-        message: {type: string}
-        status: {type: string}
-        metadata:
-          allOf: [{$ref: '#/components/schemas/DynamicObject'}]
-          description: Sanitized recorded context. Runtime transitions include available pid, process_started_at, generation, activation_bundle_id and uncertain_since; internal process identity tokens are excluded. Operation events may include duration_ms, target identifiers, error_code and a safe error description. Missing historical context is not reconstructed from current state.
     PanelLogPage:
       type: object
       additionalProperties: false
       required: [items, total]
       properties:
-        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
-        items: {type: array, items: {$ref: '#/components/schemas/PanelLog'}}
+        total: {type: integer, minimum: 0, description: Total matching entries before cursor or offset pagination.}
+        items: {type: array, items: {$ref: '#/components/schemas/LogEntry'}}
         next: {$ref: '#/components/schemas/LogCursor'}
     LogEntry:
       type: object
@@ -3747,9 +3841,25 @@ components:
     LogClearResult:
       type: object
       additionalProperties: false
-      required: [deleted]
+      required: [deleted, freed_bytes]
       properties:
         deleted: {type: integer, format: int64, minimum: 0}
+        freed_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How much smaller the log database's files became.
+    LogUsage:
+      type: object
+      additionalProperties: false
+      required: [entries, bytes]
+      properties:
+        entries: {type: integer, format: int64, minimum: 0}
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Size of the log database file and its write-ahead log on disk.
     LogDeleteResult:
       type: object
       additionalProperties: false

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
@@ -178,14 +179,14 @@ func Clean(ctx context.Context, expected Report) (result CleanupResult, cleanErr
 	}
 	for _, child := range children {
 		name := child.Name()
-		if name != settingsEntry && (name == procctl.LeaseFileName || name == "panel.db" || name == "panel.db-wal" || name == "panel.db-shm") {
+		if name != settingsEntry && (name == procctl.LeaseFileName || slices.Contains(databaseFiles, name)) {
 			continue
 		}
 		if err := tree.remove(root, name, name); err != nil {
 			return result, err
 		}
 	}
-	for _, name := range []string{"panel.db-shm", "panel.db-wal", "panel.db"} {
+	for _, name := range databaseFiles {
 		if name != settingsEntry {
 			if err := tree.remove(root, name, name); err != nil {
 				return result, err

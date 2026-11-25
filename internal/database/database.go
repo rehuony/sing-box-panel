@@ -174,6 +174,34 @@ func Open(ctx context.Context, path string, schema Schema, exclusive bool) (*DB,
 			return nil, err
 		}
 	}
+	db, err := openLocked(ctx, absPath, schema, dataLock)
+	if err != nil {
+		return nil, err
+	}
+	lockOwned = false
+	return db, nil
+}
+
+// OpenBeside opens (or creates) another database of the same service, named
+// name in owner's data directory, under owner's directory lock. It is
+// initialized and verified as Open does; close it before owner.
+func OpenBeside(ctx context.Context, owner *DB, name string, schema Schema) (*DB, error) {
+	if owner == nil || owner.DB == nil {
+		return nil, errors.New("SQLite database is not open")
+	}
+	if name == "" || filepath.Base(name) != name {
+		return nil, fmt.Errorf("SQLite database name %q must be a file name", name)
+	}
+	absPath, err := validatePath(filepath.Join(filepath.Dir(owner.path), name))
+	if err != nil {
+		return nil, err
+	}
+	return openLocked(ctx, absPath, schema, nil)
+}
+
+// openLocked opens the database at absPath once its directory lock, if any,
+// is held. On success the handle owns dataLock; on failure the caller keeps it.
+func openLocked(ctx context.Context, absPath string, schema Schema, dataLock *os.File) (*DB, error) {
 	file, err := os.OpenFile(absPath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create SQLite database file: %w", err)
@@ -210,7 +238,6 @@ func Open(ctx context.Context, path string, schema Schema, exclusive bool) (*DB,
 		return nil, fmt.Errorf("secure SQLite database permissions: %w", err)
 	}
 	ok = true
-	lockOwned = false
 	return db, nil
 }
 

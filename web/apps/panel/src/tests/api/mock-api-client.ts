@@ -452,6 +452,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       .mockResolvedValue({ file: '2026-09-19-000.log', text: '', generation: 'test-generation', next_offset: 0, size: 0 }),
     streamCoreLog: vi.fn<ApiClient['streamCoreLog']>(async function* () {}),
     listPanelLogs: vi.fn<ApiClient['listPanelLogs']>().mockResolvedValue({ items: [], total: 0 }),
+    getLogUsage: vi.fn<ApiClient['getLogUsage']>().mockResolvedValue({ entries: 0, bytes: 0 }),
+    clearPanelLogs: vi.fn<ApiClient['clearPanelLogs']>().mockResolvedValue({ deleted: 0, freed_bytes: 0 }),
+    listFleetRuntimeHistory: vi.fn<ApiClient['listFleetRuntimeHistory']>().mockResolvedValue({ items: [], total: 0 }),
     streamMetrics: vi.fn<ApiClient['streamMetrics']>(async function* (signal) {
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve();
@@ -479,6 +482,10 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getNodeSettings: vi.fn<ApiClient['getNodeSettings']>().mockResolvedValue(testNodeSettings),
     saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(async input => ({ ...input, revision: input.revision + 1 })),
     getSystemUpdate: vi.fn<ApiClient['getSystemUpdate']>().mockResolvedValue(testSystemUpdate),
+    getSystemStatus: vi.fn<ApiClient['getSystemStatus']>().mockResolvedValue({
+      platform: { os: 'linux', arch: 'amd64' }, panel_version: testSystemUpdate.current_version, started_at: '2026-09-19T00:00:00Z',
+    }),
+    restartPanel: vi.fn<ApiClient['restartPanel']>().mockResolvedValue({ started_at: '2026-09-19T00:00:00Z' }),
     checkSystemUpdate: vi.fn<ApiClient['checkSystemUpdate']>().mockResolvedValue(testSystemUpdate),
     startSystemUpdate: vi.fn<ApiClient['startSystemUpdate']>().mockResolvedValue({ ...testSystemUpdate, state: 'updating' }),
     updateNode: vi.fn<ApiClient['updateNode']>().mockResolvedValue({ node_id: 'node-a', version: 'v1.1.0', state: 'staged' }),

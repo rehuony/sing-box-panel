@@ -16,7 +16,7 @@ state=.claude/dev/state
 # The generation names the two storage baselines by a short digest of each
 # baseline migration: later migrations upgrade a generation's data in place.
 baseline() { shasum -a 256 "$1" | cut -c1-6; }
-panel_schema=$(baseline internal/sing-box-panel/store/migrations/0001_baseline.sql)
+panel_schema=$(baseline internal/sing-box-panel/store/migrations/panel/0001_baseline.sql)
 node_schema=$(baseline internal/sing-box-node/store/migrations/0001_baseline.sql)
 generation=p${panel_schema}n${node_schema}
 instance=$state/node-$generation

@@ -11,6 +11,7 @@ import type { CommandVerb } from '@/utils/panel-commands';
 import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
 import { useFleetView } from '@/stores/fleet-view.store';
+import { usePanelRestart } from '@/stores/panel-restart.store';
 import { useCommandSession } from '@/stores/command-session.store';
 import { commandCompletions, commandVerbs, parseCommand, resolveNode, resolveTargets } from '@/utils/panel-commands';
 import {
@@ -24,6 +25,7 @@ import {
 
 import type { ShellScopeState } from './use-shell-scope';
 
+import { runReboot } from './run-restart';
 import { useSignOut } from './use-sign-out';
 import { batchNames, batchNeedsConfirmation, batchWarning, runBatch } from './run-batch';
 
@@ -33,7 +35,8 @@ const CONFIRM_PROMPT: Prompt = { kind: 'confirm' };
  * Runs command lines against the shell. A command that only opens a window,
  * a node or the filtered fleet closes the line and prints nothing; every
  * other command echoes after its prompt and prints its output below. A batch
- * that interrupts, or acts on more than one node, first asks `[y/N]`.
+ * that interrupts, or acts on more than one node, and restarting the panel
+ * first ask `[y/N]`.
  */
 export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   const { t } = useTranslation();
@@ -125,9 +128,17 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
         print(logLine('plain', t('command.batch.confirm', { action: label, count: nodes.length, names: batchNames(nodes, t) })));
         const warning = batchWarning(command.verb, t);
         if (warning) print(logLine('warning', warning));
-        setPending({ action: command.verb, nodes });
+        setPending({ action: command.verb, kind: 'batch', nodes });
         break;
       }
+      case 'reboot':
+        if (usePanelRestart.getState().restarting) {
+          fail(line, t('command.reboot.busy'));
+          break;
+        }
+        print(echo(prompt, line), logLine('plain', t('command.reboot.confirm')));
+        setPending({ kind: 'reboot' });
+        break;
       case 'usage':
         fail(line, t(`command.usage.${command.verb}`));
         break;
@@ -138,18 +149,19 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   }
 
   /**
-   * Only y or yes runs the batch the line asked about; anything else cancels
-   * it. The prompt outlives closing the line, so another batch may have
-   * started since it asked; runBatch then refuses it as busy.
+   * Only y or yes runs what the line asked about; anything else cancels it.
+   * The prompt outlives closing the line, so another batch or restart may
+   * have started since it asked; runBatch and runReboot then refuse it as busy.
    */
   function answer(input: string) {
     const reply = input.trim();
     print(echo(CONFIRM_PROMPT, reply));
-    const batch = pending;
+    const asked = pending;
     setPending(null);
-    if (batch === null) return;
-    if (/^y(?:es)?$/i.test(reply)) void runBatch({ action: batch.action, cache, client, nodes: batch.nodes, t });
-    else print(logLine('muted', t('command.batch.cancelled')));
+    if (asked === null) return;
+    if (!/^y(?:es)?$/i.test(reply)) print(logLine('muted', t('command.batch.cancelled')));
+    else if (asked.kind === 'reboot') void runReboot({ cache, client, t });
+    else void runBatch({ action: asked.action, cache, client, nodes: asked.nodes, t });
   }
 
   function cancel() {

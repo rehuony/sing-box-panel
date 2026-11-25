@@ -1,5 +1,5 @@
 import type { HttpApiContext } from './shared';
-import type { ApiClient, PanelBackup, PanelRestoreResult, PanelSettingsSaveResult, PanelSettingsView, SystemUpdate } from '../api-client';
+import type { ApiClient, PanelBackup, PanelRestoreResult, PanelSettingsSaveResult, PanelSettingsView, SystemRestart, SystemStatus, SystemUpdate } from '../api-client';
 
 export function createPanelSettingsHttpApi(context: HttpApiContext) {
   const { baseUrl, fetcher, request, writeHeaders, writeJSONHeaders } = context;
@@ -12,6 +12,12 @@ export function createPanelSettingsHttpApi(context: HttpApiContext) {
     },
     startSystemUpdate(signal) {
       return request<SystemUpdate>(fetcher, `${baseUrl}/system/update`, { method: 'POST', headers: writeHeaders(), signal });
+    },
+    getSystemStatus(signal) {
+      return request<SystemStatus>(fetcher, `${baseUrl}/system/status`, { method: 'GET', signal });
+    },
+    restartPanel(signal) {
+      return request<SystemRestart>(fetcher, `${baseUrl}/system/restart`, { method: 'POST', headers: writeHeaders(), signal });
     },
     exportPanelBackup(signal) {
       return request<PanelBackup>(fetcher, `${baseUrl}/panel/backup`, { method: 'GET', signal });
@@ -32,5 +38,5 @@ export function createPanelSettingsHttpApi(context: HttpApiContext) {
       return result;
     },
   } satisfies Pick<ApiClient, 'getPanelSettings' | 'savePanelSettings' | 'exportPanelBackup' | 'restorePanelBackup'
-  | 'getSystemUpdate' | 'checkSystemUpdate' | 'startSystemUpdate'>;
+  | 'getSystemUpdate' | 'checkSystemUpdate' | 'startSystemUpdate' | 'getSystemStatus' | 'restartPanel'>;
 }

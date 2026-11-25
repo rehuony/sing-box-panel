@@ -32,7 +32,9 @@ describe('panel commands', () => {
     expect(parseCommand('restart hk-*')).toEqual({ kind: 'batch', target: 'hk-*', verb: 'restart' });
     expect(parseCommand('stop')).toEqual({ kind: 'usage', verb: 'stop' });
     expect(parseCommand('exit')).toEqual({ kind: 'logout' });
-    expect(parseCommand('reboot all')).toEqual({ kind: 'notFound', name: 'reboot' });
+    expect(parseCommand('REBOOT')).toEqual({ kind: 'reboot' });
+    expect(parseCommand('reboot all')).toEqual({ kind: 'usage', verb: 'reboot' });
+    expect(parseCommand('shutdown all')).toEqual({ kind: 'notFound', name: 'shutdown' });
   });
 
   it('resolves targets by name, ID, glob, tag and all', () => {

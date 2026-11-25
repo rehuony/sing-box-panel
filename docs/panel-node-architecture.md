@@ -170,7 +170,7 @@ too, while the node runs.
 | Host facts, metrics, public IP, filesystem | Node, live | The panel keeps bounded metrics history |
 | Traffic counters | Node, cumulative across core restarts in a durable checkpoint | The panel computes each node's deltas, its periods from its own reset day, and its usage against its own quota |
 | Core log files | Node, bounded and sanitized | The panel relays reads on demand and keeps no copy |
-| Panel log and operation outcomes | Panel | Node events are recorded with their node ID |
+| Panel log and operation outcomes | Panel, in its own `logs.db`, kept until cleared | Node events are recorded with their node ID |
 | Subscriptions: node pool and its order, sources, channels, keys, templates | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
 | Node settings: panel endpoint, trust, data directory and identity key; console settings and password hash | Node | — |
@@ -235,7 +235,7 @@ shared read. Streaming the fleet does not
 change how often nodes sample. Traffic counters ride
 on metrics samples. The panel stores each node's last state report, keeping it
 visible while the node is offline, and stores metrics history, traffic periods
-and runtime history per node, with the existing retention settings. It keeps
+and runtime history per node, with their retention settings. It keeps
 each node's latest metrics sample, current period and newest accepted traffic sample
 in memory, updated by every accepted sample, so a fleet snapshot is one query for
 the nodes whatever their number; a period the panel does not hold, after a
@@ -263,7 +263,7 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{node_id}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, panel logs, authentication |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/fleet/runtime/history` (every node's runtime transitions), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{node_id}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, the panel log, restarting the panel, authentication |
 | One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
 
 A fleet command runs the single-node operation on each selected node, at most

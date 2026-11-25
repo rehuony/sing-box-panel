@@ -89,7 +89,7 @@ func (app *Service) RestorePanelBackup(ctx context.Context, input PanelRestoreRe
 		return result, err
 	}
 	// Keep relative paths. Restoring must not run the identity editor.
-	after := append(append([]byte(nil), backup.PanelSettings...), '\n')
+	after := upgradeDocument(append(append([]byte(nil), backup.PanelSettings...), '\n'))
 	if len(after) > MaximumBytes {
 		return result, ErrPanelBackupInvalid
 	}

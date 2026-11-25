@@ -45,6 +45,7 @@ var routes = []route{
 	{http.MethodPost, "/auth/session", "createSession", accessPublic, (*Handler).login},
 	{http.MethodDelete, "/auth/session", "deleteSession", accessSession, (*Handler).logout},
 	{http.MethodGet, "/system/status", "getSystemStatus", accessSession, (*Handler).systemStatus},
+	{http.MethodPost, "/system/restart", "restartSystem", accessSession, (*Handler).restartSystem},
 	{http.MethodGet, "/system/update", "getSystemUpdate", accessSession, (*Handler).systemUpdate},
 	{http.MethodPost, "/system/update", "startSystemUpdate", accessSession, (*Handler).startSystemUpdate},
 	{http.MethodPost, "/system/update/check", "checkSystemUpdate", accessSession, (*Handler).checkSystemUpdate},
@@ -60,6 +61,7 @@ var routes = []route{
 	{http.MethodGet, "/fleet/status", "getFleetStatus", accessSession, (*Handler).fleetStatus},
 	{http.MethodGet, "/fleet/stream", "streamFleetStatus", accessSession, (*Handler).streamFleetStatus},
 	{http.MethodPost, "/fleet/commands", "runFleetCommand", accessSession, (*Handler).fleetCommands},
+	{http.MethodGet, "/fleet/runtime/history", "listFleetRuntimeHistory", accessSession, (*Handler).fleetRuntimeHistory},
 	{http.MethodGet, "/nodes", "listNodes", accessSession, (*Handler).listNodes},
 	{http.MethodPost, "/nodes", "createNode", accessSession, (*Handler).createNode},
 	{http.MethodGet, "/nodes/{nodeId}", "getNode", accessSession, withPathValue("nodeId", (*Handler).getNode)},
@@ -113,6 +115,7 @@ var routes = []route{
 	{http.MethodDelete, "/logs", "clearLogs", accessSession, (*Handler).clearDurableLogs},
 	{http.MethodGet, "/logs/stream", "streamLogs", accessSession, (*Handler).streamDurableLogs},
 	{http.MethodGet, "/logs/panel", "listPanelLogs", accessSession, (*Handler).listPanelLogs},
+	{http.MethodGet, "/logs/usage", "getLogUsage", accessSession, (*Handler).logUsage},
 	{http.MethodGet, "/logs/{logId}", "getLog", accessSession, withPathValue("logId", (*Handler).getDurableLog)},
 	{http.MethodDelete, "/logs/{logId}", "deleteLog", accessSession, withPathValue("logId", (*Handler).deleteDurableLog)},
 

@@ -224,12 +224,12 @@ func migrateDataDirectory(ctx context.Context, settingsPath string, location *se
 		if err := copyDataMoveTree(ctx, source, target); err != nil {
 			return err
 		}
-		for _, name := range []string{"panel.db", "panel.db-wal", "panel.db-shm"} {
+		for _, name := range databaseFiles {
 			if err := os.Remove(filepath.Join(target, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 		}
-		if err := panelDatabase.SnapshotDataFile(ctx, filepath.Join(target, "panel.db")); err != nil {
+		if err := panelDatabase.SnapshotDataFiles(ctx, target); err != nil {
 			return err
 		}
 		moved, err := store.OpenForMigration(ctx, filepath.Join(target, "panel.db"))

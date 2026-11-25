@@ -406,7 +406,10 @@ Existing file fields retain their paths. Web-only preferences are added under
 `panel`, with matching defaults. Hidden subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
 Configuration validation, settings writes and backup restore reject any field
-outside the table below. `config init --force` replaces settings with current
+outside the table below. The one exception is `logs.panel_retention_days` from
+the previous release: its value carries over to
+`nodes.runtime_history_retention_days`, the server rewrites such a file at its
+next start, and `config set` and backup restore write the current shape. `config init --force` replaces settings with current
 defaults, including a new administrator password.
 
 Session Cookie `Secure` follows the active `server.external_origin`: HTTPS enables
@@ -421,6 +424,7 @@ changes take effect after restart.
 | `server.base_path` | Base path | Empty |
 | `nodes.endpoint` | File only | Empty; derived from the server settings |
 | `nodes.trust` | File only | Empty; derived from the server settings |
+| `nodes.runtime_history_retention_days` | Runtime states retention | `90` |
 | `data_dir` | Data directory (absolute path) | Root or XDG data directory |
 | `auth.email` | Administrator email | `admin@example.com` |
 | `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
@@ -431,7 +435,6 @@ changes take effect after restart.
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
-| `logs.panel_retention_days` | Panel log and runtime history retention | `90` |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `system` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
@@ -511,7 +514,8 @@ are not duplicated as independent settings:
 
 ```text
 data_dir/
-  panel.db                # product state, nodes and their configurations, metrics and panel logs
+  panel.db                # product state, nodes and their configurations, metrics and runtime history
+  logs.db                 # the panel log, kept until it is cleared
   node-tls.pem            # key and self-signed certificate for direct node connections (0600)
   artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
@@ -532,12 +536,13 @@ the Web API continues to redact them. Traffic quotas and periods are not panel
 settings: each node has its own; see
 [Limited monitoring and traffic](subscriptions-and-observability.md#limited-monitoring-and-traffic).
 
-Raw sample/core-log retention, appearance, language, GitHub token and catalog refresh policy
+Raw sample, runtime history and core-log retention, appearance, language, GitHub token and catalog refresh policy
 are applied after saving. Background cleanup/refresh workers receive change
 notifications and read consistent snapshots. The shared metrics state refreshes
 once after saving, then continues over SSE. Credentials invalidate old sessions.
 Listener host/port, base path, origin, secure cookies and data directory are bound
-to the running HTTP service and require a manual panel restart, shown in the UI.
+to the running HTTP service and require a panel restart, shown in the UI; see
+[Restarting the panel](cli.md#restarting-the-panel).
 Changing `data_dir` requests relocation on the next explicit start/restart; saving
 does not interrupt the service or change the running sing-box process.
 
@@ -603,7 +608,7 @@ settings unchanged. The settings journal and SQLite commit marker make
 restoration atomic and recover interrupted writes.
 
 Restore refreshes settings. A changed administrator email or password hash
-requires signing in again; listener/path changes require a manual restart.
+requires signing in again; listener/path changes require a panel restart.
 Relative panel data paths resolve beside the target settings file.
 
 ### Data directory changes

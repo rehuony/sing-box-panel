@@ -63,13 +63,23 @@ const (
 	NodeTrustSystem = "system"
 )
 
-// Nodes overrides how enrollment codes tell nodes to reach the panel. Nodes
-// connect to the Web listener; empty fields follow the server settings.
+// Nodes overrides how enrollment codes tell nodes to reach the panel, and
+// holds how long the panel keeps each node's runtime history. Nodes connect
+// to the Web listener; empty endpoint and trust follow the server settings.
 type Nodes struct {
 	// Endpoint is the host:port that nodes dial.
 	Endpoint string `json:"endpoint"`
 	// Trust is NodeTrustPin, NodeTrustSystem or empty.
 	Trust string `json:"trust"`
+	// RuntimeHistoryRetentionDays is how long the panel keeps each node's
+	// runtime history.
+	RuntimeHistoryRetentionDays int `json:"runtime_history_retention_days"`
+}
+
+// defaultNodes is the node policy of a new settings file and of a file that
+// omits a node setting.
+func defaultNodes() Nodes {
+	return Nodes{RuntimeHistoryRetentionDays: 90}
 }
 
 // NodeEndpoint returns the host:port that enrollment codes name:
@@ -133,15 +143,12 @@ type Logs struct {
 	CoreRetentionDays  int `json:"core_retention_days"`
 	CoreMaxFiles       int `json:"core_max_files"`
 	CoreMaxFileSizeMiB int `json:"core_max_file_size_mib"`
-	// PanelRetentionDays is how long the panel keeps its log entries and
-	// each node's runtime history.
-	PanelRetentionDays int `json:"panel_retention_days"`
 }
 
 // defaultLogs is the log retention of a new settings file and of a file
 // that omits a log setting.
 func defaultLogs() Logs {
-	return Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32, PanelRetentionDays: 90}
+	return Logs{CoreRetentionDays: 7, CoreMaxFileSizeMiB: 32}
 }
 
 // Defaults returns safe defaults for the current effective user.
@@ -150,6 +157,7 @@ func Defaults() Settings {
 	return Settings{
 		Panel:   DefaultPanel(),
 		Server:  Server{Host: "127.0.0.1", Port: 3000},
+		Nodes:   defaultNodes(),
 		DataDir: dataDir,
 		GitHub:  GitHub{CatalogRefreshIntervalHours: 12},
 		Traffic: Traffic{SampleRetentionDays: 90},
@@ -205,8 +213,8 @@ func parse(path string, data []byte) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Logs: defaultLogs()}
-	if err := settingsfile.Decode(path, data, &value); err != nil {
+	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Nodes: defaultNodes(), Logs: defaultLogs()}
+	if err := settingsfile.Decode(path, upgradeDocument(data), &value); err != nil {
 		return Settings{}, err
 	}
 	value.DataDir, err = settingsfile.ResolveDataDir(path, value.DataDir)
@@ -297,9 +305,6 @@ func (value Settings) Validate() error {
 	if value.Logs.CoreRetentionDays < 1 || value.Logs.CoreRetentionDays > 3650 || value.Logs.CoreMaxFiles < 0 || value.Logs.CoreMaxFiles > 1024 || value.Logs.CoreMaxFileSizeMiB < 1 || value.Logs.CoreMaxFileSizeMiB > 1024 {
 		return errors.New("core log retention must be 1–3650 days, 0–1024 files and 1–1024 MiB per file")
 	}
-	if value.Logs.PanelRetentionDays < 1 || value.Logs.PanelRetentionDays > 3650 {
-		return errors.New("logs.panel_retention_days must be between 1 and 3650")
-	}
 	if runtime.GOOS == "windows" {
 		return errors.New("Windows is not supported")
 	}
@@ -307,6 +312,9 @@ func (value Settings) Validate() error {
 }
 
 func (value Settings) validateNodes() error {
+	if value.Nodes.RuntimeHistoryRetentionDays < 1 || value.Nodes.RuntimeHistoryRetentionDays > 3650 {
+		return errors.New("nodes.runtime_history_retention_days must be between 1 and 3650")
+	}
 	if value.Nodes.Endpoint != "" {
 		if err := nodeapi.ValidEndpoint(value.Nodes.Endpoint); err != nil {
 			return fmt.Errorf("nodes.endpoint must be a host:port address: %w", err)

@@ -156,7 +156,7 @@ README.
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
 session, the fleet and node enrollment, panel settings, subscription
-publication, panel logs and the core catalog. Everything about one node goes
+publication, the panel log and runtime states, the panel's restart and the core catalog. Everything about one node goes
 through `/api/v1/nodes/{nodeId}/…`: the node workspace gives its pages a client
 scoped to that node, so its cores, configuration, runtime, logs, telemetry and
 settings never reach another node. Cookie-backed writes retain the session CSRF
@@ -262,9 +262,10 @@ Live chart samples preserve gaps and never contribute to accounted traffic total
 The runtime timeline keeps 48 half-hour segments with time marks anchored to the
 overview snapshot, including dates at both endpoints. Narrow cards retain the
 start, midpoint and end marks. Segment tooltips expose the complete interval and
-observed state on hover or keyboard focus. Recent activity keeps two compact rows
-with the same localized event names and severity badges as panel logs. Each row
-opens the panel logs page; its tooltip exposes the full name and occurrence time.
+observed state on hover or keyboard focus. Recent activity keeps the node's two
+newest panel log entries in compact rows, with the same localized event names
+and severity badges as the panel log. Each row opens the panel log filtered to
+the node; its tooltip exposes the full name and occurrence time.
 Activity times include dates for earlier days and years for earlier years, and
 update at local midnight independently of delayed runtime snapshots.
 
@@ -310,8 +311,8 @@ The shell is one scrolling content region with a status line below it. The
 status line leads back to the fleet (`fleet`, the same in every scope), lists
 the scope's windows as numbered tabs (`1 nodes` to
 `4 settings`, or a node's `1 overview` to `5 settings`), shows the fleet
-readout and the panel's update, and carries the theme cycle, language menu and
-sign-out; below 640px it is a tab bar along the window's foot with a more
+readout and the panel's update, and carries the theme cycle, language menu,
+the panel's restart and sign-out; below 640px it is a tab bar along the window's foot with a more
 menu. Window names are command words in every language; their tooltips and
 accessible names are translated. Pages omit a visible title band while
 retaining a screen reader heading: every view starts with one title strip
@@ -323,8 +324,8 @@ the status line, keeping their actions reachable.
 Ctrl or Cmd+K, `:` outside fields and dialogs, or the status line's prompt
 action opens the command line (`components/status-line`). It parses commands
 in `utils/panel-commands.ts` (`help`, `clear`, `logout`, window numbers,
-`open`, `goto`, `filter`, and `start`, `stop`, `restart` and `update` on a name,
-a glob, `tag:<tag>` or `all`), completes the word under the caret, and prints to
+`open`, `goto`, `filter`, `start`, `stop`, `restart` and `update` on a name,
+a glob, `tag:<tag>` or `all`, and `reboot`), completes the word under the caret, and prints to
 one output panel above the line that stays until closed. Batches from the
 command line or from selected panes confirm first, run one at a time, stream
 each node's result from `/fleet/commands` into output that keeps room for every
@@ -409,12 +410,20 @@ tab. Tab switches preserve query parameters and route state. Subscription tabs r
 
 ## Panel logs
 
-Panel logs show five centered, single-line columns: occurrence time, level,
-event summary, event source, and a details action. Known event names follow the
-interface language; unknown events retain their original messages. The summary
-contains only the event name, with overflowing text truncated. A read-only modal
-shows the selected record's stable snapshot, recorded context, and collapsible
-JSON, with a Copy log action. Basic information and context sit
+The logs window (`pages/panel-logs-page`) has a log tab and a runtime states
+tab, each its own view with its own search, filter and page, sharing the tabs
+and the node filter, which live in the address (`?view=states`, `?node=`). The
+log shows five centered, single-line columns: occurrence time, level, event
+summary, event source, and a details action; runtime states show occurrence
+time, state, the reason's name, node and a details action. Known event names
+follow the interface language; unknown events retain their original messages.
+The summary contains only the event name, with overflowing text truncated. A
+read-only modal shows the selected record's stable snapshot, recorded context,
+and collapsible JSON, with a copy action. The log's Clear action reads
+`/logs/usage` when its confirmation opens and reports what `DELETE /logs`
+freed. The panel's restart (`components/status-line/run-restart.ts`) is shared
+by the status line's action and `reboot`: one runs at a time, and the page
+polls `/system/status` until `started_at` changes, for at most a minute. Basic information and context sit
 side by side on desktop and stack on narrow screens; the header and actions stay
 visible while the details scroll. Closing it preserves list state and
 restores keyboard focus. Native process output and telemetry use authenticated
