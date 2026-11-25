@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { useId } from 'react';
 import { cn } from '@shared/lib/utils';
@@ -24,15 +24,50 @@ export function SettingsCard({ title, mark, actions, footer, danger, children }:
   const id = useId();
   return (
     <section aria-labelledby={id} className={cn('min-w-0 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]', danger && 'border-[var(--color-danger-border)]')}>
-      <div className='flex h-11 items-center gap-2 border-b ps-4 pe-2'>
-        <h2 className='min-w-0 flex-1 truncate text-sm font-medium' id={id}>{title}</h2>
+      <CardTitleBar id={id} title={title}>
         {mark}
         {actions}
-      </div>
+      </CardTitleBar>
       <FieldGroup className='gap-0 divide-y [--settings-label:9.5rem] *:data-[slot=field]:min-h-14 *:data-[slot=field]:px-4 *:data-[slot=field]:py-2'>
         {children}
       </FieldGroup>
       {footer ? <div className='flex min-h-14 items-center gap-3 border-t px-4 py-2'>{footer}</div> : null}
+    </section>
+  );
+}
+
+function CardTitleBar({ id, title, children }: { id: string; title: string; children?: ReactNode }) {
+  return (
+    <div className='flex h-11 items-center gap-2 border-b ps-4 pe-2'>
+      <h2 className='min-w-0 flex-1 truncate text-sm font-medium' id={id}>{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A settings card whose rows have not arrived: its title bar over a region
+ * as tall as its rows and, with `footer`, its action bar, holding the loading
+ * or error state, so the card keeps its size when the rows replace it. Each
+ * row is 3.5rem with a hairline between rows, the action bar 3.5rem over one.
+ */
+export function SettingsCardState({ title, rows, footer = false, children }: {
+  title: string;
+  rows: number;
+  footer?: boolean;
+  children: ReactNode;
+}) {
+  const id = useId();
+  const bars = footer ? rows + 1 : rows;
+  return (
+    <section aria-labelledby={id} className='min-w-0 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+      <CardTitleBar id={id} title={title} />
+      <div
+        className='flex h-[calc(var(--bars)*3.5rem+var(--bars)*1px-1px)] flex-col'
+        style={{ '--bars': bars } as CSSProperties}
+      >
+        {children}
+      </div>
     </section>
   );
 }

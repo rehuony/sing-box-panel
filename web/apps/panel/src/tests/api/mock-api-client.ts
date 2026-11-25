@@ -479,6 +479,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       });
     }),
     getMetrics: vi.fn<ApiClient['getMetrics']>().mockResolvedValue(testMetrics),
+    getRecentMetrics: vi.fn<ApiClient['getRecentMetrics']>().mockResolvedValue({
+      from: '2026-09-19T00:00:00Z', to: '2026-09-19T00:02:00Z', samples: [], idle: [],
+    }),
     getNodeSettings: vi.fn<ApiClient['getNodeSettings']>().mockResolvedValue(testNodeSettings),
     saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(async input => ({ ...input, revision: input.revision + 1 })),
     getSystemUpdate: vi.fn<ApiClient['getSystemUpdate']>().mockResolvedValue(testSystemUpdate),

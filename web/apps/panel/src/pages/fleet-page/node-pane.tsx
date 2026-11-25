@@ -445,7 +445,7 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected, select
     <article
       aria-label={node.name}
       className={cn(
-        'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact transition-colors duration-[var(--dur-short)] ease-out pointer-coarse:select-none has-[a:focus-visible]:border-primary',
+        'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact cursor-pointer transition-colors duration-[var(--dur-short)] ease-out select-none has-[a:focus-visible]:border-primary',
         selected ? 'border-primary/50 bg-accent' : 'bg-[var(--color-surface-translucent)] hover:border-[var(--color-border-strong)]',
       )}
       onClick={onPaneClick}

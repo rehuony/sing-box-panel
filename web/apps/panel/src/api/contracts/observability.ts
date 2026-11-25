@@ -9,6 +9,7 @@ export type {
   LogUsage,
   NodeRuntimeTransition,
   PanelLogPage,
+  RecentMetrics,
 } from '../generated';
 
 export type LogLevel = LogEntry['level'];

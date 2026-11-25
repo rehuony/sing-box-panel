@@ -35,7 +35,9 @@ const EAGER_PANES = 48;
 /** The tag filter's value for every tag. */
 const ALL_TAGS = '';
 
-const emptyRegion = 'min-h-0 flex-1 rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]';
+/** The card the panes sit on, 16px in and 12px apart, which also holds the region's loading, error and empty states. */
+const paneCard = 'flex flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
+const regionState = 'min-h-0 flex-1';
 
 function counts(items: readonly NodeStatus[]): Record<FleetStateFilter, number> {
   const result = { all: items.length, offline: 0, online: 0 };
@@ -78,9 +80,9 @@ function useEscapeClearsSelection(active: boolean) {
 /**
  * The home screen: a title strip that filters the fleet by state and tag and
  * searches it, the fleet's key figures, then every node as a pane in a grid
- * that scrolls in its own region. The strip stays whole while the fleet loads,
- * fails to load or has no nodes; only the region below it changes, and with
- * no nodes it leads with adding one whatever the filters say.
+ * on one card that scrolls inside it. The strip stays whole while the fleet
+ * loads, fails to load or has no nodes; only what the card holds changes, and
+ * with no nodes it leads with adding one whatever the filters say.
  */
 export function FleetPage() {
   const { i18n, t } = useTranslation();
@@ -137,36 +139,42 @@ export function FleetPage() {
   if (status.isPending) {
     content = <LoadingState label={t('fleet.loading')} fullScreen={false} />;
   } else if (status.data === undefined) {
-    content = <RegionError className={emptyRegion} error={status.error} reload={refresh} title={t('nodes.loadFailed')} />;
+    content = <RegionError className={regionState} error={status.error} reload={refresh} title={t('nodes.loadFailed')} />;
   } else if (!fleet) {
-    content = <RegionState className={emptyRegion} icon={Server} title={t('fleet.empty.title')} />;
+    content = <RegionState className={regionState} icon={Server} title={t('fleet.empty.title')} />;
   } else if (matching.length === 0) {
-    content = <RegionState className={emptyRegion} icon={SearchX} title={t('fleet.noMatch.title')} />;
+    content = <RegionState className={regionState} icon={SearchX} title={t('fleet.noMatch.title')} />;
   } else {
-    content = (
-      <ScrollArea className='min-h-0 flex-1' viewportClassName='flex flex-col gap-3'>
-        {figuresScroll ? figuresCard : null}
-        <ul aria-label={t('nav.nodes')} className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'>
-          {matching.map((item, index) => (
-            // Panes past the first screenful skip layout and paint until they near the view, keeping their height;
-            // the first screenful always paints with the filter change that brought it.
-            <li
-              className={cn('min-w-0', index >= EAGER_PANES && '[contain-intrinsic-size:auto_var(--pane-height)] [content-visibility:auto]')}
-              key={item.node.id}
-            >
-              <NodePane
-                item={item}
-                morph={!reducedMotion}
-                onToggle={onToggle}
-                release={release}
-                selected={selected.has(item.node.id)}
-                selecting={selecting}
-              />
-            </li>
-          ))}
-        </ul>
-      </ScrollArea>
+    const grid = (
+      <ul aria-label={t('nav.nodes')} className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'>
+        {matching.map((item, index) => (
+          // Panes past the first screenful skip layout and paint until they near the view, keeping their height;
+          // the first screenful always paints with the filter change that brought it.
+          <li
+            className={cn('min-w-0', index >= EAGER_PANES && '[contain-intrinsic-size:auto_var(--pane-height)] [content-visibility:auto]')}
+            key={item.node.id}
+          >
+            <NodePane
+              item={item}
+              morph={!reducedMotion}
+              onToggle={onToggle}
+              release={release}
+              selected={selected.has(item.node.id)}
+              selecting={selecting}
+            />
+          </li>
+        ))}
+      </ul>
     );
+    // On a phone the figures and the card scroll together; elsewhere the card stays and the panes scroll inside it.
+    content = figuresScroll
+      ? (
+          <ScrollArea className='min-h-0 flex-1' viewportClassName='flex flex-col gap-3'>
+            {figuresCard}
+            <div className={cn(paneCard, 'grow p-4')}>{grid}</div>
+          </ScrollArea>
+        )
+      : <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>{grid}</ScrollArea>;
   }
 
   // Size containment keeps the panes out of the workspace's height, so the
@@ -221,7 +229,7 @@ export function FleetPage() {
         </div>
       </TitleStrip>
       {figuresScroll ? null : figuresCard}
-      <div className='flex min-h-0 flex-1 flex-col'>{content}</div>
+      <div className={figuresScroll ? 'flex min-h-0 flex-1 flex-col' : cn(paneCard, 'min-h-0 flex-1 overflow-hidden')}>{content}</div>
     </section>
   );
 }

@@ -7,7 +7,8 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   MetricsSnapshot,
   NodeSettings,
   NodeUpdate,
-  PanelLogPage } from '../api-client';
+  PanelLogPage,
+  RecentMetrics } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 import { readJSONEvents } from './event-stream';
@@ -112,6 +113,9 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
         method: 'GET',
         signal,
       });
+    },
+    getRecentMetrics(signal) {
+      return request<RecentMetrics>(fetcher, `${nodeUrl()}/metrics/recent`, { method: 'GET', signal });
     },
     getNodeSettings(signal) {
       return request<NodeSettings>(fetcher, `${nodeUrl()}/settings`, { method: 'GET', signal });

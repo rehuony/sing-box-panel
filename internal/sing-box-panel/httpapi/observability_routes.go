@@ -272,6 +272,20 @@ func (handler *Handler) metricsHistory(w http.ResponseWriter, request *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+// recentMetrics returns the node's stored samples of the last two minutes,
+// which a live chart opens with.
+func (handler *Handler) recentMetrics(w http.ResponseWriter, request *http.Request) {
+	if _, ok := strictCoreQuery(w, request); !ok {
+		return
+	}
+	result, err := handler.services.Telemetry.RecentMetrics(request.Context(), requestNodeID(request))
+	if err != nil {
+		writeProblem(w, request, http.StatusServiceUnavailable, "recent_metrics_unavailable", "Recent metrics unavailable", "The node's recent samples could not be read.")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (handler *Handler) trafficStatus(w http.ResponseWriter, request *http.Request) {
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return

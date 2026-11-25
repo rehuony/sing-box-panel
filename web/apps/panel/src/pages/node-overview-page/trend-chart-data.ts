@@ -29,7 +29,10 @@ function gapLimit(times: number[]): number {
 
 /**
  * The live tail's last two minutes as aligned series, broken across
- * collection gaps. The span starts at the oldest sample it keeps, so no blank
+ * collection gaps. A step to or from a stored sample may also reach one and a
+ * half of that sample's own span, so the stored samples a window opens with,
+ * about ten seconds apart, join each other and the stream's first reading
+ * while the stream's own readings keep their limit. The span starts at the oldest sample it keeps, so no blank
  * strip leads the lines, whether the page opened moments ago or the window's
  * first sample falls a few seconds after its start.
  */
@@ -40,14 +43,16 @@ function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | nul
   const limit = gapLimit(recent.map(point => point.at));
   const times: number[] = [];
   const series = pick.map(() => [] as (number | null)[]);
+  let last: LivePoint | undefined;
   for (const point of recent) {
-    const previous = times.at(-1);
-    if (previous !== undefined && point.at - previous > limit) {
+    const allowed = Math.max(limit, 1.5 * Math.max(point.span ?? 0, last?.span ?? 0));
+    if (last !== undefined && point.at - last.at > allowed) {
       times.push(point.at - 1);
       for (const values of series) values.push(null);
     }
     times.push(point.at);
     pick.forEach((value, index) => series[index]!.push(value(point)));
+    last = point;
   }
   return { times, series, from, to };
 }

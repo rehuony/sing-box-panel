@@ -765,7 +765,7 @@ payloads.
 
 Each node reports its own metrics, traffic and runtime transitions over its
 session, and the panel serves them per node under `/api/v1/nodes/{nodeId}`:
-`metrics`, `metrics/stream`, `metrics/history`, `dashboard/stream`,
+`metrics`, `metrics/stream`, `metrics/recent`, `metrics/history`, `dashboard/stream`,
 `traffic/periods` and `core/runtime/history`. A node that is offline keeps its
 recorded history and traffic; its live views show no current sample.
 
@@ -838,7 +838,13 @@ card over one shared range. That card takes the height the other cards leave,
 so the overview fills the window; below each chart's legible minimum the view
 scrolls instead. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
-time axis. The span starts at the oldest sample it shows, and at least ten
+time axis. The window opens with what `metrics/recent` returns for the last
+two minutes, so re-entering a node or reloading the page shows what came
+before: the node's stored samples, about ten seconds apart and each with the
+rates of the interval ending at it, and the spans in which its runtime history
+shows no core running, drawn as a known zero every ten seconds because a
+stopped core stores no samples. The stream's readings follow at their own
+spacing, and a reading of the same moment replaces the stored one. The span starts at the oldest sample it shows, and at least ten
 seconds before the newest, so no blank strip leads the lines; a time label that
 would run into the vertical axis or past the chart's edge is left out. While
 the node reports its core stopped, each reading is a known zero, so the lines
@@ -847,8 +853,8 @@ leave actual sampling gaps; missing observations are not filled in, and a range
 without any shows empty axes.
 Historical refreshes never replace these samples with bucket averages. The
 one-hour and 24-hour views show only historical one-minute and five-minute
-averages, respectively. Live samples remain in memory
-only and start accumulating again after a page reload. Graph gaps remain gaps.
+averages, respectively. The stream's own readings remain in memory only;
+after a page reload the window starts again from the stored samples. Graph gaps remain gaps.
 The 24-hour runtime strip uses 48 equal
 segments and persisted transitions; unknown intervals are not guessed healthy and
 carry the same fine hatch as an unknown meter.
@@ -861,7 +867,9 @@ bucket at the persistence watermark to subsequent live observations. Explicit
 missing values break the line, and so does a live interval longer than two and
 a half times the stream's usual spacing, never under three seconds, so a
 reconnect or restart shows while a node sampling every few seconds still draws
-a line. Series are monotone cubic curves, which never overshoot their samples;
+a line. A step to or from a stored sample may also reach one and a half of that
+sample's interval, so the stored samples join each other and the stream's first
+reading, while a missing stored sample still breaks the line. Series are monotone cubic curves, which never overshoot their samples;
 small points keep individual live observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;

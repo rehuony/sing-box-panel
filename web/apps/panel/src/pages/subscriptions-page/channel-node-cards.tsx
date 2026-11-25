@@ -188,7 +188,7 @@ export function ChannelMatchedCards({ nodes }: { nodes: readonly SubscriptionNod
       </h3>
       <ul className={candidateGrid}>
         {nodes.map(node => (
-          <li aria-label={node.display_name} className={cn(candidateFace, 'bg-[var(--color-surface-translucent)]')} key={node.id}>
+          <li aria-label={node.display_name} className={cn(candidateFace, 'bg-[var(--color-surface-translucent)] select-none')} key={node.id}>
             <PoolNodeCardContent node={node} />
           </li>
         ))}

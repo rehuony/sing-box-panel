@@ -33,7 +33,7 @@ import { useCurrentNode } from '@/stores/current-node.store';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 import { useEnrollmentDialog } from '@/stores/enrollment-dialog.store';
-import { SettingsCard, SettingsField } from '@/components/settings-field';
+import { SettingsCard, SettingsCardState, SettingsField } from '@/components/settings-field';
 
 interface Draft {
   name: string;
@@ -240,7 +240,9 @@ function ProfileCard({ node }: { node: FleetNode }) {
     ? t('node.version.lastFailed', { version: last.version, code: last.code })
     : node.update_available ? t('node.version.available') : t('node.version.current');
   const value = 'font-[family-name:var(--font-data)] text-compact';
-  const meta = 'min-w-0 truncate text-compact text-[var(--color-text-faint)]';
+  // A value's detail sits on a line of its own below it; each line keeps to one line and shows all on hover.
+  const stacked = 'flex min-w-0 flex-1 flex-col *:truncate';
+  const meta = 'text-xs text-muted-foreground';
   return (
     <SettingsCard title={t('node.profile.title')}>
       <SettingsField id='node-hostname' label={t('node.profile.hostname')}>
@@ -254,8 +256,8 @@ function ProfileCard({ node }: { node: FleetNode }) {
       </SettingsField>
       <SettingsField id='node-version' label={t('node.version.title')}>
         <div className='flex min-h-10 items-center gap-3'>
-          <output className='flex min-w-0 flex-1 items-baseline gap-2' id='node-version'>
-            <span className={value}>{node.build_version || '—'}</span>
+          <output className={stacked} id='node-version'>
+            <span className={value} title={node.build_version || undefined}>{node.build_version || '—'}</span>
             <span className={meta} title={versionDetail}>{versionDetail}</span>
           </output>
           {node.update_available && (
@@ -270,7 +272,7 @@ function ProfileCard({ node }: { node: FleetNode }) {
       </SettingsField>
       <SettingsField help={t('node.danger.reenrollDescription')} id='node-enrolled' label={t('node.profile.enrolled')}>
         <div className='flex min-h-10 items-center gap-3'>
-          <output className='flex min-w-0 flex-1 items-baseline gap-2' id='node-enrolled'>
+          <output className={stacked} id='node-enrolled'>
             <time className={value} dateTime={node.enrolled_at}>{formatDateTime(node.enrolled_at, locale) || '—'}</time>
             {node.created_at && node.created_at !== node.enrolled_at && (
               <span className={meta}>{t('node.profile.firstEnrolled', { time: formatDateTime(node.created_at, locale) })}</span>
@@ -379,11 +381,12 @@ export function NodeSettingsPage() {
         {settings.data
           ? <SettingsForm key={`${settings.data.revision}:${node.name}`} node={node} settings={settings.data} />
           : (
-              <div className='flex min-h-80 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
+              // As tall as the form's six rows and action bar, so nothing moves when they arrive.
+              <SettingsCardState footer rows={6} title={t('node.settings.title')}>
                 {settings.isError
-                  ? <RegionError error={settings.error} reload={() => void settings.refetch()} title={t('node.settings.unavailable')} />
-                  : <LoadingState className='min-h-80' label={t('node.settings.loading')} fullScreen={false} />}
-              </div>
+                  ? <RegionError className='min-h-0 flex-1' error={settings.error} reload={() => void settings.refetch()} title={t('node.settings.unavailable')} />
+                  : <LoadingState className='min-h-0 flex-1' label={t('node.settings.loading')} fullScreen={false} />}
+              </SettingsCardState>
             )}
       </div>
       <div className='flex min-w-0 flex-col gap-3'>

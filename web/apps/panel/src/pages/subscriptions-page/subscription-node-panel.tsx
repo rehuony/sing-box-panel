@@ -36,8 +36,8 @@ import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { ALL_ORIGINS, ALL_PROTOCOLS, FLEET_ORIGIN, matchesNode, originFilter } from './subscription-node-pool';
 
 const orderMutationKey = ['subscription-node-order'];
-/** The region the pool's empty and failed states take: one card where the grid would be. */
-const stateCard = 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
+/** The card the pool's nodes sit on, 16px in and 12px apart, which also holds its loading, failed and empty states. */
+const poolCard = 'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
 
 /**
  * The fleet nodes that publish nothing or leave out some of their inbounds,
@@ -184,26 +184,14 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
   if (list.isPending) {
     content = <SubscriptionContentState loading />;
   } else if (list.data === undefined) {
-    content = (
-      <div className={stateCard}>
-        <RegionError className='flex-1' error={list.error} reload={() => void list.refetch()} title={t('subscriptions.pool.loadFailed')} />
-      </div>
-    );
+    content = <RegionError className='flex-1' error={list.error} reload={() => void list.refetch()} title={t('subscriptions.pool.loadFailed')} />;
   } else if (ordered.length === 0) {
-    content = (
-      <div className={stateCard}>
-        <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')} />
-      </div>
-    );
+    content = <SubscriptionContentState kind='nodes' title={t('subscriptions.pool.empty')} />;
   } else if (shown.length === 0) {
-    content = (
-      <div className={stateCard}>
-        <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')} />
-      </div>
-    );
+    content = <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')} />;
   } else {
     content = (
-      <ScrollArea className='min-h-0 flex-1'>
+      <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>
         <SubscriptionNodeSortContext
           instructions={t('subscriptions.pool.dragInstructions')}
           items={shown.map(node => ({ id: node.id, label: node.display_name }))}
@@ -311,7 +299,7 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
             />
           ))}
         </Rail>
-        <div className='flex min-h-0 min-w-0 flex-col'>{content}</div>
+        <div className={poolCard}>{content}</div>
       </div>
       <SourceDialogs mode={sourceDialog} onModeChange={setSourceDialog} />
       {opened ? <SubscriptionNodeDialog key={opened.id} node={opened} onClose={() => setOpened(null)} /> : null}

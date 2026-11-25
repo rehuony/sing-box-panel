@@ -22,6 +22,7 @@ import type {
   NodeSettings,
   PanelLogFilter,
   PanelLogPage,
+  RecentMetrics,
 } from './contracts/observability';
 import type {
   CatalogRefresh,
@@ -130,8 +131,8 @@ export interface ApiClient {
   getMetrics: (signal?: AbortSignal) => Promise<MetricsSnapshot>;
   /** Asks the panel to restart; it answers with the start of the process that stops. */
   restartPanel: (signal?: AbortSignal) => Promise<SystemRestart>;
-
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
+
   getNodeSettings: (signal?: AbortSignal) => Promise<NodeSettings>;
   /** The panel's build and platform, and when its process started. */
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
@@ -141,10 +142,12 @@ export interface ApiClient {
   /** Deletes every log entry and shrinks the log's files; runtime states stay. */
   clearPanelLogs: (signal?: AbortSignal) => Promise<LogClearResult>;
   exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
-
   subscribeSessionInvalidated: (listener: () => void) => () => void;
+
   /** Asks GitHub for the newest stable release now. */
   checkSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
+  /** The node's stored samples of the last two minutes, oldest first, which the live chart opens with. */
+  getRecentMetrics: (signal?: AbortSignal) => Promise<RecentMetrics>;
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   /** Starts updating the panel in the background; the panel then restarts. */
   startSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;

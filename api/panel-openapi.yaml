@@ -1857,6 +1857,17 @@ paths:
           $ref: "#/components/responses/MetricsHistory"
         default:
           $ref: "#/components/responses/Problem"
+  /nodes/{nodeId}/metrics/recent:
+    parameters:
+      - $ref: '#/components/parameters/NodeID'
+    get:
+      operationId: getRecentMetrics
+      description: The node's accepted stored samples of the last two minutes, oldest first, so a live chart opens with what came before it, and the spans of those two minutes in which the node's runtime history shows no core running, which hold no samples but are known zero traffic and connections. Samples are stored about every ten seconds whatever the node's live sampling. A read failure returns 503 recent_metrics_unavailable.
+      responses:
+        "200":
+          $ref: "#/components/responses/RecentMetrics"
+        default:
+          $ref: "#/components/responses/Problem"
   /traffic/status:
     get:
       operationId: getTrafficStatus
@@ -2422,6 +2433,9 @@ components:
     MetricsHistory:
       description: Bounded, gap-preserving historical metric buckets.
       content: {application/json: {schema: {$ref: "#/components/schemas/MetricsHistory"}}}
+    RecentMetrics:
+      description: The node's stored samples of the last two minutes.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RecentMetrics"}}}
     TrafficPeriodPage:
       description: Traffic periods.
       content: {application/json: {schema: {$ref: "#/components/schemas/TrafficPeriodPage"}}}
@@ -4095,6 +4109,43 @@ components:
           type: array
           maxItems: 512
           items: {$ref: "#/components/schemas/MetricsHistoryBucket"}
+    RecentMetrics:
+      type: object
+      additionalProperties: false
+      required: [from, to, samples, idle]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        samples:
+          type: array
+          items: {$ref: "#/components/schemas/RecentMetricsSample"}
+        idle:
+          type: array
+          description: Ordered, disjoint spans of the window in which no core ran.
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to]
+            properties:
+              from: {type: string, format: date-time}
+              to: {type: string, format: date-time}
+    RecentMetricsSample:
+      type: object
+      additionalProperties: false
+      description: One stored sample. Its rates cover the interval that ends at the sample and are null when that interval is unknown, as after a first sample or a process change.
+      required: [sampled_at, interval_seconds, upload_bytes_per_second, download_bytes_per_second, active_connections]
+      properties:
+        sampled_at: {type: string, format: date-time}
+        interval_seconds:
+          type: [number, "null"]
+          minimum: 0
+        upload_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+        download_bytes_per_second:
+          type: [number, "null"]
+          minimum: 0
+        active_connections: {type: integer, format: int64, minimum: 0}
     DashboardStreamSnapshot:
       type: object
       additionalProperties: false

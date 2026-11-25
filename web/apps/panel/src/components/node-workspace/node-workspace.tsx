@@ -76,6 +76,11 @@ function NodeScope({ node }: { node: FleetNode }) {
   const client = useApiClient();
   const cache = useQueryClient();
   const scoped = useMemo(() => withQueryInvalidation(client.forNode(node.id), cache), [client, cache, node.id]);
+  // The settings window's form waits for the node's settings; reading them on
+  // entering the node lets it open with the window instead of after it.
+  useEffect(() => {
+    void cache.prefetchQuery(queries.nodeSettings(scoped));
+  }, [cache, scoped]);
   return (
     <CurrentNodeContext value={node}>
       <ApiClientContext value={scoped}>
