@@ -66,7 +66,9 @@ shares the host's network.
 `.claude/dev/node.sh` runs a node enrolled with it in a Debian container on the
 host network, and each application's development server runs on `5173` (panel)
 or `5174` (node console). Their binaries, settings and data stay in the ignored
-`.claude/dev/state/`; the first start prints the credentials once.
+`.claude/dev/state/` (`bin/`, `panel/` and `node/`); the first start saves the
+panel's administrator credentials there and prints the node console's password
+once. Removing `panel/` or `node/` starts that service over.
 
 Use `make check-frontend` from the repository root for a production build, types,
 lint, all tests, Schema consistency and notices checks. From this directory,
@@ -348,11 +350,11 @@ the one enrollment dialog (`components/enrollment-dialog.tsx`, opened through
 `stores/enrollment-dialog.store.ts`), so a view that remounts while a host
 enrolls keeps it; the dialog reads the fleet status the stream feeds, polls
 while the stream is down, and discards an unused code when it closes or the
-page goes away. The browser review harness seeds a fleet with
-`SBP_BROWSER_FLEET=<n>` (`panel-review` in `.claude/launch.json` runs 200),
-half of the nodes online with live readings; without a seeded fleet
-(`panel-review-empty`) nodes can enroll with `sing-box-node enroll` on the
-same port.
+page goes away. The browser review harness
+(`SBP_BROWSER_REVIEW=1 go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 60m`,
+on `127.0.0.1:3337`) seeds a fleet with `SBP_BROWSER_FLEET=<n>`, half of the
+nodes online with live readings; with `SBP_BROWSER_FLEET=0` nodes can enroll
+with `sing-box-node enroll` on the same port.
 
 ## Login
 
