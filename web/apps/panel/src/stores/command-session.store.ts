@@ -14,7 +14,7 @@ export type PendingConfirmation
 interface CommandSessionState {
   /** Lines kept beyond the terminal's limit, so the largest batch's output stays whole. */
   extra: number;
-  /** The status line reads a command instead of showing the scope and windows. */
+  /** The command box is open over the workspace. */
   open: boolean;
   /** A batch is running; it keeps running while the line is closed. */
   running: boolean;

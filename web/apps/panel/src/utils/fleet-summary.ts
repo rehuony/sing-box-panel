@@ -2,6 +2,12 @@ import type { FleetStatus, MetricsSnapshot } from '@/api/api-client';
 
 export type NodeStatus = FleetStatus['items'][number];
 
+/** The core version a node runs, or else the one it has enabled, as `v1.14.4`; null while it has neither. */
+export function coreVersionLabel({ node }: NodeStatus): string | null {
+  const exact = node.runtime?.running?.exact_core_version ?? node.runtime?.enabled_core?.exact_core_version;
+  return exact ? `v${exact.replace(/^v/i, '')}` : null;
+}
+
 /** A share from 0 to 100, or null when either side is unknown. */
 export function percentOf(used: number | null | undefined, total: number | null | undefined): number | null {
   if (used === null || used === undefined || !total) return null;

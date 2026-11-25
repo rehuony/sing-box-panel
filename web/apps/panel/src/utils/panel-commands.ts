@@ -15,6 +15,10 @@ export type CommandVerb = typeof commandVerbs[number];
 const batchVerbs = ['start', 'stop', 'restart', 'update'] as const;
 type BatchVerb = typeof batchVerbs[number];
 
+/** The verbs that take arguments, whose usage the completion list and help show. */
+const argumentVerbs = ['open', 'goto', 'filter', ...batchVerbs] as const;
+type ArgumentVerb = typeof argumentVerbs[number];
+
 const stateFilters = ['online', 'offline'] as const;
 export type StateFilter = typeof stateFilters[number];
 
@@ -38,6 +42,10 @@ export type PanelCommand
 
 function isOneOf<T extends string>(values: readonly T[], value: string): value is T {
   return (values as readonly string[]).includes(value);
+}
+
+export function takesArguments(verb: CommandVerb): verb is ArgumentVerb {
+  return isOneOf(argumentVerbs, verb);
 }
 
 /** Reads one command line; an empty line is no command. */
@@ -133,27 +141,36 @@ export function fleetTags(items: readonly NodeStatus[]): string[] {
   return [...new Set(items.flatMap(item => item.node.tags))].sort();
 }
 
+/** What the values Tab offers after a verb mean, in the interface's language. */
+export interface CompletionDescriptions {
+  all: string;
+  tag: (tag: string) => string;
+  node: (item: NodeStatus) => string;
+  window: (window: NodeWindow | PanelWindow) => string;
+}
+
 interface CompletionContext {
   items: readonly NodeStatus[];
-  /** The verbs the line offers, with what each does. */
+  /** The verbs the line offers, with their arguments and what each does. */
   verbs: readonly Completion[];
+  describe: CompletionDescriptions;
 }
 
 /** What Tab completes for a word: verbs first, then windows, node names, tags and targets after them. */
 export function commandCompletions(words: readonly string[], index: number, context: CompletionContext): Completion[] {
-  if (index === 0) return [...context.verbs];
+  const { describe, items, verbs } = context;
+  if (index === 0) return [...verbs];
   const verb = words[0]?.toLowerCase() ?? '';
-  const names = (): Completion[] => context.items.map(item => ({
-    description: item.node.hostname || undefined,
-    name: item.node.name,
-  }));
-  const tags = () => fleetTags(context.items).map(tag => ({ name: `tag:${tag}` }));
-  if (verb === 'open' && index === 1) return panelWindows.map(name => ({ name }));
+  const names = (): Completion[] => items.map(item => ({ description: describe.node(item), name: item.node.name }));
+  const tags = () => fleetTags(items).map(tag => ({ description: describe.tag(tag), name: `tag:${tag}` }));
+  const windows = (list: readonly (NodeWindow | PanelWindow)[]): Completion[] =>
+    list.map(name => ({ description: describe.window(name), name }));
+  if (verb === 'open' && index === 1) return windows(panelWindows);
   if (verb === 'goto') {
     if (index === 1) return names();
-    if (index === 2) return nodeWindows.map(name => ({ name }));
+    if (index === 2) return windows(nodeWindows);
   }
   if (verb === 'filter') return [...stateFilters.map(state => ({ name: `state:${state}` })), ...tags()];
-  if (isOneOf(batchVerbs, verb) && index === 1) return [{ name: 'all' }, ...tags(), ...names()];
+  if (isOneOf(batchVerbs, verb) && index === 1) return [{ description: describe.all, name: 'all' }, ...tags(), ...names()];
   return [];
 }

@@ -32,7 +32,29 @@ function typing(line: LogLine): CSSProperties {
   } as CSSProperties;
 }
 
-function Line({ clock, line }: { clock: Intl.DateTimeFormat; line: LogLine }) {
+/** A line's columns: a term beside its text, or a command and its usage in fixed columns, without usage on a phone. */
+function Columns({ term, text, usage }: { term: string; text: string; usage?: string }) {
+  if (usage === undefined) {
+    return (
+      <>
+        {/* A long term, such as a node's name, ends in an ellipsis at half the line. */}
+        <span className='max-w-1/2 min-w-[11ch] flex-none truncate pe-[1ch] text-foreground' title={term}>
+          {term}
+        </span>
+        <span className='min-w-0'>{text}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <span className='w-[10ch] flex-none truncate text-foreground'>{term}</span>
+      <span className='w-[15ch] flex-none truncate text-[var(--color-text-faint)] max-sm:hidden'>{usage}</span>
+      <span className='min-w-0'>{text}</span>
+    </>
+  );
+}
+
+function Line({ clock, line, promptScope }: { clock: Intl.DateTimeFormat; line: LogLine; promptScope: boolean }) {
   // What was typed appears at once; what the terminal answers types itself out.
   const typed = line.prompt === undefined;
   return (
@@ -44,7 +66,9 @@ function Line({ clock, line }: { clock: Intl.DateTimeFormat; line: LogLine }) {
         line.indent && 'ps-[2ch]',
         // A term leads its own column, so a description that wraps stays beside it.
         line.term !== undefined && 'flex',
+        line.usage !== undefined && 'gap-[1ch]',
       )}
+      data-prompt={line.prompt?.kind}
       style={typed ? typing(line) : undefined}
     >
       {line.stamp
@@ -54,21 +78,11 @@ function Line({ clock, line }: { clock: Intl.DateTimeFormat; line: LogLine }) {
         ? null
         : (
             <>
-              <PromptLabel prompt={line.prompt} />
+              <PromptLabel prompt={line.prompt} scope={promptScope} />
               {' '}
             </>
           )}
-      {line.term === undefined
-        ? line.text
-        : (
-            <>
-              {/* A long term, such as a node's name, ends in an ellipsis at half the line. */}
-              <span className='max-w-1/2 min-w-[11ch] flex-none truncate pe-[1ch] text-foreground' title={line.term}>
-                {line.term}
-              </span>
-              <span className='min-w-0'>{line.text}</span>
-            </>
-          )}
+      {line.term === undefined ? line.text : <Columns term={line.term} text={line.text} usage={line.usage} />}
       {line.pending ? <Spinner aria-hidden='true' className='ms-2 inline size-3.5 align-[-2px]' /> : null}
     </p>
   );
@@ -78,6 +92,8 @@ interface TerminalBufferProps<Block extends TerminalBlock> {
   className?: string;
   /** What follows the last output, such as the input line; absent while a command runs. */
   children?: ReactNode;
+  /** Whether echoes repeat their prompt's scope; false where the scope shows elsewhere, leaving the symbol. */
+  promptScope?: boolean;
   viewportClassName?: string;
   /** The log's own element, such as a place a completion menu renders into. */
   logRef?: Ref<HTMLDivElement>;
@@ -95,6 +111,7 @@ export function TerminalBuffer<Block extends TerminalBlock>({
   className,
   entries,
   logRef,
+  promptScope = true,
   renderBlock,
   viewportClassName = 'px-4 pt-1 pb-4',
 }: TerminalBufferProps<Block>) {
@@ -129,7 +146,7 @@ export function TerminalBuffer<Block extends TerminalBlock>({
     >
       <div aria-label={t('terminal.log.label')} aria-relevant='additions' ref={logRef} role='log'>
         {entries.map(entry => isLogLine(entry)
-          ? <Line clock={clock} key={entry.id} line={entry} />
+          ? <Line clock={clock} key={entry.id} line={entry} promptScope={promptScope} />
           : <div className='contents' key={entry.id}>{renderBlock?.(entry as Block)}</div>)}
       </div>
       {children}

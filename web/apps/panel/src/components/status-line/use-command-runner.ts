@@ -6,14 +6,22 @@ import { useQueryClient } from '@tanstack/react-query';
 import { echo, logLine } from '@shared/components/terminal';
 
 import type { PagePath } from '@/routes/page-loaders';
-import type { CommandVerb } from '@/utils/panel-commands';
+import type { CompletionDescriptions } from '@/utils/panel-commands';
 
 import { preloadPage } from '@/routes/page-loaders';
 import { useApiClient } from '@/api/api-client-context';
 import { useFleetView } from '@/stores/fleet-view.store';
+import { coreVersionLabel } from '@/utils/fleet-summary';
 import { usePanelRestart } from '@/stores/panel-restart.store';
 import { useCommandSession } from '@/stores/command-session.store';
-import { commandCompletions, commandVerbs, parseCommand, resolveNode, resolveTargets } from '@/utils/panel-commands';
+import {
+  commandCompletions,
+  commandVerbs,
+  parseCommand,
+  resolveNode,
+  resolveTargets,
+  takesArguments,
+} from '@/utils/panel-commands';
 import {
   nodeWindowPages,
   nodeWindowPath,
@@ -21,6 +29,7 @@ import {
   panelWindowPages,
   panelWindowPath,
   panelWindows,
+  windowNameKeys,
 } from '@/utils/shell-windows';
 
 import type { ShellScopeState } from './use-shell-scope';
@@ -46,7 +55,18 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   const { signOut } = useSignOut();
   const { clear, pending, print, running, setOpen, setPending } = useCommandSession();
 
-  const verbCompletions: Completion[] = commandVerbs.map(verb => ({ description: t(`command.help.${verb}`), name: verb }));
+  // Every verb keeps the arguments column, empty where it takes none.
+  const verbCompletions: Completion[] = commandVerbs.map(verb => ({
+    description: t(`command.help.${verb}`),
+    name: verb,
+    usage: takesArguments(verb) ? t(`command.arguments.${verb}`) : '',
+  }));
+  const describe: CompletionDescriptions = {
+    all: t('command.completion.all'),
+    node: item => [t(`nodes.state.${item.node.state}`), coreVersionLabel(item)].filter(Boolean).join(' · '),
+    tag: tag => t('command.completion.tag', { tag }),
+    window: window => t(windowNameKeys[window]),
+  };
 
   /** Opens a window as its link does: the navigation shares the page's preload, which recovers a failed one. */
   function go(path: string, page: PagePath) {
@@ -66,10 +86,12 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
     const windows = scope.kind === 'node' ? nodeWindows : panelWindows;
     switch (command.kind) {
       case 'help':
+        // The verbs in the completion list's columns, then the window numbers and what a target can be.
         print(
           echo(prompt, line),
-          ...commandVerbs.map((verb: CommandVerb) => logLine('muted', t(`command.help.${verb}`), { term: verb })),
-          logLine('muted', t('command.help.number'), { term: `1–${windows.length}` }),
+          ...verbCompletions.map(verb => logLine('muted', verb.description ?? '', { term: verb.name, usage: verb.usage })),
+          logLine('muted', t('command.help.number'), { term: `1–${windows.length}`, usage: '' }),
+          logLine('muted', t('command.help.target')),
         );
         break;
       case 'clear':
@@ -173,7 +195,7 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   return {
     cancel,
     completions: (words: readonly string[], index: number) =>
-      commandCompletions(words, index, { items, verbs: verbCompletions }),
+      commandCompletions(words, index, { describe, items, verbs: verbCompletions }),
     prompt: pending ? CONFIRM_PROMPT : prompt,
     submit: pending ? answer : run,
   };

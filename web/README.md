@@ -322,14 +322,16 @@ controls. Tables and forms scroll within the space above
 the status line, keeping their actions reachable.
 
 Ctrl or Cmd+K, `:` outside fields and dialogs, or the status line's prompt
-action opens the command line (`components/status-line`). It parses commands
+action opens the command line as a box floating near the window's top
+(`components/status-line`), leaving the status line as it is. It parses commands
 in `utils/panel-commands.ts` (`help`, `clear`, `logout`, window numbers,
 `open`, `goto`, `filter`, `start`, `stop`, `restart` and `update` on a name,
-a glob, `tag:<tag>` or `all`, and `reboot`), completes the word under the caret, and prints to
-one output panel above the line that stays until closed. Batches from the
+a glob, `tag:<tag>` or `all`, and `reboot`), completes the word under the caret
+in a list below the input, and otherwise shows its output there until cleared.
+Batches from the
 command line or from selected panes confirm first, run one at a time, stream
 each node's result from `/fleet/commands` into output that keeps room for every
-node's line, and keep running when the line closes, ending in a toast then,
+node's line, and keep running when the box closes, ending in a toast then,
 which also says when a batch stopped before its summary. The output, a pending
 confirmation, the command history, the home screen's filters, selection mode
 and selection, and the enrollment dialog end with the signed-in session; a batch still running then finishes on the

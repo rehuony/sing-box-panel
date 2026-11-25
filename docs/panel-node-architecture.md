@@ -283,7 +283,7 @@ be cached fail on their own.
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
 [`DESIGN.md`](../DESIGN.md)'s node-first shell: a status line that lists the
 scope's windows, leads back to the fleet and, in a node's windows, to its
-neighbours, and reads commands; the nodes home with the fleet's key figures and
+neighbours, and opens a floating command box; the nodes home with the fleet's key figures and
 one pane per node, a node's windows (overview, cores, configuration, logs,
 settings) under a title strip that names the node, subscriptions, logs and
 settings.

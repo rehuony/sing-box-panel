@@ -10,6 +10,17 @@ export type PanelWindow = typeof panelWindows[number];
 export const nodeWindows = ['overview', ...nodeTabs] as const;
 export type NodeWindow = typeof nodeWindows[number];
 
+/** The translation key of each window's name, which its tooltip, accessible name and completion read. */
+export const windowNameKeys: Record<NodeWindow | PanelWindow, string> = {
+  configuration: 'node.tabs.configuration',
+  cores: 'node.tabs.cores',
+  logs: 'nav.logs',
+  nodes: 'nav.nodes',
+  overview: 'node.tabs.overview',
+  settings: 'nav.settings',
+  subscriptions: 'nav.subscriptions',
+};
+
 /** What the window shows: the fleet, or one node; a path no window shows has none. */
 export type ShellScope
   = | { kind: 'fleet'; window: PanelWindow | null }
