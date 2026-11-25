@@ -22,17 +22,30 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
-func TestCoreConfigurationSchemaUsesExactVersionContractAndETag(t *testing.T) {
+func TestCoreConfigurationSchemaFollowsTheReleaseLineWithETag(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
-	artifact, err := database.RecordCachedArtifact(context.Background(), store.CachedArtifact{
-		ID: "core_schema_http", SourceKind: store.CachedArtifactUserVerified, UserSource: "schema HTTP fixture",
-		SHA256: strings.Repeat("a1", 32), Size: 1, OS: "linux", Arch: "amd64", Variant: "musl", ExactVersion: "1.14.0",
-		CreatedAt: time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatal(err)
+	node := testNodePath(t, database)
+	cache := func(id, version string) store.CachedArtifact {
+		artifact, err := database.RecordCachedArtifact(context.Background(), store.CachedArtifact{
+			ID: id, SourceKind: store.CachedArtifactUserVerified, UserSource: "schema HTTP fixture " + id,
+			SHA256: strings.Repeat("a1", 32), Size: 1, OS: "linux", Arch: "amd64", Variant: "musl", ExactVersion: version,
+			CreatedAt: time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return artifact
 	}
-	target := testNodePath(t, database) + "/core/artifacts/" + artifact.ID + "/configuration-schema"
+	// A 1.14 core prints its own schema, which an offline node cannot send;
+	// a version below every line has none.
+	native := authenticatedRequest(t, handler, http.MethodGet, node+"/core/artifacts/"+cache("core_schema_native", "1.14.4").ID+"/configuration-schema", "", "")
+	assertCoreHTTPProblem(t, native, http.StatusServiceUnavailable, "node_offline")
+	older := authenticatedRequest(t, handler, http.MethodGet, node+"/core/artifacts/"+cache("core_schema_older", "1.13.18").ID+"/configuration-schema", "", "")
+	assertCoreHTTPProblem(t, older, http.StatusConflict, "configuration_schema_unavailable")
+
+	// The 1.13 line has the panel's reviewed schema.
+	artifact := cache("core_schema_http", "1.13.22")
+	target := node + "/core/artifacts/" + artifact.ID + "/configuration-schema"
 
 	response := authenticatedRequest(t, handler, http.MethodGet, target, "", "")
 	if response.Code != http.StatusOK {
@@ -364,7 +377,7 @@ func assertCoreHTTPProblem(t *testing.T, response *httptest.ResponseRecorder, st
 func TestNodeResourcesRequireAnExistingConnectedNode(t *testing.T) {
 	handler, database := newCoreHTTPFixture(t)
 	node := testNodePath(t, database)
-	for _, target := range []string{"/core/status", "/core/artifacts", "/core/logs/files", "/filesystem/entries", "/config/artifacts"} {
+	for _, target := range []string{"/core/status", "/core/artifacts", "/core/logs/files", "/filesystem/entries"} {
 		missing := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/nodes/node_missing"+target, "", "")
 		assertCoreHTTPProblem(t, missing, http.StatusNotFound, "node_not_found")
 		// Commands are never queued for a node without a session.

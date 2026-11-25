@@ -45,17 +45,6 @@ func (s *Store) DeleteTrafficSamplesBefore(ctx context.Context, cutoff time.Time
 		formatTime(cutoff.UTC()))
 }
 
-// DeleteLogEntriesBefore removes panel log entries that occurred before
-// cutoff.
-func (s *Store) DeleteLogEntriesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	if cutoff.IsZero() {
-		return 0, errors.New("log retention cutoff is required")
-	}
-	return s.deleteInBatches(ctx, "expired log entries",
-		`DELETE FROM log_entries WHERE rowid IN (SELECT rowid FROM log_entries WHERE occurred_at < ? LIMIT ?)`,
-		formatTime(cutoff.UTC()))
-}
-
 // DeleteRuntimeTransitionsBefore removes runtime transitions that occurred
 // before cutoff, except the newest of each node instance: it gives the
 // state a timeline starts in, and it is where the node's next session

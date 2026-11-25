@@ -28,6 +28,7 @@ var nodeProblems = map[string]nodeProblem{
 	"core_not_enabled":               {http.StatusConflict, "core_not_enabled", "Core is not enabled"},
 	"core_install_failed":            {http.StatusUnprocessableEntity, "core_install_failed", "Core install failed"},
 	"core_check_failed":              {http.StatusUnprocessableEntity, "core_check_failed", "Core check failed"},
+	"core_schema_unavailable":        {http.StatusConflict, "configuration_schema_unavailable", "Configuration schema unavailable"},
 	"startup_artifact_not_found":     {http.StatusNotFound, "startup_artifact_not_found", "Startup artifact not found"},
 	"startup_artifact_state":         {http.StatusConflict, "startup_artifact_state_invalid", "Startup artifact state invalid"},
 	"activation_bundle_not_ready":    {http.StatusConflict, "activation_bundle_not_ready", "Activation bundle not ready"},
@@ -64,6 +65,8 @@ func nodeCommandProblem(code string, err error) problemDetails {
 		return fleetProblem(err)
 	case errors.Is(err, fleet.ErrNodeOffline):
 		return problemDetails{http.StatusServiceUnavailable, "node_offline", "Node offline", "The node is not connected. Commands are not queued; retry when it is online."}
+	case errors.Is(err, fleet.ErrNodeUpgradeRequired):
+		return problemDetails{http.StatusConflict, "node_upgrade_required", "Node upgrade required", err.Error()}
 	case errors.Is(err, fleet.ErrNodeResultUnknown):
 		return problemDetails{http.StatusBadGateway, "node_result_unknown", "Node result unknown", "The node's session ended before it answered. Reload its state before retrying."}
 	case errors.Is(err, context.DeadlineExceeded):

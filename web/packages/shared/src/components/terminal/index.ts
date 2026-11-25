@@ -11,5 +11,6 @@ export type { LogLine, Prompt } from './terminal-entries';
 export { TerminalBuffer } from './terminal-buffer';
 export type { Completion } from './command-line';
 export { WindowMarks } from './window-marks';
+export { PromptScope } from './prompt-label';
 export { splitWords } from './command-words';
 export { CommandLine } from './command-line';

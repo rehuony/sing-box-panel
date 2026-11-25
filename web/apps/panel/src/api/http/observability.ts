@@ -1,6 +1,9 @@
 import type { HttpApiContext } from './shared';
 import type { ApiClient, CoreLogChunk, CoreLogFile,
   DashboardStreamSnapshot,
+  FleetRuntimeHistoryPage,
+  LogClearResult,
+  LogUsage,
   MetricsSnapshot,
   NodeSettings,
   NodeUpdate,
@@ -51,6 +54,19 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
       return request<PanelLogPage>(
         fetcher,
         `${baseUrl}/logs/panel${buildQuery({ offset: filter.offset, before_time: filter.beforeTime, before_id: filter.beforeID, limit: filter.limit ?? 10, search: filter.search, search_codes: filter.searchCodes?.length ? filter.searchCodes.join(',') : undefined, node_id: filter.nodeID, level: filter.level, since: filter.since, until: filter.until })}`,
+        { method: 'GET', signal },
+      );
+    },
+    getLogUsage(signal) {
+      return request<LogUsage>(fetcher, `${baseUrl}/logs/usage`, { method: 'GET', signal });
+    },
+    clearPanelLogs(signal) {
+      return request<LogClearResult>(fetcher, `${baseUrl}/logs`, { method: 'DELETE', headers: writeHeaders(), signal });
+    },
+    listFleetRuntimeHistory(filter = {}, signal) {
+      return request<FleetRuntimeHistoryPage>(
+        fetcher,
+        `${baseUrl}/fleet/runtime/history${buildQuery({ offset: filter.offset, limit: filter.limit ?? 10, node_id: filter.nodeID, state: filter.state, search: filter.search, search_codes: filter.searchCodes?.length ? filter.searchCodes.join(',') : undefined })}`,
         { method: 'GET', signal },
       );
     },

@@ -97,6 +97,17 @@ describe('history and live chart continuity', () => {
     expect(after.data[0]).toEqual([Date.parse(history.buckets[0]!.to), end, end + 2000]);
   });
 
+  it('joins live readings after a bucket known idle, not at the last sample before the core stopped', () => {
+    const [sampled, idle] = testMetricsHistory.buckets;
+    const stopped = { ...testMetricsHistory, buckets: [sampled!, {
+      ...idle!, upload_bytes: 0, download_bytes: 0, active_connections_avg: 0, active_connections_peak: 0, coverage: 'complete' as const,
+    }] };
+    const chart = trendChartData(stopped, 'connections', [
+      { at: end + 1000, connections: 0, uploadBytesPerSecond: 0, downloadBytesPerSecond: 0 },
+    ], new Date(Date.parse(sampled!.to) - 10_000).toISOString());
+    expect(chart.data[1]).toEqual([12.5, 0, 0]);
+  });
+
   it('keeps only non-overlapping history without a persistence watermark', () => {
     const chart = trendChartData(history, 'connections', [point(end - 2000)], null);
     expect(chart.data[0]).toEqual([Date.parse(history.buckets[0]!.to), end - 2001, end - 2000]);

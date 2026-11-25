@@ -46,17 +46,20 @@ are preserved unless `--force` is explicitly requested.
 - creates `admin@example.com` and a random password; stores only its Argon2id hash;
 - writes the settings atomically with mode `0600`;
 - creates the data directory with mode `0700`; and
-- creates `panel.db` with the current schema in that data directory.
+- creates `panel.db` and the panel log's `logs.db` with the current schema in that data directory.
 
 Do not commit the settings file, administrator password, database, exported
 configuration, or subscription data.
 
 ### Database compatibility
 
-The panel database uses SQLite `application_id = 0x53425034`; each node keeps
-its own `node.db` with `application_id = 0x5342504E`. Each schema is built by
-numbered migrations in `internal/sing-box-panel/store/migrations/` and
-`internal/sing-box-node/store/migrations/`, starting from `0001_baseline.sql`.
+The panel database uses SQLite `application_id = 0x53425034` and its log
+database `0x5342504C`; each node keeps its own `node.db` with
+`application_id = 0x5342504E`. Each schema is built by numbered migrations,
+starting from `0001_baseline.sql`: the panel's in
+`internal/sing-box-panel/store/migrations/`, one folder for each database file
+(`panel/` and `logs/`), and the node's in
+`internal/sing-box-node/store/migrations/`.
 Opening a database applies the migrations it has not recorded, in order, in one
 transaction, so an empty database receives all of them and a database written by
 an earlier release of this format is brought up to date. Databases written
@@ -87,7 +90,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/get/set/verify`, and manual edits use this same file. Shared fields retain
-their existing sections; `panel` holds the language and appearance. The Web form exposes service paths, version check interval, metric retention and sing-box log retention; each node's published host and traffic quota belong to that node's settings. Panel events are retained indefinitely; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
+their existing sections; `panel` holds the language and appearance. The Web form exposes service paths, version check interval, metric, runtime states and sing-box log retention; each node's published host and traffic quota belong to that node's settings. The panel log is kept until it is cleared; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).
@@ -98,9 +101,9 @@ separators. String values are literal text; numbers, arrays and objects use JSON
 Clear an optional string with `config set github.token ''`. Use `config set auth.password --stdin`
 to hash and save a custom administrator password without echoing it. See
 [Panel settings](cli.md#panel-settings) for field types and password handling.
-Only active settings are generated. Removed subscription author/provider and
-panel event retention fields are rejected; see the field mapping above for the
-breaking development change.
+Only active settings are generated. Removed subscription author/provider fields
+and `logs.retention_days` are rejected, while `logs.panel_retention_days` carries
+over to `nodes.runtime_history_retention_days`; see the field mapping above.
 
 `traffic.sample_retention_days` defaults to 90. It is required for startup and
 `config verify` and must be between 1 and 366;

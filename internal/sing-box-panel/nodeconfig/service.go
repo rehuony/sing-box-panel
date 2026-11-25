@@ -13,10 +13,12 @@ import (
 
 // Service reads and writes each node's editable configuration file.
 type Service struct {
-	database *store.Store
-	cores    *corecache.Service
-	now      func() time.Time
-	random   func([]byte) (int, error)
+	database      *store.Store
+	cores         *corecache.Service
+	coreSchema    CoreSchemaSource
+	nativeSchemas nativeSchemaCache
+	now           func() time.Time
+	random        func([]byte) (int, error)
 }
 
 // keptRevisions is how many of each node's newest configuration revisions
@@ -31,7 +33,9 @@ func (service *Service) PruneRevisions(ctx context.Context) (int64, error) {
 }
 
 // New serves the configuration files in database. Configuration support
-// follows the exact versions of the cores the panel cached in cores.
-func New(database *store.Store, cores *corecache.Service) *Service {
-	return &Service{database: database, cores: cores, now: time.Now, random: rand.Read}
+// follows the release lines of the cores the panel cached in cores; a core of
+// a line with its own schema command is asked for its schema through
+// coreSchema.
+func New(database *store.Store, cores *corecache.Service, coreSchema CoreSchemaSource) *Service {
+	return &Service{database: database, cores: cores, coreSchema: coreSchema, now: time.Now, random: rand.Read}
 }

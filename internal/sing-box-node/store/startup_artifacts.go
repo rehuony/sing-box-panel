@@ -43,40 +43,9 @@ type StartupArtifact struct {
 	CreatedAt           time.Time            `json:"created_at"`
 }
 
-// StartupArtifactSummary contains only metadata safe for collection queries.
-// ConfigBytes remains available exclusively through GetStartupArtifact.
-type StartupArtifactSummary struct {
-	ID                  string
-	CanonicalRevisionID string
-	ExactCoreVersion    string
-	CoreArtifactID      string
-	ConfigSHA256        string
-	State               StartupArtifactState
-	CheckedAt           *time.Time
-	CreatedAt           time.Time
-}
-
-type StartupArtifactListFilter struct {
-	CanonicalRevisionID string
-	ExactCoreVersion    string
-	CoreArtifactID      string
-	State               StartupArtifactState
-	Cursor              *CreatedAtCursor
-	Limit               int
-}
-
-type StartupArtifactPage struct {
-	Items []StartupArtifactSummary
-	Next  *CreatedAtCursor
-}
-
 const startupArtifactColumns = `
 	    id, canonical_revision_id, exact_core_version, core_artifact_id,
 	    config_bytes, config_sha256, state, checked_at, created_at`
-
-const startupArtifactSummaryColumns = `
-	    id, canonical_revision_id, exact_core_version, core_artifact_id,
-	    config_sha256, state, checked_at, created_at`
 
 func insertStartupArtifactTx(
 	ctx context.Context,
@@ -114,73 +83,6 @@ func (s *Store) GetStartupArtifact(ctx context.Context, artifactID string) (Star
 		return StartupArtifact{}, errors.New("startup artifact id is empty")
 	}
 	return getStartupArtifact(ctx, s.db, artifactID)
-}
-
-func (s *Store) ListStartupArtifacts(
-	ctx context.Context,
-	filter StartupArtifactListFilter,
-) (StartupArtifactPage, error) {
-	limit, err := normalizePageLimit(filter.Limit)
-	if err != nil {
-		return StartupArtifactPage{}, err
-	}
-	if filter.State != "" && !validStartupArtifactState(filter.State) {
-		return StartupArtifactPage{}, fmt.Errorf("invalid startup artifact state %q", filter.State)
-	}
-	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
-		return StartupArtifactPage{}, err
-	}
-	clauses := []string{"1 = 1"}
-	args := make([]any, 0, 12)
-	for _, item := range []struct {
-		value  string
-		clause string
-	}{
-		{filter.CanonicalRevisionID, "canonical_revision_id = ?"},
-		{filter.ExactCoreVersion, "exact_core_version = ?"},
-		{filter.CoreArtifactID, "core_artifact_id = ?"},
-		{string(filter.State), "state = ?"},
-	} {
-		if item.value != "" {
-			clauses = append(clauses, item.clause)
-			args = append(args, item.value)
-		}
-	}
-	if filter.Cursor != nil {
-		cursorTime := formatTime(filter.Cursor.CreatedAt)
-		clauses = append(clauses, "(created_at < ? OR (created_at = ? AND id < ?))")
-		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
-	}
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT `+startupArtifactSummaryColumns+` FROM startup_artifacts
-          WHERE `+strings.Join(clauses, " AND ")+`
-          ORDER BY created_at DESC, id DESC LIMIT ?`,
-		args...,
-	)
-	if err != nil {
-		return StartupArtifactPage{}, fmt.Errorf("list startup artifacts: %w", err)
-	}
-	defer rows.Close()
-	items := make([]StartupArtifactSummary, 0, limit+1)
-	for rows.Next() {
-		artifact, err := scanStartupArtifactSummary(rows)
-		if err != nil {
-			return StartupArtifactPage{}, fmt.Errorf("scan startup artifact: %w", err)
-		}
-		items = append(items, artifact)
-	}
-	if err := rows.Err(); err != nil {
-		return StartupArtifactPage{}, fmt.Errorf("iterate startup artifacts: %w", err)
-	}
-	page := StartupArtifactPage{Items: items}
-	if len(items) > limit {
-		page.Items = items[:limit]
-		last := page.Items[len(page.Items)-1]
-		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
-	}
-	return page, nil
 }
 
 // CompleteStartupArtifactCheck records exactly one checker outcome. A stale
@@ -333,44 +235,4 @@ func scanStartupArtifact(row rowScanner) (StartupArtifact, error) {
 		artifact.CheckedAt = &parsed
 	}
 	return artifact, nil
-}
-
-func scanStartupArtifactSummary(row rowScanner) (StartupArtifactSummary, error) {
-	var artifact StartupArtifactSummary
-	var checkedAt sql.NullString
-	var createdAt string
-	if err := row.Scan(
-		&artifact.ID,
-		&artifact.CanonicalRevisionID,
-		&artifact.ExactCoreVersion,
-		&artifact.CoreArtifactID,
-		&artifact.ConfigSHA256,
-		&artifact.State,
-		&checkedAt,
-		&createdAt,
-	); err != nil {
-		return StartupArtifactSummary{}, err
-	}
-	var err error
-	artifact.CreatedAt, err = parseTime(createdAt)
-	if err != nil {
-		return StartupArtifactSummary{}, fmt.Errorf("parse created_at: %w", err)
-	}
-	if checkedAt.Valid {
-		parsed, err := parseTime(checkedAt.String)
-		if err != nil {
-			return StartupArtifactSummary{}, fmt.Errorf("parse checked_at: %w", err)
-		}
-		artifact.CheckedAt = &parsed
-	}
-	return artifact, nil
-}
-
-func validStartupArtifactState(value StartupArtifactState) bool {
-	switch value {
-	case StartupArtifactPending, StartupArtifactReady, StartupArtifactFailed:
-		return true
-	default:
-		return false
-	}
 }

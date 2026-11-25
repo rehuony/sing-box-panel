@@ -5,7 +5,7 @@ Operator workflows live in the [documentation index](README.md); exact HTTP
 operations and schemas remain in [OpenAPI](../api/panel-openapi.yaml).
 
 - [Repository layout](#repository-layout), [package layout](#package-layout) and [dependency direction](#dependency-direction)
-- [Version support](#adding-a-sing-box-version) and [test ownership](#test-ownership)
+- [Version support](#adding-a-sing-box-release-line) and [test ownership](#test-ownership)
 - [Product contract](#product-contract)
 - [HTTP API and security](#http-api-and-security)
 
@@ -27,7 +27,7 @@ services, their protocol and state ownership are in
 | `api/` | Contracts only: the panel's management HTTP contract (`panel-openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
 | `web/` | The pnpm workspace of the Web applications: the panel's in `apps/panel` and the node console's in `apps/node`, each with the Go package that embeds its production build, and the code both share in `packages/shared` |
 | `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
-| `scripts/` | Installer, isolated release build and native release and core contract tests |
+| `scripts/` | Installer, isolated release build and native release tests |
 | `docs/` | One guide per topic, indexed in [the documentation index](README.md) |
 | `.github/` | Workflows, community and security policies, templates, code ownership and the release trust root |
 
@@ -35,8 +35,8 @@ Each Web application's Go package sits in its own directory under `web/apps/`
 because Go embedding cannot read files from a parent directory. Other embedded assets live in the package that owns
 them: subscription templates in `internal/sing-box-panel/subscription`,
 the configuration field order in `internal/configuration`, each service's systemd
-templates in `internal/sing-box-panel/systemd` and `internal/sing-box-node/systemd`, and Schema assets in
-`internal/sing-box-panel/schema`. The Web editor reads the templates and
+templates in `internal/sing-box-panel/systemd` and `internal/sing-box-node/systemd`, and the reviewed 1.13
+configuration schema in `internal/sing-box-panel/schema`. The Web editor reads the templates and
 field order from the same files.
 
 ## Package layout
@@ -55,9 +55,7 @@ and maps its result to the management API's views, and the node's `service`
 package runs the core. Each service has its own systemd unit: the shared
 `systemd` package runs the lifecycle, and each service's `systemd` package
 supplies its templates and the state that identifies an installation.
-`tools/singbox-support` maintains the panel's Schema assets and inbound
-conversion catalog and so imports panel packages; tools are programs that
-nothing imports.
+Tools under `tools/` are maintainer programs that nothing imports.
 
 | Tree | Package | Responsibility |
 | --- | --- | --- |
@@ -71,7 +69,7 @@ nothing imports.
 | | `logredact` | Credential and configuration-body redaction for log text and metadata, applied by both services |
 | | `configuration` | Strict, lossless sing-box JSON parsing, canonical serialization and the presentation field order |
 | | `coreartifact` | Immutable identities of installable sing-box artifacts |
-| | `singbox` | Reviewed exact-version support catalog and runtime compatibility; exact versions are catalog data, not forwarding packages |
+| | `singbox` | The supported sing-box release lines and what each needs: its configuration schema source, inbound family and runtime compatibility switches |
 | | `nodeapi` | Generated `sbp.node.v1` protocol code, the protocol version, the session proof and the enrollment code format |
 | | `systemd` | One service's Linux systemd lifecycle over its definition: audited unit rendering, install, uninstall, status, control and logs, the dedicated system account and its ownership of the service's files, and refusing a root start against files that account owns |
 | | `pathguard` | Symlink-resolving containment and refusal of roots, homes and shared system directories, for directories a service owns, cleans, moves or binds |
@@ -93,8 +91,8 @@ nothing imports.
 | | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
 | | `telemetry` | The panel log and operation outcomes, metrics and runtime history, each node's traffic periods and quota, the dashboard projection |
 | | `corecache` | Upstream catalog discovery, staged core uploads and the verified archive cache that nodes install from |
-| | `schema` | The exact-version Schema manifest and assets for the editor and validators |
-| | `nodeconfig` | Each node's editable configuration file, canonical revisions, Schema support, preview and the exact-Schema check before a command |
+| | `schema` | Configuration schema preparation for the editor and the panel's checks: the embedded reviewed 1.13 schema and the schemas nodes' cores print, with the presentation overlay |
+| | `nodeconfig` | Each node's editable configuration file, canonical revisions, a core's configuration schema and its support, preview and the schema check before a command |
 | | `subscription` | The node pool and its synchronization, sources and their parsers, inbound conversion, channels, keys, users, templates and renderers, preview and `/sub` delivery |
 | | `fleet` | The node registry, enrollment codes, the TLS identity nodes pin, the node gRPC service sharing the Web port under the base path, authenticated node sessions, the typed commands sent over them and the protocol minor version each needs, batch commands over many nodes, node updates and the release stream they fetch, the shared fleet snapshot and the short-lived grants under which nodes fetch cached archives |
 | | `releases` | The panel's releases: the verified cache of the node release of the panel's version that nodes update from, and the panel's own update checks and updates |
@@ -191,8 +189,6 @@ panel:server       -> buildinfo, console, procctl, panel:app, panel:corecache,
 
 cmd/sing-box-panel        -> buildinfo, panel:cli, panel:server, selfupdate, web/apps/panel
 cmd/sing-box-node         -> buildinfo, node:cli
-tools/singbox-support     -> atomicfile, coreartifact, panel:schema,
-                             panel:subscription, singbox
 tools/third-party-notices -> atomicfile
 tools/sign-release        -> release
 ```
@@ -212,17 +208,17 @@ opens `store`, `settings` and `installation` directly for local maintenance,
 manages nodes through `app`, and starts the server through a function supplied
 by `cmd/sing-box-panel`.
 
-## Adding a sing-box version
+## Adding a sing-box release line
 
-Follow [Maintaining support](core-versions.md#maintaining-support)
-for exact-version review, source and artifact pins, Schema generation and native
-Linux verification. Runtime eligibility, configuration Schema and inbound
-conversion are separate capabilities; unreviewed versions never inherit nearby
-capabilities.
+A new patch or minor release of a supported line needs no change. A new line is
+a row in [`internal/singbox/line.go`](../internal/singbox/line.go): its first
+version, whether its binaries print their configuration schema, its inbound family
+and whether it needs the legacy DNS switches. A new inbound family is a converter
+in `subscription`. Review the release's configuration changes, migration notes and
+inbound types first; see [release lines](core-versions.md#release-lines).
 
-Do not add exact-version forwarding directories. Version identity belongs in
-the catalog; reusable behavior belongs in private family functions of the
-package that owns the capability.
+Do not add version-specific directories. Behavior that differs by line belongs in
+the package that owns the capability and is selected through the line.
 
 ## Test ownership
 
@@ -261,7 +257,8 @@ is described in [Core versions](core-versions.md#checks-and-recorded-hashes).
 The screens are login, the nodes home (key figures and node panes) and, for
 each node, its overview, installed/available versions, visual and JSON
 configuration, core logs and settings; subscriptions with the node pool, sources,
-subscription keys, channels and channel detail; panel logs; and panel settings.
+subscription keys, channels and channel detail; the panel log and every node's
+runtime states; and panel settings.
 Detail tabs and feedback are local states, not duplicate screens.
 
 ### Requirement → screen → contract → implementation → verification
@@ -271,13 +268,13 @@ below exercise the corresponding source, API and runtime boundaries.
 
 | ID | Screen and accepted behavior | Contract / implementation boundary | Verification coverage | Status |
 | --- | --- | --- | --- | --- |
-| UI-01 | App shell with the layout and shell parameters of [`DESIGN.md`](../DESIGN.md): the workspace fills the window and a status line below it leads back to the fleet and lists the scope's windows as numbered tabs, shows the fleet readout and an update hint, and carries theme, language and sign-out; on phones it is a tab bar; every view's first row is a title strip of flat controls grouped by dividers; a calm glyph field fills the canvas behind the workspace and shows faintly through content surfaces, while fields and floating layers stay opaque; empty states show a title and the next step, and explanations sit in help tooltips; content fills the remaining height and scrolls with overlay scrollbars | App shell, status line, title strip, responsive layout, shared controls | Route tests for windows, preloading, the phone tab bar's more menu and focus; desktop and phone browser reviews | implemented |
+| UI-01 | App shell with the layout and shell parameters of [`DESIGN.md`](../DESIGN.md): the workspace fills the window and a status line below it leads back to the fleet and lists the scope's windows as numbered tabs, shows the fleet readout and an update hint, and carries theme, language, restarting the panel and sign-out; on phones it is a tab bar; every view's first row is a title strip of flat controls grouped by dividers; a calm glyph field fills the canvas behind the workspace and shows faintly through content surfaces, while fields and floating layers stay opaque; empty states show a title and the next step, and explanations sit in help tooltips; content fills the remaining height and scrolls with overlay scrollbars | App shell, status line, title strip, responsive layout, shared controls | Route tests for windows, preloading, the phone tab bar's more menu and focus; desktop and phone browser reviews | implemented |
 | FLEET-00 | The nodes home, opened after sign-in and from `/` and `/overview`: a title strip that filters by state (all, online, offline) with counts and by tag, searches, turns on selection and adds a node; key figures for running cores, live traffic with both directions summed, active connections with the online nodes and this period's summed usage (never a summed quota), which scroll with the panes on phones; adding a node issues a one-time code in one dialog that waits for the host to enroll, shows the node once the fleet lists it and discards the unused code when it closes earlier; the screen follows the fleet stream while visible and the readout marks a stream that stays down | `/fleet/status` and `/fleet/stream` (every node with its metrics); node creation and enrollment code APIs | `fleet` status test with ten-second rates, fleet stream, filter and ETag route test, fleet summary tests, route test, enrollment dialog test; browser review of adding, canceling and re-enrolling a node | implemented |
 | FLEET-01 | Every node as a terminal pane in a grid that scrolls in its own region: a title bar with a health dot for the node's worst condition with its reasons, name, host with its tags on hover, and what needs saying (quota reached, an update); a headline with live rates and connections, or how long the node has been away; the core's line; CPU, memory, disk and its own quota's use as meters along one success-to-danger scale, hatched while unknown; offline nodes, then nodes over quota, lead and live load never reorders them; panes off screen skip layout and paint | Fleet status API | Route tests; empty, no-match and load-failure states; 200-node browser review with live readings | implemented |
 | FLEET-02 | Opening a node shows its title strip (the previous and next nodes in the current window, name, state, core state and version, uptime, rates, connections, runtime controls) and its windows in the status line; every view inside reads and commands that node only; an offline node keeps its last report marked stale and shows one region state in windows that command it | Node-scoped API client, node routes | Route tests for node scoping and offline state; node strip runtime tests | implemented |
 | FLEET-03 | A node's settings save its name, published host, tags (at most 16, as chips) and traffic quota, period and reset day as one group, show the node's version and its last update with an update action confirmed with the brief interruption it causes, and keep re-enrollment, which waits for the host in the dialog that adds nodes, and removal in a separate destructive section that names the node | Node rename, settings, enrollment, update and deletion APIs with settings revisions | Settings validation and conflict tests; tag input test; browser save, re-enroll and remove | implemented |
 | FLEET-04 | Selected panes (a selection mode from the title strip, Ctrl or Cmd click, Shift ranges, a touch held on a pane or Space; Escape, clearing or the strip's toggle leaves it) and command-line targets (a name, a glob, `tag:<tag>`, `all`) run start, stop, restart, install a core at an exact catalog version, or update; each batch names its nodes and what it interrupts and asks first, streams one result line per node to the command output and ends with a summary, which a toast carries when the line is closed | `/fleet/commands` with its result and done events; batch runner in the status line | Command parsing and target tests; route tests for a confirmed command-line batch and a selection batch | implemented |
-| CMD-01 | A command line in the status line opened by Ctrl or Cmd+K, `:` or its action: `help`, `clear`, `logout`/`exit`, window numbers, `open`, `goto`, `filter` and the batch verbs, with word completion that opens upward and output that stays until closed | Shared terminal input line and buffer, pure command module | Command parsing, completion and scope tests; route test opening windows and nodes | implemented |
+| CMD-01 | A command box floating near the window's top over a scrim, opened by Ctrl or Cmd+K, `:` or the status line's action: `help`, `clear`, `logout`/`exit`, window numbers, `open`, `goto`, `filter`, the batch verbs and `reboot`, with word completion in a list below the input, a shell's line-editing keys (Ctrl+A, Ctrl+E, Ctrl+U, Ctrl+W) and output there that stays until cleared | Shared terminal input line and buffer, pure command module | Command parsing, completion and scope tests; route test opening windows and nodes; status line tests closing the box one layer at a time, taking a completion pressed with the pointer and editing the line with the shell's keys | implemented |
 | UPD-01 | The panel settings' version updates card shows the running version, the newest stable release with when it was checked, a check action and an update confirmed with the brief interruption; the update's state follows until the panel restarts. A node updates to the panel's release from its settings tab or a sequential batch; system services hand verified releases to a root update helper that restores the previous binary when the service does not stay active | `/system/update`, `/system/update/check`, `/nodes/{nodeId}/update`, `/fleet/commands` update; `selfupdate`, `releases`, `fleet`, node `agent`; protocol `FetchRelease` and `UpdateNode` | `selfupdate` staged-apply refusals and restore, fleet release proof, minor gate, sequential batch and real-node update tests, OpenAPI conformance, release smoke node update | implemented |
 | UI-02 | Shared action buttons in the sizes and variants of [`DESIGN.md`](../DESIGN.md), with matching square icon buttons and 44px touch targets; primary save, outlined secondary actions and semantic destructive actions; consistent hover/pressed/focus; centered dialogs; compact semantic-color Toast for all operation, loading and validation errors, without inserting error banners into page flow, sign-in refusals included; repeated persistent failures reuse one notification and recovery closes it; all dropdown fields use the shared custom Select, including protocol, source and channel forms, with consistent popup styling and keyboard interaction | Shared UI and feedback | Real actions, focus return, Escape, visible validation, disabled options, no false success | implemented |
 | UI-03 | Data tables and item lists use regular-weight names, body text, statuses and row actions; table headers use medium weight; dropdown options use regular weight, with existing compact metadata sizes preserved | Shared table typography and feature-owned list styles | Browser checks across versions, sources, keys, channels, configuration rows and logs | implemented |
@@ -289,7 +286,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | CORE-02 | Filter assets by deployed OS/CPU architecture; no architecture badge or selector, never browser architecture or unknown→ARM64 | Platform detection, catalog/cache, imported artifact inspection | Cross-architecture assets and rate-limit/cache behavior | implemented |
 | CFG-01 | One editable config.json, version-scoped root sections (13 in 1.14) with flat label/control rows, DNS/route sub-tabs and inline list editing; advanced JSON; floating icon tools and find/replace with case, word and regex matching; preserve unknown fields and numbers | Canonical saved text, version-scoped schema, validated startup artifacts | Lossless round trip; invalid JSON can save, cannot start | implemented |
 | CFG-02 | Save independent of running process; loaded/dirty/restart-required/start-pending states; start/restart checks saved file before replacement | Saved-file identity vs loaded immutable artifact; CAS and runtime transitions | Concurrent edits, failed validation preserves running process, restart loads saved bytes | implemented |
-| CFG-03 | The configuration window copies another node's saved configuration into its draft after a difference view, unsaved until saved; its applied configurations (ready startup artifacts, newest first, paged by cursor, the running one marked) roll back by running a chosen one again after a danger confirmation that names it and says the core restarts and the saved text, which the next start loads, stays as it is; a refusal stays in the confirmation | Configuration file API of the source node; `/config/artifacts` and `/core/activate`; `/core/rollback` stays unused by the interface | Applied-configurations test (paging, confirmation wording, inline refusal); browser review of the copy dialog with a difference | implemented |
+| CFG-03 | The configuration window copies another node's saved configuration into its draft after a difference view, unsaved until saved | Configuration file API of the source node | Browser review of the copy dialog with a difference | implemented |
 | SUB-01 | Pool nodes, sources, channels and keys; URL and file sources with include/exclude name filters and a preview of what they keep; edit settings with a file source's content in one save, refresh, and delete | Source API, SSRF-safe acquisition, strict parsers and one stored content per source | A failed fetch or parse keeps the current content and nodes; invalid filters and unconvertible kept nodes are refused with their location | implemented |
 | NODE-01 | One pool of every published fleet inbound and every kept source node, as cards in a saved order without pagination; display name, origin, protocol, endpoint, TLS/Reality/SNI and transport; whole-card dragging saves the order; the detail edits only the display name | Pool synchronization with origin-derived IDs | Removed nodes leave every channel and grant; new nodes append; a stale order is refused | implemented |
 | NODE-04 | Published addresses, credentials visible and copyable in the node detail, an inbound's detail links to its configuration; the pool cannot delete an inbound | Inbound provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
@@ -308,7 +305,8 @@ below exercise the corresponding source, API and runtime boundaries.
 | SET-04 | Language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
 | SET-05 | Theme links accent/background/border/focus/charts through the derivation and radius steps in [`DESIGN.md`](../DESIGN.md); badges/logo/status independent | Shared CSS tokens and accessible color derivation | Text contrast ≥4.5 for arbitrary light/dark colors, radius bounds, all component states | implemented |
 | LOG-01 | A node's logs tab shows its real-time core raw logs only; timestamp muted, full message matches level; all native levels, file/date/level selectors consistent and right aligned; one top-right status pill toggles live output and pause, without a separate icon or surrounding container | Core log file/tail API | Real file reading/stream/reconnect/pause/filter, independent scroll | implemented |
-| LOG-02 | The panel's logs view shows operation outcomes and runtime events across the fleet; time, message, log level and source only | Unified event query with sanitized operation outcomes | Consistent displayed/filter levels; pagination/filter | implemented |
+| LOG-02 | The panel's logs window has two tabs: the panel log (operation outcomes and panel, security and core events, filtered by level) with a Clear action that deletes every entry and shrinks its file, and every node's runtime states (filtered by state, with the node); both keep the tab and a node filter in the address | `/logs/panel`, `/logs`, `/logs/usage` and `/fleet/runtime/history`; the panel log in `logs.db` | Upgrade, shrink and fleet history store tests; consistent displayed/filter levels; pagination/filter; clear flow | implemented |
+| SYS-01 | Restart panel in the status line or `reboot` in the command line confirms, then the panel stops as a stop does and runs its program again in the same process; the readout's slot shows the restart until `/system/status` reports a later `started_at`, and says so when that takes over a minute; refused while an update runs or is staged | `/system/restart`, `/system/status`; `server` restart | Linux lifecycle test from the request to the re-execution; restart flow and command tests | implemented |
 
 ### Implementation and evidence map
 
@@ -322,7 +320,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
 | CHAN-01–03, RULE-01–04, TPL-01 | `subscription/channel_*`, `subscription/service_rule_sets.go`, `store/subscription_channels.go`, `store/subscription_rule_sets.go`, channel and rule set API, channel workspace and nested editors, `pages/subscriptions-page/rule-text.ts` | Native renderer, exit-rule, group match and URL tests in `subscription/channel_policy_test.go`; `httpapi/subscription_channel_policy_test.go`; rule set CRUD in `httpapi/subscription_routes_test.go`; rule text, picker and workspace tests; browser persisted group/reference reload, nested return and preview/copy |
 | SET-01–05 | `settings/service_panel.go`, `service_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, draft retention, save/reload, leaving restores saved appearance |
-| LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/panel_logs.go`, product log API, `pages/node-logs-page` and `pages/panel-logs-page` | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
+| LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/logs.go`, `store/panel_logs.go`, `store/runtime_history.go`, product log API, `pages/node-logs-page` and `pages/panel-logs-page` | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
 Go paths in this table are relative to `internal/sing-box-panel/` unless they
 name another tree; Web paths are relative to `web/apps/panel/src/`. API details remain in `api/panel-openapi.yaml`; the owning guides describe
@@ -331,13 +329,17 @@ persistence, security boundaries and runtime semantics.
 ### Persistence and preserved guarantees
 
 `internal/sing-box-panel/store/migrations/` holds the panel's storage
-migrations, from `0001_baseline.sql`. The baseline creates each node's editable
+migrations, one folder for each database file, each from `0001_baseline.sql`.
+The baseline in `panel/` creates each node's editable
 configuration and canonical
 revisions, the cached core archives, subscription state, shared subscription
 node order, each node's runtime history, traffic samples, counter checkpoint
 and durable daily traffic accounting, login sessions, the node registry with
 node public keys, the hashes of unused enrollment tokens, each node's traffic quota and period, tags and its last state report,
-and operational records directly. Each node keeps its
+and operational records directly. `logs/` builds the log database `logs.db`,
+which holds the panel log apart from `panel.db` so that clearing it rewrites
+only that file; the second migration in `panel/` moved the log out of
+`panel.db`. Each node keeps its
 runtime evidence in its own `node.db`, built by
 `internal/sing-box-node/store/migrations/`. Settings live in the selected
 `setting.json`; SQLite keeps only transaction markers for interrupted settings
@@ -378,8 +380,8 @@ underlying core inbound.
 ### Verification workflows
 
 - `make check` runs Go tests and vet, Web lint/tests/build, OpenAPI coverage,
-  protobuf lint and generated-code drift, generated support checks, shell
-  syntax checks and installer scenarios.
+  protobuf lint and generated-code drift, shell syntax checks and installer
+  scenarios.
 - `make test-race` checks concurrent state changes and runtime controls.
 - Store tests cover fresh-schema initialization, reopening the current format,
   rejection of unsupported formats without conversion, transactional saved-file
@@ -387,9 +389,8 @@ underlying core inbound.
 - API tests exercise the single editable file across reopen, including whitespace,
   large numbers, unfinished JSON, stale writes and correction. Removed configuration
   history routes must return 404.
-- `make core-contract` checks reviewed musl artifacts on native Linux amd64/arm64.
-  `make release-smoke` checks packaged startup, persistence and signed self-update
-  on a native Linux runner; both require their documented prerequisites.
+- `make release-smoke` checks packaged startup, persistence and signed self-update
+  on a native Linux runner; it requires its documented prerequisites.
 - Browser review covers responsive layouts, keyboard navigation, editor rendering,
   settings persistence, notifications and observed runtime controls against a
   running panel and node.
@@ -404,13 +405,14 @@ underlying core inbound.
   origin stops yielding it, and a channel publishes only the nodes its groups name.
 - Remote rule files are fetched by the subscribing client, never by the panel.
 - A node's source name is independent from its user-entered name and protocol.
-- Native sing-box channels use the reviewed 1.14 schema. Mihomo templates receive
-  YAML syntax, reserved-field and supported-option validation; a live Mihomo
-  runtime check has not been performed. Unsupported conversions return diagnostics.
+- Sing-box channel templates receive JSON syntax and reserved-field validation;
+  Mihomo templates YAML syntax, reserved-field and supported-option validation. A
+  live client runtime check has not been performed. Unsupported conversions return
+  diagnostics.
 - Native installed-core lifecycle checks require Linux. Host-independent tests
   verify preflight and concurrency controls with controlled executors.
-- The build reports a large precompiled schema-validator chunk. It remains lazily
-  loaded with configuration editing; the warning is not a build failure.
+- The build reports a large configuration-editor chunk. It remains lazily loaded
+  with configuration editing; the warning is not a build failure.
 
 Feedback follows completed operations and observed runtime state rather than
 hardcoded samples.
@@ -446,7 +448,7 @@ then asks that
 binary to validate the immutable configuration bytes. JSON Schema and inbound
 conversion availability are independent optional capabilities.
 
-`GET /api/v1/system/status` reports the configuration revision and binary
+`GET /api/v1/nodes/{nodeId}/core/status` reports the configuration revision and binary
 evidence associated with the live artifact or, when stopped, the applied
 bundle. It never selects the newest catalog version or a nearby release.
 
@@ -631,15 +633,15 @@ seconds (hover/focus pauses the accessible toast timer).
 
 The React application contains its own trusted structured controls. It does
 not load Schema-provided scripts, components, templates, or remote resources.
-Changing the selected artifact clears the previous Schema state before
-resolving the new exact version.
+Changing the selected artifact clears the previous schema state before
+requesting the new artifact's schema.
 
 The editable configuration response includes authoritative `content` text,
 `revision` and `syntax_valid`. The Web editor uses a lossless codec, preserves
 unshown fields, and saves the complete text with the current body revision.
 The version selector contains compatible installed core versions and does not
-enable or replace a core when its selection changes. Exact versions without a
-committed native or reviewed Schema use the Advanced editor and show the reason. With no installed
+enable or replace a core when its selection changes. A version without a release
+line uses the Advanced editor and shows the reason. With no installed
 version, Advanced JSON saving remains available but visual editing and binary
 validation require the operator to install one.
 A `412` response preserves the local draft for review.

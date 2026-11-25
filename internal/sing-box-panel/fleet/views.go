@@ -38,18 +38,6 @@ type RuntimeStatus struct {
 	Running                   *RunningCore `json:"running,omitempty"`
 }
 
-// ActivationSummary identifies an applied startup artifact and its bundle.
-type ActivationSummary struct {
-	StartupArtifactID   string `json:"startup_artifact_id"`
-	CanonicalRevisionID string `json:"canonical_revision_id"`
-	ExactCoreVersion    string `json:"exact_core_version"`
-	CoreArtifactID      string `json:"core_artifact_id"`
-	ConfigSHA256        string `json:"config_sha256"`
-	ActivationBundleID  string `json:"activation_bundle_id"`
-	ActivationSHA256    string `json:"activation_sha256"`
-	MonitoringTier      string `json:"monitoring_tier"`
-}
-
 type StartupArtifactSummary struct {
 	ID                  string     `json:"id"`
 	CanonicalRevisionID string     `json:"canonical_revision_id"`
@@ -59,32 +47,6 @@ type StartupArtifactSummary struct {
 	State               string     `json:"state"`
 	CheckedAt           *time.Time `json:"checked_at,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
-}
-
-type StartupArtifactCursor struct {
-	CreatedAt time.Time `json:"created_at"`
-	ID        string    `json:"id"`
-}
-
-type StartupArtifactPage struct {
-	Items []StartupArtifactSummary `json:"items"`
-	Next  *StartupArtifactCursor   `json:"next,omitempty"`
-}
-
-// StartupArtifactListRequest filters a node's startup artifacts.
-type StartupArtifactListRequest struct {
-	CanonicalRevisionID string
-	ExactCoreVersion    string
-	CoreArtifactID      string
-	State               string
-	Cursor              *StartupArtifactCursor
-	Limit               int
-}
-
-type RuntimeResponse struct {
-	Status     RuntimeStatus           `json:"status"`
-	Activation *ActivationSummary      `json:"activation,omitempty"`
-	Startup    *StartupArtifactSummary `json:"startup_artifact,omitempty"`
 }
 
 type CompiledConfigurationArtifact struct {

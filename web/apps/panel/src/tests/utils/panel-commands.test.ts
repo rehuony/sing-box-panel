@@ -32,7 +32,9 @@ describe('panel commands', () => {
     expect(parseCommand('restart hk-*')).toEqual({ kind: 'batch', target: 'hk-*', verb: 'restart' });
     expect(parseCommand('stop')).toEqual({ kind: 'usage', verb: 'stop' });
     expect(parseCommand('exit')).toEqual({ kind: 'logout' });
-    expect(parseCommand('reboot all')).toEqual({ kind: 'notFound', name: 'reboot' });
+    expect(parseCommand('REBOOT')).toEqual({ kind: 'reboot' });
+    expect(parseCommand('reboot all')).toEqual({ kind: 'usage', verb: 'reboot' });
+    expect(parseCommand('shutdown all')).toEqual({ kind: 'notFound', name: 'shutdown' });
   });
 
   it('resolves targets by name, ID, glob, tag and all', () => {
@@ -50,8 +52,9 @@ describe('panel commands', () => {
 
   it('completes verbs, then windows, node names, tags and targets', () => {
     const verbs = [{ name: 'goto' }, { name: 'open' }];
+    const describe = { all: 'all', node: () => 'node', tag: () => 'tag', window: () => 'window' };
     const names = (words: string[], index: number) =>
-      commandCompletions(words, index, { items: fleet, verbs }).map(entry => entry.name);
+      commandCompletions(words, index, { describe, items: fleet, verbs }).map(entry => entry.name);
     expect(names([''], 0)).toEqual(['goto', 'open']);
     expect(names(['open', ''], 1)).toEqual(['nodes', 'subscriptions', 'logs', 'settings']);
     expect(names(['goto', ''], 1)).toEqual(['hk-1', 'hk-2', 'Tokyo edge', 'us-1']);

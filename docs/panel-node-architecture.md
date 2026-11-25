@@ -92,21 +92,25 @@ Frames are `oneof` envelopes:
 | Node → panel | `Hello`, `Proof`, `Result { request_id, outcome or problem }`, `Event` (state report, runtime transition, metrics sample with traffic counters) |
 
 The command bodies are typed: check configuration; enable and disable a core;
-check and activate a startup artifact; start, stop, restart and roll back;
-install, remove and list cores; list startup artifacts; read the runtime
-status; browse and resolve filesystem paths; list, read, delete and clear
-core log files; and update the node to the panel's release. A command that uses the configuration carries the node's saved
+check a startup artifact; start, stop, restart and roll back;
+install, remove and list cores; print an installed core's configuration schema;
+read the runtime status; browse and resolve filesystem paths; list, read, delete
+and clear core log files; and update the node to the panel's release. A command that uses the configuration carries the node's saved
 revision: its ID, file revision, SHA-256 and bytes. The panel follows a core log
 by reading it again each second, so the protocol has no follow command.
 
-Panel and node are released together. Within `v1` the contract changes only
-additively, and `Hello` carries a minor protocol version. The panel accepts a
+Panel and node are released together. Within `v1` new commands and fields come
+with a new minor protocol version, the field numbers and names of a removed
+command stay reserved, and `Hello` carries the minor version. The panel accepts a
 node with the same major version and records its build version and minor
 version. Each command belongs to the minor version that added it, and the
 panel refuses to send a command to a node whose session names an older minor
 version, answering `node_upgrade_required` without contacting the node. The
-contract is at minor version 1, which adds `FetchRelease`, `UpdateNode` and the
-state report's last update attempt; every other command is in minor version 0.
+contract is at minor version 2. Minor version 1 adds `FetchRelease`, `UpdateNode`
+and the state report's last update attempt, and minor version 2 adds
+`GetCoreSchema`, which runs the installed core's `sing-box schema` for a core of a
+line that has it and returns its output, at most 3 MiB; every other command is in
+minor version 0.
 A breaking change moves to a new package.
 
 `FetchRelease` authenticates on its own, apart from `Connect`, so the node's
@@ -166,7 +170,7 @@ too, while the node runs.
 | Host facts, metrics, public IP, filesystem | Node, live | The panel keeps bounded metrics history |
 | Traffic counters | Node, cumulative across core restarts in a durable checkpoint | The panel computes each node's deltas, its periods from its own reset day, and its usage against its own quota |
 | Core log files | Node, bounded and sanitized | The panel relays reads on demand and keeps no copy |
-| Panel log and operation outcomes | Panel | Node events are recorded with their node ID |
+| Panel log and operation outcomes | Panel, in its own `logs.db`, kept until cleared | Node events are recorded with their node ID |
 | Subscriptions: node pool and its order, sources, channels, keys, templates | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
 | Node settings: panel endpoint, trust, data directory and identity key; console settings and password hash | Node | — |
@@ -188,7 +192,7 @@ written before that baseline.
 ## Commands and consistency
 
 - Every command carries a request ID. The node records each result under its request ID for a day, so a repeated request returns the recorded result, and it runs runtime-changing commands through its prepare, perform and complete intent with a generation, so an interrupted command recovers after a node restart.
-- The panel checks a revision against the exact Schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
+- The panel checks a revision against the configuration schema of the core it is for before sending it: the selected core for enable and check, and the core the node reports enabled for start and restart. A revision is sent unchecked when no schema can be had for the core, including an enabled core the panel holds no record of; the node's `sing-box check` still gates it. The node accepts a revision ID only with the same bytes and rejects bytes that do not match the digest.
 - A command that can change the node's state keeps only its deadline once sent: a browser that disconnects does not cancel a change the node already started.
 - A management mutation for a node waits for that node's result within the command deadline and returns the completed result.
 - An offline node rejects commands at once with a `node_offline` problem. Commands are never queued. A command without a deadline of its own has two minutes, batches included. A command to a node whose session has not yet reported its state waits for that report within its deadline, follows a session that replaces it, and fails as `node_offline` when the session ends first. Saving a node's configuration stays a panel-local write and works while the node is offline.
@@ -231,7 +235,7 @@ shared read. Streaming the fleet does not
 change how often nodes sample. Traffic counters ride
 on metrics samples. The panel stores each node's last state report, keeping it
 visible while the node is offline, and stores metrics history, traffic periods
-and runtime history per node, with the existing retention settings. It keeps
+and runtime history per node, with their retention settings. It keeps
 each node's latest metrics sample, current period and newest accepted traffic sample
 in memory, updated by every accepted sample, so a fleet snapshot is one query for
 the nodes whatever their number; a period the panel does not hold, after a
@@ -259,7 +263,7 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{node_id}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, panel logs, authentication |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/fleet/runtime/history` (every node's runtime transitions), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{node_id}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, the panel log, restarting the panel, authentication |
 | One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
 
 A fleet command runs the single-node operation on each selected node, at most
@@ -279,7 +283,7 @@ be cached fail on their own.
 OpenAPI remains the authoritative HTTP contract. The Web UI follows
 [`DESIGN.md`](../DESIGN.md)'s node-first shell: a status line that lists the
 scope's windows, leads back to the fleet and, in a node's windows, to its
-neighbours, and reads commands; the nodes home with the fleet's key figures and
+neighbours, and opens a floating command box; the nodes home with the fleet's key figures and
 one pane per node, a node's windows (overview, cores, configuration, logs,
 settings) under a title strip that names the node, subscriptions, logs and
 settings.
@@ -328,7 +332,7 @@ internal/
     releases/            the node release cache of the panel's version and the panel's own updates
     nodeconfig/          per-node editable file, revisions, check and apply through fleet
     corecache/           upstream catalog discovery, artifact cache and distribution
-    schema/              exact-version Schema manifest and assets for the editor
+    schema/              configuration schemas: the reviewed 1.13 schema and preparation of the ones cores print
     subscription/        node pool, sources and parsers, inbound conversion, channels, keys, templates, renderers
     telemetry/           metrics, traffic, runtime history and log relay
     auth/ settings/
@@ -364,18 +368,18 @@ internal/
   Shared domain: both services use these and never import a service
   configuration/         strict, lossless sing-box JSON
   coreartifact/          artifact identities and platform assets
-  singbox/               exact-version support catalog and runtime compatibility
+  singbox/               supported release lines and runtime compatibility
   nodeapi/               generated protocol code, protocol version and session proof
 
   layout/                the dependency-rule test over go list
-tools/                   maintainer commands; singbox-support maintains panel Schema assets
+tools/                   maintainer commands
 web/                     pnpm workspace: apps/panel, apps/node (each embedded by its binary), packages/shared
 ```
 
 `internal/layout` enforces the rules over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, each service
 imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
-embeds neither the panel's Web UI nor Schema assets, and `cmd/sing-box-panel`
+embeds neither the panel's Web UI nor its configuration schema, and `cmd/sing-box-panel`
 does not embed the node console's. Maintainer tools are programs that nothing
 imports and may use any package.
 

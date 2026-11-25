@@ -4,13 +4,13 @@ import { Spinner } from '@shared/components/ui/spinner';
 import { useEffect, useId, useRef, useState } from 'react';
 import { DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import { Field, FieldError, FieldLabel } from '@shared/components/ui/field';
-import { Empty, EmptyHeader, EmptyTitle } from '@shared/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@shared/components/ui/input-group';
-import { ArrowRight, Check, ChevronRight, Eye, EyeOff, File, Folder, FolderUp, Link, Plug, RefreshCw, Search, SquarePen, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, Eye, EyeOff, File, Folder, FolderOpen, FolderUp, Link, Plug, RefreshCw, Search, SquarePen, X } from 'lucide-react';
 
 import type { FilesystemEntry, FilesystemMode } from '@/api/api-client';
 
 import { ApiRequestError } from '@/api/api-client';
+import { RegionState } from '@/components/region-state';
 import { ListPagination } from '@/components/list-pagination';
 
 import { useServerPathPicker } from './use-server-path-picker';
@@ -218,7 +218,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
             : error != null
               ? <FieldError className='flex h-full items-center justify-center px-4 text-center'>{errorMessage}</FieldError>
               : !data || data.items.length === 0
-                  ? <Empty className='h-full'><EmptyHeader><EmptyTitle>{t('filesystem.empty')}</EmptyTitle></EmptyHeader></Empty>
+                  ? <RegionState className='h-full min-h-0' icon={FolderOpen} title={t('filesystem.empty')} />
                   : (
                       <ul ref={listRef} aria-label={t('filesystem.entries')} className='flex flex-col gap-1' onKeyDown={event => {
                         if (event.key === 'ArrowLeft' && parentPath && parentPath !== currentPath) {

@@ -2,14 +2,12 @@ import type { RJSFSchema } from '@rjsf/utils';
 
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 import { parse, stringify } from 'lossless-json';
-import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-import { reviewedSchemaManifest } from '@/schemas';
-import { resolveReviewedSchema } from '@/schemas/resolve-reviewed-schema';
-import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 import {
   collectionItemSchema,
@@ -268,13 +266,9 @@ const fixtures = [
   text: readFileSync(resolve(import.meta.dirname, `../../../../../../../internal/sing-box-panel/schema/testdata/configuration-1.13/${name}`), 'utf8'),
 }));
 
-beforeAll(async () => {
-  await Promise.all(representativeSchemaVersions().map(version => reviewedSchemaManifest[version].load()));
-});
-
-describe.each(representativeSchemaVersions())('configuration field presentation %s', version => {
-  it.each(['hysteria2', 'anytls'])('groups shared %s form fields and nested TLS fields consistently', async type => {
-    const { schema: root } = await reviewedSchemaManifest[version].load();
+describe.each(Object.keys(configurationSchemas) as (keyof typeof configurationSchemas)[])('configuration field presentation %s', line => {
+  it.each(['hysteria2', 'anytls'])('groups shared %s form fields and nested TLS fields consistently', type => {
+    const root = configurationSchemas[line];
     const inbound = collectionItemSchema(schemaProperties(root, root).inbounds, root)!;
     const ui = uiSchemaFromPanel(inbound, [], root, { type });
     const fields = ['type', 'tag', 'listen', 'listen_port', 'reuse_addr', 'tcp_fast_open', 'users', 'tls'];
@@ -284,33 +278,15 @@ describe.each(representativeSchemaVersions())('configuration field presentation 
   });
 });
 
-describe.each(representativeSchemaVersions('reviewed-1.13'))('reviewed 1.13 projection %s', version => {
-  it('validates every section and preserves DNS, TLS, rules and protocols through form projection', async () => {
-    const loaded = await reviewedSchemaManifest[version].load();
-    const resolution = await resolveReviewedSchema({
-      exact_version: version, schema_sha256: loaded.schemaSHA256, schema: loaded.schema,
-    }, version);
-    const validate = Object.values(loaded.validateFns)[0];
+describe('reviewed 1.13 projection', () => {
+  it('preserves DNS, TLS, rules and protocols through form projection', () => {
+    const root = configurationSchemas['1.13'];
     for (const fixture of fixtures) {
       const draft = parseCanonicalDraft(fixture.text);
-      expect(validate(JSON.parse(fixture.text)), fixture.name).toBe(true);
-      const projected = projectSchemaKnownData(resolution.schema, resolution.schema, draft);
-      const merged = mergeSchemaKnownData(
-        resolution.schema, resolution.schema, draft, projected, structuredClone(projected),
-      );
+      const projected = projectSchemaKnownData(root, root, draft);
+      const merged = mergeSchemaKnownData(root, root, draft, projected, structuredClone(projected));
       expect(JSON.parse(encodeCanonicalDraft(merged as CanonicalDraft)), fixture.name)
         .toEqual(JSON.parse(fixture.text));
     }
-    for (const value of [
-      { outbounds: {} },
-      { log: [] },
-      { log: { disabled: 'false' } },
-      { log: { level: 'verbose' } },
-      { log: { colour: true } },
-      { certificate: { providers: [{ type: 'acme', tag: 'cert' }] } },
-      { inbounds: [{ type: 'snell', listen_port: 2080, psk: 'secret' }] },
-      { endpoints: [{ type: 'openvpn', tag: 'vpn' }] },
-      { dns: { servers: [{ type: 'mdns' }] } },
-    ]) expect(validate(value)).toBe(false);
   });
 });

@@ -66,7 +66,9 @@ shares the host's network.
 `.claude/dev/node.sh` runs a node enrolled with it in a Debian container on the
 host network, and each application's development server runs on `5173` (panel)
 or `5174` (node console). Their binaries, settings and data stay in the ignored
-`.claude/dev/state/`; the first start prints the credentials once.
+`.claude/dev/state/` (`bin/`, `panel/` and `node/`); the first start saves the
+panel's administrator credentials there and prints the node console's password
+once. Removing `panel/` or `node/` starts that service over.
 
 Use `make check-frontend` from the repository root for a production build, types,
 lint, all tests, Schema consistency and notices checks. From this directory,
@@ -119,34 +121,24 @@ for filesystem scope and path semantics.
 Transport types under `src/api/generated/` are build artifacts generated from
 `../../../api/panel-openapi.yaml`. Development, typecheck, test, and build commands refresh
 them automatically; they are not committed or edited by hand. The custom HTTP
-client remains hand-written. `pnpm run generate` prepares both transport types
-and configuration Schema assets; ordinary development and validation commands
-include this step, so no separate preparation command is needed.
+client remains hand-written. `pnpm run generate` prepares the transport types;
+ordinary development and validation commands include this step, so no separate
+preparation command is needed.
 
-Configuration contracts under `src/schemas/.generated/` are exported offline
-from the committed backend Schema assets by `pnpm run generate`. They are
-build outputs and are not committed or edited by hand. Development,
-typecheck, test and build commands run generation before loading their imports;
-Vite itself does not generate them. The generated manifest binds each reviewed
-exact version to its source kind, file and SHA-256 digest. Identical Schema
-contents share one exported asset and one Ajv 2020 browser validator. Generation
-leaves the output directory untouched when all contents already match.
-`pnpm run schema:check` recomputes and compares the expected outputs without
-changing that directory. Generated validators contain no CommonJS `require`.
-Application code imports the stable `src/schemas/index.ts` public entry instead
-of importing generated files directly. This entry reads the manifest and lazily
-loads shared Schema and validator modules with Vite's `import.meta.glob`; the
-generator writes only the manifest and assets.
-The [support table](../docs/core-versions.md#exact-configuration-support)
-lists the reviewed exact versions; sharing a digest does not support another
-version. A version without a committed Schema
-remains available in the Advanced JSON editor; structured editing is enabled
-only when the exact-version local Schema and served digest match. The
-configuration version selector lists compatible installed core versions,
-prefers the enabled version, and otherwise selects the highest installed exact
-version. Without an installed core, Advanced JSON editing and saving remain
-available while structured editing and validation direct the operator to
-version management.
+The application bundles no configuration schema. The visual editor renders the
+schema the panel serves for the selected core, after checking that it names that
+core's version and is an object; it does not validate against it, and its form
+validator only matches values to schema branches. The panel answers
+`configuration_schema_unavailable` for a version outside every
+[release line](../docs/core-versions.md#release-lines), which keeps the visual
+editor tab disabled; any other failure shows a notice with a retry, and the
+Advanced JSON editor stays available either way. The configuration version
+selector lists compatible installed core versions, prefers the enabled version,
+and otherwise selects the highest installed exact version. Without an installed
+core, Advanced JSON editing and saving remain available while structured editing
+and validation direct the operator to version management. The form library is
+imported from its `lib/` modules, because its package entry also loads a test
+registry that needs the Ajv validator.
 
 ## Build output and embedding
 
@@ -166,7 +158,7 @@ README.
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
 session, the fleet and node enrollment, panel settings, subscription
-publication, panel logs and the core catalog. Everything about one node goes
+publication, the panel log and runtime states, the panel's restart and the core catalog. Everything about one node goes
 through `/api/v1/nodes/{nodeId}/…`: the node workspace gives its pages a client
 scoped to that node, so its cores, configuration, runtime, logs, telemetry and
 settings never reach another node. Cookie-backed writes retain the session CSRF
@@ -190,10 +182,7 @@ to recover Vite's shared CSS/module preload state. A view that fails, such as a
 route module that fails to load without a preload, shows one line in its place
 inside the shell with a reload action, and opening another window leaves it; a
 failure outside the shell shows the router's root fallback with the same
-action. Configuration downloads the
-reviewed Schema/validator modules in parallel with the authenticated Schema
-contract; version, digest and full-schema checks
-still gate structured editing. Subscription lists and their node catalog load
+action. Subscription lists and their node catalog load
 concurrently, and the version library reads runtime status only once on entry.
 Runtime responses are published independently of artifact listings and discarded
 when newer shared runtime evidence arrives while the request is pending.
@@ -275,9 +264,10 @@ Live chart samples preserve gaps and never contribute to accounted traffic total
 The runtime timeline keeps 48 half-hour segments with time marks anchored to the
 overview snapshot, including dates at both endpoints. Narrow cards retain the
 start, midpoint and end marks. Segment tooltips expose the complete interval and
-observed state on hover or keyboard focus. Recent activity keeps two compact rows
-with the same localized event names and severity badges as panel logs. Each row
-opens the panel logs page; its tooltip exposes the full name and occurrence time.
+observed state on hover or keyboard focus. Recent activity keeps the node's two
+newest panel log entries in compact rows, with the same localized event names
+and severity badges as the panel log. Each row opens the panel log filtered to
+the node; its tooltip exposes the full name and occurrence time.
 Activity times include dates for earlier days and years for earlier years, and
 update at local midnight independently of delayed runtime snapshots.
 
@@ -323,8 +313,8 @@ The shell is one scrolling content region with a status line below it. The
 status line leads back to the fleet (`fleet`, the same in every scope), lists
 the scope's windows as numbered tabs (`1 nodes` to
 `4 settings`, or a node's `1 overview` to `5 settings`), shows the fleet
-readout and the panel's update, and carries the theme cycle, language menu and
-sign-out; below 640px it is a tab bar along the window's foot with a more
+readout and the panel's update, and carries the theme cycle, language menu,
+the panel's restart and sign-out; below 640px it is a tab bar along the window's foot with a more
 menu. Window names are command words in every language; their tooltips and
 accessible names are translated. Pages omit a visible title band while
 retaining a screen reader heading: every view starts with one title strip
@@ -334,14 +324,16 @@ controls. Tables and forms scroll within the space above
 the status line, keeping their actions reachable.
 
 Ctrl or Cmd+K, `:` outside fields and dialogs, or the status line's prompt
-action opens the command line (`components/status-line`). It parses commands
+action opens the command line as a box floating near the window's top
+(`components/status-line`), leaving the status line as it is. It parses commands
 in `utils/panel-commands.ts` (`help`, `clear`, `logout`, window numbers,
-`open`, `goto`, `filter`, and `start`, `stop`, `restart` and `update` on a name,
-a glob, `tag:<tag>` or `all`), completes the word under the caret, and prints to
-one output panel above the line that stays until closed. Batches from the
+`open`, `goto`, `filter`, `start`, `stop`, `restart` and `update` on a name,
+a glob, `tag:<tag>` or `all`, and `reboot`), completes the word under the caret
+in a list below the input, and otherwise shows its output there until cleared.
+Batches from the
 command line or from selected panes confirm first, run one at a time, stream
 each node's result from `/fleet/commands` into output that keeps room for every
-node's line, and keep running when the line closes, ending in a toast then,
+node's line, and keep running when the box closes, ending in a toast then,
 which also says when a batch stopped before its summary. The output, a pending
 confirmation, the command history, the home screen's filters, selection mode
 and selection, and the enrollment dialog end with the signed-in session; a batch still running then finishes on the
@@ -358,11 +350,11 @@ the one enrollment dialog (`components/enrollment-dialog.tsx`, opened through
 `stores/enrollment-dialog.store.ts`), so a view that remounts while a host
 enrolls keeps it; the dialog reads the fleet status the stream feeds, polls
 while the stream is down, and discards an unused code when it closes or the
-page goes away. The browser review harness seeds a fleet with
-`SBP_BROWSER_FLEET=<n>` (`panel-review` in `.claude/launch.json` runs 200),
-half of the nodes online with live readings; without a seeded fleet
-(`panel-review-empty`) nodes can enroll with `sing-box-node enroll` on the
-same port.
+page goes away. The browser review harness
+(`SBP_BROWSER_REVIEW=1 go test ./internal/sing-box-panel/server -run '^TestBrowserReview$' -v -timeout 60m`,
+on `127.0.0.1:3337`) seeds a fleet with `SBP_BROWSER_FLEET=<n>`, half of the
+nodes online with live readings; with `SBP_BROWSER_FLEET=0` nodes can enroll
+with `sing-box-node enroll` on the same port.
 
 ## Login
 
@@ -422,12 +414,20 @@ tab. Tab switches preserve query parameters and route state. Subscription tabs r
 
 ## Panel logs
 
-Panel logs show five centered, single-line columns: occurrence time, level,
-event summary, event source, and a details action. Known event names follow the
-interface language; unknown events retain their original messages. The summary
-contains only the event name, with overflowing text truncated. A read-only modal
-shows the selected record's stable snapshot, recorded context, and collapsible
-JSON, with a Copy log action. Basic information and context sit
+The logs window (`pages/panel-logs-page`) has a log tab and a runtime states
+tab, each its own view with its own search, filter and page, sharing the tabs
+and the node filter, which live in the address (`?view=states`, `?node=`). The
+log shows five centered, single-line columns: occurrence time, level, event
+summary, event source, and a details action; runtime states show occurrence
+time, state, the reason's name, node and a details action. Known event names
+follow the interface language; unknown events retain their original messages.
+The summary contains only the event name, with overflowing text truncated. A
+read-only modal shows the selected record's stable snapshot, recorded context,
+and collapsible JSON, with a copy action. The log's Clear action reads
+`/logs/usage` when its confirmation opens and reports what `DELETE /logs`
+freed. The panel's restart (`components/status-line/run-restart.ts`) is shared
+by the status line's action and `reboot`: one runs at a time, and the page
+polls `/system/status` until `started_at` changes, for at most a minute. Basic information and context sit
 side by side on desktop and stack on narrow screens; the header and actions stay
 visible while the details scroll. Closing it preserves list state and
 restores keyboard focus. Native process output and telemetry use authenticated
@@ -538,7 +538,7 @@ choices appear in Basic settings, SSH authentication in Authentication, and deto
 selection in Connection options. One mounted schema form preserves pending fields
 across section changes and retains the protocol as a hidden discriminator so
 generation uses the current protocol and encryption method. See the
-[configuration guide](../docs/configuration-and-runtime.md#reviewed-configuration-schemas)
+[configuration guide](../docs/configuration-and-runtime.md#configuration-schemas)
 for the generated formats.
 ### Previews and unsaved changes
 

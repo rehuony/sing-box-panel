@@ -35,7 +35,7 @@ The minimal document is:
 ```
 
 The document is the executable sing-box configuration. Available top-level keys
-depend on the selected exact version. The 1.14 contract includes `log`, `dns`,
+depend on the selected core's release line. The 1.14 contract includes `log`, `dns`,
 `ntp`, `certificate`, `endpoints`, `inbounds`, `outbounds`, `route`, `services`,
 `certificate_providers`, `http_clients`, `network_namespaces`, and `experimental`. The panel does not add
 `_panel`, disabled-item markers, or another storage envelope to these bytes.
@@ -108,30 +108,27 @@ runtime untouched. There is no separate editable startup JSON or
 version-specific transformation path. The Web UI requests the check
 through `POST /api/v1/nodes/{nodeId}/config/compile`.
 
-## Reviewed configuration schemas
+## Configuration schemas
 
 The authenticated endpoint
 `GET /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/configuration-schema` returns the
-reviewed Draft 2020-12 JSON Schema for the artifact's exact version. Schema
-selection deliberately ignores the artifact commit, binary digest, feature
-fingerprint, variant, and architecture: the official configuration contract is
-version-scoped. The response contains only `exact_version`, `schema_sha256`,
-and the Schema. Its ETag binds the exact version and digest and supports
-`If-None-Match`.
+Draft 2020-12 JSON Schema of the artifact's [release line](core-versions.md#release-lines):
+the panel's reviewed schema for 1.13, and for 1.14 and later the schema the core
+installed on the node prints. The response contains only `exact_version`,
+`schema_sha256`, and the schema. Its ETag binds the exact version and digest and
+supports `If-None-Match`. A version without a line answers
+`409 configuration_schema_unavailable`; for a later-line core on a node that is
+offline or runs an older protocol, the node's problem (`node_offline`,
+`node_upgrade_required`).
 
-The [support table](core-versions.md#exact-configuration-support) lists the exact
-versions with reviewed or native Schema support. Each keeps its own manifest
-entry; identical canonical Schema contents share an asset by SHA-256.
 The Web configuration selector lists compatible installed versions,
 defaults to the enabled core when available and otherwise uses the highest
-installed semantic version. Installed artifacts require the served schema to match the reviewed
-manifest. With no installed core, the Web UI keeps Advanced JSON editing and
+installed semantic version. With no installed core, the Web UI keeps Advanced JSON editing and
 saving available, while the visual editor directs the operator to version
 management. Native validation and runtime startup always require an installed
-matching core. The reviewed 1.13 family uses an explicit source definition based
-on the exact tag sources and documentation; unreviewed versions remain
-Advanced-JSON-only. A
-missing Schema disables only structured controls, never JSON save,
+matching core. A version without a line keeps the visual editor tab disabled with
+a tooltip; any other failure to load the schema shows a notice with a retry. A
+missing schema disables only structured controls, never JSON save,
 compile, check, Apply, Start, Restart, or Rollback.
 
 The selected configuration version and current unsaved document live in one
@@ -140,26 +137,18 @@ Advanced JSON retains the same draft. Navigation away from configuration and
 browser unload remain protected by the unsaved-change confirmation; refreshing
 or signing out starts a new selection session.
 
-The committed Schema is canonicalized native output or an explicitly reviewed
-source definition, with separately maintained optional `x-panel`
-presentation metadata such as section, order, widget, sensitivity, and
-bilingual labels. The metadata cannot add `_panel`, introduce a disabled-item
-union, fill cross-version fields, or change a sing-box constraint. References
-remain local to that one Schema document.
+The served schema is the core's canonicalized output or the reviewed source
+definition, with the panel's optional `x-panel` presentation metadata such as
+section, order, widget, sensitivity, and bilingual labels. The metadata cannot add
+`_panel`, introduce a disabled-item union, fill cross-version fields, or change a
+sing-box constraint. References remain local to that one schema document. The
+browser renders the served schema and does not validate against it: the panel
+checks a configuration against the schema before sending it to a node, and the
+core's `sing-box check` is authoritative. The production UI ships no schema and
+does not relax the Content Security Policy with `unsafe-eval`.
 
-Before Web typechecking, tests or builds, `pnpm run generate` exports the
-committed backend contracts offline and compiles each distinct Schema's root
-validator into an Ajv 2020 standalone module. These frontend assets are generated
-outputs and are not committed. The generated manifest keeps each exact version's
-source kind, file and digest; identical contents share a Schema and validator.
-At runtime the browser selects by exact version and
-verifies the served digest and content against its local asset. An unavailable
-Schema or mismatch falls back to the lossless Advanced editor; the production
-UI does not fetch schemas from the network or relax the Content Security Policy
-with `unsafe-eval`.
-
-Structured controls edit and validate only fields known to the reviewed form
-contract while preserving unshown JSON properties. The Advanced editor owns
+Structured controls edit only fields the schema declares while preserving
+unshown JSON properties. The Advanced editor owns
 the complete effective configuration, with JSON syntax highlighting, line numbers,
 folding, search/replace, and lossless formatting. The top-right **Format and order
 fields** button (also available with Ctrl/Cmd+Shift+F) indents JSON and recursively
@@ -190,7 +179,7 @@ keys and externally issued access tokens do not receive generic random generator
 ### Field names and inline help
 
 The Simplified Chinese visual editor uses reviewed Chinese names and descriptions
-for the fields declared by the committed schemas. An information button
+for the fields of the 1.13 and 1.14 schemas. An information button
 beside scalar, list and optional-object labels shows a concise description after
 a brief hover or immediately on click/tap. Help icons are excluded from Tab
 navigation and do not display a focus border or ring.
@@ -211,8 +200,8 @@ with context-specific meanings in
 For example, `final` selects a DNS server in DNS settings and an outbound in
 route settings; `method` describes encryption for Shadowsocks and rejection
 behavior for a reject action. Presentation annotations are added only to a
-browser-side schema copy. Canonical schema assets, digests, validators, JSON
-property names and stored values remain unchanged.
+browser-side schema copy. The served schema, its digest, JSON property names and
+stored values remain unchanged.
 
 The terminology and summaries were checked against the official configuration
 documentation at tags
@@ -222,11 +211,11 @@ including [dial fields](https://sing-box.sagernet.org/zh/configuration/shared/di
 [TLS](https://sing-box.sagernet.org/zh/configuration/shared/tls/),
 [DNS](https://sing-box.sagernet.org/zh/configuration/dns/),
 and [route actions](https://sing-box.sagernet.org/zh/configuration/route/rule_action/).
-This is authored UI copy, not a generated schema asset. When reviewing a new
-core version, review new field names and changed meanings against that exact
-tag's documentation before updating this catalog. The field-help test checks
-coverage against every committed schema; unknown future fields keep their
-original labels rather than receiving guessed explanations.
+This is authored UI copy, not part of a schema. Fields a later core adds keep
+their original labels until this catalog covers them, rather than receiving
+guessed explanations; review new field names and changed meanings against that
+release's documentation before adding them. The field-help test checks coverage
+against the 1.13 and 1.14 test schemas.
 
 ### Selecting server paths
 
@@ -275,7 +264,7 @@ contents or guarantee access, write permission or continued existence at startup
 
 HTTP request paths, URLs, regular expressions and namespace tags are not filesystem
 fields. Path annotations are frontend presentation metadata, never executable JSON
-or modifications to the reviewed/native Schema assets. The browser endpoints return
+or modifications to the served schema. The browser endpoints return
 only directory/path metadata, require management authentication and disable caching.
 Browsing is non-recursive, returns at most 200 entries per page, and rejects
 directories exceeding 20,000 entries; enter a subdirectory directly in that case.
@@ -288,8 +277,7 @@ A check snapshots immutable configuration bytes and runs
 `sing-box check` against the selected binary without touching the live
 core. The configuration page offers Save configuration and Validate configuration;
 validation uses `POST /api/v1/nodes/{nodeId}/config/compile` and returns the completed artifact state.
-There is no separate Apply action on that page. Use Enable in version management
-to select a binary, then Start or Restart to load the current saved configuration.
+Use Enable in version management to select a binary, then Start or Restart to load the current saved configuration.
 Those operations perform preflight in the serialized runtime controller before changing
 the running process. The Web UI uses
 `POST /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/enable` and the runtime endpoints.
@@ -297,8 +285,8 @@ Startup artifacts and activation bundles remain internal evidence.
 Enable switches binaries with the current saved document while preserving
 stopped/running state and returns after the operation completes.
 
-Apply rechecks the current file, canonical head, artifact identity, and startup
-evidence. A concurrent configuration or artifact change cannot be combined with
+Start and Restart recheck the current file, canonical head, artifact identity,
+and startup evidence. A concurrent configuration or artifact change cannot be combined with
 stale bytes, and a failed preflight leaves the running core and the saved file
 unchanged.
 
@@ -418,7 +406,10 @@ Existing file fields retain their paths. Web-only preferences are added under
 `panel`, with matching defaults. Hidden subscription source access fields remain supported in the file and API. The `service` API projection covers non-secret service options and is optional on writes. Settings validation and revision checks cover the entire file. Changing service options that are captured at startup displays a restart notice.
 
 Configuration validation, settings writes and backup restore reject any field
-outside the table below. `config init --force` replaces settings with current
+outside the table below. The one exception is `logs.panel_retention_days` from
+the previous release: its value carries over to
+`nodes.runtime_history_retention_days`, the server rewrites such a file at its
+next start, and `config set` and backup restore write the current shape. `config init --force` replaces settings with current
 defaults, including a new administrator password.
 
 Session Cookie `Secure` follows the active `server.external_origin`: HTTPS enables
@@ -433,6 +424,7 @@ changes take effect after restart.
 | `server.base_path` | Base path | Empty |
 | `nodes.endpoint` | File only | Empty; derived from the server settings |
 | `nodes.trust` | File only | Empty; derived from the server settings |
+| `nodes.runtime_history_retention_days` | Runtime states retention | `90` |
 | `data_dir` | Data directory (absolute path) | Root or XDG data directory |
 | `auth.email` | Administrator email | `admin@example.com` |
 | `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
@@ -443,7 +435,6 @@ changes take effect after restart.
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
-| `logs.panel_retention_days` | Panel log and runtime history retention | `90` |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `system` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
@@ -523,7 +514,8 @@ are not duplicated as independent settings:
 
 ```text
 data_dir/
-  panel.db                # product state, nodes and their configurations, metrics and panel logs
+  panel.db                # product state, nodes and their configurations, metrics and runtime history
+  logs.db                 # the panel log, kept until it is cleared
   node-tls.pem            # key and self-signed certificate for direct node connections (0600)
   artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
@@ -544,12 +536,13 @@ the Web API continues to redact them. Traffic quotas and periods are not panel
 settings: each node has its own; see
 [Limited monitoring and traffic](subscriptions-and-observability.md#limited-monitoring-and-traffic).
 
-Raw sample/core-log retention, appearance, language, GitHub token and catalog refresh policy
+Raw sample, runtime history and core-log retention, appearance, language, GitHub token and catalog refresh policy
 are applied after saving. Background cleanup/refresh workers receive change
 notifications and read consistent snapshots. The shared metrics state refreshes
 once after saving, then continues over SSE. Credentials invalidate old sessions.
 Listener host/port, base path, origin, secure cookies and data directory are bound
-to the running HTTP service and require a manual panel restart, shown in the UI.
+to the running HTTP service and require a panel restart, shown in the UI; see
+[Restarting the panel](cli.md#restarting-the-panel).
 Changing `data_dir` requests relocation on the next explicit start/restart; saving
 does not interrupt the service or change the running sing-box process.
 
@@ -564,7 +557,7 @@ service account; see [systemd permissions](systemd.md#system-service).
 
 Subscriptions publish each node's inbounds at that node's own public host, set
 in its settings, or else at the public IP the node reports; see
-[Applied local nodes](subscriptions-and-observability.md#applied-local-nodes-and-versioned-sources).
+[Fleet inbounds](subscriptions-and-observability.md#fleet-inbounds).
 The host never rewrites the actual listener, port, TLS server name or imported
 node address, and loopback or wildcard addresses are never published.
 
@@ -615,7 +608,7 @@ settings unchanged. The settings journal and SQLite commit marker make
 restoration atomic and recover interrupted writes.
 
 Restore refreshes settings. A changed administrator email or password hash
-requires signing in again; listener/path changes require a manual restart.
+requires signing in again; listener/path changes require a panel restart.
 Relative panel data paths resolve beside the target settings file.
 
 ### Data directory changes

@@ -15,6 +15,9 @@ export function backupSettings(view: PanelSettingsView, secrets: { github: strin
       external_origin: p.external_origin,
       base_path: s.base_path,
     },
+    nodes: {
+      runtime_history_retention_days: s.runtime_history_retention_days ?? 90,
+    },
     data_dir: s.data_dir,
     auth: { email: view.admin_email, password_hash: secrets.passwordHash },
     github: { token: secrets.github, catalog_refresh_interval_hours: s.catalog_refresh_interval_hours },
@@ -28,7 +31,6 @@ export function backupSettings(view: PanelSettingsView, secrets: { github: strin
       core_retention_days: s.core_log_retention_days ?? 7,
       core_max_files: s.core_log_max_files ?? 0,
       core_max_file_size_mib: s.core_log_max_file_size_mib ?? 32,
-      panel_retention_days: s.panel_log_retention_days ?? 90,
     },
   };
 }

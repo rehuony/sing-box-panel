@@ -4,8 +4,6 @@ package service
 import (
 	"context"
 	"errors"
-
-	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
 )
 
 // RuntimeController serializes runtime changes; Start installs it.
@@ -13,16 +11,14 @@ type RuntimeController interface {
 	ExecuteRuntime(context.Context, RuntimeRequest) (RuntimeResponse, error)
 }
 type RuntimeRequest struct {
-	Action            string               `json:"action"`
-	CoreID            string               `json:"core_id,omitempty"`
-	BundleID          string               `json:"bundle_id,omitempty"`
-	StartupArtifactID string               `json:"startup_artifact_id,omitempty"`
-	MonitoringTier    store.MonitoringTier `json:"monitoring_tier,omitempty"`
+	Action            string `json:"action"`
+	CoreID            string `json:"core_id,omitempty"`
+	BundleID          string `json:"bundle_id,omitempty"`
+	StartupArtifactID string `json:"startup_artifact_id,omitempty"`
 }
 type RuntimeResponse struct {
-	Status     RuntimeStatus           `json:"status"`
-	Activation *ActivationSummary      `json:"activation,omitempty"`
-	Startup    *StartupArtifactSummary `json:"startup_artifact,omitempty"`
+	Status  RuntimeStatus           `json:"status"`
+	Startup *StartupArtifactSummary `json:"startup_artifact,omitempty"`
 }
 
 func (a *Node) ExecuteRuntime(ctx context.Context, input RuntimeRequest) (RuntimeResponse, error) {
@@ -61,9 +57,6 @@ func (a *Node) RestartRuntime(ctx context.Context) (RuntimeStatus, error) {
 func (a *Node) RollbackRuntime(ctx context.Context, id string) (RuntimeStatus, error) {
 	r, err := a.ExecuteRuntime(ctx, RuntimeRequest{Action: "rollback", BundleID: id})
 	return r.Status, err
-}
-func (a *Node) ActivateRuntime(ctx context.Context, id string, tier store.MonitoringTier) (RuntimeResponse, error) {
-	return a.ExecuteRuntime(ctx, RuntimeRequest{Action: "activate", StartupArtifactID: id, MonitoringTier: tier})
 }
 func (a *Node) CheckStartup(ctx context.Context, id string) (StartupArtifactSummary, error) {
 	r, err := a.ExecuteRuntime(ctx, RuntimeRequest{Action: "check", StartupArtifactID: id})

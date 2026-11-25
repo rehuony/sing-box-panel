@@ -9,7 +9,6 @@
 /web/node_modules/
 /web/apps/*/dist/
 /web/apps/*/src/api/generated/
-/web/apps/panel/src/schemas/.generated/
 /setting.json
 /data/
 /.claude/dev/state/

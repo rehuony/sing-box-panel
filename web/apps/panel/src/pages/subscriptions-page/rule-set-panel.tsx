@@ -17,6 +17,7 @@ import { ApiRequestError } from '@/api/api-client';
 import { compareText } from '@/utils/compare-text';
 import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
+import { RegionError } from '@/components/region-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { Rail, RailCount, RailItem } from '@/components/rail';
 import { ToolbarActions } from '@/components/workspace-toolbar';
@@ -160,20 +161,9 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
   if (list.isPending) {
     editor = <SubscriptionContentState loading />;
   } else if (list.data === undefined) {
-    editor = (
-      <SubscriptionContentState kind='preview' title={t('subscriptions.ruleSets.loadFailed')}>
-        <Button onClick={() => void list.refetch()} variant='outline'>{t('shell.error.retry')}</Button>
-      </SubscriptionContentState>
-    );
+    editor = <RegionError className='flex-1' error={list.error} reload={() => void list.refetch()} title={t('subscriptions.ruleSets.loadFailed')} />;
   } else if (!ruleSet) {
-    editor = (
-      <SubscriptionContentState kind='rules' title={t('subscriptions.ruleSets.empty', { client: picked })}>
-        <Button onClick={() => setNaming({ kind: 'create' })} variant='outline'>
-          <CirclePlus aria-hidden='true' data-icon='inline-start' />
-          {t('subscriptions.ruleSets.add')}
-        </Button>
-      </SubscriptionContentState>
-    );
+    editor = <SubscriptionContentState kind='rules' title={t('subscriptions.ruleSets.empty', { client: picked })} />;
   } else {
     editor = (
       <RuleSetEditor

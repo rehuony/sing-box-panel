@@ -26,8 +26,8 @@ import type {
   TrafficPeriod,
 } from '@/api/api-client';
 
-import { reviewedSchemaManifest } from '@/schemas';
 import { DEFAULT_APPEARANCE } from '@/theme/appearance';
+import { configurationSchemaContract } from '@/tests/fixtures/configuration-schemas';
 
 export const testSession: Session = { email: 'admin@example.com', csrfToken: 'csrf-test', expiresAt: '2099-01-01T00:00:00Z', displayName: 'Panel administrator' };
 
@@ -382,15 +382,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     installCore: vi.fn<ApiClient['installCore']>().mockResolvedValue(testArtifacts.items[0]),
     importCoreArchive: vi.fn<ApiClient['importCoreArchive']>().mockResolvedValue(testArtifacts.items[0]),
     removeCoreArtifact: vi.fn<ApiClient['removeCoreArtifact']>().mockResolvedValue(undefined),
-    getConfigurationSchema: vi.fn<ApiClient['getConfigurationSchema']>(async () => {
-      const exactVersion = testArtifacts.items[0].exact_version;
-      const reviewed = await reviewedSchemaManifest[exactVersion].load();
-      return {
-        exact_version: exactVersion,
-        schema_sha256: reviewed.schemaSHA256,
-        schema: reviewed.schema,
-      };
-    }),
+    getConfigurationSchema: vi.fn<ApiClient['getConfigurationSchema']>(async () =>
+      configurationSchemaContract(testArtifacts.items[0].exact_version)),
     compileConfiguration: vi.fn<ApiClient['compileConfiguration']>().mockResolvedValue({
       support,
       artifact: testStartupArtifact,
@@ -459,6 +452,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       .mockResolvedValue({ file: '2026-09-19-000.log', text: '', generation: 'test-generation', next_offset: 0, size: 0 }),
     streamCoreLog: vi.fn<ApiClient['streamCoreLog']>(async function* () {}),
     listPanelLogs: vi.fn<ApiClient['listPanelLogs']>().mockResolvedValue({ items: [], total: 0 }),
+    getLogUsage: vi.fn<ApiClient['getLogUsage']>().mockResolvedValue({ entries: 0, bytes: 0 }),
+    clearPanelLogs: vi.fn<ApiClient['clearPanelLogs']>().mockResolvedValue({ deleted: 0, freed_bytes: 0 }),
+    listFleetRuntimeHistory: vi.fn<ApiClient['listFleetRuntimeHistory']>().mockResolvedValue({ items: [], total: 0 }),
     streamMetrics: vi.fn<ApiClient['streamMetrics']>(async function* (signal) {
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve();
@@ -471,8 +467,6 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         else signal?.addEventListener('abort', () => resolve(), { once: true });
       });
     }),
-    listStartupArtifacts: vi.fn<ApiClient['listStartupArtifacts']>().mockResolvedValue({ items: [testStartupArtifact] }),
-    activateStartupArtifact: vi.fn<ApiClient['activateStartupArtifact']>(),
     runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* (command) {
       const ids = command.node_ids ?? [];
       for (const id of ids) yield { result: { node_id: id, ok: true } };
@@ -488,6 +482,10 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getNodeSettings: vi.fn<ApiClient['getNodeSettings']>().mockResolvedValue(testNodeSettings),
     saveNodeSettings: vi.fn<ApiClient['saveNodeSettings']>(async input => ({ ...input, revision: input.revision + 1 })),
     getSystemUpdate: vi.fn<ApiClient['getSystemUpdate']>().mockResolvedValue(testSystemUpdate),
+    getSystemStatus: vi.fn<ApiClient['getSystemStatus']>().mockResolvedValue({
+      platform: { os: 'linux', arch: 'amd64' }, panel_version: testSystemUpdate.current_version, started_at: '2026-09-19T00:00:00Z',
+    }),
+    restartPanel: vi.fn<ApiClient['restartPanel']>().mockResolvedValue({ started_at: '2026-09-19T00:00:00Z' }),
     checkSystemUpdate: vi.fn<ApiClient['checkSystemUpdate']>().mockResolvedValue(testSystemUpdate),
     startSystemUpdate: vi.fn<ApiClient['startSystemUpdate']>().mockResolvedValue({ ...testSystemUpdate, state: 'updating' }),
     updateNode: vi.fn<ApiClient['updateNode']>().mockResolvedValue({ node_id: 'node-a', version: 'v1.1.0', state: 'staged' }),

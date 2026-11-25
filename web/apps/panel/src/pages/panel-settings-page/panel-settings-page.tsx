@@ -213,8 +213,8 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               <SettingsField {...field('sample-retention')} label={t('panelSettings.sampleRetention')}>
                 <UnitInput {...input('sample-retention')} max={366} min={1} unit={days} value={service.sample_retention_days} onChange={value => updateService('sample_retention_days', value)} />
               </SettingsField>
-              <SettingsField {...field('panel-log-retention')} help={t('panelSettings.panelLogRetentionHelp')} label={t('panelSettings.panelLogRetention')}>
-                <UnitInput {...input('panel-log-retention')} max={3650} min={1} unit={days} value={service.panel_log_retention_days ?? 90} onChange={value => updateService('panel_log_retention_days', value)} />
+              <SettingsField {...field('runtime-history-retention')} help={t('panelSettings.runtimeHistoryRetentionHelp')} label={t('panelSettings.runtimeHistoryRetention')}>
+                <UnitInput {...input('runtime-history-retention')} max={3650} min={1} unit={days} value={service.runtime_history_retention_days ?? 90} onChange={value => updateService('runtime_history_retention_days', value)} />
               </SettingsField>
               <SettingsField {...field('core-log-retention')} help={t('panelSettings.coreLogRetentionHelp')} label={t('panelSettings.coreLogRetention')}>
                 <UnitInput {...input('core-log-retention')} max={3650} min={1} unit={days} value={service.core_log_retention_days ?? 7} onChange={value => updateService('core_log_retention_days', value)} />

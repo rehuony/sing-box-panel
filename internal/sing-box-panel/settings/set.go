@@ -40,7 +40,7 @@ func SetField(ctx context.Context, path, name, rawValue string) error {
 	if err != nil {
 		return err
 	}
-	after, err := field.Set(before, value)
+	after, err := field.Set(upgradeDocument(before), value)
 	if err != nil {
 		return err
 	}

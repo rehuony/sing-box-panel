@@ -13,6 +13,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/schema"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
 type ConfigurationSupport struct {
@@ -38,13 +39,16 @@ type ConfigurationPreview struct {
 	Config            json.RawMessage        `json:"config"`
 }
 
+// CoreSchemaSource returns the configuration schema that the installed core
+// coreArtifactID of nodeID prints, as it printed it.
+type CoreSchemaSource func(ctx context.Context, nodeID, coreArtifactID string) ([]byte, error)
+
 func (application *Service) configurationSupport(core store.CachedArtifact) ConfigurationSupport {
-	_, err := schema.ConfigurationSchema(core.ExactVersion)
-	if err != nil {
+	if _, found := singbox.LineOf(core.ExactVersion); !found {
 		return ConfigurationSupport{
 			Structured:   false,
 			ExactVersion: core.ExactVersion,
-			Reason:       err.Error(),
+			Reason:       schemaUnavailable(core.ExactVersion).Error(),
 		}
 	}
 	return ConfigurationSupport{
@@ -53,9 +57,14 @@ func (application *Service) configurationSupport(core store.CachedArtifact) Conf
 	}
 }
 
-// ConfigurationSupport reports whether the exact sing-box version has a committed
-// browser schema. Raw JSON editing, checking, and execution do not depend on
-// this presentation capability.
+func schemaUnavailable(exactVersion string) error {
+	return fmt.Errorf("%w: sing-box %s", schema.ErrConfigurationSchemaUnavailable, exactVersion)
+}
+
+// ConfigurationSupport reports whether the core's sing-box version has a
+// configuration schema for the structured editor: exactly when the version
+// belongs to a supported release line. Raw JSON editing, checking and
+// execution do not depend on it.
 func (application *Service) ConfigurationSupport(
 	ctx context.Context,
 	coreArtifactID string,
@@ -67,25 +76,53 @@ func (application *Service) ConfigurationSupport(
 	return application.configurationSupport(core), nil
 }
 
-// ConfigurationSchema returns the canonical browser schema selected only
-// by the artifact's exact sing-box version.
+// ConfigurationSchema returns the configuration schema of the core
+// coreArtifactID: the reviewed schema of its line, or the schema the core
+// prints on nodeID.
 func (application *Service) ConfigurationSchema(
 	ctx context.Context,
-	coreArtifactID string,
+	nodeID, coreArtifactID string,
 ) (ConfigurationSchema, error) {
 	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(coreArtifactID))
 	if err != nil {
 		return ConfigurationSchema{}, err
 	}
-	contract, err := schema.ConfigurationSchema(core.ExactVersion)
+	contract, err := application.contract(ctx, nodeID, core)
 	if err != nil {
 		return ConfigurationSchema{}, err
 	}
 	return ConfigurationSchema{
 		ExactVersion: core.ExactVersion,
-		SchemaSHA256: contract.SchemaSHA256,
-		Schema:       append(json.RawMessage(nil), contract.Schema...),
+		SchemaSHA256: contract.SHA256(),
+		Schema:       contract.Schema(),
 	}, nil
+}
+
+// contract returns the schema contract of core. A line without its own
+// schema command has the reviewed schema; otherwise the core's schema is a
+// function of its binary, so it is kept by the archive's digest once nodeID
+// sent it.
+func (application *Service) contract(ctx context.Context, nodeID string, core store.CachedArtifact) (*schema.Contract, error) {
+	line, found := singbox.LineOf(core.ExactVersion)
+	if !found {
+		return nil, schemaUnavailable(core.ExactVersion)
+	}
+	if !line.NativeSchema {
+		return schema.Reviewed113()
+	}
+	if contract, found := application.nativeSchemas.get(core.SHA256); found {
+		return contract, nil
+	}
+	raw, err := application.coreSchema(ctx, nodeID, core.ID)
+	if err != nil {
+		return nil, err
+	}
+	contract, err := schema.Prepare(raw)
+	if err != nil {
+		return nil, fmt.Errorf("prepare the configuration schema of sing-box %s: %w", core.ExactVersion, err)
+	}
+	application.nativeSchemas.put(core.SHA256, contract)
+	return contract, nil
 }
 
 // PreviewConfiguration snapshots nodeID's current valid file for the selected
@@ -120,29 +157,25 @@ func (application *Service) PreviewConfiguration(
 	}, nil
 }
 
-// ValidateForCore checks a revision against the exact Schema of a cached
-// core before the revision reaches a node.
-func (application *Service) ValidateForCore(ctx context.Context, revision store.CanonicalRevision, coreArtifactID string) error {
+// ValidateForCore checks a revision against the configuration schema of the
+// cached core coreArtifactID on nodeID before the revision reaches the node.
+// A revision is accepted when no schema can be had for the core; the node's
+// sing-box check still gates it.
+func (application *Service) ValidateForCore(ctx context.Context, nodeID string, revision store.CanonicalRevision, coreArtifactID string) error {
 	core, err := application.cores.CachedArtifact(ctx, strings.TrimSpace(coreArtifactID))
 	if err != nil {
 		return err
 	}
-	return ValidateForVersion(revision, core.ExactVersion)
-}
-
-// ValidateForVersion checks a revision against the Schema of an exact
-// sing-box version. A version without a committed Schema accepts any
-// revision; the node's sing-box check still gates it.
-func ValidateForVersion(revision store.CanonicalRevision, exactVersion string) error {
-	if _, err := schema.ConfigurationSchema(exactVersion); err != nil {
+	contract, err := application.contract(ctx, nodeID, core)
+	if err != nil {
 		return nil
 	}
-	if err := schema.ValidateConfiguration(exactVersion, revision.Document); err != nil {
+	if err := contract.Validate(revision.Document); err != nil {
 		return fmt.Errorf("%w: %v", ErrConfigurationSchemaValidation, err)
 	}
 	return nil
 }
 
 // ErrConfigurationSchemaValidation rejects a configuration that the core's
-// exact Schema does not accept.
+// schema does not accept.
 var ErrConfigurationSchemaValidation = errors.New("configuration schema validation failed")

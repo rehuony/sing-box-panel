@@ -78,6 +78,31 @@ func (application *Service) RuntimeHistory(
 	return result, nil
 }
 
+// NodeRuntimeTransition is one runtime transition with the node it belongs to.
+type NodeRuntimeTransition struct {
+	NodeID   string `json:"node_id"`
+	NodeName string `json:"node_name"`
+	RuntimeTransition
+}
+
+type FleetRuntimeHistoryPage struct {
+	Items []NodeRuntimeTransition `json:"items"`
+	Total int                     `json:"total"`
+}
+
+// FleetRuntimeHistory lists every node's runtime history, newest first.
+func (application *Service) FleetRuntimeHistory(ctx context.Context, filter store.FleetRuntimeHistoryFilter) (FleetRuntimeHistoryPage, error) {
+	page, err := application.database.ListFleetRuntimeTransitions(ctx, filter)
+	if err != nil {
+		return FleetRuntimeHistoryPage{}, err
+	}
+	result := FleetRuntimeHistoryPage{Items: make([]NodeRuntimeTransition, len(page.Items)), Total: page.Total}
+	for index, item := range page.Items {
+		result.Items[index] = NodeRuntimeTransition{NodeID: item.NodeID, NodeName: item.NodeName, RuntimeTransition: applicationRuntimeTransition(item.RuntimeTransition)}
+	}
+	return result, nil
+}
+
 func applicationRuntimeTransition(value store.RuntimeTransition) RuntimeTransition {
 	return RuntimeTransition{
 		ID:                 value.ID,

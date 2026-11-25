@@ -26,7 +26,7 @@ import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
 import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
-import { RegionError } from '@/components/region-error';
+import { RegionError } from '@/components/region-state';
 import { LoadingState } from '@/components/loading-state';
 import { MAX_TAGS, TagInput } from '@/components/tag-input';
 import { useCurrentNode } from '@/stores/current-node.store';
@@ -381,7 +381,7 @@ export function NodeSettingsPage() {
           : (
               <div className='flex min-h-80 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
                 {settings.isError
-                  ? <RegionError error={settings.error} onRetry={() => void settings.refetch()} title={t('node.settings.unavailable')} />
+                  ? <RegionError error={settings.error} reload={() => void settings.refetch()} title={t('node.settings.unavailable')} />
                   : <LoadingState className='min-h-80' label={t('node.settings.loading')} fullScreen={false} />}
               </div>
             )}

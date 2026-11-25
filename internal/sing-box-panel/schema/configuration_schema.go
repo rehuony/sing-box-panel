@@ -1,238 +1,106 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package schema owns the exact-version configuration Schema manifest and
-// assets used by the panel's editor and validators. A version without a
-// committed native or reviewed Schema has none; nearby versions are never
-// substituted.
+// Package schema prepares the sing-box configuration JSON Schemas that the
+// panel serves to its editor and checks configurations with: the reviewed
+// 1.13 schema embedded here, and the schema a node's core prints for the
+// lines that have `sing-box schema`.
 package schema
 
 import (
 	"bytes"
 	"crypto/sha256"
-	"embed"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"path"
 	"strings"
 	"sync"
 
-	"github.com/rehuony/sing-box-panel/internal/coreartifact"
-	"github.com/rehuony/sing-box-panel/internal/singbox"
+	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
+// ErrConfigurationSchemaUnavailable reports a core without a configuration
+// schema.
 var ErrConfigurationSchemaUnavailable = errors.New("configuration schema is unavailable")
 
-//go:embed all:schemas
-var schemaAssets embed.FS
+//go:embed 1.13.json
+var reviewed113Source []byte
 
-// SchemaContract is the canonical schema committed for one exact sing-box version.
-// SchemaSHA256 is the only content identity exposed to API and Web consumers.
-type SchemaContract struct {
-	SchemaSHA256 string          `json:"schema_sha256"`
-	Schema       json.RawMessage `json:"schema"`
-}
+var reviewed113 = sync.OnceValues(func() (*Contract, error) { return Prepare(reviewed113Source) })
 
-// Manifest lists the committed exact-version Schemas; singbox-support writes
-// it and the panel reads it.
-type Manifest struct {
-	SchemaVersion int             `json:"schema_version"`
-	Entries       []ManifestEntry `json:"entries"`
-}
+// Reviewed113 returns the contract of the reviewed schema of the 1.13 line.
+func Reviewed113() (*Contract, error) { return reviewed113() }
 
-// ManifestEntry names one exact version's Schema file and its content digest.
-type ManifestEntry struct {
-	ExactVersion string `json:"exact_version"`
-	SchemaSHA256 string `json:"schema_sha256"`
-	SchemaFile   string `json:"schema_file"`
-	Source       string `json:"source"`
-}
-
-type compiledSchema struct {
-	entry     ManifestEntry
-	schema    json.RawMessage
+// Contract is a prepared configuration schema. It is immutable.
+type Contract struct {
+	sha256    string
+	schema    []byte
 	validator *jsonschema.Schema
 }
 
-var (
-	configurationSchemasOnce sync.Once
-	configurationSchemas     map[string]compiledSchema
-	configurationSchemasErr  error
-)
+// SHA256 is the lowercase hexadecimal SHA-256 of the schema, its identity
+// for API and Web consumers.
+func (contract *Contract) SHA256() string { return contract.sha256 }
 
-// SupportsNativeConfigurationSchema reports whether an exact version belongs
-// to a release line with the upstream `sing-box schema` command.
-func SupportsNativeConfigurationSchema(exactVersion string) bool {
-	parsed, err := coreartifact.ParseExactVersion(strings.TrimSpace(exactVersion))
-	if err != nil || parsed.IsZero() || parsed.String() != exactVersion {
-		return false
-	}
-	return parsed.Major() > 1 || parsed.Major() == 1 && parsed.Minor() >= 14
-}
+// Schema returns a copy of the schema: canonical JSON with the panel's
+// presentation overlay.
+func (contract *Contract) Schema() json.RawMessage { return bytes.Clone(contract.schema) }
 
-// SupportsConfigurationSchema reports explicitly cataloged exact-version support.
-func SupportsConfigurationSchema(exactVersion string) bool {
-	version, found := singbox.Lookup(exactVersion)
-	return found && version.SchemaSource != ""
-}
-
-// ConfigurationSchema resolves a committed canonical schema by exact version only.
-func ConfigurationSchema(exactVersion string) (SchemaContract, error) {
-	compiled, err := configurationSchema(exactVersion)
-	if err != nil {
-		return SchemaContract{}, err
-	}
-	return SchemaContract{
-		SchemaSHA256: compiled.entry.SchemaSHA256,
-		Schema:       append(json.RawMessage(nil), compiled.schema...),
-	}, nil
-}
-
-// ValidateConfiguration applies the committed schema for reviewed exact versions. The exact binary's `sing-box check` remains authoritative.
-func ValidateConfiguration(exactVersion string, raw []byte) error {
-	compiled, err := configurationSchema(exactVersion)
-	if err != nil {
-		return err
-	}
-	var document any
-	if err := decodeJSONPreservingNumbers(raw, &document); err != nil {
+// Validate checks a configuration document against the schema. The core's
+// own `sing-box check` remains authoritative.
+func (contract *Contract) Validate(document []byte) error {
+	var decoded any
+	if err := decodeJSONPreservingNumbers(document, &decoded); err != nil {
 		return fmt.Errorf("decode sing-box configuration: %w", err)
 	}
-	if err := compiled.validator.Validate(document); err != nil {
-		return fmt.Errorf("configuration violates sing-box %s schema: %w", exactVersion, err)
+	if err := contract.validator.Validate(decoded); err != nil {
+		return fmt.Errorf("configuration violates the core's schema: %w", err)
 	}
 	return nil
 }
 
-func configurationSchema(exactVersion string) (compiledSchema, error) {
-	if _, found := singbox.Lookup(exactVersion); !found || !SupportsConfigurationSchema(exactVersion) {
-		return compiledSchema{}, fmt.Errorf("%w: sing-box %s", ErrConfigurationSchemaUnavailable, exactVersion)
+// Prepare turns a raw schema, as a core prints it or as the panel embeds
+// it, into a contract: at most nodeapi.MaximumCoreSchemaBytes of one JSON
+// object whose references stay inside it, written as canonical JSON with
+// the presentation overlay and compiled as Draft 2020-12.
+func Prepare(raw []byte) (*Contract, error) {
+	if len(raw) > nodeapi.MaximumCoreSchemaBytes {
+		return nil, fmt.Errorf("schema exceeds %d bytes", nodeapi.MaximumCoreSchemaBytes)
 	}
-	schemas, err := loadConfigurationSchemas()
-	if err != nil {
-		return compiledSchema{}, err
-	}
-	compiled, found := schemas[exactVersion]
-	if !found {
-		return compiledSchema{}, fmt.Errorf("configuration schema is missing for sing-box %s", exactVersion)
-	}
-	return compiled, nil
-}
-
-func loadConfigurationSchemas() (map[string]compiledSchema, error) {
-	configurationSchemasOnce.Do(func() {
-		configurationSchemas, configurationSchemasErr = readConfigurationSchemasFromFS(schemaAssets)
-	})
-	return configurationSchemas, configurationSchemasErr
-}
-
-// ValidateConfigurationSchemaAssets verifies the exact-version manifest,
-// content digests, local references, and JSON Schema compilation.
-func ValidateConfigurationSchemaAssets() error {
-	_, err := loadConfigurationSchemas()
-	return err
-}
-
-func ConfigurationSchemaWebAssets() (map[string][]byte, error) {
-	schemas, err := loadConfigurationSchemas()
-	if err != nil {
-		return nil, err
-	}
-	manifest, err := schemaAssets.ReadFile("schemas/manifest.json")
-	if err != nil {
-		return nil, err
-	}
-	result := map[string][]byte{"manifest.json": append([]byte(nil), manifest...)}
-	for _, compiled := range schemas {
-		result[compiled.entry.SchemaFile] = append([]byte(nil), compiled.schema...)
-	}
-	return result, nil
-}
-
-func readConfigurationSchemasFromFS(assets fs.FS) (map[string]compiledSchema, error) {
-	rawManifest, err := fs.ReadFile(assets, "schemas/manifest.json")
-	if err != nil {
-		return nil, fmt.Errorf("read schema manifest: %w", err)
-	}
-	var manifest Manifest
-	if err := decodeStrictJSON(rawManifest, &manifest); err != nil {
-		return nil, fmt.Errorf("decode schema manifest: %w", err)
-	}
-	if manifest.SchemaVersion != 1 {
-		return nil, fmt.Errorf("unsupported schema manifest version %d", manifest.SchemaVersion)
-	}
-	schemaVersions := 0
-	for _, version := range singbox.Versions() {
-		if version.SchemaSource != "" {
-			schemaVersions++
-		}
-	}
-	if len(manifest.Entries) != schemaVersions {
-		return nil, fmt.Errorf("schema manifest has %d entries; schema catalog requires %d", len(manifest.Entries), schemaVersions)
-	}
-
-	result := make(map[string]compiledSchema, len(manifest.Entries))
-	for index, entry := range manifest.Entries {
-		if err := validateSchemaManifestEntry(entry); err != nil {
-			return nil, fmt.Errorf("schema manifest entry %d: %w", index, err)
-		}
-		if _, duplicate := result[entry.ExactVersion]; duplicate {
-			return nil, fmt.Errorf("schema manifest contains duplicate version %s", entry.ExactVersion)
-		}
-		rawSchema, err := fs.ReadFile(assets, path.Join("schemas", entry.SchemaFile))
-		if err != nil {
-			return nil, fmt.Errorf("read schema %s: %w", entry.ExactVersion, err)
-		}
-		if ContentDigest(rawSchema) != entry.SchemaSHA256 {
-			return nil, fmt.Errorf("schema %s content digest differs from the manifest", entry.ExactVersion)
-		}
-		validator, err := compileSchema(entry.ExactVersion, rawSchema)
-		if err != nil {
-			return nil, err
-		}
-		result[entry.ExactVersion] = compiledSchema{entry: entry, schema: rawSchema, validator: validator}
-	}
-	return result, nil
-}
-
-func validateSchemaManifestEntry(entry ManifestEntry) error {
-	version, found := singbox.Lookup(entry.ExactVersion)
-	if !found || version.SchemaSource == "" || version.SchemaSource != entry.Source {
-		return fmt.Errorf("version %q has an unreviewed schema source %q", entry.ExactVersion, entry.Source)
-	}
-	digest, err := coreartifact.ParseSHA256(entry.SchemaSHA256)
-	if err != nil || digest.String() != entry.SchemaSHA256 {
-		return errors.New("schema digest is not a lowercase SHA-256")
-	}
-	if entry.SchemaFile != "schema-"+entry.SchemaSHA256+".json" {
-		return errors.New("schema file does not match its content digest")
-	}
-	return nil
-}
-
-func compileSchema(exactVersion string, raw []byte) (*jsonschema.Schema, error) {
 	var document any
 	if err := decodeJSONPreservingNumbers(raw, &document); err != nil {
-		return nil, fmt.Errorf("decode schema %s: %w", exactVersion, err)
+		return nil, fmt.Errorf("decode schema: %w", err)
 	}
-	if err := rejectExternalSchemaReferences(document); err != nil {
-		return nil, fmt.Errorf("schema %s: %w", exactVersion, err)
+	root, ok := document.(map[string]any)
+	if !ok {
+		return nil, errors.New("schema root is not an object")
 	}
-	resource := "urn:sing-box-panel:configuration-schema:" + exactVersion
+	if err := rejectExternalSchemaReferences(root); err != nil {
+		return nil, err
+	}
+	if err := applyPresentationOverlay(root); err != nil {
+		return nil, fmt.Errorf("apply presentation overlay: %w", err)
+	}
+	schema, err := json.Marshal(root)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(schema)
+	identity := hex.EncodeToString(digest[:])
+	resource := "urn:sing-box-panel:configuration-schema:" + identity
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
-	if err := compiler.AddResource(resource, document); err != nil {
-		return nil, fmt.Errorf("add schema %s: %w", exactVersion, err)
+	if err := compiler.AddResource(resource, root); err != nil {
+		return nil, fmt.Errorf("add schema: %w", err)
 	}
-	compiled, err := compiler.Compile(resource)
+	validator, err := compiler.Compile(resource)
 	if err != nil {
-		return nil, fmt.Errorf("compile schema %s: %w", exactVersion, err)
+		return nil, fmt.Errorf("compile schema: %w", err)
 	}
-	return compiled, nil
+	return &Contract{sha256: identity, schema: schema, validator: validator}, nil
 }
 
 func rejectExternalSchemaReferences(value any) error {
@@ -259,25 +127,12 @@ func rejectExternalSchemaReferences(value any) error {
 	return nil
 }
 
-func decodeStrictJSON(raw []byte, destination any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		return err
-	}
-	return requireJSONEOF(decoder)
-}
-
 func decodeJSONPreservingNumbers(raw []byte, destination any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(destination); err != nil {
 		return err
 	}
-	return requireJSONEOF(decoder)
-}
-
-func requireJSONEOF(decoder *json.Decoder) error {
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
@@ -286,11 +141,4 @@ func requireJSONEOF(decoder *json.Decoder) error {
 		return err
 	}
 	return nil
-}
-
-// ContentDigest returns the hexadecimal SHA-256 of content, the digest that
-// names Schema files and the manifest records.
-func ContentDigest(content []byte) string {
-	digest := sha256.Sum256(content)
-	return hex.EncodeToString(digest[:])
 }

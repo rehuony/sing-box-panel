@@ -64,7 +64,6 @@ export const fleet = {
   },
   loading: 'Loading nodes…',
   noMatch: {
-    clear: 'Clear filters',
     title: 'No matching nodes',
   },
   search: 'Search nodes',

@@ -2,10 +2,10 @@ import type { LucideIcon } from 'lucide-react';
 import type { supportedLanguages } from '@shared/i18n/language';
 
 import { cn } from '@shared/lib/utils';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { setAppLanguage } from '@shared/i18n/language';
-import { useId, useLayoutEffect, useRef } from 'react';
 import { Spinner } from '@shared/components/ui/spinner';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { LanguageMenu } from '@shared/components/language-menu';
@@ -55,13 +55,15 @@ import {
   panelWindowPages,
   panelWindowPath,
   panelWindows,
+  windowNameKeys,
 } from '@/utils/shell-windows';
 
 import type { ShellScopeState } from './use-shell-scope';
 
+import { CommandBox } from './command-box';
 import { useSignOut } from './use-sign-out';
-import { CommandMode } from './command-mode';
 import { BatchActions } from './batch-actions';
+import { ReadoutSlot, RestartPanelAction, RestartPanelDialog, RestartPanelMenuItem } from './restart-panel';
 
 const windowIcons: Record<NodeWindow | PanelWindow, LucideIcon> = {
   configuration: FileJson,
@@ -71,16 +73,6 @@ const windowIcons: Record<NodeWindow | PanelWindow, LucideIcon> = {
   overview: Gauge,
   settings: Settings,
   subscriptions: Rss,
-};
-
-const windowNames: Record<NodeWindow | PanelWindow, string> = {
-  configuration: 'node.tabs.configuration',
-  cores: 'node.tabs.cores',
-  logs: 'nav.logs',
-  nodes: 'nav.nodes',
-  overview: 'node.tabs.overview',
-  settings: 'nav.settings',
-  subscriptions: 'nav.subscriptions',
 };
 
 /** The keys that open the command line on this platform. */
@@ -105,10 +97,10 @@ function windowsOf({ scope }: ShellScopeState): WindowEntry[] {
 }
 
 /**
- * The line's first action: the prompt symbol, which opens the command line.
- * While the line is open, it names the line it controls.
+ * The line's first action: the prompt symbol, which opens and closes the
+ * command box and takes the accent's soft fill while the box is open.
  */
-function CommandAction({ className, controls }: { className?: string; controls?: string }) {
+function CommandAction({ className, controls }: { className?: string; controls: string }) {
   const { t } = useTranslation();
   const { open, setOpen } = useCommandSession();
   return (
@@ -116,10 +108,10 @@ function CommandAction({ className, controls }: { className?: string; controls?:
       <TooltipTrigger
         render={(
           <Button
-            aria-controls={open ? controls : undefined}
+            aria-controls={controls}
             aria-expanded={open}
             aria-label={t('command.label')}
-            className={cn('font-[family-name:var(--font-data)] text-sm text-[var(--color-highlight-yellow)]', className)}
+            className={cn('font-[family-name:var(--font-data)] text-sm text-[var(--color-highlight-yellow)] aria-expanded:bg-accent aria-expanded:text-[var(--color-highlight-yellow)]', className)}
             onClick={() => setOpen(!open)}
             size='icon-xs'
             variant='ghost'
@@ -191,7 +183,7 @@ function Windows({ shell }: { shell: ShellScopeState }) {
     <nav aria-label={t('shell.bar.windows')} className='flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]'>
       {windows.map(({ page, path, window }, index) => (
         <NavLink
-          aria-label={t('shell.window', { name: t(windowNames[window]), number: index + 1 })}
+          aria-label={t('shell.window', { name: t(windowNameKeys[window]), number: index + 1 })}
           className='inline-flex h-(--control-height-xs) flex-none items-center gap-[1ch] rounded-[var(--radius-control)] px-2 whitespace-nowrap text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-accent aria-[current=page]:text-foreground'
           end
           key={window}
@@ -309,13 +301,13 @@ function useSelectedNodes({ items, scope }: ShellScopeState): NodeStatus[] {
   return items.filter(item => selected.has(item.node.id));
 }
 
-/** The desktop line: command action, scope, windows, then the fleet readout and the session's actions. */
-function DesktopLine({ shell }: { shell: ShellScopeState }) {
+/** The desktop line: command action, scope, windows, then the fleet readout and the session's and panel's actions. */
+function DesktopLine({ commandId, shell }: { commandId: string; shell: ShellScopeState }) {
   const { cycleTheme, preference } = useTheme();
   const selection = useSelectedNodes(shell);
   return (
     <div className='flex h-full min-w-0 flex-1 items-center gap-1'>
-      <CommandAction />
+      <CommandAction controls={commandId} />
       <Divider />
       {selection.length > 0
         ? <Selection nodes={selection} />
@@ -328,49 +320,58 @@ function DesktopLine({ shell }: { shell: ShellScopeState }) {
           )}
       <span className='flex-1' />
       <PanelUpdateHint />
-      <FleetReadout items={shell.items} />
+      <ReadoutSlot><FleetReadout items={shell.items} /></ReadoutSlot>
       <Divider />
       <ThemeCycleButton onCycle={cycleTheme} preference={preference} size='icon-xs' />
       <LanguageMenu size='icon-xs' />
+      <RestartPanelAction />
       <SignOutAction />
     </div>
   );
 }
 
-/** The phone's "more" menu: theme, language and signing out. */
+/** The phone's "more" menu: theme, language, restarting the panel and signing out. */
 function MoreMenu({ className }: { className: string }) {
   const { i18n, t } = useTranslation();
   const { preference, setPreference } = useTheme();
   const { signOut } = useSignOut();
+  const [restartOpen, setRestartOpen] = useState(false);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<button aria-label={t('shell.bar.more')} className={className} type='button' />}>
-        <Ellipsis aria-hidden='true' className='size-5' />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align='end' side='top' sideOffset={8}>
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t('theme.label')}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={value => setPreference(value as typeof preference)} value={preference}>
-            {(['light', 'dark', 'system'] as const).map(value => (
-              <DropdownMenuRadioItem closeOnClick key={value} value={value}>{t(`theme.preference.${value}`)}</DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t('language.label')}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={value => void setAppLanguage(value as typeof supportedLanguages[number])} value={i18n.resolvedLanguage ?? 'en'}>
-            <DropdownMenuRadioItem closeOnClick value='en'>{t('language.english')}</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem closeOnClick value='zh-CN'>{t('language.simplifiedChinese')}</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={signOut}>
-          <LogOut aria-hidden='true' />
-          {t('account.signOut')}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<button aria-label={t('shell.bar.more')} className={className} type='button' />}>
+          <Ellipsis aria-hidden='true' className='size-5' />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end' side='top' sideOffset={8}>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t('theme.label')}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              onValueChange={value => setPreference(value as typeof preference)}
+              value={preference}
+            >
+              {(['light', 'dark', 'system'] as const).map(value => (
+                <DropdownMenuRadioItem closeOnClick key={value} value={value}>{t(`theme.preference.${value}`)}</DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t('language.label')}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup onValueChange={value => void setAppLanguage(value as typeof supportedLanguages[number])} value={i18n.resolvedLanguage ?? 'en'}>
+              <DropdownMenuRadioItem closeOnClick value='en'>{t('language.english')}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem closeOnClick value='zh-CN'>{t('language.simplifiedChinese')}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <RestartPanelMenuItem onSelect={() => setRestartOpen(true)} />
+          <DropdownMenuItem onClick={signOut}>
+            <LogOut aria-hidden='true' />
+            {t('account.signOut')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <RestartPanelDialog onOpenChange={setRestartOpen} open={restartOpen} />
+    </>
   );
 }
 
@@ -378,7 +379,7 @@ function MoreMenu({ className }: { className: string }) {
  * The phone's tab bar: the fleet as a home icon in a node, the windows as
  * icons with the current one named, the command line and more.
  */
-function PhoneBar({ shell }: { shell: ShellScopeState }) {
+function PhoneBar({ commandId, shell }: { commandId: string; shell: ShellScopeState }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const windows = windowsOf(shell);
@@ -401,7 +402,7 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
                 const Icon = windowIcons[window];
                 return (
                   <NavLink
-                    aria-label={t('shell.window', { name: t(windowNames[window]), number: index + 1 })}
+                    aria-label={t('shell.window', { name: t(windowNameKeys[window]), number: index + 1 })}
                     className={cn(item, 'group aria-[current=page]:flex-[1.6] aria-[current=page]:text-foreground')}
                     end
                     key={window}
@@ -416,7 +417,7 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
               })}
             </nav>
           )}
-      <CommandAction className={cn(item, 'size-auto text-base')} />
+      <CommandAction className={cn(item, 'size-auto text-base')} controls={commandId} />
       <MoreMenu className={item} />
     </div>
   );
@@ -424,43 +425,23 @@ function PhoneBar({ shell }: { shell: ShellScopeState }) {
 
 /**
  * The status line below the workspace: on a desktop one 40px line at the
- * shell's inset, on a phone a 56px tab bar along the window's foot.
+ * shell's inset, on a phone a 56px tab bar along the window's foot. The
+ * command box it opens floats over the workspace and leaves the line as it is.
  */
 export function StatusLine({ shell }: { shell: ShellScopeState }) {
   const { t } = useTranslation();
-  const open = useCommandSession(state => state.open);
   const phone = usePhoneLayout();
   const commandId = useId();
-  const returnRef = useRef<HTMLElement | null>(null);
-
-  // Closing the command line puts focus back where it was when the line opened.
-  useLayoutEffect(() => {
-    if (open) {
-      returnRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      return;
-    }
-    const target = returnRef.current;
-    returnRef.current = null;
-    if (target?.isConnected && (document.activeElement === document.body || document.activeElement === null)) {
-      target.focus({ preventScroll: true });
-    }
-  }, [open]);
-
   return (
-    <div
-      aria-label={t('shell.bar.label')}
-      className='relative flex h-[var(--shell-bar-height)] flex-none items-center rounded-[var(--radius-card)] border bg-card px-1.5 font-[family-name:var(--font-data)] text-compact shadow-[var(--shadow-panel)] max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0 max-sm:px-1 max-sm:shadow-none'
-      role='region'
-    >
-      {open
-        ? (
-            <div className='flex h-full min-w-0 flex-1 items-center gap-1'>
-              <CommandAction className='max-sm:size-11' controls={commandId} />
-              <Divider />
-              <CommandMode id={commandId} shell={shell} />
-            </div>
-          )
-        : phone ? <PhoneBar shell={shell} /> : <DesktopLine shell={shell} />}
-    </div>
+    <>
+      <div
+        aria-label={t('shell.bar.label')}
+        className='relative flex h-[var(--shell-bar-height)] flex-none items-center rounded-[var(--radius-card)] border bg-card px-1.5 font-[family-name:var(--font-data)] text-compact shadow-[var(--shadow-panel)] max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0 max-sm:px-1 max-sm:shadow-none'
+        role='region'
+      >
+        {phone ? <PhoneBar commandId={commandId} shell={shell} /> : <DesktopLine commandId={commandId} shell={shell} />}
+      </div>
+      <CommandBox id={commandId} shell={shell} />
+    </>
   );
 }

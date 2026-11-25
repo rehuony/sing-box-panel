@@ -4,14 +4,20 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 )
 
-// SnapshotDataFile creates a consistent SQLite snapshot, including committed
-// WAL content. The caller keeps the exclusive data-directory lock until done.
-func (s *Store) SnapshotDataFile(ctx context.Context, destination string) error {
-	_, err := s.db.ExecContext(ctx, "VACUUM INTO ?", destination)
+// SnapshotDataFiles creates consistent snapshots of the panel database and
+// the log database in dir under their own names, including committed WAL
+// content. The caller keeps the exclusive data-directory lock until done.
+func (s *Store) SnapshotDataFiles(ctx context.Context, dir string) error {
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", filepath.Join(dir, filepath.Base(s.handle.Path()))); err != nil {
+		return err
+	}
+	_, err := s.logs.ExecContext(ctx, "VACUUM INTO ?", filepath.Join(dir, LogsFile))
 	return err
 }
 
@@ -32,12 +38,14 @@ func (s *Store) VerifyDataMove(ctx context.Context, id, source, destination stri
 	if count != 1 {
 		return errors.New("destination database does not match this migration")
 	}
-	var integrity string
-	if err := s.db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&integrity); err != nil {
-		return err
-	}
-	if integrity != "ok" {
-		return fmt.Errorf("destination database integrity check failed")
+	for _, db := range []*sql.DB{s.db, s.logs} {
+		var integrity string
+		if err := db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&integrity); err != nil {
+			return err
+		}
+		if integrity != "ok" {
+			return fmt.Errorf("destination database integrity check failed")
+		}
 	}
 	return nil
 }

@@ -34,15 +34,33 @@ func (handler *Handler) subscriptionListRequest(
 	if !ok {
 		return subscription.SubscriptionListRequest{}, false
 	}
-	cursor, ok := startupArtifactCursor(w, request, query.Get("before_time"), query.Get("before_id"))
+	cursor, ok := listCursor(w, request, query.Get("before_time"), query.Get("before_id"))
 	if !ok {
 		return subscription.SubscriptionListRequest{}, false
 	}
-	var subscriptionCursor *subscription.SubscriptionCursor
-	if cursor != nil {
-		subscriptionCursor = &subscription.SubscriptionCursor{CreatedAt: cursor.CreatedAt, ID: cursor.ID}
+	return subscription.SubscriptionListRequest{Cursor: cursor, Limit: limit, Offset: offset}, true
+}
+
+// listCursor parses the before_time and before_id keyset cursor of a list.
+func listCursor(
+	w http.ResponseWriter,
+	request *http.Request,
+	rawTime string,
+	identifier string,
+) (*subscription.SubscriptionCursor, bool) {
+	if rawTime == "" && identifier == "" {
+		return nil, true
 	}
-	return subscription.SubscriptionListRequest{Cursor: subscriptionCursor, Limit: limit, Offset: offset}, true
+	if rawTime == "" || identifier == "" || !store.ValidIdentifier(identifier) {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "before_time and before_id must be supplied together.")
+		return nil, false
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(rawTime))
+	if err != nil {
+		writeProblem(w, request, http.StatusBadRequest, "query_invalid", "Query invalid", "before_time must be an RFC 3339 timestamp.")
+		return nil, false
+	}
+	return &subscription.SubscriptionCursor{CreatedAt: createdAt.UTC(), ID: identifier}, true
 }
 
 func (handler *Handler) subscriptionMutationRequest(w http.ResponseWriter, request *http.Request) bool {

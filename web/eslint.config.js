@@ -12,7 +12,6 @@ export default antfu(
       'pnpm-lock.yaml',
       '**/dist/**',
       '**/src/api/generated/**',
-      '**/src/schemas/.generated/**',
     ],
     jsonc: false,
     markdown: false,

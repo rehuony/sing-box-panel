@@ -4,7 +4,6 @@ package store
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -66,18 +65,5 @@ func TestRetentionKeepsWhatIsInUse(t *testing.T) {
 	}
 	if after, err := database.LatestRuntimeTransitionSource(ctx, testNodeID, "instance-a"); err != nil || after != 2 {
 		t.Fatalf("instance-a resumes after %d, %v; want its newest entry kept", after, err)
-	}
-
-	// Log entries: only the expired one goes.
-	for id, at := range map[string]time.Time{"log_old": old, "log_new": now} {
-		if _, err := database.AppendLogEntry(ctx, LogEntry{ID: id, Time: at, Source: LogSourcePanel, Level: LogLevelInfo, Code: "test.entry", Message: "Entry"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if deleted, err := database.DeleteLogEntriesBefore(ctx, now.Add(-90*24*time.Hour)); err != nil || deleted != 1 {
-		t.Fatalf("deleted log entries = %d, %v", deleted, err)
-	}
-	if _, err := database.GetLogEntry(ctx, "log_old"); !errors.Is(err, ErrLogEntryNotFound) {
-		t.Fatalf("expired log entry = %v", err)
 	}
 }

@@ -14,9 +14,6 @@ export const dashboard = {
   chart: {
     arrows: '使用左右方向键查看采样。',
   },
-  empty: {
-    title: '此区间没有样本',
-  },
   error: {
     metrics: '实时指标不可用',
     history: '历史指标不可用',

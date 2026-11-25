@@ -13,8 +13,13 @@ import (
 // protobuf package; the minor version grows with additive changes.
 const (
 	ProtocolMajor = 1
-	ProtocolMinor = 1
+	ProtocolMinor = 2
 )
+
+// MaximumCoreSchemaBytes bounds the schema a node sends in CoreSchemaOutcome.
+// It leaves room for the result around it within the panel's 4 MiB frame
+// limit.
+const MaximumCoreSchemaBytes = 3 << 20
 
 // NonceSize is the length of the random nonce in Challenge.
 const NonceSize = 32
@@ -91,7 +96,7 @@ type CommandBody = isCommand_Body
 // the panel lets them finish even when the client that asked goes away.
 func ChangesState(body CommandBody) bool {
 	switch body.(type) {
-	case *Command_GetRuntimeStatus, *Command_ListStartupArtifacts, *Command_ListCores,
+	case *Command_GetRuntimeStatus, *Command_ListCores, *Command_GetCoreSchema,
 		*Command_BrowseFilesystem, *Command_ResolveFilesystemPath,
 		*Command_ListCoreLogs, *Command_ReadCoreLog:
 		return false

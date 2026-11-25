@@ -1,10 +1,11 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { toast } from '@shared/components/ui/toast-manager';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
-import type { PanelLog } from '@/api/api-client';
+import type { LogEntry } from '@/api/api-client';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
@@ -23,14 +24,13 @@ function show(client = createMockApiClient(), url = '/logs') {
 
 describe('panel logs', () => {
   it('lists panel activity in five columns with details and paginates', async () => {
-    const item: PanelLog = {
+    const item: LogEntry = {
       id: 'log_1',
       time: '2026-09-19T00:00:00Z',
       source: 'panel',
       level: 'info',
       code: 'Catalog refreshed',
       message: 'Catalog refreshed',
-      status: 'succeeded',
       metadata: {},
     };
     const client = show(
@@ -63,9 +63,9 @@ describe('panel logs', () => {
     );
   });
   it('returns to the last valid log page when records disappear during a jump', async () => {
-    const item: PanelLog = {
+    const item: LogEntry = {
       id: 'retained', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info',
-      code: 'retained', message: 'Retained event', status: '', metadata: {},
+      code: 'retained', message: 'Retained event', metadata: {},
     };
     const client = show(createMockApiClient({ listPanelLogs: vi.fn()
       .mockResolvedValueOnce({ items: [item], total: 30 })
@@ -86,11 +86,11 @@ describe('panel logs', () => {
   });
 
   it('uses the filtered log level for operation and security events', async () => {
-    const items: PanelLog[] = [
-      { id: 'operation:done', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info', status: 'succeeded', code: 'configuration-apply', message: 'Configuration applied', metadata: {} },
-      { id: 'operation:failed', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'error', status: 'failed', code: 'catalog-refresh', message: 'Catalog refresh failed', metadata: {} },
-      { id: 'security:session', time: '2026-09-19T00:00:00Z', source: 'security', level: 'warn', status: '', code: 'session-renewed', message: 'Administrator session renewed', metadata: {} },
-      { id: 'internal-event-id', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'debug', status: '', code: 'saved', message: 'Panel settings saved', metadata: { operation_id: 'internal-operation-id' } },
+    const items: LogEntry[] = [
+      { id: 'operation:done', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info', code: 'configuration-apply', message: 'Configuration applied', metadata: {} },
+      { id: 'operation:failed', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'error', code: 'catalog-refresh', message: 'Catalog refresh failed', metadata: {} },
+      { id: 'security:session', time: '2026-09-19T00:00:00Z', source: 'security', level: 'warn', code: 'session-renewed', message: 'Administrator session renewed', metadata: {} },
+      { id: 'internal-event-id', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'debug', code: 'saved', message: 'Panel settings saved', metadata: { operation_id: 'internal-operation-id' } },
     ];
     const client = show(
       createMockApiClient({ listPanelLogs: vi.fn(async (filter) => ({
@@ -103,9 +103,6 @@ describe('panel logs', () => {
     for (const level of ['INFO', 'ERROR', 'WARN', 'DEBUG']) {
       expect(within(table).getByRole('cell', { name: level })).toBeVisible();
     }
-    for (const value of ['succeeded', 'failed', 'canceled', 'internal-operation-id']) {
-      expect(within(table).queryByRole('cell', { name: value })).not.toBeInTheDocument();
-    }
     expect(table).not.toHaveTextContent('internal-operation-id');
     await userEvent.click(screen.getByRole('combobox', { name: 'Log level' }));
     await userEvent.click(await screen.findByRole('option', { name: 'ERROR' }));
@@ -115,5 +112,31 @@ describe('panel logs', () => {
       expect.objectContaining({ level: 'error' }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('clears every entry after confirming what it frees, then lists the entry the clearing recorded', async () => {
+    const user = userEvent.setup();
+    const notify = vi.spyOn(toast, 'add');
+    const cleared: LogEntry = {
+      id: 'log_cleared', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info',
+      code: 'logs.cleared', message: 'Panel log cleared', metadata: { deleted: 3, freed_bytes: 12_288 },
+    };
+    const client = show(createMockApiClient({
+      clearPanelLogs: vi.fn().mockResolvedValue({ deleted: 3, freed_bytes: 12_288 }),
+      getLogUsage: vi.fn().mockResolvedValue({ entries: 3, bytes: 20_480 }),
+      listPanelLogs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    }), '/logs?node=node_edge');
+    await user.click(await screen.findByRole('combobox', { name: 'Log level' }));
+    await user.click(await screen.findByRole('option', { name: 'ERROR' }));
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Clear logs' });
+    expect(await within(dialog).findByText('This deletes all 3 log entries, which take 20 KB on disk.')).toBeVisible();
+    expect(within(dialog).getByText('Runtime states are not affected. This cannot be undone.')).toBeVisible();
+    vi.mocked(client.listPanelLogs).mockResolvedValue({ items: [cleared], total: 1 });
+    await user.click(within(dialog).getByRole('button', { name: 'Clear logs' }));
+    expect(client.clearPanelLogs).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Cleared 3 log entries, freed 12 KB', type: 'success' }));
+    expect(await screen.findByRole('cell', { name: 'Logs cleared' })).toBeVisible();
   });
 });

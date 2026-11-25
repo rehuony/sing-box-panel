@@ -7,7 +7,6 @@ import { ListChecks, SearchX, Server } from 'lucide-react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { useCallback, useDeferredValue, useEffect, useMemo } from 'react';
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 
 import type { NodeStatus } from '@/utils/fleet-summary';
 import type { FleetStateFilter } from '@/stores/fleet-view.store';
@@ -22,8 +21,8 @@ import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { usePhoneLayout } from '@/hooks/use-phone-layout';
 import { AddNodeAction } from '@/components/enrollment-dialog';
-import { describeRequestError } from '@/components/error-notice';
 import { useCommandSession } from '@/stores/command-session.store';
+import { RegionError, RegionState } from '@/components/region-state';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 import { StripDivider, StripSearch, TitleStrip } from '@/components/title-strip';
 
@@ -36,7 +35,6 @@ const EAGER_PANES = 48;
 /** The tag filter's value for every tag. */
 const ALL_TAGS = '';
 
-const emptyMedia = 'mb-3 size-12 rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-6';
 const emptyRegion = 'min-h-0 flex-1 rounded-[var(--radius-card)] border border-solid bg-[var(--color-surface-translucent)]';
 
 function counts(items: readonly NodeStatus[]): Record<FleetStateFilter, number> {
@@ -94,7 +92,6 @@ export function FleetPage() {
   const status = useQuery({ ...queries.fleetStatus(client), enabled: visible });
   const update = useQuery(queries.systemUpdate(client));
   const fleetView = useFleetView(useShallow(store => ({
-    clearFilters: store.clearFilters,
     search: store.search,
     selected: store.selected,
     selecting: store.selecting,
@@ -105,7 +102,7 @@ export function FleetPage() {
     tag: store.tag,
     toggle: store.toggle,
   })));
-  const { clearFilters, search, selected, selecting, setFilter, setSelecting, setVisible, state, tag } = fleetView;
+  const { search, selected, selecting, setFilter, setSelecting, setVisible, state, tag } = fleetView;
   const { toggle } = fleetView;
   const query = useDeferredValue(search.trim().toLowerCase());
   const items = useMemo(() => {
@@ -140,36 +137,11 @@ export function FleetPage() {
   if (status.isPending) {
     content = <LoadingState label={t('fleet.loading')} fullScreen={false} />;
   } else if (status.data === undefined) {
-    content = (
-      <Empty className={emptyRegion} role='status'>
-        <EmptyHeader>
-          <EmptyMedia className={emptyMedia}><SearchX aria-hidden='true' strokeWidth={1.5} /></EmptyMedia>
-          <EmptyTitle>{t('nodes.loadFailed')}</EmptyTitle>
-          <EmptyDescription>{describeRequestError(status.error)}</EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent><Button onClick={refresh} variant='outline'>{t('shell.error.retry')}</Button></EmptyContent>
-      </Empty>
-    );
+    content = <RegionError className={emptyRegion} error={status.error} reload={refresh} title={t('nodes.loadFailed')} />;
   } else if (!fleet) {
-    content = (
-      <Empty className={emptyRegion} role='status'>
-        <EmptyHeader>
-          <EmptyMedia className={emptyMedia}><Server aria-hidden='true' strokeWidth={1.5} /></EmptyMedia>
-          <EmptyTitle>{t('fleet.empty.title')}</EmptyTitle>
-        </EmptyHeader>
-        <EmptyContent><AddNodeAction /></EmptyContent>
-      </Empty>
-    );
+    content = <RegionState className={emptyRegion} icon={Server} title={t('fleet.empty.title')} />;
   } else if (matching.length === 0) {
-    content = (
-      <Empty className={emptyRegion} role='status'>
-        <EmptyHeader>
-          <EmptyMedia className={emptyMedia}><SearchX aria-hidden='true' strokeWidth={1.5} /></EmptyMedia>
-          <EmptyTitle>{t('fleet.noMatch.title')}</EmptyTitle>
-        </EmptyHeader>
-        <EmptyContent><Button onClick={clearFilters} variant='outline'>{t('fleet.noMatch.clear')}</Button></EmptyContent>
-      </Empty>
-    );
+    content = <RegionState className={emptyRegion} icon={SearchX} title={t('fleet.noMatch.title')} />;
   } else {
     content = (
       <ScrollArea className='min-h-0 flex-1' viewportClassName='flex flex-col gap-3'>

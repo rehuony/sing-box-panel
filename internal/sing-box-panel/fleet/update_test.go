@@ -121,6 +121,9 @@ func TestUpdateNeedsTheProtocolMinorThatHasIt(t *testing.T) {
 	if _, err := served.service.UpdateNode(t.Context(), old.id); !errors.Is(err, fleet.ErrNodeUpgradeRequired) {
 		t.Fatalf("update of a minor 0 node = %v, want ErrNodeUpgradeRequired", err)
 	}
+	if _, err := served.service.CoreSchema(t.Context(), old.id, "core"); !errors.Is(err, fleet.ErrNodeUpgradeRequired) {
+		t.Fatalf("core schema of a minor 0 node = %v, want ErrNodeUpgradeRequired", err)
+	}
 	// Commands of minor version 0 still reach it.
 	stopped := make(chan error, 1)
 	go func() {

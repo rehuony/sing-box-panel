@@ -85,6 +85,53 @@ func (handler *Handler) coreRuntimeHistory(w http.ResponseWriter, request *http.
 	writeJSON(w, http.StatusOK, page)
 }
 
+// fleetRuntimeHistory lists every node's runtime history, newest first,
+// paged by offset with the number of matching transitions.
+func (handler *Handler) fleetRuntimeHistory(w http.ResponseWriter, request *http.Request) {
+	query, ok := strictQueryWithLimit(w, request, maximumPanelLogQueryBytes, "node_id", "state", "search", "search_codes", "offset", "limit")
+	if !ok {
+		return
+	}
+	limit, ok := optionalLimit(w, request)
+	if !ok {
+		return
+	}
+	offset, ok := optionalPageOffset(w, request)
+	if !ok {
+		return
+	}
+	state := store.RuntimeTransitionState(query.Get("state"))
+	nodeID := query.Get("node_id")
+	if !validOptionalRuntimeTransitionState(state) || (nodeID != "" && (len(nodeID) > 128 || !store.ValidIdentifier(nodeID))) {
+		writeProblem(w, request, http.StatusBadRequest, "runtime_history_filter_invalid", "Runtime history filter invalid", "The runtime history filter contains an unsupported value.")
+		return
+	}
+	if len(query.Get("search")) > 256 {
+		writeProblem(w, request, http.StatusBadRequest, "search_too_long", "Invalid search", "Search may contain at most 256 bytes.")
+		return
+	}
+	var searchCodes []string
+	if raw, present := query["search_codes"]; present {
+		searchCodes = strings.Split(raw[0], ",")
+		valid := len(searchCodes) <= store.MaximumPanelLogSearchCodes
+		for _, code := range searchCodes {
+			valid = valid && code != "" && validOptionalRuntimeTransitionReason(code)
+		}
+		if !valid {
+			writeProblem(w, request, http.StatusBadRequest, "search_codes_invalid", "Invalid search codes", "The reason alternatives are invalid or exceed the search limit.")
+			return
+		}
+	}
+	page, err := handler.services.Telemetry.FleetRuntimeHistory(request.Context(), store.FleetRuntimeHistoryFilter{
+		NodeID: nodeID, State: state, Search: query.Get("search"), SearchCodes: searchCodes, Offset: offset, Limit: limit,
+	})
+	if err != nil {
+		writeQueryProblem(w, request, "runtime_history_filter_invalid", "Runtime history filter invalid", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 func validOptionalRuntimeTransitionState(state store.RuntimeTransitionState) bool {
 	switch state {
 	case "", store.RuntimeTransitionRunning, store.RuntimeTransitionStopped,
@@ -187,29 +234,6 @@ func (handler *Handler) disableCoreArtifact(w http.ResponseWriter, request *http
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (handler *Handler) activateCore(w http.ResponseWriter, request *http.Request) {
-	if _, ok := strictCoreQuery(w, request); !ok {
-		return
-	}
-	var input struct {
-		StartupArtifactID string `json:"startup_artifact_id"`
-		MonitoringTier    string `json:"monitoring_tier"`
-	}
-	if !decodeStrictRequest(w, request, maximumRuntimeRequestBytes, &input) {
-		return
-	}
-	if !store.ValidIdentifier(input.StartupArtifactID) || !validMonitoringTier(input.MonitoringTier) {
-		writeProblem(w, request, http.StatusUnprocessableEntity, "activation_request_invalid", "Activation request invalid", "A startup artifact ID and a supported monitoring tier are required.")
-		return
-	}
-	result, err := handler.services.Fleet.ActivateStartup(request.Context(), requestNodeID(request), input.StartupArtifactID, input.MonitoringTier)
-	if err != nil {
-		writeNodeProblem(w, request, "runtime_activate_failed", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Request, operation string) {
 	if _, ok := strictCoreQuery(w, request); !ok {
 		return
@@ -253,10 +277,4 @@ func (handler *Handler) runtimeLifecycle(w http.ResponseWriter, request *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// validMonitoringTier accepts a supported tier or none, which selects the
-// node's default.
-func validMonitoringTier(value string) bool {
-	return value == "" || value == "limited" || value == "process_only"
 }

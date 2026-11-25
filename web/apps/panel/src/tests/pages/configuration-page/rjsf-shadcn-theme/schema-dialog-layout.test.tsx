@@ -7,10 +7,8 @@ import { TooltipProvider } from '@shared/components/ui/tooltip';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
-import { createPrecompiledValidator, customizeValidator } from '@rjsf/validator-ajv8';
-
-import { reviewedSchemaManifest } from '@/schemas';
 import { resolvedSchema } from '@/pages/configuration-page/schema-ui';
+import { configurationSchemaFor } from '@/tests/fixtures/configuration-schemas';
 import { SchemaDialogLayout } from '@/pages/configuration-page/rjsf-shadcn-theme';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -37,7 +35,7 @@ describe('schema dialog layout', () => {
       const [draft, setDraft] = useState(() => parseCanonicalDraft('{"entry":{"users":[]}}'));
       return (
         <SchemaSectionForm schema={authentication} basePointer='/entry' data={draft.entry} onChange={setDraft}
-          resolution={{ schema: authentication, createValidator: () => customizeValidator() }} />
+          resolution={{ schema: authentication }} />
       );
     }
     render(<Harness />);
@@ -84,14 +82,13 @@ describe('schema dialog layout', () => {
     ['SnellUser', { name: 'snell-user', userkey: 'secret' }, 'snell-user', 'secret'],
     ['CCMUser', { name: 'ccm-user', token: 'secret' }, 'ccm-user', 'secret'],
   ])('displays reviewed %s credential values in the list and editor', async (definition, record, name, status) => {
-    const reviewed = await reviewedSchemaManifest['1.14.1'].load();
     const authentication: RJSFSchema = {
-      type: 'object', $defs: reviewed.schema.$defs,
+      type: 'object', $defs: configurationSchemaFor('1.14.1').$defs,
       properties: { users: { type: 'array', items: { $ref: `#/$defs/${definition}` } } },
     };
     render(
       <SchemaSectionForm schema={authentication} basePointer='/entry' data={{ users: [record] }} onChange={vi.fn()}
-        resolution={{ schema: authentication, createValidator: () => customizeValidator() }} />,
+        resolution={{ schema: authentication }} />,
     );
     expect(screen.getByText(name)).toBeVisible();
     expect(screen.getByText(status)).toBeVisible();
@@ -116,7 +113,7 @@ describe('schema dialog layout', () => {
       const [draft, setDraft] = useState(() => parseCanonicalDraft('{"entry":{}}'));
       return (
         <SchemaSectionForm schema={optionalSchema} basePointer='/entry' data={draft.entry} onChange={setDraft}
-          resolution={{ schema: optionalSchema, createValidator: () => customizeValidator() }} />
+          resolution={{ schema: optionalSchema }} />
       );
     }
     render(<Harness />);
@@ -137,7 +134,7 @@ describe('schema dialog layout', () => {
       return (
         <>
           <SchemaSectionForm dialogLayout schema={schema} basePointer='/entry' data={draft.entry} onChange={setDraft}
-            resolution={{ schema: root, createValidator: () => customizeValidator() }} />
+            resolution={{ schema: root }} />
           <output aria-label='Draft'>{encodeCanonicalDraft(draft)}</output>
         </>
       );
@@ -184,7 +181,7 @@ describe('schema dialog layout', () => {
     const onChange = vi.fn();
     render(
       <SchemaSectionForm schema={array} basePointer='/entries' data={[]} onChange={onChange}
-        resolution={{ schema: root, createValidator: () => customizeValidator() }} />,
+        resolution={{ schema: root }} />,
     );
     await user.click(screen.getByRole('button', { name: 'Add' }));
     const dialog = within(screen.getByRole('dialog'));
@@ -207,7 +204,7 @@ describe('schema dialog layout', () => {
       return (
         <>
           <SchemaSectionForm schema={array} basePointer='/entries' data={draft.entries} onChange={setDraft}
-            resolution={{ schema: root, createValidator: () => customizeValidator() }} />
+            resolution={{ schema: root }} />
           <output aria-label='Draft'>{encodeCanonicalDraft(draft)}</output>
         </>
       );
@@ -227,17 +224,16 @@ describe('schema dialog layout', () => {
   });
 
   it.each(['1.13.19', '1.14.0'])('separates matching fields and actions in %s rule dialogs without changing the parent draft on cancel', async (version) => {
-    const reviewed = await reviewedSchemaManifest[version].load();
+    const root = configurationSchemaFor(version);
     const user = userEvent.setup();
-    const route = resolvedSchema(reviewed.schema.properties?.route as RJSFSchema, reviewed.schema);
+    const route = resolvedSchema(root.properties?.route as RJSFSchema, root);
     const rules = route.properties?.rules as RJSFSchema;
     const onChange = vi.fn();
     render(
       <TooltipProvider>
         <SchemaSectionForm schema={rules} basePointer='/route/rules'
           data={[{ type: 'default', action: 'route', domain: ['example.com'], domain_regex: ['.*test'], outbound: 'direct' }]}
-          onChange={onChange} resolution={{ schema: reviewed.schema,
-            createValidator: (schema) => createPrecompiledValidator(reviewed.validateFns as never, schema) }} />
+          onChange={onChange} resolution={{ schema: root }} />
       </TooltipProvider>,
     );
     await user.click(screen.getByRole('button', { name: 'Edit' }));

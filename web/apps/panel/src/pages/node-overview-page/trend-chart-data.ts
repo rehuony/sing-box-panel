@@ -65,9 +65,13 @@ export function liveConnectionsChartData(tail: LivePoint[]): TrendChartData {
 }
 
 // Historical traffic uses bucket averages only. Connections can still join the
-// latest persisted bucket to live readings at the persistence watermark.
+// latest persisted bucket to live readings at the persistence watermark, or
+// after the last bucket known without samples because no core ran.
 export function trendChartData(history: MetricsHistory | null, kind: 'traffic' | 'connections', tail: LivePoint[], watermark?: string | null): TrendChartData {
-  const through = watermark ? Date.parse(watermark) : Number.NEGATIVE_INFINITY;
+  const idleThrough = (history?.buckets ?? [])
+    .filter(bucket => bucket.sample_count === 0 && bucket.coverage === 'complete')
+    .reduce((latest, bucket) => Math.max(latest, Date.parse(bucket.to)), Number.NEGATIVE_INFINITY);
+  const through = Math.max(watermark ? Date.parse(watermark) : Number.NEGATIVE_INFINITY, idleThrough);
   const from = history ? Date.parse(history.from) : undefined;
   const live = kind === 'connections'
     ? tail.filter(point => point.at > through && (from === undefined || point.at >= from))

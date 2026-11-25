@@ -3,7 +3,7 @@ import { toast } from '@shared/components/ui/toast-manager';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { PanelLog } from '@/api/api-client';
+import type { LogEntry, NodeRuntimeTransition } from '@/api/api-client';
 
 import i18n from '@/i18n';
 import { TestRouter } from '@/tests/test-router';
@@ -12,9 +12,13 @@ import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelLogsPage } from '@/pages/panel-logs-page/panel-logs-page';
 import { matchingEventCodes } from '@/pages/panel-logs-page/panel-log-presentation';
 
-const item: PanelLog = {
+const item: LogEntry = {
   id: 'log:one', time: '2026-09-24T01:16:57.123456Z', source: 'panel', level: 'info',
-  code: 'runtime.start.completed', message: 'Core start completed', status: '', metadata: {},
+  code: 'runtime.start.completed', message: 'Core start completed', metadata: {},
+};
+const transition: NodeRuntimeTransition = {
+  id: 2, node_id: 'node_edge', node_name: 'edge-tokyo', state: 'running', reason: 'start_succeeded',
+  occurred_at: item.time, pid: 123, process_started_at: item.time, activation_bundle_id: 'bundle_current',
 };
 function show(client = createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 1 }) }), entry = '/logs') {
   render(
@@ -42,25 +46,25 @@ describe('panel log presentation and details', () => {
     await waitFor(() => expect(lastFilter()).toEqual(expect.objectContaining({ nodeID: undefined })));
   });
   it('localizes known events without confusing action completion with runtime state', async () => {
-    show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [
-      item,
-      { ...item, id: 'runtime:2', code: 'start_succeeded', message: 'start_succeeded', source: 'runtime', status: 'running', metadata: { pid: 123, activation_bundle_id: 'bundle_current' } },
-      { ...item, id: 'log:3', code: 'future.event', message: 'A future event' },
-    ], total: 3 }) }));
+    show(createMockApiClient({
+      listFleetRuntimeHistory: vi.fn().mockResolvedValue({ items: [transition], total: 1 }),
+      listPanelLogs: vi.fn().mockResolvedValue({ items: [item, { ...item, id: 'log:3', code: 'future.event', message: 'A future event' }], total: 2 }),
+    }));
     expect(await screen.findByText('Core start operation completed')).toBeVisible();
-    expect(screen.getByText('Core started')).toBeVisible();
-    expect(screen.getByRole('cell', { name: 'Core started' })).toBeVisible();
+    expect(screen.getByText('A future event')).toBeVisible();
+    await userEvent.click(screen.getByRole('tab', { name: 'Runtime states' }));
+    expect(await screen.findByRole('cell', { name: 'Core started' })).toBeVisible();
+    expect(screen.getByRole('cell', { name: 'Running' })).toBeVisible();
+    expect(screen.getByRole('cell', { name: 'edge-tokyo' })).toBeVisible();
     expect(screen.queryByText(/bundle_current/)).not.toBeInTheDocument();
-    expect(screen.getByText('A future event')).toBeVisible();
     await act(() => i18n.changeLanguage('zh-CN'));
-    expect(screen.getByText('核心启动操作完成')).toBeVisible();
     expect(screen.getByText('核心已启动')).toBeVisible();
-    expect(screen.queryByText(/进程 ID/)).not.toBeInTheDocument();
     expect(screen.queryByText('start_succeeded')).not.toBeInTheDocument();
-    expect(screen.getByText('A future event')).toBeVisible();
-    expect(screen.getByRole('table').querySelector('time')).toHaveAttribute('datetime', item.time);
+    expect(screen.getByRole('table').querySelector('time')).toHaveAttribute('datetime', transition.occurred_at);
     await userEvent.click(screen.getByRole('button', { name: '查看详情: 核心已启动' }));
-    const context = screen.getByRole('region', { name: '事件上下文' });
+    const dialog = screen.getByRole('dialog', { name: '运行状态详情' });
+    expect(within(dialog).getByText('edge-tokyo')).toBeVisible();
+    const context = within(dialog).getByRole('region', { name: '事件上下文' });
     expect(within(context).getByText('进程 ID')).toBeVisible();
     expect(within(context).getByText('123')).toBeVisible();
     expect(within(context).getByText('bundle_current')).toBeVisible();
@@ -70,7 +74,7 @@ describe('panel log presentation and details', () => {
     const user = userEvent.setup();
     const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
     const notify = vi.spyOn(toast, 'add');
-    const record: PanelLog = { ...item, status: 'running', metadata: {
+    const record: LogEntry = { ...item, metadata: {
       duration_ms: 0, enabled: false, missing: null, nested: { values: [0, false, 'safe'] },
       custom_field: '<img src=x onerror=alert(1)>', process_started_at: item.time,
     } };
@@ -80,7 +84,6 @@ describe('panel log presentation and details', () => {
     const trigger = await screen.findByRole('button', { name: 'View details: Core start operation completed' });
     await user.click(trigger);
     const dialog = screen.getByRole('dialog', { name: 'Log details' });
-    expect(within(dialog).getByText('Running')).toBeVisible();
     expect(within(dialog).getByText('0', { exact: true })).toBeVisible();
     expect(within(dialog).getByText('false', { exact: true })).toBeVisible();
     expect(within(dialog).getByText('null', { exact: true })).toBeVisible();

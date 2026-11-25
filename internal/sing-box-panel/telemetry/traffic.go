@@ -16,7 +16,6 @@ const gibibyte = int64(1 << 30)
 // RetentionResult counts the records one retention pass deleted.
 type RetentionResult struct {
 	TrafficSamples     int64 `json:"traffic_samples"`
-	LogEntries         int64 `json:"log_entries"`
 	RuntimeTransitions int64 `json:"runtime_transitions"`
 }
 
@@ -120,9 +119,9 @@ func (application *Service) MetricsHistory(
 }
 
 // EnforceRetention deletes raw traffic samples older than the sample
-// retention, and log entries and runtime history older than the panel log
-// retention. Daily traffic and traffic periods are the long-lived
-// accounting record and stay.
+// retention and runtime history older than the runtime history retention.
+// Daily traffic and traffic periods are the long-lived accounting record and
+// stay; the panel log is cleared only on request.
 func (application *Service) EnforceRetention(ctx context.Context) (RetentionResult, error) {
 	if application.settings == nil {
 		return RetentionResult{}, errors.New("retention settings are unavailable")
@@ -131,8 +130,8 @@ func (application *Service) EnforceRetention(ctx context.Context) (RetentionResu
 	if err != nil {
 		return RetentionResult{}, err
 	}
-	sampleDays, logDays := effective.Traffic.SampleRetentionDays, effective.Logs.PanelRetentionDays
-	if sampleDays < 1 || sampleDays > 366 || logDays < 1 || logDays > 3650 {
+	sampleDays, historyDays := effective.Traffic.SampleRetentionDays, effective.Nodes.RuntimeHistoryRetentionDays
+	if sampleDays < 1 || sampleDays > 366 || historyDays < 1 || historyDays > 3650 {
 		return RetentionResult{}, errors.New("retention settings are unavailable")
 	}
 	now := application.now().UTC()
@@ -140,11 +139,7 @@ func (application *Service) EnforceRetention(ctx context.Context) (RetentionResu
 	if result.TrafficSamples, err = application.database.DeleteTrafficSamplesBefore(ctx, now.AddDate(0, 0, -sampleDays)); err != nil {
 		return result, err
 	}
-	logCutoff := now.AddDate(0, 0, -logDays)
-	if result.LogEntries, err = application.database.DeleteLogEntriesBefore(ctx, logCutoff); err != nil {
-		return result, err
-	}
-	result.RuntimeTransitions, err = application.database.DeleteRuntimeTransitionsBefore(ctx, logCutoff)
+	result.RuntimeTransitions, err = application.database.DeleteRuntimeTransitionsBefore(ctx, now.AddDate(0, 0, -historyDays))
 	return result, err
 }
 

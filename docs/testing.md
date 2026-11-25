@@ -8,10 +8,10 @@ actions; they do not repeat every domain case through a complete editing journey
 | Behavior formerly repeated in page journeys | Owning checks |
 | --- | --- |
 | Configuration save/reload, incomplete JSON, CAS conflict, failed save, draft reset, exact numbers | `use-canonical-configuration.test.tsx`; HTTP configuration and application tests verify real persistence |
-| Exact Schema versions, integrity and generated validators | `resolve-reviewed-schema.test.ts`, `generated-validator-browser.test.ts`, production build and schema regeneration job |
-| Schema generation from an empty directory, concurrent publication, stale output and read-only checks | `configuration-schema-generation.test.ts` |
+| Release lines, schema preparation, the reviewed 1.13 contract and its Web fixture | Go `singbox/line_test.go`, `schema/configuration_schema_test.go`, `schema/configuration_1_13_test.go`, `nodeconfig/schema_test.go` |
+| Schema the node's core prints | Go `sing-box-node/agent/commands_test.go` with a fake core binary |
 | Credential formats and Hysteria2 obfuscation | `configuration-credentials.test.tsx`, `managed-collections-editor.test.tsx` |
-| Version selection, unavailable versions, stale responses and retained session choice | `configuration-session.store.test.ts`, `use-configuration-schema.test.tsx` |
+| Version selection, schema availability and errors, stale responses and retained session choice | `configuration-session.store.test.ts`, `use-configuration-schema.test.tsx` |
 | Navigation cancellation and discard | `use-unsaved-changes.test.tsx`; configuration Hook reset checks |
 | Log rotation, cursor recovery, clear races and cancellation | `use-core-logs.test.tsx`; Go core-log and HTTP tests |
 | Group members, format restrictions and save payload | `channel-policy.test.ts`, `use-channel-draft.test.tsx`, `channel-node-picker.test.tsx`; channel submit smoke |
@@ -64,31 +64,24 @@ one boundary.
 Logic uses Node; React Hooks and component smoke use jsdom; build contracts
 use Node with an explicit jsdom override for CSS preload recovery.
 
-Frontend Schema assets and validators are uncommitted build outputs derived
-offline from the committed backend assets. Test entry points run
-`pnpm run generate` before Vitest loads them; individual tests do not run
-generation. `pnpm run schema:check` recomputes and checks those outputs without
-rewriting them. Vite does not own Schema generation. Direct `pnpm exec vitest`
-or `pnpm exec tsc` commands bypass package-script preparation; first run
-`pnpm run generate` in a clean checkout.
+Test entry points run `pnpm run generate`, which writes the OpenAPI types, before
+Vitest loads them. Direct `pnpm exec vitest` or `pnpm exec tsc` commands bypass
+that preparation; first run `pnpm run generate` in a clean checkout.
 
-Keep manifest selection and integrity coverage for every exact version, while
-identical Schema contents share one digest and validator. Equivalent form behavior
-can use one representative Schema. Native Linux amd64/arm64 core contracts still
-exercise every reviewed version's official artifact; shared Schema content does
-not replace those checks. The current version list comes from the generated
-[support table](core-versions.md#exact-configuration-support).
+Editor tests use the two schemas in `web/apps/panel/src/tests/fixtures/`: the
+reviewed 1.13 schema, which a Go test keeps equal to the panel's, and one a 1.14
+core printed. Equivalent form behavior can use one of them.
 
 Use controlled promises for asynchronous outcomes and virtual time for timers,
 expiry and retries. Unmount before restoring timers; abort streams and remove
 listeners on cleanup. Timeouts bound hangs, not acceptable application latency:
-logic has 5 seconds, React 10 seconds, and build contracts 30 seconds. Schema
-imports belong in suite preparation. Retries remain disabled.
+logic has 5 seconds, React 10 seconds, and build contracts 30 seconds. Retries
+remain disabled.
 
 CI bounds workers to two and runs build contracts sequentially. Test isolation
 remains enabled. `make check-frontend` builds the Web application once, including
-generation and TypeScript checking, then runs lint, all Vitest projects,
-Schema generation consistency and third-party notices. `make check` shares that
+generation and TypeScript checking, then runs lint, all Vitest projects and the
+third-party notices check. `make check` shares that
 build with Go and API/installer checks. Linux-only guarantees remain in their
 existing jobs.
 

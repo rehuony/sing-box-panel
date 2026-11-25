@@ -3,19 +3,19 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { customizeValidator } from '@rjsf/validator-ajv8';
 import { render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { createFakeFilesystemApi } from '@/tests/api/fake-filesystem';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { schemaProperties, selfContainedSchema } from '@/pages/configuration-page/schema-ui';
 import { readConfigurationPathMode } from '@/pages/configuration-page/configuration-path-fields';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
-const schemas = import.meta.glob<RJSFSchema>('../../../schemas/.generated/schema-*.json', { eager: true, import: 'default' });
+const schemas = configurationSchemas;
 
 describe('configuration path presentation', () => {
   it.each(Object.entries(schemas))('covers filesystem properties without changing the authoritative schema: %s', (_, root) => {
@@ -33,7 +33,7 @@ describe('configuration path presentation', () => {
           if (typeof child !== 'object') continue;
           const mode = readConfigurationPathMode(child);
           // These names unambiguously refer to real filesystem resources in
-          // the committed schemas. Ambiguous `path` is checked separately below.
+          // the test schemas. Ambiguous `path` is checked separately below.
           if ((key.endsWith('_path') && key !== 'tcp_multi_path') || key.endsWith('_directory')
             || ['external_ui', 'directory', 'mesh_psk_file', 'dhcp_lease_files', 'pid_file'].includes(key)) {
             if (!mode) missing.push(`${location}/${key}`);
@@ -84,7 +84,7 @@ describe('configuration path presentation', () => {
       return (
         <>
           <SchemaSectionForm schema={schema} basePointer='/certificate' data={draft.certificate} onChange={setDraft}
-            resolution={{ schema, createValidator: () => customizeValidator() }} />
+            resolution={{ schema }} />
           <output data-testid='draft'>{encodeCanonicalDraft(draft)}</output>
         </>
       );

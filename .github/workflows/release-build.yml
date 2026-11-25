@@ -161,19 +161,10 @@ jobs:
             exit 1
           fi
 
-  core-contract:
-    needs: guard
-    uses: ./.github/workflows/core-compatibility.yml
-    permissions:
-      contents: read
-    with:
-      source_sha: ${{ needs.guard.outputs.source-sha }}
-
   build-sign:
     name: Build and sign Linux release
     needs:
       - guard
-      - core-contract
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     environment: release

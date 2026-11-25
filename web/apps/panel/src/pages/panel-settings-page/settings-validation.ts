@@ -39,7 +39,7 @@ export function invalidSettingsField(
   if (!/^#[\dA-F]{6}$/i.test(p.appearance.color)) return 'accent-color';
   if (!integer(p.appearance.radius, 0, 32)) return 'radius';
   if (!integer(s.sample_retention_days, 1, 366)) return 'sample-retention';
-  if (!integer(s.panel_log_retention_days ?? 90, 1, 3650)) return 'panel-log-retention';
+  if (!integer(s.runtime_history_retention_days ?? 90, 1, 3650)) return 'runtime-history-retention';
   if (!integer(s.core_log_retention_days ?? 7, 1, 3650)) return 'core-log-retention';
   if (!integer(s.core_log_max_files ?? 0, 0, 1024)) return 'core-log-max-files';
   if (!integer(s.core_log_max_file_size_mib ?? 32, 1, 1024)) return 'core-log-size';

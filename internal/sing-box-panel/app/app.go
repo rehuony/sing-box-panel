@@ -54,13 +54,21 @@ func New(database *store.Store, configuration settings.Settings, options Options
 	panelSettings := settings.NewService(database, configuration.Path(), configuration)
 	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: fleet.ClassifyOperationFailure, Observe: options.Observe})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: configuration.DataDir, Downloader: options.Downloader})
-	configs := nodeconfig.New(database, cores)
+	// Configuration schemas of later lines come from the nodes' cores, which
+	// fleet reaches; fleet in turn checks configurations with configs.
+	var nodes *fleet.Service
+	configs := nodeconfig.New(database, cores, func(ctx context.Context, nodeID, coreArtifactID string) ([]byte, error) {
+		return nodes.CoreSchema(ctx, nodeID, coreArtifactID)
+	})
 	releaseOptions := options.Releases
 	if releaseOptions.Restart == nil {
 		releaseOptions.Restart = restartPanel
 	}
 	panelReleases := releases.New(options.Build, configuration.DataDir, panelSettings, records, releaseOptions)
 	subscriptions := subscription.New(database, panelSettings, records, subscription.Options{})
+	nodes = fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
+		Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.PoolInputsChanged,
+	})
 	return Services{
 		Sessions:      auth.NewSessions(database, panelSettings),
 		Settings:      panelSettings,
@@ -68,10 +76,8 @@ func New(database *store.Store, configuration settings.Settings, options Options
 		Cores:         cores,
 		Subscriptions: subscriptions,
 		Telemetry:     records,
-		Fleet: fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
-			Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.PoolInputsChanged,
-		}),
-		Releases: panelReleases,
+		Fleet:         nodes,
+		Releases:      panelReleases,
 	}
 }
 

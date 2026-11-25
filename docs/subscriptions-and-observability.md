@@ -159,18 +159,18 @@ then reloads the pool. Otherwise the last saved order wins.
 Each fleet node contributes the inbounds of the configuration of the bundle it
 reports running: the panel finds that revision among the node's revisions,
 checks its bytes against the digest the node reported, and converts its inbounds
-with the exact core version of the bundle. Draft, failed and unapplied
+with the inbound family of the bundle's core version. Draft, failed and unapplied
 configuration is never published, and a rollback changes the applied bundle and
 therefore the inbounds. A node whose revision the panel no longer holds or whose
-digest differs, whose core version has no converter, whose configuration cannot
+digest differs, whose core version has no release line, whose configuration cannot
 be read, or that has neither a public host nor a reported public IP contributes
 no nodes and adds a diagnostic naming it; its earlier nodes leave the pool with
 the next synchronization, and the other nodes publish as usual.
 
-The inbound registry accepts only the exact reviewed releases with an inbound
-family in the [support table](core-versions.md#exact-configuration-support);
-other versions fail closed. Each converter publishes only the client-usable
-inbound types available in that release and reports stable diagnostics for
+A core version uses the inbound family of its
+[release line](core-versions.md#release-lines); a version without a line fails
+closed. Each converter publishes only the client-usable
+inbound types available in that family and reports stable diagnostics for
 server-only or unsupported types. A node's public host, set in its settings, or
 else the public IP it reports combines with each inbound `listen_port`; server
 certificate private keys, ACME configuration and listen-side fields are never
@@ -181,9 +181,9 @@ copied.
 | `1.13` | `mixed`, `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `hysteria`, `shadowtls`, `vless`, `tuic`, `hysteria2`, `anytls`, `naive` |
 | `1.14` | All family 1.13 types plus `snell` |
 
-For these versions, `direct`, `tun`, `redirect`, `tproxy` and `cloudflared` are
+In both families, `direct`, `tun`, `redirect`, `tproxy` and `cloudflared` are
 explicitly unpublishable. Any other inbound type produces an unsupported-type
-diagnostic; it is not guessed from a nearby version.
+diagnostic.
 
 ## Subscription sources
 
@@ -433,7 +433,7 @@ and their effective URL, format and behavior become one provider; a later one
 with the same name but other metadata takes the name with the next free suffix,
 `-2`, `-3` and so on. Loon emits one remote rule per such provider, with the
 policy of the first exit rule that uses it. Sing-box remote sets use an inline `http_client` with
-`detour: direct`, matching the native 1.14 Schema. Loon uses native URL-based remote rules and emits the configured rule-set name
+`detour: direct`, matching the 1.14 configuration format. Loon uses native URL-based remote rules and emits the configured rule-set name
 as `tag` alongside `policy` and `enabled`, escaping quoted values when necessary.
 This development contract change has no legacy interval migration or compatibility
 reader; requests containing the removed field are rejected.
@@ -519,10 +519,8 @@ saving; a failed preview never falls back to an unvalidated save.
 New Loon channels support
 the same editing workflow as sing-box and Mihomo, even without a saved template.
 
-Sing-box templates and final output are schema-checked against reviewed 1.14.0,
-independently of the server's selected core. Mihomo and Loon check native
-structure and reserved fields; client runtime validation remains the subscriber's
-responsibility. Diagnostics report field paths and fixed error codes without
+Templates of every format are checked for structure and reserved fields; client
+runtime validation remains the subscriber's responsibility. Diagnostics report field paths and fixed error codes without
 reflecting submitted secrets.
 
 Authenticated preview can validate an unsaved draft with an empty pool
@@ -582,11 +580,15 @@ clearing the display. Readers send the file generation with their cursor, so a
 clear in another browser resets the display on the next chunk or after resuming.
 Historical deletion requires confirmation, removes only the
 selected managed file, and returns the view to the latest remaining file.
-**Panel logs** combines sanitized operation outcomes with panel, security and
-runtime events. The table shows time, message, log level and source, without an
-actions column or operation detail dialogs. Rows use their API log level for both
-presentation and filtering. Retry an unsuccessful action from its original control;
-old payloads and temporary uploads are never replayed.
+The panel's **logs** window has two tabs. **Logs** lists the panel log:
+sanitized operation outcomes and panel, security and core events, filtered by
+level, with a Clear action described under [Durable logs](#durable-logs).
+**Runtime states** lists every node's runtime transitions, filtered by state,
+with each transition's node. The address keeps the tab (`?view=states`; the log
+is the default) and a node filter (`?node=`) that applies to both. Rows use
+their API log level for both presentation and filtering. Retry an unsuccessful
+action from its original control; old payloads and temporary uploads are never
+replayed.
 
 `/api/v1/nodes/{nodeId}/core/logs/files`, `/api/v1/nodes/{nodeId}/core/logs/content` and
 `/api/v1/nodes/{nodeId}/core/logs/stream` expose only the node's managed file names and
@@ -658,13 +660,13 @@ chunks are bounded; ANSI sequences and known credentials
 are sanitized. The browser resumes from the received cursor, freezes the selected
 file while paused and polls for rotation. Streaming uses write deadlines and
 closes within a minute to reauthenticate on reconnect. `/api/v1/logs/panel`
-provides the combined panel view. The legacy log API below remains available.
+lists the panel log and `/api/v1/fleet/runtime/history` the runtime states.
 Each initial file read loads the last 64 KiB; the browser retains at most 2,000
 lines and searches/filters only this buffer. File lists refresh every 10 seconds
 without overlapping requests and refresh when the page becomes visible again;
 the output stream checks for appended content every second. Core capture
-retention applies only to sing-box capture files; panel events follow
-`logs.panel_retention_days`, described under [Durable logs](#durable-logs).
+retention applies only to sing-box capture files; the panel log and runtime
+states are described under [Durable logs](#durable-logs).
 The neutral status dot and icon buttons float over the output in the same softly
 bordered, translucent toolbar used by the Advanced JSON editor. Status tooltips
 and the pause/resume icon identify the current state without changing the toolbar's
@@ -676,20 +678,21 @@ search and level filters with no matches. It returns when output is visible.
 Clearing while paused preserves that state and offers Resume live output in the
 empty message so streaming can continue without the floating controls.
 
-Panel-log and subscription-key lists support `offset` with `limit` for numbered
-pages and return `total` before pagination. Panel-log totals include the active
-level, search, and time filters. Counts and rows come from one database snapshot;
+The panel log, runtime states and subscription-key lists support `offset` with
+`limit` for numbered pages and return `total` before pagination. Totals include
+the active filters. Counts and rows come from one database snapshot;
 live inserts or deletions may shift rows between requests. Existing `before_time`
 and `before_id` cursors remain supported and cannot be combined with `offset`.
 The Web footer supports direct page entry and 5, 10, or 50 items per page.
 
 ### Panel log details and search
 
-Panel logs use five centered, single-line columns: occurrence time, level, event
-summary, event source, and View details. Known events have Chinese and English
-names; the original message remains available in the collapsible JSON record. Action
-completion and observed runtime state changes remain separate records. The list
-shows only the event name; process IDs and other context are available in details.
+The log tab uses five centered, single-line columns: occurrence time, level, event
+summary, event source, and View details. The runtime states tab uses occurrence
+time, state, the runtime state's name, node, and View details. Known events and
+reasons have Chinese and English names; the original message remains available
+in the collapsible JSON record. The list shows only the name; process IDs and
+other context are available in details.
 Long names are truncated in the list and readable in full in details.
 The modal contains the event identifiers, precise local time and timezone,
 recorded context and collapsible JSON. Basic information and
@@ -698,9 +701,11 @@ complete sanitized API record. Refreshing the list does not replace the record
 being inspected.
 
 `GET /api/v1/logs/panel` accepts `search_codes`, a comma-separated list of up to
-128 exact codes (each at most 128 ASCII characters matching `[a-z][a-z0-9_.-]*`).
-The complete encoded query may be up to 64 KiB, including percent-escaped codes
+256 exact codes (each at most 128 ASCII characters matching `[a-z][a-z0-9_.-]*`).
+The complete encoded query may be up to 128 KiB, including percent-escaped codes
 and other filters; other endpoints retain their own query limits.
+`GET /api/v1/fleet/runtime/history` takes the same `search_codes` as exact
+reasons, ORed with `search`, which matches part of a node's name or of a reason.
 These alternatives are ORed with the case-insensitive original message/code
 `search`, then intersected with level and time filters. Totals, cursors and offsets
 use the same match conditions. The Web client finds code alternatives from both
@@ -710,7 +715,7 @@ Omitting `search_codes` preserves the original text-search behavior.
 node's overview opens its recent activity in the panel log this way, and the log's
 title strip shows the node with an action that clears the filter.
 
-Runtime-transition metadata includes only recorded public evidence: `pid`,
+A runtime state carries only recorded public evidence: `pid`,
 `process_started_at`, `generation`, `activation_bundle_id`, and `uncertain_since`
 when available. Internal process identity tokens are excluded. Runtime controls
 and core-log clear/delete actions also record bounded target identifiers and
@@ -723,7 +728,7 @@ check phase, including when execution subsequently fails. All operation context
 still passes through the durable log sanitizer.
 Historical events without additional context remain readable and explicitly show
 that no extra context was recorded; current runtime state is not used to fill
-historical gaps. This is an additive API change with no database migration.
+historical gaps.
 
 ## Durable logs
 
@@ -738,14 +743,21 @@ minute with a `control` event of type `reconnect`, so a client reconnects and
 authenticates again; `Last-Event-ID` resumes it after the last entry it
 received. Each write has its own deadline.
 
-Panel events and each node's runtime history follow
-`logs.panel_retention_days` (1–3650 days, 90 by default, and 90 for a settings
-file without the field). The retention pass that also removes expired raw
-traffic samples deletes older entries during startup, every 24 hours and after
-a settings save; it keeps the newest runtime transition of each node instance,
-which gives the state a timeline starts in and where the node's next session
-resumes its history. Explicit log clear/delete API operations remain
-available. Configuration bytes, subscription bodies, token
+The panel log is stored in `logs.db` beside `panel.db` and is kept until it is
+cleared. The logs tab's Clear action, `DELETE /api/v1/logs`, deletes every
+entry (the API also takes `source` and `before`), then rewrites `logs.db` and
+empties its write-ahead log so the space returns to the file system, and
+records one `logs.cleared` entry with the number deleted and the bytes freed.
+The confirmation shows what the log holds and takes on disk, from
+`GET /api/v1/logs/usage`; the toast after it reports what clearing freed.
+Clearing locks only the log database and never touches runtime states.
+
+Each node's runtime history follows `nodes.runtime_history_retention_days`
+(1–3650 days, 90 by default). The retention pass that also removes expired raw
+traffic samples deletes older transitions during startup, every 24 hours and
+after a settings save; it keeps the newest runtime transition of each node
+instance, which gives the state a timeline starts in and where the node's next
+session resumes its history. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
 
@@ -822,12 +834,17 @@ Any truncation retains a `runtime_24h.next` cursor at the last included transiti
 the omitted older interval is unknown, not inferred from the preceding state.
 
 The dashboard shows host summaries, then traffic and active connections in one
-card over one shared range. Both default to Live: the last two minutes of
+card over one shared range. That card takes the height the other cards leave,
+so the overview fills the window; below each chart's legible minimum the view
+scrolls instead. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
 time axis. The span starts at the oldest sample it shows, and at least ten
 seconds before the newest, so no blank strip leads the lines; a time label that
-would run into the vertical axis or past the chart's edge is left out. Browser suspension or network failures can still leave actual sampling
-gaps; missing observations are not filled in.
+would run into the vertical axis or past the chart's edge is left out. While
+the node reports its core stopped, each reading is a known zero, so the lines
+rest at 0 instead of breaking. Browser suspension or network failures can still
+leave actual sampling gaps; missing observations are not filled in, and a range
+without any shows empty axes.
 Historical refreshes never replace these samples with bucket averages. The
 one-hour and 24-hour views show only historical one-minute and five-minute
 averages, respectively. Live samples remain in memory
@@ -863,8 +880,8 @@ reads that configuration and never modifies startup bytes.
 
 `reason_code: process_only` and `monitoring_tier: process_only` explain missing
 core counters even while the child is running. This does not disable host CPU,
-memory, load, or disk collection. The dashboard retains unknown values and empty
-chart states without an additional monitoring explanation or configuration link.
+memory, load, or disk collection. The dashboard retains unknown values and chart
+gaps without an additional monitoring explanation or configuration link.
 To enable core sampling, merge a Clash API section into the existing core
 configuration, using an unused loopback port and a private randomly generated
 secret, then save and apply it (or start the stopped core):
@@ -1005,8 +1022,11 @@ GET /api/v1/nodes/{nodeId}/metrics/history?from&to&bucket_seconds&activation_bun
 is optional. A request may cover at most 90 days and produce at most 512
 buckets. Each bucket returns traffic deltas, average and peak memory, average
 and peak active connections, sample count, and `complete`, `partial`, or
-`missing` coverage. Missing buckets are emitted explicitly with nullable
-measurements, never synthetic zero traffic.
+`missing` coverage. A bucket without samples that the node's runtime history
+shows wholly stopped or failed held no running core: it is `complete`, with
+zero traffic, memory and connections. Every other bucket without evidence is
+emitted explicitly as `missing` with nullable measurements, never synthetic
+zero traffic.
 
 Coverage is derived from persisted sampling intervals rather than sample
 count. A bucket is `complete` only when accepted intervals of one node database

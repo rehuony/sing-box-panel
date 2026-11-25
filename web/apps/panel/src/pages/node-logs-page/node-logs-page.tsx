@@ -1,18 +1,16 @@
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@shared/components/ui/button';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { ArrowDownToLine, Eraser, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
-import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from '@shared/components/ui/empty';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@shared/components/ui/alert-dialog';
 
 import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
-import { RegionError } from '@/components/region-error';
 import { SelectField } from '@/components/select-field';
 import { LoadingState } from '@/components/loading-state';
+import { RegionError, RegionState } from '@/components/region-state';
 import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 
 import type { CoreLevel } from './core-log-lines';
@@ -232,28 +230,12 @@ export function NodeLogsPage() {
             ? log.loading
               ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
               : log.error != null
-                ? <RegionError error={log.error} onRetry={log.retry} title={t('productLogs.regionUnavailable')} />
+                ? <RegionError error={log.error} reload={log.retry} title={t('productLogs.regionUnavailable')} />
                 : (
-                    <Empty className='p-0' role='status'>
-                      <EmptyHeader>
-                        <EmptyMedia className='mb-3 size-16 rounded-[var(--radius-window)] border bg-card text-muted-foreground [&_svg]:size-8'>
-                          {!log.files.length
-                            ? <SquareTerminal aria-hidden='true' strokeWidth={1.5} />
-                            : <SearchX aria-hidden='true' strokeWidth={1.5} />}
-                        </EmptyMedia>
-                        <EmptyTitle>
-                          {t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
-                        </EmptyTitle>
-                      </EmptyHeader>
-                      {log.paused && !log.text.trim() && (
-                        <EmptyContent>
-                          <Button size='sm' variant='ghost' disabled={mutating} onClick={() => log.setPaused(false)}>
-                            <Play aria-hidden='true' data-icon='inline-start' />
-                            {t('productLogs.resume')}
-                          </Button>
-                        </EmptyContent>
-                      )}
-                    </Empty>
+                    <RegionState
+                      icon={!log.files.length ? SquareTerminal : SearchX}
+                      title={t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
+                    />
                   )
             : (
                 <pre className='m-0 flex-none font-mono text-compact [tab-size:2] whitespace-pre'>

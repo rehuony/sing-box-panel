@@ -195,6 +195,119 @@ func (s *Store) ListRuntimeTransitions(
 	return page, nil
 }
 
+// FleetRuntimeHistoryFilter selects a newest-first page of every node's
+// runtime history. Search is part of the node's name or of the reason,
+// matched case-insensitively; SearchCodes are reasons matched exactly and
+// ORed with Search.
+type FleetRuntimeHistoryFilter struct {
+	NodeID      string
+	State       RuntimeTransitionState
+	Search      string
+	SearchCodes []string
+	Offset      int
+	Limit       int
+}
+
+// NodeRuntimeTransition is one runtime transition with the name of its node.
+type NodeRuntimeTransition struct {
+	RuntimeTransition
+	NodeName string
+}
+
+// FleetRuntimeHistoryPage is one page of the runtime history with the number
+// of transitions the filter matches.
+type FleetRuntimeHistoryPage struct {
+	Items []NodeRuntimeTransition
+	Total int
+}
+
+func (s *Store) ListFleetRuntimeTransitions(ctx context.Context, filter FleetRuntimeHistoryFilter) (FleetRuntimeHistoryPage, error) {
+	limit, err := normalizePageLimit(filter.Limit)
+	if err != nil {
+		return FleetRuntimeHistoryPage{}, err
+	}
+	if err := validatePageOffset(filter.Offset, false); err != nil {
+		return FleetRuntimeHistoryPage{}, err
+	}
+	clauses := []string{"1 = 1"}
+	args := []any{}
+	if filter.NodeID != "" {
+		if !ValidIdentifier(filter.NodeID) {
+			return FleetRuntimeHistoryPage{}, invalidQuery("invalid node id")
+		}
+		clauses = append(clauses, "node_id = ?")
+		args = append(args, filter.NodeID)
+	}
+	if filter.State != "" {
+		if !validRuntimeTransitionState(filter.State) {
+			return FleetRuntimeHistoryPage{}, invalidQuery("invalid runtime transition state %q", filter.State)
+		}
+		clauses = append(clauses, "state = ?")
+		args = append(args, string(filter.State))
+	}
+	if len(filter.SearchCodes) > MaximumPanelLogSearchCodes {
+		return FleetRuntimeHistoryPage{}, invalidQuery("at most %d search codes are allowed", MaximumPanelLogSearchCodes)
+	}
+	var search []string
+	if filter.Search != "" {
+		search = append(search, "instr(lower(node_name), lower(?)) > 0", "instr(lower(reason), lower(?)) > 0")
+		args = append(args, filter.Search, filter.Search)
+	}
+	if len(filter.SearchCodes) > 0 {
+		placeholders := make([]string, len(filter.SearchCodes))
+		for index, code := range filter.SearchCodes {
+			if !validRuntimeTransitionReason(code) {
+				return FleetRuntimeHistoryPage{}, invalidQuery("invalid runtime transition search code")
+			}
+			placeholders[index] = "?"
+			args = append(args, code)
+		}
+		search = append(search, "reason IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if len(search) > 0 {
+		clauses = append(clauses, "("+strings.Join(search, " OR ")+")")
+	}
+	const transitions = `(SELECT transition.*, nodes.name AS node_name
+           FROM runtime_transitions AS transition JOIN nodes ON nodes.id = transition.node_id)`
+	where := strings.Join(clauses, " AND ")
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return FleetRuntimeHistoryPage{}, err
+	}
+	defer tx.Rollback()
+	page := FleetRuntimeHistoryPage{Items: []NodeRuntimeTransition{}}
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM `+transitions+` WHERE `+where, args...).Scan(&page.Total); err != nil {
+		return FleetRuntimeHistoryPage{}, fmt.Errorf("count runtime transitions: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT `+runtimeTransitionColumns+`, node_name FROM `+transitions+`
+          WHERE `+where+` ORDER BY occurred_at DESC, id DESC LIMIT ? OFFSET ?`, append(args, limit, filter.Offset)...)
+	if err != nil {
+		return FleetRuntimeHistoryPage{}, fmt.Errorf("list runtime transitions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item NodeRuntimeTransition
+		if item.RuntimeTransition, err = scanRuntimeTransition(withNodeName{rows, &item.NodeName}); err != nil {
+			return FleetRuntimeHistoryPage{}, fmt.Errorf("scan listed runtime transition: %w", err)
+		}
+		page.Items = append(page.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return FleetRuntimeHistoryPage{}, fmt.Errorf("iterate listed runtime transitions: %w", err)
+	}
+	return page, tx.Commit()
+}
+
+// withNodeName scans a runtime transition row followed by its node's name.
+type withNodeName struct {
+	row  runtimeTransitionScanner
+	name *string
+}
+
+func (scanner withNodeName) Scan(targets ...any) error {
+	return scanner.row.Scan(append(targets, scanner.name)...)
+}
+
 const runtimeTransitionColumns = `id, node_id, state, reason,
     activation_bundle_id, generation, pid,
     process_started_at, occurred_at, uncertain_since`

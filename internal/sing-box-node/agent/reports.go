@@ -209,7 +209,7 @@ func (reporter *reporter) stateReport(ctx context.Context) (*nodeapi.StateReport
 	hostname, _ := os.Hostname()
 	report := &nodeapi.StateReport{
 		Host:    &nodeapi.Host{Hostname: hostname, Platform: platform(), PublicIp: reporter.node.CachedPublicIP(ctx)},
-		Runtime: runtimeOutcome(service.RuntimeResponse{Status: status}).GetStatus(),
+		Runtime: runtimeOutcome(status).GetStatus(),
 	}
 	if reporter.updates != nil {
 		report.LastUpdate = reporter.updates.report()

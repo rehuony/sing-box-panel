@@ -37,6 +37,7 @@ export interface TelemetryState {
   acceptRuntimeStatus: (status: RuntimeStatus, ifCurrent?: RuntimeStatusEvidence | null) => void;
 }
 const emptyRates: TrafficRates = { downloadBytesPerSecond: null, uploadBytesPerSecond: null };
+const idleRates: TrafficRates = { downloadBytesPerSecond: 0, uploadBytesPerSecond: 0 };
 /** What the store holds before its node's first reading. */
 const noReadings = {
   rates: emptyRates, liveTail: [], liveStale: true, dashboardStale: true,
@@ -121,18 +122,19 @@ export function useTelemetryStore(online: boolean): TelemetryStore {
       receivedAt = Date.now();
       const state = store.getState();
       if (state.snapshot && Date.parse(event.metrics.collected_at) < Date.parse(state.snapshot.collected_at)) return;
-      const sample = event.metrics.live_sample;
+      // A stopped core moves nothing, so its readings are a known zero rather
+      // than a gap; a sample it left behind no longer stands.
+      const stopped = event.runtime.observation_state === 'stopped';
+      const sample = stopped ? undefined : event.metrics.live_sample;
       const repeated = sample && sample.sampled_at === previous?.sampled_at
         && sample.pid === previous.pid && sample.process_start_token === previous.process_start_token
         && sample.activation_bundle_id === previous.activation_bundle_id;
       const at = sample ? Date.parse(sample.sampled_at) : Date.parse(event.metrics.collected_at);
       if (!repeated) ratesExpireAt = receivedAt + 3000 - Math.max(0, Date.parse(event.metrics.collected_at) - at);
-      const rates = receivedAt < ratesExpireAt ? trafficRates(event.metrics) : emptyRates;
-      const point: LivePoint = {
-        at, ...rates, connections: sample?.accepted && receivedAt < ratesExpireAt
-          ? sample.active_connections
-          : null,
-      };
+      const fresh = receivedAt < ratesExpireAt;
+      const rates = stopped ? idleRates : fresh ? trafficRates(event.metrics) : emptyRates;
+      const connections = stopped ? 0 : sample?.accepted && fresh ? sample.active_connections : null;
+      const point: LivePoint = { at, ...rates, connections };
       const tail = repeated ? state.liveTail : state.liveTail.filter(p => p.at > at - 120_000 && p.at < at);
       if (!repeated) {
         const changedProcess = previous && sample && (previous.pid !== sample.pid

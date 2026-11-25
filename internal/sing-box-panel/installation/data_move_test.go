@@ -192,7 +192,7 @@ func TestDataMoveRecoversInterruptedCopyAndCleanup(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := db.SnapshotDataFile(t.Context(), filepath.Join(target, "panel.db")); err != nil {
+				if err := db.SnapshotDataFiles(t.Context(), target); err != nil {
 					t.Fatal(err)
 				}
 				db.Close()

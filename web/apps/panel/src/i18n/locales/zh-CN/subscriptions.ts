@@ -31,7 +31,6 @@ export const subscriptions = {
     loadFailed: '无法载入节点池',
     empty: '节点池为空',
     noMatch: '没有符合筛选条件的节点',
-    clearFilters: '清除筛选',
     originFilter: '来源',
     allOrigins: '全部节点',
     fleetOrigin: '舰队节点',

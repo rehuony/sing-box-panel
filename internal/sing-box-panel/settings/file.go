@@ -36,6 +36,7 @@ func Replace(path string, data []byte) error {
 }
 
 func ReplaceContext(ctx context.Context, path string, data []byte) error {
+	data = upgradeDocument(data)
 	if _, err := parse(path, data); err != nil {
 		return err
 	}

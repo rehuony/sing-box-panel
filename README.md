@@ -35,8 +35,9 @@ not need Go, Node.js, pnpm, or a separate SQLite CLI.
   The panel caches and verifies each archive and nodes install from it. Each
   platform uses the static musl build.
 - Edit one lossless sing-box JSON document per node, validate every candidate
-  with the selected exact binary on that node, and add structured editing only
-  for versions that have a committed native or project-reviewed JSON Schema.
+  with the selected exact binary on that node, and edit it in a structured form
+  for any version on a supported release line, from the panel's reviewed 1.13
+  schema or the schema a 1.14 or later core prints itself.
 - Keep canonical revisions, checked startup artifacts, applied bundles, and
   rollback bundles separate and immutable; roll back to the previous bundle
   through the authenticated API.
@@ -188,7 +189,7 @@ first configuration, settings precedence, and systemd deployment paths.
 | --- | --- |
 | Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
 | Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
-| Install exact versions and inspect configuration capabilities | [Core versions](docs/core-versions.md) |
+| Install core versions and inspect their release-line capabilities | [Core versions](docs/core-versions.md) |
 | Edit, check, apply, and restart configuration; roll back through the API | [Configuration and runtime](docs/configuration-and-runtime.md) |
 | Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
 | Understand the panel and node services, their protocol and state ownership | [Panel and node architecture](docs/panel-node-architecture.md) |

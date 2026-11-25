@@ -307,7 +307,7 @@ func TestVersionOutputFormats(t *testing.T) {
 			}
 			want := "sing-box-panel " + info.Version + "\n"
 			if format != "text" {
-				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26","protocol":"1.1"}` + "\n"
+				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26","protocol":"1.2"}` + "\n"
 			}
 			if stdout.String() != want {
 				t.Fatalf("stdout = %q, want %q", stdout.String(), want)

@@ -149,13 +149,16 @@ func startFleetWith(t *testing.T, setup fleetSetup) testFleet {
 	panelSettings := settings.NewService(database, "", value)
 	records := telemetry.New(database, panelSettings, telemetry.Options{})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
-	configs := nodeconfig.New(database, cores)
+	var service *fleet.Service
+	configs := nodeconfig.New(database, cores, func(ctx context.Context, nodeID, artifactID string) ([]byte, error) {
+		return service.CoreSchema(ctx, nodeID, artifactID)
+	})
 	var releaseKey ed25519.PublicKey
 	if setup.release != nil {
 		releaseKey = cacheRelease(t, dataDir, setup.version, setup.release)
 	}
 	build := buildinfo.Info{Version: setup.version}
-	service := fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
+	service = fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
 		Build: build, Now: now,
 		Releases: releases.New(build, dataDir, panelSettings, records, releases.Options{PublicKey: releaseKey}),
 	})

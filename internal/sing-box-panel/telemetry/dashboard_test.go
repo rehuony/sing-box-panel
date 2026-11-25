@@ -98,7 +98,7 @@ func TestDashboardSnapshotUsesStableRangesWithoutInventingEvidence(t *testing.T)
 			t.Fatalf("empty dashboard invented metric evidence: %+v", bucket)
 		}
 	}
-	if len(snapshot.Runtime24H.Items) != 1 || len(snapshot.Activity.Items) != 1 {
+	if len(snapshot.Runtime24H.Items) != 1 || len(snapshot.Activity.Items) != 0 {
 		t.Fatalf("dashboard did not include initialized runtime evidence: %+v", snapshot)
 	}
 }

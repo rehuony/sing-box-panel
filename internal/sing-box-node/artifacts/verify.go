@@ -8,6 +8,7 @@ import (
 	"debug/elf"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -63,35 +64,61 @@ func (inspector ExecVersionInspector) Inspect(
 	if ctx == nil || binaryPath == "" || maximumOutput <= 0 {
 		return VersionReport{}, fail(StepVersion, "invalid_request", ErrVersion)
 	}
-	timeout := inspector.Timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	operationContext, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	command := exec.CommandContext(operationContext, binaryPath, "version")
-	command.Env = []string{"LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin"}
-	command.Dir = filepath.Dir(binaryPath)
-	command.WaitDelay = time.Second
-	if err := configureVersionCommand(command); err != nil {
-		return VersionReport{}, fail(StepVersion, "execution_setup", errors.Join(ErrVersion, err))
-	}
 	output := &boundedBuffer{maximum: maximumOutput}
-	command.Stdout = output
-	command.Stderr = output
-	runErr := command.Run()
-	terminateErr := terminateVersionCommand(command)
-	if runErr != nil || terminateErr != nil {
-		if operationContext.Err() != nil {
-			return VersionReport{}, fail(StepVersion, "cancelled", operationContext.Err())
-		}
-		return VersionReport{}, fail(StepVersion, "execution", errors.Join(ErrVersion, runErr, terminateErr))
+	if err := runCore(ctx, binaryPath, inspector.Timeout, StepVersion, ErrVersion, output, output, "version"); err != nil {
+		return VersionReport{}, err
 	}
 	report, err := parseVersionOutput(output.Bytes())
 	if err != nil {
 		return VersionReport{}, fail(StepVersion, "output", errors.Join(ErrVersion, err))
 	}
 	return report, nil
+}
+
+// ReadSchema runs the core's `schema` command and returns the configuration
+// JSON Schema it prints, at most maximumOutput bytes. What the core writes to
+// standard error is discarded.
+func ReadSchema(ctx context.Context, binaryPath string, maximumOutput int64, timeout time.Duration) ([]byte, error) {
+	if ctx == nil || binaryPath == "" || maximumOutput <= 0 {
+		return nil, fail(StepSchema, "invalid_request", ErrSchema)
+	}
+	output := &boundedBuffer{maximum: maximumOutput}
+	if err := runCore(ctx, binaryPath, timeout, StepSchema, ErrSchema, output, nil, "schema"); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+// runCore runs one subcommand of a core binary in a fixed environment, from
+// the binary's directory and in its own process group, which is killed once
+// the command ends. A timeout of zero or less is ten seconds. Failures are
+// reported under step with kind.
+func runCore(ctx context.Context, binaryPath string, timeout time.Duration, step Step, kind error,
+	stdout, stderr io.Writer, subcommand string,
+) error {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	operationContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	command := exec.CommandContext(operationContext, binaryPath, subcommand)
+	command.Env = []string{"LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin"}
+	command.Dir = filepath.Dir(binaryPath)
+	command.WaitDelay = time.Second
+	if err := configureVersionCommand(command); err != nil {
+		return fail(step, "execution_setup", errors.Join(kind, err))
+	}
+	command.Stdout = stdout
+	command.Stderr = stderr
+	runErr := command.Run()
+	terminateErr := terminateVersionCommand(command)
+	if runErr != nil || terminateErr != nil {
+		if operationContext.Err() != nil {
+			return fail(step, "cancelled", operationContext.Err())
+		}
+		return fail(step, "execution", errors.Join(kind, runErr, terminateErr))
+	}
+	return nil
 }
 
 type boundedBuffer struct {

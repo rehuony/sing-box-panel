@@ -3,30 +3,22 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import '@/i18n';
-import { reviewedSchemaManifest } from '@/schemas';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { schemaProperties, uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { encodeCanonicalValue } from '@/pages/configuration-page/use-canonical-configuration';
 
-const reviewedEntry = reviewedSchemaManifest['1.14.0'];
-let resolution: ReviewedSchemaResolution;
+const resolution: ConfigurationSchemaResolution = { schema: configurationSchemas['1.14'] };
 let schema: RJSFSchema;
 
-beforeAll(async () => {
-  expect(reviewedEntry, 'Missing reviewed 1.14.0 Schema fixture').toBeDefined();
-  const reviewed = await reviewedEntry.load();
-  resolution = {
-    schema: reviewed.schema,
-    createValidator: (root) => createPrecompiledValidator(reviewed.validateFns as never, root),
-  };
-  const fields = schemaProperties({ $ref: '#/$defs/DNSRule' }, reviewed.schema, { type: 'default' });
+beforeAll(() => {
+  const fields = schemaProperties({ $ref: '#/$defs/DNSRule' }, resolution.schema, { type: 'default' });
   schema = {
     type: 'object',
     properties: {

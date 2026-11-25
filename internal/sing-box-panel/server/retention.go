@@ -11,8 +11,8 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
-// enforceRetention runs one retention pass: expired traffic samples, log
-// entries and runtime history, then old configuration revisions. It records
+// enforceRetention runs one retention pass: expired traffic samples and
+// runtime history, then old configuration revisions. It records
 // what it deleted, and records and returns a failure.
 func enforceRetention(ctx context.Context, services app.Services) error {
 	records := services.Telemetry
@@ -31,13 +31,13 @@ func enforceRetention(ctx context.Context, services app.Services) error {
 		}
 		return err
 	}
-	if deleted.TrafficSamples+deleted.LogEntries+deleted.RuntimeTransitions+revisions > 0 {
+	if deleted.TrafficSamples+deleted.RuntimeTransitions+revisions > 0 {
 		records.RecordEvent(telemetry.LogRecordRequest{
 			Source: store.LogSourcePanel, Level: store.LogLevelInfo,
 			Code: "records.retention_enforced", Message: "Expired records were deleted",
 			Metadata: telemetry.LogMetadata(map[string]any{
-				"traffic_samples": deleted.TrafficSamples, "log_entries": deleted.LogEntries,
-				"runtime_transitions": deleted.RuntimeTransitions, "configuration_revisions": revisions,
+				"traffic_samples": deleted.TrafficSamples, "runtime_transitions": deleted.RuntimeTransitions,
+				"configuration_revisions": revisions,
 			}),
 		})
 	}

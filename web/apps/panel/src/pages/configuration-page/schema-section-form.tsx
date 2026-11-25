@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
 import type { IChangeEvent } from '@rjsf/core';
-import type { RJSFSchema, UiSchema, ValidationData, ValidatorType } from '@rjsf/utils';
+import type { RJSFSchema, UiSchema, ValidatorType } from '@rjsf/utils';
 
-import Form from '@rjsf/core';
 import { useId, useMemo } from 'react';
 import { getSchemaType } from '@rjsf/utils';
-
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
+// @rjsf/core's entry also loads its test registry, which imports the Ajv validator.
+import Form from '@rjsf/core/lib/components/Form.js';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from './use-configuration-schema';
 import type { SchemaDialogGroup } from './rjsf-shadcn-theme/schema-dialog-groups';
 
 import { encodeCanonicalValue } from './use-canonical-configuration';
@@ -33,10 +33,10 @@ interface SchemaSectionFormProps {
   dialogLayout?: boolean;
   protectedPaths?: string[];
   dialogJsonPreview?: ReactNode;
-  resolution: ReviewedSchemaResolution;
   onTouched?: (paths: string[]) => void;
   arrayLayout?: 'default' | 'standalone';
   arrayActionContainer?: HTMLElement | null;
+  resolution: ConfigurationSchemaResolution;
   dialogSectionContent?: Partial<Record<SchemaDialogGroup, ReactNode>>;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
@@ -106,18 +106,6 @@ function isProtected(pointer: string, protectedPaths: string[]): boolean {
   );
 }
 
-function pointerTokens(pointer: string): string[] {
-  return pointer.split('/').slice(1).map((token) =>
-    token.replaceAll('~1', '/').replaceAll('~0', '~'));
-}
-
-function rootValidationData(basePointer: string, value: unknown): unknown {
-  const tokens = pointerTokens(basePointer);
-  return tokens.reduceRight<unknown>((current, token) => /^\d+$/.test(token)
-    ? [current]
-    : { [token]: current }, value);
-}
-
 function valueMatchesSchema(schema: RJSFSchema, root: RJSFSchema, value: unknown): boolean {
   const resolved = resolvedSchema(schema, root, value);
   if (resolved.const !== undefined && !Object.is(resolved.const, value)) return false;
@@ -150,7 +138,7 @@ function valueMatchesSchema(schema: RJSFSchema, root: RJSFSchema, value: unknown
   if (Array.isArray(value) && resolved.items && typeof resolved.items === 'object' && !Array.isArray(resolved.items)) {
     // Prefer the ordinary list editor for an ambiguous empty array. RJSF otherwise
     // falls back to the first option (even if that is a string) when array scores tie.
-    // This is only UI matching; the reviewed root validator still accepts empty bytes.
+    // This is only UI matching; the core still accepts empty bytes.
     if (value.length === 0 && isByteArraySchema(resolved, root)) return false;
     const itemSchema = resolved.items;
     if (!value.every((item) => valueMatchesSchema(itemSchema, root, item))) return false;
@@ -158,37 +146,19 @@ function valueMatchesSchema(schema: RJSFSchema, root: RJSFSchema, value: unknown
   return true;
 }
 
-function sectionValidator(
-  resolution: ReviewedSchemaResolution,
-  basePointer: string,
-): ValidatorType<unknown> {
-  const rootValidator = resolution.createValidator(resolution.schema);
-  return {
-    isValid(schema, formData, rootSchema) {
-      return valueMatchesSchema(schema, rootSchema, formData);
-    },
-    rawValidation(_schema, formData) {
-      return rootValidator.rawValidation(
-        resolution.schema,
-        rootValidationData(basePointer, formData),
-      );
-    },
-    validateFormData(formData): ValidationData<unknown> {
-      const result = rootValidator.validateFormData(
-        rootValidationData(basePointer, formData),
-        resolution.schema,
-      );
-      return {
-        errors: result.errors.map((error) => ({
-          ...error,
-          property: '',
-          stack: error.message ?? error.stack,
-        })),
-        errorSchema: result.errorSchema,
-      };
-    },
-  };
-}
+// The panel's schema check and the node's sing-box check gate a
+// configuration; the form only matches values to schema branches.
+const structuralValidator: ValidatorType<unknown> = {
+  isValid(schema, formData, rootSchema) {
+    return valueMatchesSchema(schema, rootSchema, formData);
+  },
+  rawValidation() {
+    return { errors: [] };
+  },
+  validateFormData() {
+    return { errors: [], errorSchema: {} };
+  },
+};
 
 export function SchemaSectionForm({
   arrayActionContainer,
@@ -216,11 +186,6 @@ export function SchemaSectionForm({
       ?? (getSchemaType(resolvedSchema(schema, resolution.schema)) === 'array' ? [] : {})),
     [data, resolution.schema, schema],
   );
-  const validator = useMemo(
-    () => sectionValidator(resolution, basePointer),
-    [basePointer, resolution],
-  );
-
   function handleChange(event: IChangeEvent) {
     const next = event.formData;
     const losslessNext = mergeSchemaKnownData(
@@ -269,7 +234,6 @@ export function SchemaSectionForm({
       formData={external}
       formContext={{ arrayActionContainer, arrayLayout }}
       idPrefix={`schema-${formId}`}
-      liveValidate
       noHtml5Validate
       onChange={handleChange}
       schema={formSchema}
@@ -280,7 +244,7 @@ export function SchemaSectionForm({
         ...uiSchema,
         'ui:submitButtonOptions': { norender: true },
       }}
-      validator={validator}
+      validator={structuralValidator}
       widgets={panelRJSFWidgets}
     />
   );

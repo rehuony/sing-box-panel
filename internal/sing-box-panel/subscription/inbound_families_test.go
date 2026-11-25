@@ -3,34 +3,15 @@
 package subscription
 
 import (
-	"reflect"
+	"errors"
 	"testing"
-
-	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
-func TestCompiledInboundRegistryMatchesDeclaredCapability(t *testing.T) {
+func TestInboundConversionNeedsAReleaseLine(t *testing.T) {
 	t.Parallel()
-	if err := ValidateFamilies(); err != nil {
-		t.Fatal(err)
-	}
-	versions := singbox.Versions()
-	want := make([]string, 0, len(versions))
-	for _, version := range versions {
-		if version.InboundFamily != "" {
-			want = append(want, version.ExactVersion)
+	for _, version := range []string{"1.13.18", "1.14", "v1.14.4", ""} {
+		if _, err := convertInbounds(version, InboundRequest{FinalStartupJSON: []byte(`{}`), PublicHost: "public.example"}); !errors.Is(err, ErrUnsupportedCoreVersion) {
+			t.Fatalf("convertInbounds(%q) error = %v, want ErrUnsupportedCoreVersion", version, err)
 		}
-	}
-	if got := NewInboundRegistry().Versions(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("inbound versions = %v, want %v", got, want)
-	}
-}
-
-func TestUnknownInboundFamilyIsRejected(t *testing.T) {
-	t.Parallel()
-	versions := singbox.Versions()
-	versions[0].InboundFamily = "1.11-r2"
-	if err := validateCompiledFamilies(versions); err == nil {
-		t.Fatal("unknown behavior family was accepted")
 	}
 }

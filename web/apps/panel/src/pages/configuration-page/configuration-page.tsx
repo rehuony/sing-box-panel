@@ -1,21 +1,18 @@
-import { Link } from 'react-router-dom';
+import { Package } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { buttonVariants } from '@shared/components/ui/button-variants';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 
-import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
-import { RegionError } from '@/components/region-error';
 import { LoadingState } from '@/components/loading-state';
-import { useCurrentNode } from '@/stores/current-node.store';
 import { describeRequestError } from '@/components/error-notice';
+import { RegionError, RegionState } from '@/components/region-state';
 import { CardToolbar, StripDivider } from '@/components/title-strip';
 import { useOptionalSharedTelemetry } from '@/components/node-workspace';
 import { useConfigurationSessionStore } from '@/stores/configuration-session.store';
@@ -24,7 +21,6 @@ import { DynamicGeneralEditor } from './dynamic-general-editor';
 import { useConfigurationSchema } from './use-configuration-schema';
 import { ConfigurationCopyDialog } from './configuration-copy-dialog';
 import { useCanonicalConfiguration } from './use-canonical-configuration';
-import { AppliedConfigurationsDialog } from './applied-configurations-dialog';
 import { useInstalledConfigurationVersions } from './use-installed-configuration-versions';
 
 const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-editor').then(module => ({ default: module.AdvancedConfigurationEditor })));
@@ -32,7 +28,6 @@ const AdvancedConfigurationEditor = lazy(() => import('./advanced-configuration-
 export function ConfigurationPage() {
   const { t } = useTranslation();
   const client = useApiClient();
-  const node = useCurrentNode();
   const runtime = useOptionalSharedTelemetry(s => s.runtimeStatus);
   const canonical = useCanonicalConfiguration();
   const installed = useInstalledConfigurationVersions();
@@ -159,7 +154,6 @@ export function ConfigurationPage() {
               <TabsTrigger disabled={!fileReady} value='advanced'>{t('configuration.tab.advanced')}</TabsTrigger>
             </TabsList>
             <div className='ms-auto flex max-w-full min-w-0 items-center gap-1'>
-              <AppliedConfigurationsDialog />
               <ConfigurationCopyDialog
                 disabled={locked}
                 draft={canonical.state.content}
@@ -197,21 +191,14 @@ export function ConfigurationPage() {
             </div>
           )}
           {canonical.state.status === 'error'
-            ? <div className='min-h-0 flex-1 overflow-hidden px-(--configuration-inset) pt-2'><RegionError error={canonical.state.error} onRetry={canonical.reload} title={t('configuration.error.unavailable')} /></div>
+            ? <div className='min-h-0 flex-1 overflow-hidden px-(--configuration-inset) pt-2'><RegionError className='h-full' error={canonical.state.error} reload={canonical.reload} title={t('configuration.error.unavailable')} /></div>
             : (
                 <>
                   <TabsContent className='min-h-0 flex-1 overflow-hidden px-(--configuration-inset) pt-2 has-[>[data-configuration-general]]:pe-0 has-[>[data-configuration-general]]:pt-0' value='visual'>
                     {installed.status === 'error'
-                      ? <RegionError error={installed.error} onRetry={installed.retry} title={t('configuration.error.versionsUnavailable')} />
+                      ? <RegionError className='h-full' error={installed.error} reload={installed.retry} title={t('configuration.error.versionsUnavailable')} />
                       : noInstalledVersions
-                        ? (
-                            <div className='flex h-full min-h-48 flex-col items-center justify-center gap-3 text-center' role='status'>
-                              <h2 className='m-0 text-base font-semibold'>{t('configuration.schema.noInstalledTitle')}</h2>
-                              <Link className={buttonVariants()} data-slot='button' data-size='default' data-variant='default' to={`${nodePath(node.id, 'cores')}#cores-catalog`}>
-                                {t('configuration.schema.manageVersions')}
-                              </Link>
-                            </div>
-                          )
+                        ? <RegionState className='h-full' icon={Package} title={t('configuration.schema.noInstalledTitle')} />
                         : loading
                           ? loadingEditor
                           : schema.status === 'ready' && canonical.draft !== null

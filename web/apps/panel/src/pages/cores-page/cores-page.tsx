@@ -5,8 +5,8 @@ import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { ExternalLink, RefreshCw, Upload } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
+import { ExternalLink, Package, PackageSearch, RefreshCw, SearchX, Upload } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -23,10 +23,10 @@ import { useHashTab } from '@/hooks/use-hash-tab';
 import { ApiRequestError } from '@/api/api-client';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
-import { RegionError } from '@/components/region-error';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { ListPagination } from '@/components/list-pagination';
+import { RegionError, RegionState } from '@/components/region-state';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 
@@ -312,14 +312,12 @@ export function CoresPage() {
               ? listLoading
                 ? <LoadingState label={t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')} fullScreen={false} />
                 : listError != null
-                  ? <RegionError error={listError} onRetry={retry} title={t(tab === 'installed' ? 'cores.error.installed' : 'cores.error.catalog')} />
+                  ? <RegionError error={listError} reload={retry} title={t(tab === 'installed' ? 'cores.error.installed' : 'cores.error.catalog')} />
                   : (
-                      <div className='grid min-h-40 flex-1 place-content-center justify-items-center gap-3 px-5 py-6 text-center text-sm text-muted-foreground' role='status'>
-                        {t(total > 0 ? 'cores.empty.noMatch' : `cores.empty.${tab}`)}
-                        {total === 0 && tab === 'installed' && (
-                          <Button onClick={() => setTab('catalog')} type='button' variant='outline'>{t('cores.empty.browseCatalog')}</Button>
-                        )}
-                      </div>
+                      <RegionState
+                        icon={total > 0 ? SearchX : tab === 'installed' ? Package : PackageSearch}
+                        title={t(total > 0 ? 'cores.empty.noMatch' : `cores.empty.${tab}`)}
+                      />
                     )
               : null}
           </ScrollArea>

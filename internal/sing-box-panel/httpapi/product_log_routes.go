@@ -132,9 +132,9 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 // its client to reconnect.
 const coreLogStreamLifetime = time.Minute
 
-// Covers all 128 codes of 128 bytes even when every byte is percent-encoded,
+// Covers all 256 codes of 128 bytes even when every byte is percent-encoded,
 // plus the other filters. Other endpoints retain their existing query limit.
-const maximumPanelLogQueryBytes = 64 << 10
+const maximumPanelLogQueryBytes = 128 << 10
 
 func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 	query, ok := strictQueryWithLimit(w, r, maximumPanelLogQueryBytes, "level", "since", "until", "before_time", "before_id", "limit", "search", "search_codes", "node_id", "offset")
@@ -191,4 +191,16 @@ func (handler *Handler) listPanelLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, result)
+}
+
+func (handler *Handler) logUsage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := strictCoreQuery(w, r); !ok {
+		return
+	}
+	usage, err := handler.services.Telemetry.LogUsage(r.Context())
+	if err != nil {
+		writeProblem(w, r, 503, "records_unavailable", "Records unavailable", "The panel could not read its records. Retry later.")
+		return
+	}
+	writeJSON(w, 200, usage)
 }

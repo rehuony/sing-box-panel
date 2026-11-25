@@ -3,11 +3,10 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useTranslation } from 'react-i18next';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
-
 import { useHashTab } from '@/hooks/use-hash-tab';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
+import type { ConfigurationSchemaResolution } from './use-configuration-schema';
 
 import { schemaProperties } from './schema-ui';
 import { ManagedCollectionsEditor } from './managed-collections-editor';
@@ -17,7 +16,7 @@ interface DynamicGeneralEditorProps {
   disabled?: boolean;
   draft: CanonicalDraft;
   linkedInbound?: string;
-  resolution: ReviewedSchemaResolution;
+  resolution: ConfigurationSchemaResolution;
   onChange: (change: (draft: CanonicalDraft) => CanonicalDraft) => void;
 }
 

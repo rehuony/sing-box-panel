@@ -9,12 +9,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient, ConfigurationCompile, ConfigurationFile, ConfigurationSchemaContract } from '@/api/api-client';
 
-import { reviewedSchemaManifest } from '@/schemas';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { CurrentNodeContext } from '@/stores/current-node.store';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
-import { representativeSchemaVersions } from '@/tests/schemas/schema-fixtures';
 import { ConfigurationPage } from '@/pages/configuration-page/configuration-page';
+import { configurationSchemaContract } from '@/tests/fixtures/configuration-schemas';
 import { ConfigurationSessionProvider } from '@/stores/configuration-session-provider';
 import {
   createMockApiClient,
@@ -24,7 +23,6 @@ import {
   testStartupArtifact,
 } from '@/tests/api/mock-api-client';
 
-const structuredVersions = representativeSchemaVersions('native');
 const toastAdd = vi.spyOn(toast, 'add');
 const savedFile: ConfigurationFile = {
   revision: 1, content: testRevision.document_json, syntax_valid: true, canonical_revision_id: testRevision.id,
@@ -59,26 +57,20 @@ async function renderReadyPage(client: ApiClient) {
   return page;
 }
 
-async function createStructuredClient(overrides: Partial<ApiClient> = {}, exactVersion = '1.14.0') {
-  const reviewed = await reviewedSchemaManifest[exactVersion].load();
+async function createStructuredClient(overrides: Partial<ApiClient> = {}, exactVersion = '1.14.4') {
   const artifact = {
     ...testArtifacts.items[0], id: 'core_114', exact_version: exactVersion, reported_version: exactVersion,
   };
   return createMockApiClient({
-    getConfigurationSchema: vi.fn().mockResolvedValue({
-      exact_version: exactVersion, schema_sha256: reviewed.schemaSHA256, schema: reviewed.schema,
-    }),
+    getConfigurationSchema: vi.fn().mockResolvedValue(configurationSchemaContract(exactVersion)),
     listCoreArtifacts: vi.fn().mockResolvedValue({ items: [artifact] }),
     ...overrides,
   });
 }
 
 beforeAll(async () => {
-  // Keep the large generated validators' first import out of interaction test timeouts.
-  await Promise.all([
-    ...structuredVersions.map(version => reviewedSchemaManifest[version].load()),
-    import('@/pages/configuration-page/advanced-configuration-editor'),
-  ]);
+  // Keep the lazy JSON editor's first import out of interaction test timeouts.
+  await import('@/pages/configuration-page/advanced-configuration-editor');
 });
 
 beforeEach(() => {
@@ -99,18 +91,17 @@ describe('configurationPage', () => {
     expect(JSON.parse(client.saveConfigurationFile.mock.calls[0][0].content)).toEqual({ log: { level: 'debug' } });
   });
 
-  it('guides users to version management without blocking Advanced JSON when no core is installed', async () => {
+  it('says no core is installed without blocking Advanced JSON', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient({
       listCoreArtifacts: vi.fn().mockResolvedValue({ items: [] }),
       getConfigurationFile: vi.fn().mockResolvedValue({ revision: 0, content: '{}', syntax_valid: true }),
     });
     renderPage(client);
-    expect(await screen.findByRole('heading', { name: 'No core versions installed' })).toBeVisible();
+    expect(await screen.findByText('No core versions installed')).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Visual editor' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Configuration version' })).toHaveTextContent('None');
-    expect(screen.getByRole('link', { name: 'Go to version management' })).toHaveAttribute('href', '/nodes/node_edge/cores#cores-catalog');
     expect(screen.getByRole('button', { name: 'Validate configuration' })).toBeDisabled();
     expect(client.getConfigurationSchema).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Advanced JSON' }));
@@ -184,7 +175,7 @@ describe('configurationPage', () => {
     const base = await createStructuredClient();
     const contract = await base.getConfigurationSchema('core_114');
     const client = await createStructuredClient({
-      getConfigurationSchema: vi.fn().mockResolvedValue({ ...contract, schema_sha256: 'f'.repeat(64) }),
+      getConfigurationSchema: vi.fn().mockResolvedValue({ ...contract, exact_version: '1.14.5' }),
     });
     renderPage(client);
     expect(await screen.findByLabelText('sing-box configuration JSON')).toHaveAttribute('contenteditable', 'true');

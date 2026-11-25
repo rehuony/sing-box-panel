@@ -221,6 +221,15 @@ func seedReviewFleet(t *testing.T, database *store.Store, count int) []*reviewNo
 		if _, err := database.RecordNodeStateReport(ctx, id, session, encoded, summary, now); err != nil {
 			t.Fatal(err)
 		}
+		// A stopped core stopped three hours ago, so its history charts read zero since then.
+		if index%10 == 6 {
+			if err := database.RecordRuntimeTransition(ctx, store.RuntimeTransitionInput{
+				NodeID: id, InstanceID: "instance_" + session, SourceID: 1,
+				State: store.RuntimeTransitionStopped, Reason: "stop_succeeded", OccurredAt: now.Add(-3 * time.Hour),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
 		online = append(online, &reviewNode{id: id, instance: "instance_" + session, index: index})
 	}
 	return online

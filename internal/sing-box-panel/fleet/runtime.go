@@ -14,7 +14,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
-	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -26,8 +25,7 @@ var errUnexpectedResult = errors.New("the node answered with an unexpected resul
 
 // RuntimeStatus reads the node's runtime state.
 func (service *Service) RuntimeStatus(ctx context.Context, nodeID string) (RuntimeStatus, error) {
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_GetRuntimeStatus{GetRuntimeStatus: &nodeapi.GetRuntimeStatus{}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_GetRuntimeStatus{GetRuntimeStatus: &nodeapi.GetRuntimeStatus{}})
 }
 
 // StartRuntime starts the node's core with its saved configuration.
@@ -37,15 +35,13 @@ func (service *Service) StartRuntime(ctx context.Context, nodeID string) (result
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_StartRuntime{StartRuntime: &nodeapi.StartRuntime{Configuration: configuration}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_StartRuntime{StartRuntime: &nodeapi.StartRuntime{Configuration: configuration}})
 }
 
 // StopRuntime stops the node's core.
 func (service *Service) StopRuntime(ctx context.Context, nodeID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "runtime.stop", "Core stop", nodeID, &err)
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_StopRuntime{StopRuntime: &nodeapi.StopRuntime{}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_StopRuntime{StopRuntime: &nodeapi.StopRuntime{}})
 }
 
 // RestartRuntime checks the saved configuration and replaces the node's core
@@ -56,34 +52,30 @@ func (service *Service) RestartRuntime(ctx context.Context, nodeID string) (resu
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_RestartRuntime{RestartRuntime: &nodeapi.RestartRuntime{Configuration: configuration}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_RestartRuntime{RestartRuntime: &nodeapi.RestartRuntime{Configuration: configuration}})
 }
 
 // RollbackRuntime returns the node to bundleID, or to its rollback bundle.
 func (service *Service) RollbackRuntime(ctx context.Context, nodeID, bundleID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "runtime.rollback", "Core rollback", nodeID, &err)
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_RollbackRuntime{RollbackRuntime: &nodeapi.RollbackRuntime{BundleId: bundleID}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_RollbackRuntime{RollbackRuntime: &nodeapi.RollbackRuntime{BundleId: bundleID}})
 }
 
 // EnableCore selects a core on the node, checking the saved configuration
 // with it.
 func (service *Service) EnableCore(ctx context.Context, nodeID, artifactID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "core.enable", "Core selection", nodeID, &err)
-	configuration, err := service.configuration(ctx, nodeID, service.forCore(ctx, artifactID))
+	configuration, err := service.configuration(ctx, nodeID, service.forCore(ctx, nodeID, artifactID))
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_EnableCore{EnableCore: &nodeapi.EnableCore{Configuration: configuration, ArtifactId: artifactID}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_EnableCore{EnableCore: &nodeapi.EnableCore{Configuration: configuration, ArtifactId: artifactID}})
 }
 
 // DisableCore stops the node's core and clears its selection.
 func (service *Service) DisableCore(ctx context.Context, nodeID, artifactID string) (result RuntimeStatus, err error) {
 	defer service.recordCommand(ctx, "core.disable", "Core deselection", nodeID, &err)
-	response, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_DisableCore{DisableCore: &nodeapi.DisableCore{ArtifactId: artifactID}})
-	return response.Status, err
+	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_DisableCore{DisableCore: &nodeapi.DisableCore{ArtifactId: artifactID}})
 }
 
 // CompileConfiguration checks the node's saved configuration with a core and
@@ -94,7 +86,7 @@ func (service *Service) CompileConfiguration(ctx context.Context, nodeID, artifa
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
-	configuration, err := service.configuration(ctx, nodeID, service.forCore(ctx, artifactID))
+	configuration, err := service.configuration(ctx, nodeID, service.forCore(ctx, nodeID, artifactID))
 	if err != nil {
 		return ConfigurationCompile{}, err
 	}
@@ -128,36 +120,18 @@ func (service *Service) CheckStartup(ctx context.Context, nodeID, startupID stri
 	return startupView(startup), nil
 }
 
-// ActivateStartup applies a checked startup artifact with a monitoring tier.
-func (service *Service) ActivateStartup(ctx context.Context, nodeID, startupID, tier string) (result RuntimeResponse, err error) {
-	defer service.recordCommand(ctx, "runtime.activate", "Startup activation", nodeID, &err)
-	return service.runtimeCommand(ctx, nodeID, &nodeapi.Command_ActivateStartup{ActivateStartup: &nodeapi.ActivateStartup{
-		StartupArtifactId: startupID, MonitoringTier: monitoringTierProto(tier),
-	}})
-}
-
-// ListStartupArtifacts lists the node's startup artifacts.
-func (service *Service) ListStartupArtifacts(ctx context.Context, nodeID string, request StartupArtifactListRequest) (StartupArtifactPage, error) {
-	command := &nodeapi.ListStartupArtifacts{
-		RevisionId: request.CanonicalRevisionID, ExactCoreVersion: request.ExactCoreVersion,
-		CoreArtifactId: request.CoreArtifactID, State: startupStateProto(request.State), Limit: uint32(max(0, request.Limit)),
-	}
-	if request.Cursor != nil {
-		command.BeforeTime, command.BeforeId = timestamppb.New(request.Cursor.CreatedAt), request.Cursor.ID
-	}
-	outcome, err := service.run(ctx, nodeID, &nodeapi.Command_ListStartupArtifacts{ListStartupArtifacts: command})
+// CoreSchema returns the configuration schema that the installed core
+// artifactID on nodeID prints, as it printed it.
+func (service *Service) CoreSchema(ctx context.Context, nodeID, artifactID string) ([]byte, error) {
+	outcome, err := service.run(ctx, nodeID, &nodeapi.Command_GetCoreSchema{GetCoreSchema: &nodeapi.GetCoreSchema{ArtifactId: artifactID}})
 	if err != nil {
-		return StartupArtifactPage{}, err
+		return nil, err
 	}
-	listed := outcome.GetStartupArtifacts()
-	page := StartupArtifactPage{Items: make([]StartupArtifactSummary, 0, len(listed.GetItems()))}
-	for _, item := range listed.GetItems() {
-		page.Items = append(page.Items, startupView(item))
+	printed := outcome.GetCoreSchema()
+	if printed == nil {
+		return nil, errUnexpectedResult
 	}
-	if listed.GetNextBeforeTime() != nil {
-		page.Next = &StartupArtifactCursor{CreatedAt: listed.GetNextBeforeTime().AsTime(), ID: listed.GetNextBeforeId()}
-	}
-	return page, nil
+	return printed.GetSchema(), nil
 }
 
 // InstallCore installs a cached core on the node, which fetches it from the
@@ -305,39 +279,46 @@ func (service *Service) ClearCoreLog(ctx context.Context, nodeID, file string) (
 	return err
 }
 
-func (service *Service) runtimeCommand(ctx context.Context, nodeID string, body nodeapi.CommandBody) (RuntimeResponse, error) {
+func (service *Service) runtimeCommand(ctx context.Context, nodeID string, body nodeapi.CommandBody) (RuntimeStatus, error) {
 	outcome, err := service.run(ctx, nodeID, body)
 	if err != nil {
-		return RuntimeResponse{}, err
+		return RuntimeStatus{}, err
 	}
-	runtime := outcome.GetRuntime()
-	if runtime.GetStatus() == nil {
-		return RuntimeResponse{}, errUnexpectedResult
+	status := outcome.GetRuntime().GetStatus()
+	if status == nil {
+		return RuntimeStatus{}, errUnexpectedResult
 	}
-	return runtimeView(runtime), nil
+	return runtimeStatusView(status), nil
 }
 
 // enabledConfiguration returns the node's saved revision for the core the
-// node reports enabled, checked against that core's exact Schema. Without an
-// enabled core the node rejects the command itself.
+// node reports enabled, checked against that core's schema. Without an
+// enabled core the node rejects the command itself. A node can run a core the
+// panel holds no record of, such as after the panel's data was recreated;
+// that core has no schema here, and the node's sing-box check gates the
+// revision.
 func (service *Service) enabledConfiguration(ctx context.Context, nodeID string) (*nodeapi.ConfigurationRevision, error) {
 	status, err := service.runtimeCommand(ctx, nodeID, &nodeapi.Command_GetRuntimeStatus{GetRuntimeStatus: &nodeapi.GetRuntimeStatus{}})
 	if err != nil {
 		return nil, err
 	}
-	enabled := status.Status.EnabledCore
+	enabled := status.EnabledCore
 	return service.configuration(ctx, nodeID, func(revision store.CanonicalRevision) error {
 		if enabled == nil {
 			return nil
 		}
-		return nodeconfig.ValidateForVersion(revision, enabled.ExactCoreVersion)
+		err := service.configs.ValidateForCore(ctx, nodeID, revision, enabled.CoreArtifactID)
+		if errors.Is(err, store.ErrCachedArtifactNotFound) {
+			return nil
+		}
+		return err
 	})
 }
 
-// forCore validates a revision against the exact Schema of a cached core.
-func (service *Service) forCore(ctx context.Context, artifactID string) func(store.CanonicalRevision) error {
+// forCore validates a revision against the schema of a cached core.
+func (service *Service) forCore(ctx context.Context, nodeID, artifactID string) func(store.CanonicalRevision) error {
 	return func(revision store.CanonicalRevision) error {
-		return service.configs.ValidateForCore(ctx, revision, artifactID)
+		return service.configs.ValidateForCore(ctx, nodeID, revision, artifactID)
 	}
 }
 
@@ -362,23 +343,6 @@ func (service *Service) configuration(ctx context.Context, nodeID string, valida
 func (service *Service) recordCommand(ctx context.Context, code, message, nodeID string, err *error) {
 	service.expireStatus()
 	service.records.RecordOperation(ctx, code, message, *err, telemetry.OperationLogContext{NodeID: nodeID})
-}
-
-func runtimeView(outcome *nodeapi.RuntimeOutcome) RuntimeResponse {
-	view := RuntimeResponse{Status: runtimeStatusView(outcome.GetStatus())}
-	if activation := outcome.GetActivation(); activation != nil {
-		view.Activation = &ActivationSummary{
-			StartupArtifactID: activation.GetStartupArtifactId(), CanonicalRevisionID: activation.GetRevisionId(),
-			ExactCoreVersion: activation.GetExactCoreVersion(), CoreArtifactID: activation.GetCoreArtifactId(),
-			ConfigSHA256: activation.GetConfigSha256(), ActivationBundleID: activation.GetActivationBundleId(),
-			ActivationSHA256: activation.GetActivationSha256(), MonitoringTier: monitoringTierView(activation.GetMonitoringTier()),
-		}
-	}
-	if startup := outcome.GetStartup(); startup != nil {
-		summary := startupView(startup)
-		view.Startup = &summary
-	}
-	return view
 }
 
 func runtimeStatusView(status *nodeapi.RuntimeStatus) RuntimeStatus {
@@ -426,18 +390,6 @@ func startupStateView(state nodeapi.StartupArtifactState) string {
 	return ""
 }
 
-func startupStateProto(state string) nodeapi.StartupArtifactState {
-	switch state {
-	case "pending":
-		return nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_PENDING
-	case "ready":
-		return nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_READY
-	case "failed":
-		return nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_FAILED
-	}
-	return nodeapi.StartupArtifactState_STARTUP_ARTIFACT_STATE_UNSPECIFIED
-}
-
 func monitoringTierView(tier nodeapi.MonitoringTier) string {
 	switch tier {
 	case nodeapi.MonitoringTier_MONITORING_TIER_LIMITED:
@@ -446,16 +398,6 @@ func monitoringTierView(tier nodeapi.MonitoringTier) string {
 		return "process_only"
 	}
 	return ""
-}
-
-func monitoringTierProto(tier string) nodeapi.MonitoringTier {
-	switch tier {
-	case "limited":
-		return nodeapi.MonitoringTier_MONITORING_TIER_LIMITED
-	case "process_only":
-		return nodeapi.MonitoringTier_MONITORING_TIER_PROCESS_ONLY
-	}
-	return nodeapi.MonitoringTier_MONITORING_TIER_UNSPECIFIED
 }
 
 func filesystemModeProto(mode string) nodeapi.FilesystemMode {

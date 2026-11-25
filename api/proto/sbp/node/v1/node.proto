@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package sbp.node.v1 is the contract between the panel and its nodes. Nodes
-// dial out to the panel; the panel never connects to a node. Within v1 the
-// contract changes only additively, and Hello carries the node's minor
-// protocol version so the panel can reject commands an older node lacks.
-// Minor version 1 adds FetchRelease, UpdateNode and StateReport.last_update.
+// dial out to the panel; the panel never connects to a node. Hello carries the
+// node's minor protocol version so the panel can reject commands an older node
+// lacks. Minor version 1 adds FetchRelease, UpdateNode and
+// StateReport.last_update; minor version 2 adds GetCoreSchema.
 syntax = "proto3";
 
 package sbp.node.v1;
@@ -127,7 +127,8 @@ message Welcome {
 message Command {
   string request_id = 1;
   google.protobuf.Timestamp deadline = 2;
-  reserved 11, 21;
+  reserved 11, 21, 26, 27;
+  reserved "activate_startup", "list_startup_artifacts";
   oneof body {
     CheckConfiguration check_configuration = 10;
     StartRuntime start_runtime = 12;
@@ -143,14 +144,14 @@ message Command {
     EnableCore enable_core = 23;
     DisableCore disable_core = 24;
     CheckStartup check_startup = 25;
-    ActivateStartup activate_startup = 26;
-    ListStartupArtifacts list_startup_artifacts = 27;
     ListCores list_cores = 28;
     ListCoreLogs list_core_logs = 29;
     DeleteCoreLog delete_core_log = 30;
     ClearCoreLog clear_core_log = 31;
     // Since minor version 1.
     UpdateNode update_node = 32;
+    // Since minor version 2.
+    GetCoreSchema get_core_schema = 33;
   }
 }
 
@@ -240,11 +241,6 @@ message CheckStartup {
   string startup_artifact_id = 1;
 }
 
-message ActivateStartup {
-  string startup_artifact_id = 1;
-  MonitoringTier monitoring_tier = 2;
-}
-
 enum MonitoringTier {
   MONITORING_TIER_UNSPECIFIED = 0;
   MONITORING_TIER_LIMITED = 1;
@@ -252,16 +248,6 @@ enum MonitoringTier {
 }
 
 message GetRuntimeStatus {}
-
-message ListStartupArtifacts {
-  google.protobuf.Timestamp before_time = 1;
-  string before_id = 2;
-  uint32 limit = 3;
-  string core_artifact_id = 4;
-  StartupArtifactState state = 5;
-  string revision_id = 6;
-  string exact_core_version = 7;
-}
 
 message InstallCore {
   ArtifactIdentity artifact = 1;
@@ -332,10 +318,18 @@ message UpdateNode {
   string version = 1;
 }
 
+// GetCoreSchema asks for the configuration JSON Schema the installed core
+// prints with `sing-box schema`. The node refuses a core whose release line
+// has no such command.
+message GetCoreSchema {
+  string artifact_id = 1;
+}
+
 // Result answers one command.
 message Result {
   string request_id = 1;
-  reserved 16;
+  reserved 16, 17;
+  reserved "startup_artifacts";
   oneof outcome {
     Problem problem = 2;
     CheckOutcome check = 10;
@@ -344,8 +338,8 @@ message Result {
     BrowseOutcome browse = 13;
     ResolveOutcome resolve = 14;
     CoreLogOutcome core_log = 15;
-    StartupArtifactsOutcome startup_artifacts = 17;
     UpdateOutcome update = 18;
+    CoreSchemaOutcome core_schema = 19;
   }
 }
 
@@ -381,19 +375,11 @@ enum StartupArtifactState {
   STARTUP_ARTIFACT_STATE_FAILED = 3;
 }
 
-message StartupArtifactsOutcome {
-  repeated StartupArtifact items = 1;
-  // The cursor of the next page; absent on the last page.
-  google.protobuf.Timestamp next_before_time = 2;
-  string next_before_id = 3;
-}
-
-// RuntimeOutcome is the node's runtime state after a command, with the
-// activation and startup artifact the command produced, if any.
+// RuntimeOutcome is the node's runtime state after a command.
 message RuntimeOutcome {
   RuntimeStatus status = 1;
-  Activation activation = 2;
-  StartupArtifact startup = 3;
+  reserved 2, 3;
+  reserved "activation", "startup";
 }
 
 message RuntimeStatus {
@@ -418,18 +404,6 @@ message RunningCore {
   string binary_sha256 = 6;
   string activation_bundle_id = 7;
   google.protobuf.Timestamp started_at = 8;
-}
-
-// Activation identifies an applied startup artifact and its bundle.
-message Activation {
-  string startup_artifact_id = 1;
-  string revision_id = 2;
-  string exact_core_version = 3;
-  string core_artifact_id = 4;
-  string config_sha256 = 5;
-  string activation_bundle_id = 6;
-  string activation_sha256 = 7;
-  MonitoringTier monitoring_tier = 8;
 }
 
 message CoreOutcome {
@@ -483,6 +457,12 @@ enum UpdateState {
   UPDATE_STATE_STAGED = 3;
   // The node installed the version, which runs once the node is restarted.
   UPDATE_STATE_RESTART_REQUIRED = 4;
+}
+
+// CoreSchemaOutcome is the schema exactly as the core printed it, at most
+// 3 MiB.
+message CoreSchemaOutcome {
+  bytes schema = 1;
 }
 
 message CoreLogOutcome {

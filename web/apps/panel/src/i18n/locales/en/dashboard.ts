@@ -14,9 +14,6 @@ export const dashboard = {
   chart: {
     arrows: 'Use arrow keys to inspect samples.',
   },
-  empty: {
-    title: 'No samples in this range',
-  },
   error: {
     metrics: 'Live metrics are unavailable',
     history: 'History is unavailable',

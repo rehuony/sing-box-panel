@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Inbound conversion dispatches exact sing-box profiles to reviewed behavior.
+// Inbound conversion turns a node's inbounds into the outbounds of its
+// subscription nodes, by the inbound family of the core's release line.
 package subscription
 
 import (
@@ -21,9 +22,4 @@ type InboundRequest struct {
 type InboundResult struct {
 	Nodes       []Node
 	Diagnostics []ConversionDiagnostic
-}
-
-type InboundConverter interface {
-	ExactVersion() string
-	Convert(InboundRequest) (InboundResult, error)
 }

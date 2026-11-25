@@ -197,6 +197,43 @@ func TestMetricsHistoryPreservesPartialAndMissingCoverage(t *testing.T) {
 	}
 }
 
+func TestMetricsHistoryZeroesBucketsWithoutARunningCore(t *testing.T) {
+	ctx := context.Background()
+	database := openTestStore(t, ctx)
+	from := time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)
+	started := from.Add(-10 * time.Minute)
+	uncertainSince := from.Add(90 * time.Second)
+	for index, transition := range []RuntimeTransitionInput{
+		{State: RuntimeTransitionRunning, Reason: "start_succeeded", OccurredAt: started,
+			ActivationBundleID: "bundle-idle", PID: 404, ProcessStartedAt: &started},
+		{State: RuntimeTransitionStopped, Reason: "stop_succeeded", OccurredAt: from.Add(20 * time.Second)},
+		{State: RuntimeTransitionFailed, Reason: "process_exited", OccurredAt: from.Add(40 * time.Second)},
+		// The agent restarted and cannot say what happened since 90 seconds in.
+		{State: RuntimeTransitionUnknown, Reason: "agent_restarted", OccurredAt: from.Add(100 * time.Second), UncertainSince: &uncertainSince},
+	} {
+		transition.NodeID, transition.InstanceID, transition.SourceID = testNodeID, "instance-a", int64(index+1)
+		if err := database.RecordRuntimeTransition(ctx, transition); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err := database.MetricsHistory(ctx, MetricsHistoryFilter{
+		NodeID: testNodeID, From: from, To: from.Add(2 * time.Minute), BucketSeconds: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Running without samples, then stopped and failed, then stopped into unknown, then unknown.
+	for index, idle := range []bool{false, true, true, true, false, false} {
+		bucket := history.Buckets[index]
+		known := bucket.UploadBytes != nil && *bucket.UploadBytes == 0 && bucket.DownloadBytes != nil && *bucket.DownloadBytes == 0 &&
+			bucket.ActiveConnectionsAverage != nil && *bucket.ActiveConnectionsAverage == 0 && bucket.Coverage == CoverageComplete
+		missing := bucket.UploadBytes == nil && bucket.ActiveConnectionsAverage == nil && bucket.Coverage == CoverageMissing
+		if (idle && !known) || (!idle && !missing) {
+			t.Fatalf("bucket %d = %+v, want idle %t", index, bucket, idle)
+		}
+	}
+}
+
 func TestMetricsHistoryCoverageUsesIntervalBoundariesAndGapEvidence(t *testing.T) {
 	from := time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)
 	periodStart := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)

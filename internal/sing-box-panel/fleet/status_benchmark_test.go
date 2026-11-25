@@ -60,7 +60,7 @@ func seedReportingFleet(b *testing.B, count int) reportingFleet {
 	panelSettings := settings.NewService(database, "", value)
 	records := telemetry.New(database, panelSettings, telemetry.Options{Now: now})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
-	service := fleet.New(database, panelSettings, records, nodeconfig.New(database, cores), cores, fleet.Options{
+	service := fleet.New(database, panelSettings, records, nodeconfig.New(database, cores, nil), cores, fleet.Options{
 		Build: buildinfo.Info{Version: "test"}, Now: now,
 	})
 	seeded := reportingFleet{service: service, records: records, at: at}

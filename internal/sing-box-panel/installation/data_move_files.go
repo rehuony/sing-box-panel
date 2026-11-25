@@ -11,11 +11,21 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 )
+
+// databaseFiles are the panel's SQLite files in its data directory: the panel
+// database and the log database with their write-ahead logs and shared
+// memory, in the order cleanup removes them, the panel database last.
+var databaseFiles = []string{
+	store.LogsFile + "-shm", store.LogsFile + "-wal", store.LogsFile,
+	"panel.db-shm", "panel.db-wal", "panel.db",
+}
 
 func lockDataMoveTree(ctx context.Context, root string) ([]*os.File, error) {
 	var locks []*os.File
@@ -82,11 +92,8 @@ func copyDataMoveTree(ctx context.Context, source, target string) error {
 		if rel == "." {
 			return nil
 		}
-		if filepath.Dir(rel) == "." {
-			switch rel {
-			case "panel.db", "panel.db-wal", "panel.db-shm", procctl.SocketName, procctl.LeaseFileName, dataMoveMarker:
-				return nil
-			}
+		if filepath.Dir(rel) == "." && (slices.Contains(databaseFiles, rel) || rel == procctl.SocketName || rel == procctl.LeaseFileName || rel == dataMoveMarker) {
+			return nil
 		}
 		destination := filepath.Join(target, rel)
 		info, err := entry.Info()
@@ -175,11 +182,8 @@ func verifyDataMoveFiles(ctx context.Context, source, target string) error {
 		if rel == "." || entry.IsDir() {
 			return nil
 		}
-		if filepath.Dir(rel) == "." {
-			switch rel {
-			case "panel.db", "panel.db-wal", "panel.db-shm", procctl.SocketName, procctl.LeaseFileName, dataMoveMarker:
-				return nil
-			}
+		if filepath.Dir(rel) == "." && (slices.Contains(databaseFiles, rel) || rel == procctl.SocketName || rel == procctl.LeaseFileName || rel == dataMoveMarker) {
+			return nil
 		}
 		destination := filepath.Join(target, rel)
 		if entry.Type()&os.ModeSymlink != 0 {

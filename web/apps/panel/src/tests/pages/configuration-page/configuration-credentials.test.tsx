@@ -3,28 +3,20 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { toast } from '@shared/components/ui/toast-manager';
-import { createPrecompiledValidator } from '@rjsf/validator-ajv8';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import '@/i18n';
-import type { ReviewedSchemaResolution } from '@/schemas/resolve-reviewed-schema';
+import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
-import { reviewedSchemaManifest } from '@/schemas';
+import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { schemaProperties, selfContainedSchema, uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 import { configurationCredentialKind, credentialGenerator, generateCredential } from '@/pages/configuration-page/configuration-credentials';
 
-const schemas = import.meta.glob<RJSFSchema>('../../../schemas/.generated/schema-*.json', { eager: true, import: 'default' });
-let resolution: ReviewedSchemaResolution;
-beforeAll(async () => {
-  const reviewed = await reviewedSchemaManifest['1.14.1'].load();
-  resolution = {
-    schema: reviewed.schema,
-    createValidator: root => createPrecompiledValidator(reviewed.validateFns as never, root),
-  };
-});
+const schemas = configurationSchemas;
+const resolution: ConfigurationSchemaResolution = { schema: configurationSchemas['1.14'] };
 afterEach(() => vi.restoreAllMocks());
 
 function Harness({ initial, collection = 'inbounds', disabled = false, readonly = false }: {

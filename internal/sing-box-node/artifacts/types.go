@@ -21,6 +21,7 @@ var (
 	ErrArchive         = errors.New("artifact archive verification failed")
 	ErrELF             = errors.New("artifact ELF verification failed")
 	ErrVersion         = errors.New("artifact version verification failed")
+	ErrSchema          = errors.New("artifact schema output failed")
 	ErrCorruptStore    = errors.New("content-addressed artifact store is corrupt")
 )
 
@@ -32,6 +33,7 @@ const (
 	StepArchive  Step = "archive"
 	StepELF      Step = "elf"
 	StepVersion  Step = "version"
+	StepSchema   Step = "schema"
 	StepPublish  Step = "publish"
 )
 

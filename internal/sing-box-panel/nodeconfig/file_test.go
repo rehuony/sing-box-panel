@@ -22,7 +22,7 @@ func TestConfigurationFilePreservesInvalidTextAndRuntimeSnapshots(t *testing.T) 
 	}
 	nodeID := testutil.CreateNode(t, db, "edge")
 	defer db.Close()
-	app := New(db, nil)
+	app := New(db, nil, nil)
 	initial, err := app.SaveConfigurationFile(ctx, nodeID, ConfigurationFileWrite{Content: `{"x":9007199254740993}`})
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestConfigurationFilePreservesInvalidTextAndRuntimeSnapshots(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer db2.Close()
-	reloaded, err := New(db2, nil).ConfigurationFile(ctx, nodeID)
+	reloaded, err := New(db2, nil, nil).ConfigurationFile(ctx, nodeID)
 	if err != nil || reloaded.Content != raw || reloaded.Revision != saved.Revision {
 		t.Fatalf("reload: %+v %v", reloaded, err)
 	}
@@ -79,7 +79,7 @@ func TestConfigurationFileConcurrentSavesHaveOneWinner(t *testing.T) {
 	}
 	nodeID := testutil.CreateNode(t, db, "edge")
 	defer db.Close()
-	app := New(db, nil)
+	app := New(db, nil, nil)
 	var wg sync.WaitGroup
 	errorsByWriter := make([]error, 2)
 	for i := range 2 {
@@ -110,7 +110,7 @@ func TestSeedConfigurationFileKeepsAFreeReportedRevisionID(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	app := New(db, nil)
+	app := New(db, nil, nil)
 	used, err := app.SaveConfigurationFile(ctx, testutil.CreateNode(t, db, "other"), ConfigurationFileWrite{Content: `{"log":{}}`})
 	if err != nil {
 		t.Fatal(err)

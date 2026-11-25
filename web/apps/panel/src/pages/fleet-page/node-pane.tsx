@@ -15,7 +15,7 @@ import type { NodeStatus } from '@/utils/fleet-summary';
 
 import { useClock } from '@/hooks/use-clock';
 import { nodePath } from '@/utils/node-path';
-import { attentionItems, hostLoad, nodeRates, percentOf } from '@/utils/fleet-summary';
+import { attentionItems, coreVersionLabel, hostLoad, nodeRates, percentOf } from '@/utils/fleet-summary';
 
 type Tone = 'danger' | 'warning';
 type Health = Tone | 'neutral' | 'success';
@@ -47,12 +47,6 @@ function useUnits() {
 
 function percentText(locale: string, percent: number): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0, style: 'percent' }).format(percent / 100);
-}
-
-function versionLabel(item: NodeStatus): string | null {
-  const runtime = item.node.runtime;
-  const exact = runtime?.running?.exact_core_version ?? runtime?.enabled_core?.exact_core_version;
-  return exact ? `v${exact.replace(/^v/i, '')}` : null;
 }
 
 /** Details that open on hover; under touch the pane stays one link and the node's own view carries them. */
@@ -204,7 +198,7 @@ function CoreLine({ item, now }: { item: NodeStatus; now: number }) {
   const locale = useLocale();
   const units = useUnits();
   const { node } = item;
-  const version = versionLabel(item);
+  const version = coreVersionLabel(item);
   if (node.state === 'offline') {
     const period = item.metrics.current_traffic_period;
     return (

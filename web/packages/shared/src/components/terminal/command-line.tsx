@@ -11,9 +11,11 @@ import type { CommandWord } from './command-words';
 import { PromptLabel } from './prompt-label';
 import { quoteWord, splitWords } from './command-words';
 
-/** A value Tab can complete, with what it means. */
+/** A value Tab can complete, with what it means and, for a command, the arguments it takes. */
 export interface Completion {
   name: string;
+  /** A command's arguments; a list where any value has them shows them in a column of their own. */
+  usage?: string;
   description?: string;
 }
 
@@ -49,13 +51,15 @@ interface CommandLineProps {
   placeholder?: string;
   /** Escape or Ctrl+C at a code or confirmation prompt. */
   onCancel?: () => void;
+  /** Whether the prompt shows its scope; false where the scope shows elsewhere, leaving the symbol. */
+  promptScope?: boolean;
   /** Earlier commands, kept by the caller when the line outlives one mount. */
   history?: RefObject<string[]>;
   /** What Tab completes at the shell prompt, in the order the menu lists it. */
   completions?: CompletionSource;
   inputRef?: Ref<HTMLInputElement>;
   onSubmit: (input: string) => void;
-  /** Where the menu renders, such as a panel that opens upward; absent puts it under the line. */
+  /** Where the menu renders, such as a box below the line's own; absent puts it under the line. */
   menuContainer?: HTMLElement | null;
 }
 
@@ -93,6 +97,7 @@ export function CommandLine({
   menuContainer,
   placeholder,
   prompt,
+  promptScope = true,
   onCancel,
   onExit,
   onSubmit,
@@ -101,6 +106,8 @@ export function CommandLine({
   const shell = prompt.kind === 'shell';
   const [value, setValue] = useState('');
   const [menu, setMenu] = useState<Menu | null>(null);
+  // The value under the pointer, which takes the highlight from the chosen one until the keyboard moves again.
+  const [pointed, setPointed] = useState<number | null>(null);
   const ownHistoryRef = useRef<string[]>([]);
   const entriesRef = history ?? ownHistoryRef;
   // Where Up and Down stand in the history; its length is the line being typed.
@@ -133,6 +140,11 @@ export function CommandLine({
   }
 
   function show(line: string, caret = line.length) {
+    // An unchanged line renders nothing, so the caret moves now rather than after a render that never comes.
+    if (line === value) {
+      elementRef.current?.setSelectionRange(caret, caret);
+      return;
+    }
     caretRef.current = caret;
     setValue(line);
   }
@@ -198,9 +210,11 @@ export function CommandLine({
       const { caret: end, line } = filled(range, prefix, false);
       show(line, end);
       setMenu({ candidates, chosen: null, end, start: word.start, typed: line });
+      setPointed(null);
       return;
     }
     setMenu({ candidates, chosen: null, ...range });
+    setPointed(null);
   }
 
   function choose(current: Menu, step: -1 | 1) {
@@ -209,6 +223,7 @@ export function CommandLine({
       ? (step === 1 ? 0 : count - 1)
       : (current.chosen + step + count) % count;
     setMenu({ ...current, chosen });
+    setPointed(null);
     const { caret, line } = filled(current, current.candidates[chosen]!.name, false);
     show(line, caret);
   }
@@ -239,6 +254,34 @@ export function CommandLine({
     }
   }
 
+  /**
+   * A shell's line-editing keys: Ctrl+A and Ctrl+E move to the ends of the line, Ctrl+U deletes back to its
+   * start and Ctrl+W the word before the caret. They close the menu, as typing does. Returns whether the key
+   * was one of them.
+   */
+  function editLine(key: string, input: HTMLInputElement): boolean {
+    const caret = input.selectionStart ?? value.length;
+    switch (key) {
+      case 'a':
+        show(value, 0);
+        break;
+      case 'e':
+        show(value, value.length);
+        break;
+      case 'u':
+      case 'w': {
+        const from = key === 'u' ? 0 : value.slice(0, caret).replace(/\S*\s*$/, '').length;
+        show(`${value.slice(0, from)}${value.slice(input.selectionEnd ?? caret)}`, from);
+        setCursor(entriesRef.current.length);
+        break;
+      }
+      default:
+        return false;
+    }
+    setMenu(null);
+    return true;
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (menu && onMenuKey(event, menu)) {
       event.preventDefault();
@@ -246,6 +289,11 @@ export function CommandLine({
       return;
     }
     const input = event.currentTarget;
+    const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    if (control && editLine(event.key.toLowerCase(), input)) {
+      event.preventDefault();
+      return;
+    }
     const selected = input.selectionStart !== input.selectionEnd;
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -270,30 +318,36 @@ export function CommandLine({
   }
 
   const chosenId = menu && menu.chosen !== null ? `${menuId}-${menu.chosen}` : undefined;
+  // A list of commands with arguments sets them in a column between name and description, except on a phone,
+  // whose rows are touch height and keep only name and description.
+  const usage = menu?.candidates.some(candidate => candidate.usage !== undefined) ?? false;
   const list = menu
     ? (
-        <ul aria-label={t('terminal.completions')} id={menuId} ref={menuRef} role='listbox'>
-          {menu.candidates.map((candidate, index) => {
-            const chosen = index === menu.chosen;
-            return (
-              <li aria-selected={chosen} className='flex gap-[1ch]' id={`${menuId}-${index}`} key={candidate.name} role='option'>
-                {/* The chosen value reads in reverse, its block reaching a little past the text. */}
-                <span
-                  className={cn(
-                    'inline-block min-w-[11ch] rounded-[2px] whitespace-pre',
-                    chosen
-                      ? 'bg-foreground text-card shadow-[0_0_0_2px_var(--foreground)]'
-                      : 'text-foreground',
-                  )}
-                >
-                  {candidate.name}
-                </span>
-                {candidate.description
-                  ? <span className={cn('min-w-0 truncate', chosen ? 'text-foreground' : 'text-muted-foreground')}>{candidate.description}</span>
-                  : null}
-              </li>
-            );
-          })}
+        <ul aria-label={t('terminal.completions')} className='p-1' id={menuId} onPointerLeave={() => setPointed(null)} ref={menuRef} role='listbox'>
+          {menu.candidates.map((candidate, index) => (
+            <li
+              aria-selected={index === menu.chosen}
+              className={cn(
+                'flex h-7 cursor-pointer items-center max-sm:h-10 gap-[1ch] rounded-[var(--radius-control)] px-2 whitespace-nowrap',
+                index === (pointed ?? menu.chosen) && 'bg-[var(--color-hover)]',
+              )}
+              id={`${menuId}-${index}`}
+              key={candidate.name}
+              // A press takes the value as Enter does, and the line keeps focus.
+              onMouseDown={(event) => {
+                event.preventDefault();
+                accept(menu, candidate.name);
+              }}
+              onPointerMove={() => setPointed(index)}
+              role='option'
+            >
+              <span className={cn('flex-none truncate text-foreground', usage ? 'w-[10ch]' : 'w-[16ch]')} title={candidate.name}>
+                {candidate.name}
+              </span>
+              {usage ? <span className='w-[15ch] flex-none truncate text-[var(--color-text-faint)] max-sm:hidden'>{candidate.usage}</span> : null}
+              {candidate.description ? <span className='min-w-0 truncate text-muted-foreground'>{candidate.description}</span> : null}
+            </li>
+          ))}
         </ul>
       )
     : null;
@@ -302,7 +356,7 @@ export function CommandLine({
     <>
       <div className={cn('flex min-w-0 flex-wrap items-baseline gap-x-[1ch]', className)}>
         {/* Where the line cannot wrap, the prompt gives way before the input. */}
-        <span className='min-w-0 truncate'><PromptLabel prompt={prompt} /></span>
+        <span className='min-w-0 truncate'><PromptLabel prompt={prompt} scope={promptScope} /></span>
         <input
           aria-activedescendant={chosenId}
           aria-autocomplete={shell ? 'list' : undefined}

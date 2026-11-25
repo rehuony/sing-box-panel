@@ -6,8 +6,8 @@ RELEASE_SCRIPT := scripts/build.sh
 GO_SOURCE_DIRS := cmd internal tools web/apps
 
 .PHONY: help check check-backend check-frontend check-contracts test test-backend test-frontend \
-	test-race fuzz-smoke core-contract ci build build-panel build-node build-frontend \
-	fmt generate proto-check support-generate support-check notices \
+	test-race fuzz-smoke ci build build-panel build-node build-frontend \
+	fmt generate proto-check notices \
 	snapshot release release-verify release-smoke deps deps-backend deps-frontend clean
 
 # Default target
@@ -17,14 +17,13 @@ help:
 	@echo "Checks and testing:"
 	@echo "  make check                       - Run every required check (backend + frontend + contracts)"
 	@echo "  make check-backend               - Go formatting, modules, vet and tests"
-	@echo "  make check-frontend              - Web lint, tests, Schema outputs and third-party notices"
-	@echo "  make check-contracts             - Shell, installer, protobuf, support and OpenAPI contracts"
+	@echo "  make check-frontend              - Web lint, tests and third-party notices"
+	@echo "  make check-contracts             - Shell, installer, protobuf and OpenAPI contracts"
 	@echo "  make test                        - Run Go and Web tests"
 	@echo "  make test-backend                - Run Go tests only"
 	@echo "  make test-frontend               - Run Web tests only"
 	@echo "  make test-race                   - Run Go tests with the race detector"
 	@echo "  make fuzz-smoke                  - Run short fuzzing passes"
-	@echo "  make core-contract               - Check reviewed cores on native Linux"
 	@echo "  make ci                          - check, test-race, fuzz-smoke and release-verify"
 	@echo ""
 	@echo "Build:"
@@ -37,8 +36,6 @@ help:
 	@echo "  make fmt                         - Format Go sources"
 	@echo "  make generate                    - Regenerate the panel-node protocol code"
 	@echo "  make proto-check                 - Lint the protocol and check generated code"
-	@echo "  make support-generate            - Regenerate sing-box support code, Schemas and tables"
-	@echo "  make support-check               - Check sing-box support outputs"
 	@echo "  make notices                     - Regenerate THIRD_PARTY_NOTICES"
 	@echo ""
 	@echo "Release:"
@@ -71,16 +68,15 @@ check-backend: build-frontend
 	go vet ./...
 	go test ./...
 
-# Web lint, tests, generated Schema outputs and third-party notices
+# Web lint, tests and third-party notices
 check-frontend: build-frontend
 	@echo "🔍 Checking Web sources..."
 	$(WEB_PNPM) run lint
 	$(WEB_PNPM) --recursive run test
-	$(WEB_PNPM) run schema:check
 	go tool third-party-notices --check
 
-# Shell syntax, installer scenarios, protocol, sing-box support and OpenAPI
-check-contracts: build-frontend support-check proto-check
+# Shell syntax, installer scenarios, protocol and OpenAPI
+check-contracts: build-frontend proto-check
 	@echo "🔍 Checking contracts..."
 	@for script in $$(find scripts -type f -name '*.sh'); do bash -n "$$script" || exit; done
 	bash scripts/test/installer-test.sh
@@ -111,11 +107,6 @@ fuzz-smoke: build-frontend
 	@echo "🧪 Running fuzz smoke tests..."
 	go test ./internal/coreartifact -run '^$$' -fuzz '^FuzzParseExactVersionCanonicalRoundTrip$$' -fuzztime=5s
 	go test ./internal/sing-box-panel/subscription -run '^$$' -fuzz '^FuzzRenderIsPureAndDeterministic$$' -fuzztime=5s
-
-# Reviewed official cores on native Linux amd64/arm64
-core-contract: build-frontend
-	@echo "🧪 Running the core contract..."
-	bash scripts/test/core-contract.sh
 
 # Everything CI runs on a pull request
 ci: check test-race fuzz-smoke release-verify
@@ -172,16 +163,6 @@ proto-check:
 		name="$${file##*/}"; \
 		cmp -s "$$out/internal/nodeapi/$$name" "internal/nodeapi/$$name" || { printf '%s\n' "internal/nodeapi/$$name is stale; run make generate" >&2; exit 1; }; \
 	done
-
-# Regenerate sing-box support code, exact-version Schemas and the support table
-support-generate:
-	@echo "🔧 Generating sing-box support..."
-	go tool singbox-support generate
-
-# Check sing-box support outputs without rewriting them
-support-check:
-	@echo "🔍 Checking sing-box support..."
-	go tool singbox-support check
 
 # Regenerate THIRD_PARTY_NOTICES from both binaries and the Web build
 notices: build-frontend

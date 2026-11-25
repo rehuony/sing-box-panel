@@ -93,6 +93,7 @@ type settingsFileReport struct {
 	State        string `json:"state"`
 	DataDir      string `json:"data_dir,omitempty"`
 	DatabasePath string `json:"database_path,omitempty"`
+	LogsPath     string `json:"logs_database_path,omitempty"`
 }
 
 type configurationLocation struct {
@@ -144,6 +145,7 @@ func buildSystemStatusReport(status systemd.Status, cliSettingsPath string) syst
 	report.SettingsFile.State = settingsStateLoaded
 	report.SettingsFile.DataDir = dataDir
 	report.SettingsFile.DatabasePath = filepath.Join(dataDir, "panel.db")
+	report.SettingsFile.LogsPath = filepath.Join(dataDir, store.LogsFile)
 	report.Configuration.DatabasePath = report.SettingsFile.DatabasePath
 	return report
 }
@@ -167,11 +169,12 @@ func systemStatusText(report systemStatusReport, style cliui.Style) string {
 	default:
 		unitSettings = style.Path(report.UnitFile.SettingsPath) + " (" + report.UnitFile.Source + "; differs from --config)"
 	}
-	dataDir, databasePath, database := "unknown", "unknown", "the service database"
+	dataDir, databasePath, logsPath, database := "unknown", "unknown", "unknown", "the service database"
 	switch report.SettingsFile.State {
 	case settingsStateLoaded:
 		dataDir = style.Path(report.SettingsFile.DataDir) + " (" + report.SettingsFile.Source + ")"
 		databasePath = style.Path(report.SettingsFile.DatabasePath) + " (" + report.SettingsFile.Source + ")"
+		logsPath = style.Path(report.SettingsFile.LogsPath) + " (" + report.SettingsFile.Source + ")"
 		database = style.Path(report.Configuration.DatabasePath)
 	case settingsStateUnavailable:
 		dataDir = "unknown (" + report.SettingsFile.Source + " unreadable or invalid)"
@@ -182,6 +185,7 @@ func systemStatusText(report systemStatusReport, style cliui.Style) string {
 		cliui.Field{Label: "Live settings", Value: report.LiveSettingsState + " (running process not inspected)"},
 		cliui.Field{Label: "Data directory", Value: dataDir},
 		cliui.Field{Label: "Database", Value: databasePath},
+		cliui.Field{Label: "Log database", Value: logsPath},
 		cliui.Field{Label: "Configuration", Value: fmt.Sprintf("each node's %s stored in %s table %s of %s",
 			report.Configuration.Name, report.Configuration.Storage, report.Configuration.Table, database)},
 	)

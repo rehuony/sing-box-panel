@@ -125,11 +125,6 @@ func (application *Service) renderSubscriptionState(state store.PublicSubscripti
 	if err != nil {
 		return RenderResult{}, nil, err
 	}
-	if rendered.Format == RenderFormatSingBox {
-		if err := validateSubscriptionNativeJSON(rendered.Content, "generated_configuration"); err != nil {
-			return RenderResult{}, nil, err
-		}
-	}
 	fleetNodes := []string{}
 	seen := map[string]bool{}
 	for _, node := range state.Pool {

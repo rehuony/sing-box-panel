@@ -19,6 +19,8 @@ export interface LogLine {
   /** A command or target name that leads the line, in its own column. */
   term?: string;
   tone: LineTone;
+  /** A command's arguments, in a faint column between its term and text; empty keeps the column. */
+  usage?: string;
   /** An entry echoed after the prompt it was typed at. */
   prompt?: Prompt;
   /** The line reports an event, so it leads with its time. */
