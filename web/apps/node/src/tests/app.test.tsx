@@ -103,7 +103,7 @@ describe('node console', () => {
     expect(terminal).toHaveTextContent('the core reports no counters');
     expect(screen.getByRole('log', { name: 'Terminal output' })).toHaveTextContent('Run enroll with a code from the panel.');
 
-    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'logout{Enter}');
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'exit{Enter}');
     await waitFor(() => expect(screen.getByLabelText('Console password')).toBeInTheDocument());
     expect(requests).toContain('DELETE /api/v1/auth/session');
   });
@@ -161,7 +161,7 @@ describe('node console', () => {
     await user.keyboard('{Tab}');
     const menu = screen.getByRole('listbox', { name: 'Completions' });
     expect(within(menu).getAllByRole('option').map(option => option.firstChild?.textContent))
-      .toEqual(['re-enroll', 'unenroll', 'status', 'clear', 'help', 'logout', 'exit']);
+      .toEqual(['re-enroll', 'unenroll', 'status', 'clear', 'help', 'exit']);
     await user.keyboard('{Tab}{Tab}');
     expect(command).toHaveValue('unenroll');
     expect(within(menu).getByRole('option', { selected: true })).toHaveTextContent('unenroll');

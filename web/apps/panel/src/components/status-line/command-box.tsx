@@ -1,11 +1,8 @@
-import { X } from 'lucide-react';
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@shared/components/ui/button';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CommandLine, PromptScope, TerminalBuffer } from '@shared/components/terminal';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 
 import { commandHistory, useCommandSession } from '@/stores/command-session.store';
 
@@ -19,14 +16,15 @@ const OTHER_LAYERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [rol
 /**
  * The command line as a box floating near the top of the window: the input
  * under a label naming its scope, and below it one box that holds the
- * completion list while it is open, otherwise the output while there is any.
- * A scrim behind it dims the window, so the page does not compete with the
- * line. Both stay in the document while closed, so they can fade out, and each
- * opening starts on an empty line while the output and history stay.
+ * completion list while it is open, otherwise the last command's result
+ * while it has one, without the command itself. A scrim behind it dims the
+ * window, so the page does not compete with the line. Both stay in the
+ * document while closed, so they can fade out, and each opening starts on an
+ * empty line while the result and history stay.
  */
 export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }) {
   const { t } = useTranslation();
-  const { clear, entries, open, setOpen } = useCommandSession();
+  const { entries, open, setOpen } = useCommandSession();
   const { cancel, completions, prompt, submit } = useCommandRunner(shell);
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,11 +80,6 @@ export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [cancel, open, setOpen]);
 
-  function clearOutput() {
-    clear();
-    inputRef.current?.focus({ preventScroll: true });
-  }
-
   return (
     <>
       <div
@@ -97,7 +90,7 @@ export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }
       <div
         aria-label={t('command.label')}
         // `[y/N]` takes the warning colour here, in the line and its echoes, as the box's border and label do.
-        className='pointer-events-none fixed inset-x-0 top-[max(4.5rem,15dvh)] z-[calc(var(--z-modal)+1)] mx-auto flex w-[min(calc(100vw-2rem),clamp(36rem,40vw,60rem))] origin-top flex-col gap-1.5 font-[family-name:var(--font-data)] text-compact min-[120rem]:text-sm transition-[opacity,scale,display] transition-discrete duration-150 ease-out starting:scale-98 starting:opacity-0 max-sm:top-4 [&[hidden]]:scale-98 [&[hidden]]:opacity-0 [&_span[data-prompt=confirm]]:text-[var(--color-warning-text)]'
+        className='pointer-events-none fixed inset-x-0 top-[max(4.5rem,15dvh)] z-[calc(var(--z-modal)+1)] mx-auto flex w-[min(calc(100vw-2rem),clamp(36rem,40vw,60rem))] origin-top flex-col gap-1.5 font-[family-name:var(--font-data)] text-sm min-[120rem]:text-base transition-[opacity,scale,display] transition-discrete duration-150 ease-out starting:scale-98 starting:opacity-0 max-sm:top-4 [&[hidden]]:scale-98 [&[hidden]]:opacity-0 [&_span[data-prompt=confirm]]:text-[var(--color-warning-text)]'
         hidden={!open}
         id={id}
         ref={boxRef}
@@ -136,7 +129,7 @@ export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }
             onSubmit={submit}
           />
         </div>
-        {/* The completion list while it is open, otherwise the output while there is any, never both. */}
+        {/* The completion list while it is open, otherwise the result while there is one, never both. */}
         <div
           className='group pointer-events-auto hidden max-h-[min(20rem,50dvh)] min-h-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-popover shadow-[var(--shadow-panel)] has-[[role=listbox]]:flex data-[output]:flex max-sm:max-h-[50dvh] min-[120rem]:max-h-[min(26rem,50dvh)] min-[120rem]:[&_[role=option]]:h-8'
           data-output={entries.length > 0 ? '' : undefined}
@@ -145,24 +138,7 @@ export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }
             <div ref={setMenuContainer} />
           </ScrollArea>
           {entries.length > 0
-            ? (
-                <div className='relative flex min-h-0 flex-1 flex-col group-has-[[role=listbox]]:hidden'>
-                  <TerminalBuffer
-                    entries={entries}
-                    promptScope={false}
-                    // Room at the end for the clear action, and a gap before each command's echo.
-                    viewportClassName='py-2 ps-3 pe-[calc(var(--control-height-xs)+var(--space-xs))] [&_p[data-prompt=shell]:not(:first-child)]:mt-1.5'
-                  />
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<Button aria-label={t('command.clearOutput')} className='absolute end-1 top-1' onClick={clearOutput} size='icon-xs' variant='ghost' />}
-                    >
-                      <X aria-hidden='true' />
-                    </TooltipTrigger>
-                    <TooltipContent>{t('command.clearOutput')}</TooltipContent>
-                  </Tooltip>
-                </div>
-              )
+            ? <TerminalBuffer className='group-has-[[role=listbox]]:hidden' entries={entries} viewportClassName='px-3 py-2' />
             : null}
         </div>
       </div>

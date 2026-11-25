@@ -44,7 +44,6 @@ const helpKeys = {
   'enroll': 'enroll',
   'exit': 'exit',
   'help': 'help',
-  'logout': 'logout',
   're-enroll': 'reenroll',
   'status': 'status',
   'unenroll': 'unenroll',
@@ -53,7 +52,7 @@ const helpKeys = {
 /** The commands the node takes in its current state, as help lists them. */
 function commandsFor(status: ConsoleStatus | null): (keyof typeof helpKeys)[] {
   const enrolled = Boolean(status?.enrollment);
-  return [...(enrolled ? ['re-enroll', 'unenroll'] as const : ['enroll'] as const), 'status', 'clear', 'help', 'logout'];
+  return [...(enrolled ? ['re-enroll', 'unenroll'] as const : ['enroll'] as const), 'status', 'clear', 'help', 'exit'];
 }
 
 function signedOutBy(error: unknown): boolean {
@@ -289,7 +288,6 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
         setEntries(current => appendEntries(freezeStatus(current, { now, rates, status }), [statusBlock()]));
         void refresh('command');
         break;
-      case 'logout':
       case 'exit':
         void signOut();
         break;
@@ -335,7 +333,7 @@ export function StatusPage({ field, initialStatus, session, onSignedOut }: Statu
   }
 
   const tone = status ? connectionTone[status.connection.state] : null;
-  const commands = [...commandsFor(status), 'exit' as const].map(name => ({ description: t(`terminal.help.${helpKeys[name]}`), name }));
+  const commands = commandsFor(status).map(name => ({ description: t(`terminal.help.${helpKeys[name]}`), name }));
 
   let input = null;
   if (mode.kind !== 'running') {

@@ -31,7 +31,8 @@ describe('panel commands', () => {
     expect(parseCommand('filter state:asleep')).toEqual({ kind: 'usage', verb: 'filter' });
     expect(parseCommand('restart hk-*')).toEqual({ kind: 'batch', target: 'hk-*', verb: 'restart' });
     expect(parseCommand('stop')).toEqual({ kind: 'usage', verb: 'stop' });
-    expect(parseCommand('exit')).toEqual({ kind: 'logout' });
+    expect(parseCommand('exit')).toEqual({ kind: 'exit' });
+    expect(parseCommand('logout')).toEqual({ kind: 'notFound', name: 'logout' });
     expect(parseCommand('REBOOT')).toEqual({ kind: 'reboot' });
     expect(parseCommand('reboot all')).toEqual({ kind: 'usage', verb: 'reboot' });
     expect(parseCommand('shutdown all')).toEqual({ kind: 'notFound', name: 'shutdown' });

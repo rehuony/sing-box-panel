@@ -8,7 +8,7 @@ import type { NodeWindow, PanelWindow } from './shell-windows';
 import { nodeWindows, panelWindows } from './shell-windows';
 
 /** The commands the panel's command line takes, in the order help lists them. */
-export const commandVerbs = ['help', 'open', 'goto', 'filter', 'start', 'stop', 'restart', 'update', 'reboot', 'clear', 'logout', 'exit'] as const;
+export const commandVerbs = ['help', 'open', 'goto', 'filter', 'start', 'stop', 'restart', 'update', 'reboot', 'clear', 'exit'] as const;
 export type CommandVerb = typeof commandVerbs[number];
 
 /** The runtime and update commands, which act on one or more nodes. */
@@ -25,7 +25,8 @@ export type StateFilter = typeof stateFilters[number];
 export type PanelCommand
   = | { kind: 'help' }
     | { kind: 'clear' }
-    | { kind: 'logout' }
+    /** Signs out. */
+    | { kind: 'exit' }
     /** A bare number: the window at that position, from 1. */
     | { kind: 'window'; position: number }
     | { kind: 'open'; window: PanelWindow }
@@ -59,10 +60,8 @@ export function parseCommand(line: string): PanelCommand | null {
   switch (verb) {
     case 'help':
     case 'clear':
-      return { kind: verb };
-    case 'logout':
     case 'exit':
-      return { kind: 'logout' };
+      return { kind: verb };
     case 'reboot':
       return rest.length === 0 ? { kind: 'reboot' } : { kind: 'usage', verb };
     case 'open': {

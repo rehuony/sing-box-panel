@@ -2,8 +2,8 @@ import type { Completion, Prompt } from '@shared/components/terminal';
 
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { logLine } from '@shared/components/terminal';
 import { useQueryClient } from '@tanstack/react-query';
-import { echo, logLine } from '@shared/components/terminal';
 
 import type { PagePath } from '@/routes/page-loaders';
 import type { CompletionDescriptions } from '@/utils/panel-commands';
@@ -41,11 +41,12 @@ import { batchNames, batchNeedsConfirmation, batchWarning, runBatch } from './ru
 const CONFIRM_PROMPT: Prompt = { kind: 'confirm' };
 
 /**
- * Runs command lines against the shell. A command that only opens a window,
- * a node or the filtered fleet closes the line and prints nothing; every
- * other command echoes after its prompt and prints its output below. A batch
- * that interrupts, or acts on more than one node, and restarting the panel
- * first ask `[y/N]`.
+ * Runs command lines against the shell. Every command replaces the last
+ * one's result with its own, without echoing the line: a command that only
+ * opens a window, a node or the filtered fleet closes the line and leaves
+ * none. A batch that interrupts, or acts on more than one node, and
+ * restarting the panel first ask `[y/N]`, and the answer replaces the
+ * question with what follows it.
  */
 export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   const { t } = useTranslation();
@@ -53,7 +54,7 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const { signOut } = useSignOut();
-  const { clear, pending, print, running, setOpen, setPending } = useCommandSession();
+  const { begin, pending, running, setOpen, setPending } = useCommandSession();
 
   // Every verb keeps the arguments column, empty where it takes none.
   const verbCompletions: Completion[] = commandVerbs.map(verb => ({
@@ -75,36 +76,35 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
     void navigate(path);
   }
 
-  function fail(line: string, message: string) {
-    print(echo(prompt, line), logLine('danger', message));
+  function fail(message: string) {
+    begin(logLine('danger', message));
   }
 
   function run(input: string) {
     const line = input.trim();
     const command = parseCommand(line);
     if (command === null) return;
+    // Whatever follows, the last command's result is gone; `clear` asks for nothing more.
+    begin();
     const windows = scope.kind === 'node' ? nodeWindows : panelWindows;
     switch (command.kind) {
       case 'help':
-        // The verbs in the completion list's columns, then the window numbers and what a target can be.
-        print(
-          echo(prompt, line),
+        // The verbs in the completion list's columns, then the window numbers.
+        begin(
           ...verbCompletions.map(verb => logLine('muted', verb.description ?? '', { term: verb.name, usage: verb.usage })),
           logLine('muted', t('command.help.number'), { term: `1–${windows.length}`, usage: '' }),
-          logLine('muted', t('command.help.target')),
         );
         break;
       case 'clear':
-        clear();
         break;
-      case 'logout':
+      case 'exit':
         setOpen(false);
         signOut();
         break;
       case 'window': {
         const window = windows[command.position - 1];
         if (window === undefined) {
-          fail(line, t('command.error.noWindow', { position: command.position }));
+          fail(t('command.error.noWindow', { position: command.position }));
         } else if (scope.kind === 'node') {
           const nodeWindow = window as typeof nodeWindows[number];
           go(nodeWindowPath(scope.nodeId, nodeWindow), nodeWindowPages[nodeWindow]);
@@ -120,8 +120,8 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
       case 'goto': {
         const found = resolveNode(command.node, items);
         const window = command.window ?? (scope.kind === 'node' && scope.window ? scope.window : 'overview');
-        if (found.length === 0) fail(line, t('command.error.noNode', { name: command.node }));
-        else if (found.length > 1) fail(line, t('command.error.ambiguous', { name: command.node }));
+        if (found.length === 0) fail(t('command.error.noNode', { name: command.node }));
+        else if (found.length > 1) fail(t('command.error.ambiguous', { name: command.node }));
         else go(nodeWindowPath(found[0]!.node.id, window), nodeWindowPages[window]);
         break;
       }
@@ -134,38 +134,39 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
       case 'batch': {
         const nodes = resolveTargets(command.target, items);
         if (running) {
-          fail(line, t('command.batch.busy'));
+          fail(t('command.batch.busy'));
           break;
         }
         if (nodes.length === 0) {
-          fail(line, t('command.batch.noMatch', { target: command.target }));
+          fail(t('command.batch.noMatch', { target: command.target }));
           break;
         }
-        print(echo(prompt, line));
         if (!batchNeedsConfirmation(command.verb, nodes.length)) {
           void runBatch({ action: command.verb, cache, client, nodes, t });
           break;
         }
         const label = t(`command.batch.action.${command.verb}`);
-        print(logLine('plain', t('command.batch.confirm', { action: label, count: nodes.length, names: batchNames(nodes, t) })));
         const warning = batchWarning(command.verb, t);
-        if (warning) print(logLine('warning', warning));
+        begin(
+          logLine('plain', t('command.batch.confirm', { action: label, count: nodes.length, names: batchNames(nodes, t) })),
+          ...(warning ? [logLine('warning', warning)] : []),
+        );
         setPending({ action: command.verb, kind: 'batch', nodes });
         break;
       }
       case 'reboot':
         if (usePanelRestart.getState().restarting) {
-          fail(line, t('command.reboot.busy'));
+          fail(t('command.reboot.busy'));
           break;
         }
-        print(echo(prompt, line), logLine('plain', t('command.reboot.confirm')));
+        begin(logLine('plain', t('command.reboot.confirm')));
         setPending({ kind: 'reboot' });
         break;
       case 'usage':
-        fail(line, t(`command.usage.${command.verb}`));
+        fail(t(`command.usage.${command.verb}`));
         break;
       case 'notFound':
-        fail(line, t('command.error.notFound', { command: command.name }));
+        fail(t('command.error.notFound', { command: command.name }));
         break;
     }
   }
@@ -176,19 +177,17 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
    * have started since it asked; runBatch and runReboot then refuse it as busy.
    */
   function answer(input: string) {
-    const reply = input.trim();
-    print(echo(CONFIRM_PROMPT, reply));
     const asked = pending;
     setPending(null);
     if (asked === null) return;
-    if (!/^y(?:es)?$/i.test(reply)) print(logLine('muted', t('command.batch.cancelled')));
+    if (!/^y(?:es)?$/i.test(input.trim())) begin(logLine('muted', t('command.batch.cancelled')));
     else if (asked.kind === 'reboot') void runReboot({ cache, client, t });
     else void runBatch({ action: asked.action, cache, client, nodes: asked.nodes, t });
   }
 
   function cancel() {
     if (pending === null) return;
-    print(echo(CONFIRM_PROMPT, '^C'), logLine('muted', t('command.batch.cancelled')));
+    begin(logLine('muted', t('command.batch.cancelled')));
     setPending(null);
   }
 

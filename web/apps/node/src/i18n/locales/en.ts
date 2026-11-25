@@ -69,9 +69,8 @@ export const en = {
     help: {
       clear: 'Clear the terminal',
       enroll: 'Enroll with a one-time code from the panel',
-      exit: 'Sign out, as logout does',
+      exit: 'Sign out',
       help: 'List the commands',
-      logout: 'Sign out; exit does the same',
       reenroll: 'Replace the enrollment with a new code',
       status: 'Show the node’s status',
       unenroll: 'Leave the panel and forget the enrollment',

@@ -71,9 +71,8 @@ export const zhCN: NodeTranslation = {
     help: {
       clear: '清空终端',
       enroll: '使用面板给出的一次性代码接入',
-      exit: '退出登录，与 logout 相同',
+      exit: '退出登录',
       help: '列出可用命令',
-      logout: '退出登录；exit 的作用相同',
       reenroll: '用新代码替换当前接入',
       status: '显示节点状态',
       unenroll: '离开面板并删除接入信息',

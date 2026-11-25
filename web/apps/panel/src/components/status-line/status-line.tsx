@@ -376,15 +376,16 @@ function MoreMenu({ className }: { className: string }) {
 }
 
 /**
- * The phone's tab bar: the fleet as a home icon in a node, the windows as
- * icons with the current one named, the command line and more.
+ * The phone's tab bar: the fleet as a home icon in a node, the windows, the
+ * command line and more, all icons of one width on one line, the current
+ * window in the accent's soft fill as the open command line's is.
  */
 function PhoneBar({ commandId, shell }: { commandId: string; shell: ShellScopeState }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const windows = windowsOf(shell);
   const selection = useSelectedNodes(shell);
-  const item = 'flex h-full min-w-10 flex-1 flex-col items-center justify-center gap-0.5 rounded-[var(--radius-control)] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset';
+  const item = 'flex h-full min-w-10 flex-1 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset';
   return (
     <div className='flex h-full min-w-0 flex-1 items-stretch'>
       {shell.scope.kind === 'node'
@@ -403,15 +404,14 @@ function PhoneBar({ commandId, shell }: { commandId: string; shell: ShellScopeSt
                 return (
                   <NavLink
                     aria-label={t('shell.window', { name: t(windowNameKeys[window]), number: index + 1 })}
-                    className={cn(item, 'group aria-[current=page]:flex-[1.6] aria-[current=page]:text-foreground')}
+                    className={cn(item, 'aria-[current=page]:bg-accent aria-[current=page]:text-foreground')}
                     end
                     key={window}
                     onFocus={() => preloadPage(page)}
                     onPointerEnter={() => preloadPage(page)}
                     to={path}
                   >
-                    <Icon aria-hidden='true' className='size-5 group-aria-[current=page]:text-foreground' />
-                    <span aria-hidden='true' className='hidden max-w-full truncate px-1 font-[family-name:var(--font-data)] text-2xs group-aria-[current=page]:block'>{window}</span>
+                    <Icon aria-hidden='true' className='size-5' />
                   </NavLink>
                 );
               })}
