@@ -110,11 +110,15 @@ function TitleEnd({ item, release }: { item: NodeStatus; release: string | null 
   if (metrics.quota_exceeded) return <span className={cn('flex-none', toneText.danger)}>{t('fleet.pane.quotaReached')}</span>;
   if (node.update_available && release) {
     const version = `v${release.replace(/^v/i, '')}`;
+    const label = t('fleet.pane.update', { version });
+    // The release takes the room the name leaves, up to its whole width, before the host does;
+    // short of room it keeps its arrow and truncates, the whole of it on hover.
     return (
-      <span className='flex-none text-[var(--color-info-text)]'>
-        <span aria-hidden='true'>{`↑ ${version}`}</span>
-        <span className='sr-only'>{t('fleet.pane.update', { version })}</span>
-      </span>
+      <Detail className='flex max-w-fit min-w-[4ch] grow-[10000] basis-0 items-baseline gap-[1ch] text-[var(--color-info-text)]' content={label}>
+        <span aria-hidden='true' className='flex-none'>↑</span>
+        <span aria-hidden='true' className='min-w-0 truncate'>{version}</span>
+        <span className='sr-only'>{label}</span>
+      </Detail>
     );
   }
   return null;
