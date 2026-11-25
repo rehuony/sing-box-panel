@@ -3,6 +3,7 @@
 package releases
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,19 +14,23 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 )
 
-// A system service hands its update to the root helper; the panel follows
-// the helper's result while it runs.
-func TestStagedUpdateFollowsTheHelper(t *testing.T) {
+// A system service's unit installs the release the panel staged before it
+// starts the panel again; the panel reads the outcome when it starts.
+func TestStartReadsTheInstallStepsOutcome(t *testing.T) {
 	now := time.Date(2026, time.November, 18, 12, 0, 0, 0, time.UTC)
-	staged := func(t *testing.T) (*Service, string) {
+	start := func(t *testing.T, prepare func(updates string)) UpdateStatus {
 		t.Helper()
-		service := New(buildinfo.Info{Version: "v1.0.0"}, t.TempDir(), nil, nil, Options{Now: func() time.Time { return now }})
-		service.update = updateState{state: StateStaged, target: "v1.1.0"}
+		service := New(buildinfo.Info{Version: "v1.1.0"}, t.TempDir(), nil, nil, Options{Now: func() time.Time { return now }})
 		updates := service.updatesDir()
 		if err := os.MkdirAll(updates, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		return service, updates
+		prepare(updates)
+		// A stopped context ends Run once it has read the outcome.
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		service.Run(ctx)
+		return service.Status()
 	}
 	writeResult := func(t *testing.T, updates string, attempt selfupdate.Attempt) {
 		t.Helper()
@@ -39,58 +44,63 @@ func TestStagedUpdateFollowsTheHelper(t *testing.T) {
 	}
 
 	t.Run("installed", func(t *testing.T) {
-		service, updates := staged(t)
-		writeResult(t, updates, selfupdate.Attempt{Version: "v1.1.0", Succeeded: true, FinishedAt: now})
-		service.takeHelperResult()
-		status := service.Status()
-		if status.State != StateRestarting || status.TargetVersion == nil || *status.TargetVersion != "v1.1.0" ||
-			status.LastAttempt == nil || !status.LastAttempt.Succeeded {
-			t.Fatalf("status after the helper installed the release = %+v", status)
+		status := start(t, func(updates string) {
+			writeResult(t, updates, selfupdate.Attempt{Version: "v1.1.0", Succeeded: true, FinishedAt: now})
+		})
+		if status.State != StateIdle || status.LastAttempt == nil || !status.LastAttempt.Succeeded || status.LastAttempt.Version != "v1.1.0" {
+			t.Fatalf("status after the unit installed the release = %+v", status)
 		}
 	})
 
 	t.Run("refused", func(t *testing.T) {
-		service, updates := staged(t)
-		writeResult(t, updates, selfupdate.Attempt{Version: "v1.1.0", Code: "release_invalid", FinishedAt: now})
-		service.takeHelperResult()
-		status := service.Status()
-		if status.State != StateIdle || status.TargetVersion != nil || status.LastAttempt == nil || status.LastAttempt.Code != "release_invalid" {
-			t.Fatalf("status after the helper refused the release = %+v", status)
-		}
-		// The result counts once.
-		service.update.state = StateStaged
-		service.takeHelperResult()
-		if service.Status().State != StateStaged {
-			t.Fatal("a result was taken twice")
+		status := start(t, func(updates string) {
+			writeResult(t, updates, selfupdate.Attempt{Version: "v1.2.0", Code: "signature_invalid", FinishedAt: now})
+		})
+		if status.State != StateIdle || status.LastAttempt == nil || status.LastAttempt.Code != "signature_invalid" {
+			t.Fatalf("status after the unit refused the release = %+v", status)
 		}
 	})
 
-	t.Run("unclaimed", func(t *testing.T) {
-		service, updates := staged(t)
-		request := filepath.Join(updates, selfupdate.RequestName)
-		if err := os.WriteFile(request, []byte("v1.1.0\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(request, now, now); err != nil {
-			t.Fatal(err)
-		}
-		service.takeHelperResult()
-		if service.Status().State != StateStaged {
-			t.Fatal("a fresh request was withdrawn")
-		}
-		old := now.Add(-selfupdate.HelperTimeout - time.Second)
-		if err := os.Chtimes(request, old, old); err != nil {
-			t.Fatal(err)
-		}
-		service.takeHelperResult()
-		status := service.Status()
-		if status.State != StateIdle || status.LastAttempt == nil || status.LastAttempt.Code != selfupdate.FailureCode(selfupdate.ErrHelperUnavailable) {
-			t.Fatalf("status after the helper never took the release = %+v", status)
+	t.Run("unit without the install step", func(t *testing.T) {
+		var request string
+		status := start(t, func(updates string) {
+			request = filepath.Join(updates, selfupdate.RequestName)
+			if err := os.WriteFile(request, []byte("v1.2.0\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if status.LastAttempt == nil || status.LastAttempt.Version != "v1.2.0" || status.LastAttempt.Code != "install_step_missing" {
+			t.Fatalf("status after the unit left the request = %+v", status)
 		}
 		if _, err := os.Lstat(request); !os.IsNotExist(err) {
 			t.Fatalf("withdrawn request = %v", err)
 		}
 	})
+}
+
+// The panel's update and node updates wait for each other: a restart of the
+// panel would interrupt the nodes' updates.
+func TestPanelAndNodeUpdatesWaitForEachOther(t *testing.T) {
+	service := New(buildinfo.Info{Version: "v1.0.0"}, t.TempDir(), nil, nil, Options{})
+	end, err := service.BeginNodeUpdate()
+	if err != nil || !service.NodeUpdatesRunning() {
+		t.Fatalf("begin a node update = %v", err)
+	}
+	if service.supported() {
+		service.update.latest = "v1.1.0"
+		if _, err := service.Update(t.Context()); err != ErrNodeUpdatesRunning {
+			t.Fatalf("panel update while a node updates = %v", err)
+		}
+	}
+	end()
+	end()
+	if service.NodeUpdatesRunning() {
+		t.Fatal("an ended node update still counts")
+	}
+	service.update.state = StateUpdating
+	if _, err := service.BeginNodeUpdate(); err != ErrUpdateRunning {
+		t.Fatalf("node update while the panel updates = %v", err)
+	}
 }
 
 func TestUpdateRefusesWithoutAKnownNewerRelease(t *testing.T) {

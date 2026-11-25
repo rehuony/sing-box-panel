@@ -58,8 +58,7 @@ export const panelSettings = {
   updating: '正在开始…',
   updateState: {
     updating: '正在下载并校验 {{version}}…',
-    staged: '{{version}} 已暂存，升级辅助服务将安装它并重启面板。',
-    restarting: '{{version}} 已安装，面板正在重启。',
+    restarting: '面板正在重启到 {{version}}。',
     restart_required: '{{version}} 已安装，重启面板后生效。',
   },
   updateFailed: '升级到 {{version}} 失败（{{code}}）。',

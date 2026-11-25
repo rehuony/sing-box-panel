@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 // ErrorKind selects a failure's exit code.
@@ -54,9 +56,15 @@ func Fail(kind ErrorKind, code string, cause error) error {
 	return &Error{Kind: kind, Code: code, Message: cause.Error(), Cause: cause}
 }
 
+// ExitCode is the process exit status for a command's outcome. A service
+// that stops for systemd to start it again exits with
+// systemd.RestartExitStatus.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0
+	}
+	if errors.Is(err, systemd.ErrRestart) {
+		return systemd.RestartExitStatus
 	}
 	if errors.Is(err, context.Canceled) {
 		return 130
@@ -92,7 +100,8 @@ type errorOutput struct {
 // --output flag selected. Causes are deliberately not serialized because they
 // may contain filesystem or upstream details unsuitable for machine consumers.
 func WriteError(writer io.Writer, root *cobra.Command, err error) error {
-	if err == nil {
+	// A service that stops to be started again has not failed.
+	if err == nil || errors.Is(err, systemd.ErrRestart) {
 		return nil
 	}
 	output := errorOutput{Code: "internal_error", Message: err.Error(), ExitCode: ExitCode(err)}

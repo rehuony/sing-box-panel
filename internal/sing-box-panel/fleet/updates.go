@@ -26,7 +26,6 @@ const (
 const (
 	UpdateUpToDate        = "up_to_date"
 	UpdateRestarting      = "restarting"
-	UpdateStaged          = "staged"
 	UpdateRestartRequired = "restart_required"
 )
 
@@ -46,7 +45,7 @@ var (
 )
 
 // NodeUpdateFailure is a node's report that its update failed, such as its
-// root update helper's.
+// unit's install step's.
 type NodeUpdateFailure struct {
 	Version string
 	Code    string
@@ -72,7 +71,7 @@ func commandMinor(body nodeapi.CommandBody) uint32 {
 type NodeUpdate struct {
 	NodeID  string `json:"node_id"`
 	Version string `json:"version"`
-	// State is up_to_date, restarting, staged or restart_required.
+	// State is up_to_date, restarting or restart_required.
 	State string `json:"state"`
 }
 
@@ -110,9 +109,17 @@ func (service *Service) releaseVersion() string {
 }
 
 // UpdateNode asks the node to update itself to the panel's release and
-// returns how the node left it.
+// returns how the node left it. The panel's own update waits meanwhile.
 func (service *Service) UpdateNode(ctx context.Context, nodeID string) (result NodeUpdate, err error) {
 	defer service.recordCommand(ctx, "node.update", "Node update", nodeID, &err)
+	if service.releases == nil {
+		return NodeUpdate{}, releases.ErrUnavailable
+	}
+	end, err := service.releases.BeginNodeUpdate()
+	if err != nil {
+		return NodeUpdate{}, err
+	}
+	defer end()
 	return service.updateNode(ctx, nodeID)
 }
 
@@ -148,8 +155,6 @@ func (service *Service) updateNode(ctx context.Context, nodeID string) (NodeUpda
 		state = UpdateUpToDate
 	case nodeapi.UpdateState_UPDATE_STATE_RESTARTING:
 		state = UpdateRestarting
-	case nodeapi.UpdateState_UPDATE_STATE_STAGED:
-		state = UpdateStaged
 	case nodeapi.UpdateState_UPDATE_STATE_RESTART_REQUIRED:
 		state = UpdateRestartRequired
 	}
@@ -164,9 +169,18 @@ func (service *Service) updateNode(ctx context.Context, nodeID string) (NodeUpda
 // session ended before its result arrived. A node that
 // reports a failed attempt at the release other than the one it reported
 // before the update fails with that attempt's code; one that must be
-// restarted by hand fails with ErrNodeRestartRequired.
+// restarted by hand fails with ErrNodeRestartRequired. The panel's own update
+// waits meanwhile.
 func (service *Service) UpdateNodeAndWait(ctx context.Context, nodeID string) (err error) {
 	defer service.recordCommand(ctx, "node.update", "Node update", nodeID, &err)
+	if service.releases == nil {
+		return releases.ErrUnavailable
+	}
+	end, err := service.releases.BeginNodeUpdate()
+	if err != nil {
+		return err
+	}
+	defer end()
 	// The attempt the node reports once its session is ready, before the
 	// command is sent, is not this update's outcome.
 	if current := service.sessions.get(nodeID); current != nil {
@@ -274,7 +288,7 @@ func (service *Service) RunSequential(ctx context.Context, nodes []BatchNode, co
 }
 
 // recordUpdateReport logs an update attempt a node reports for the first
-// time, such as its root update helper's.
+// time, such as its unit's install step's.
 func (service *Service) recordUpdateReport(nodeID string, attempt *nodeapi.UpdateAttempt) {
 	if service.records == nil {
 		return

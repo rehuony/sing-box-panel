@@ -14,8 +14,13 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
-// errRestartRequested is why the server stops when the panel restarts.
-var errRestartRequested = errors.New("panel restart requested")
+// errRestartRequested is why the server stops when the panel restarts, and
+// errExitRequested why it stops for its system unit to install a staged
+// update and start it again.
+var (
+	errRestartRequested = errors.New("panel restart requested")
+	errExitRequested    = errors.New("panel exit for its unit's update requested")
+)
 
 // execFunc replaces the running program with path, run with args and env.
 type execFunc func(path string, args, env []string) error
@@ -29,7 +34,7 @@ type restart struct {
 	args []string
 	env  []string
 	exec execFunc
-	stop func()
+	stop func(cause error)
 
 	mu        sync.Mutex
 	requested bool
@@ -38,7 +43,7 @@ type restart struct {
 	version   string
 }
 
-func newRestart(exec execFunc, stop func()) (*restart, error) {
+func newRestart(exec execFunc, stop func(cause error)) (*restart, error) {
 	path, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve the panel executable: %w", err)
@@ -55,8 +60,9 @@ func (restart *restart) bind(panelReleases *releases.Service, records *telemetry
 
 // request records the restart and stops the server once the request that
 // asked, whose context is ctx, has been answered. A restart that is already
-// requested is not requested again. An update that runs or is staged refuses
-// it: the update restarts the panel itself.
+// requested is not requested again. An update of the panel refuses it, since
+// the update restarts the panel itself, and so do node updates, which the
+// restart would interrupt.
 func (restart *restart) request(ctx context.Context) error {
 	restart.mu.Lock()
 	defer restart.mu.Unlock()
@@ -64,8 +70,11 @@ func (restart *restart) request(ctx context.Context) error {
 		return errors.New("the panel is not ready to restart")
 	}
 	switch restart.releases.Status().State {
-	case releases.StateUpdating, releases.StateStaged, releases.StateRestarting:
+	case releases.StateUpdating, releases.StateRestarting:
 		return releases.ErrUpdateRunning
+	}
+	if restart.releases.NodeUpdatesRunning() {
+		return releases.ErrNodeUpdatesRunning
 	}
 	if restart.requested {
 		return nil
@@ -75,8 +84,15 @@ func (restart *restart) request(ctx context.Context) error {
 		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "panel.restart_requested",
 		Message: "Panel restart requested", Metadata: telemetry.LogMetadata(map[string]any{"version": restart.version}),
 	})
-	context.AfterFunc(ctx, restart.stop)
+	context.AfterFunc(ctx, func() { restart.stop(errRestartRequested) })
 	return nil
+}
+
+// exitForUpdate stops the server for the panel's system unit, which installs
+// the release the panel staged and starts the panel again: Run then returns
+// systemd.ErrRestart.
+func (restart *restart) exitForUpdate() {
+	restart.stop(errExitRequested)
 }
 
 // run replaces the stopped panel with a new one. It returns only when that

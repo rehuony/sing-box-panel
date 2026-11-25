@@ -34,7 +34,7 @@ make deps
 ```
 
 Use a supported Linux environment when changing Linux-only installer, systemd,
-update helper, runtime identity, or release behavior.
+update install step, runtime identity, or release behavior.
 
 ## Making Changes
 

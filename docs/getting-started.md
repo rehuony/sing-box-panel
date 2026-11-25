@@ -277,7 +277,8 @@ own release, and enrolled nodes never contact GitHub. Restarting a node restarts
 its core, so its proxy is briefly interrupted. From a shell, `sing-box-panel
 update` and `sing-box-node update` do the same; a node that is not enrolled
 updates from the latest stable GitHub release instead. See the
-[CLI reference](cli.md). A system service hands each update to its root update
-helper, described in the [systemd packaging guide](systemd.md#update-helper).
+[CLI reference](cli.md). A system service stages each update and stops; its unit
+installs it and starts the service again, as the [systemd packaging
+guide](systemd.md#updates) describes. Updates go one way.
 After replacing a binary by hand or with the installer, refresh its service
 with `systemd install` before restarting it.

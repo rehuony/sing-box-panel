@@ -5,7 +5,6 @@
 package selfupdate
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -23,12 +22,11 @@ import (
 // and a data directory whose updates directory holds a staged release and
 // its request.
 type helperFixture struct {
-	target   string
-	dataDir  string
-	updates  string
-	private  ed25519.PrivateKey
-	public   ed25519.PublicKey
-	restarts int
+	target  string
+	dataDir string
+	updates string
+	private ed25519.PrivateKey
+	public  ed25519.PublicKey
 }
 
 func newHelperFixture(t *testing.T) *helperFixture {
@@ -90,15 +88,9 @@ func (fixture *helperFixture) updater() *Updater {
 	return updater
 }
 
-func (fixture *helperFixture) apply(t *testing.T, updater *Updater, current string, restart func(context.Context) error) (*Attempt, error) {
+func (fixture *helperFixture) apply(t *testing.T, updater *Updater, current string) (*Attempt, error) {
 	t.Helper()
-	if restart == nil {
-		restart = func(context.Context) error { return nil }
-	}
-	return updater.ApplyStaged(t.Context(), HelperOptions{
-		DataDir: fixture.dataDir, Current: current,
-		Restart: func(ctx context.Context) error { fixture.restarts++; return restart(ctx) },
-	})
+	return updater.ApplyStaged(t.Context(), HelperOptions{DataDir: fixture.dataDir, Current: current})
 }
 
 func (fixture *helperFixture) requireExecutable(t *testing.T, want string) {
@@ -109,29 +101,41 @@ func (fixture *helperFixture) requireExecutable(t *testing.T, want string) {
 	}
 }
 
-func TestApplyStagedInstallsRestartsAndRecordsTheResult(t *testing.T) {
+// TestApplyStagedInstallsOneWayAndRecordsTheResult installs a staged
+// release: the executable's directory then holds the executable alone,
+// without the replaced binary, a lock file or what earlier updates left.
+func TestApplyStagedInstallsOneWayAndRecordsTheResult(t *testing.T) {
 	fixture := newHelperFixture(t)
 	fixture.stage(t, "v1.3.0", []byte("new binary"), fixture.private)
-
-	// The service that starts reads the result.
-	var seen *Attempt
-	attempt, err := fixture.apply(t, fixture.updater(), "v1.2.0", func(context.Context) error {
-		seen, _ = readAttempt(filepath.Join(fixture.updates, resultName))
-		return nil
-	})
-	if err != nil || attempt == nil || !attempt.Succeeded || attempt.Version != "v1.3.0" || fixture.restarts != 1 {
-		t.Fatalf("attempt = %+v, %v after %d restarts", attempt, err, fixture.restarts)
+	bin := filepath.Dir(fixture.target)
+	stale := filepath.Join(bin, ".sing-box-node-update-1")
+	for _, leftover := range []string{fixture.target + ".previous", filepath.Join(bin, ".sing-box-node.update.lock"), stale} {
+		if err := os.WriteFile(leftover, []byte("left"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if seen == nil || !seen.Succeeded || seen.Version != "v1.3.0" {
-		t.Fatalf("the restarted service read %+v", seen)
+	old := time.Now().Add(-2 * staleTemporaryAge)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt, err := fixture.apply(t, fixture.updater(), "v1.2.0")
+	if err != nil || attempt == nil || !attempt.Succeeded || attempt.Version != "v1.3.0" {
+		t.Fatalf("attempt = %+v, %v", attempt, err)
 	}
 	fixture.requireExecutable(t, "new binary")
-	if previous, err := os.ReadFile(fixture.target + PreviousSuffix); err != nil || string(previous) != "old binary" {
-		t.Fatalf("previous executable = %q, %v", previous, err)
+	entries, err := os.ReadDir(bin)
+	if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(fixture.target) {
+		names := []string{}
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Fatalf("beside the executable: %q, %v; want the executable alone", names, err)
 	}
 	if _, err := os.Lstat(filepath.Join(fixture.updates, RequestName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the request remains: %v", err)
 	}
+	// The service that starts next reads the result once as fresh.
 	read, fresh, err := TakeAttempt(fixture.updates)
 	if err != nil || !fresh || read == nil || *read != *attempt {
 		t.Fatalf("service reads %+v (fresh %v), %v; want %+v", read, fresh, err, attempt)
@@ -139,7 +143,7 @@ func TestApplyStagedInstallsRestartsAndRecordsTheResult(t *testing.T) {
 	if again, fresh, err := TakeAttempt(fixture.updates); err != nil || fresh || again == nil || *again != *attempt {
 		t.Fatalf("second read = %+v (fresh %v), %v; want the same attempt, not fresh", again, fresh, err)
 	}
-	if attempt, err := fixture.apply(t, fixture.updater(), "v1.3.0", nil); attempt != nil || err != nil {
+	if attempt, err := fixture.apply(t, fixture.updater(), "v1.3.0"); attempt != nil || err != nil {
 		t.Fatalf("without a request = %+v, %v; want nothing done", attempt, err)
 	}
 }
@@ -229,14 +233,11 @@ func TestApplyStagedRefusesUntrustedReleases(t *testing.T) {
 			if test.real {
 				updater.validateStagedExecutable = validateStagedExecutable
 			}
-			attempt, err := fixture.apply(t, updater, test.current, nil)
+			attempt, err := fixture.apply(t, updater, test.current)
 			if err == nil || attempt == nil || attempt.Succeeded || attempt.Code != test.code {
 				t.Fatalf("attempt = %+v, %v; want the code %s", attempt, err, test.code)
 			}
 			fixture.requireExecutable(t, "old binary")
-			if fixture.restarts != 0 {
-				t.Fatalf("the service restarted %d times for a refused release", fixture.restarts)
-			}
 			if _, err := os.Lstat(filepath.Join(fixture.updates, RequestName)); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("the request remains after a refused release: %v", err)
 			}
@@ -247,39 +248,7 @@ func TestApplyStagedRefusesUntrustedReleases(t *testing.T) {
 	}
 }
 
-func TestApplyStagedRestoresThePreviousExecutableWhenTheServiceFails(t *testing.T) {
-	fixture := newHelperFixture(t)
-	fixture.stage(t, "v1.3.0", []byte("new binary"), fixture.private)
-	var running []string
-	var seen []string
-	attempt, err := fixture.apply(t, fixture.updater(), "v1.2.0", func(context.Context) error {
-		data, readErr := os.ReadFile(fixture.target)
-		if readErr != nil {
-			return readErr
-		}
-		running = append(running, string(data))
-		if result, err := readAttempt(filepath.Join(fixture.updates, resultName)); err == nil {
-			seen = append(seen, result.Code)
-		}
-		if string(data) == "new binary" {
-			return fmt.Errorf("%w: activating (auto-restart)", ErrNotActive)
-		}
-		return nil
-	})
-	if !errors.Is(err, ErrNotActive) || attempt == nil || attempt.Code != "service_not_active" {
-		t.Fatalf("attempt = %+v, %v; want service_not_active", attempt, err)
-	}
-	if len(running) != 2 || running[0] != "new binary" || running[1] != "old binary" {
-		t.Fatalf("restarted into %q; want the new version, then the previous one", running)
-	}
-	// The previous version, started again, reads why the update failed.
-	if len(seen) != 2 || seen[0] != "" || seen[1] != "service_not_active" {
-		t.Fatalf("the restarted services read %q", seen)
-	}
-	fixture.requireExecutable(t, "old binary")
-}
-
-func TestStagedReleasesAreHandedToTheHelperAndCleanedUp(t *testing.T) {
+func TestStagedReleasesAreHandedToTheInstallStepAndCleanedUp(t *testing.T) {
 	fixture := newHelperFixture(t)
 	incoming, err := IncomingDir(fixture.updates)
 	if err != nil {
@@ -322,7 +291,7 @@ func TestStagedReleasesAreHandedToTheHelperAndCleanedUp(t *testing.T) {
 			t.Fatalf("%s kept = %v, want %v", path, err == nil, kept)
 		}
 	}
-	attempt, err := fixture.apply(t, fixture.updater(), "v1.2.0", nil)
+	attempt, err := fixture.apply(t, fixture.updater(), "v1.2.0")
 	if err != nil || !attempt.Succeeded {
 		t.Fatalf("attempt = %+v, %v", attempt, err)
 	}
@@ -334,24 +303,18 @@ func TestStagedReleasesAreHandedToTheHelperAndCleanedUp(t *testing.T) {
 	}
 }
 
-// TestUnclaimedStagedReleaseIsWithdrawn stages a release whose helper never
-// starts: after HelperTimeout the service withdraws it and records why.
-func TestUnclaimedStagedReleaseIsWithdrawn(t *testing.T) {
+// TestUnappliedStagedReleaseIsWithdrawn starts a service whose unit has no
+// install step: the request is still there, so the service withdraws the
+// release and records why.
+func TestUnappliedStagedReleaseIsWithdrawn(t *testing.T) {
 	fixture := newHelperFixture(t)
 	staged := fixture.stage(t, "v1.3.0", []byte("new binary"), fixture.private)
-	request := filepath.Join(fixture.updates, RequestName)
-	written := time.Now()
-	if err := os.Chtimes(request, written, written); err != nil {
-		t.Fatal(err)
+	now := time.Now()
+	attempt, err := WithdrawUnapplied(fixture.updates, now)
+	if err != nil || attempt == nil || attempt.Succeeded || attempt.Version != "v1.3.0" || attempt.Code != "install_step_missing" {
+		t.Fatalf("an unapplied request = %+v, %v; want an install_step_missing attempt", attempt, err)
 	}
-	if attempt, err := WithdrawUnclaimed(fixture.updates, written.Add(HelperTimeout-time.Second)); attempt != nil || err != nil {
-		t.Fatalf("a young request = %+v, %v; want it left for the helper", attempt, err)
-	}
-	attempt, err := WithdrawUnclaimed(fixture.updates, written.Add(HelperTimeout))
-	if err != nil || attempt == nil || attempt.Succeeded || attempt.Version != "v1.3.0" || attempt.Code != "helper_unavailable" {
-		t.Fatalf("an unclaimed request = %+v, %v; want a helper_unavailable attempt", attempt, err)
-	}
-	for _, path := range []string{request, staged} {
+	for _, path := range []string{filepath.Join(fixture.updates, RequestName), staged} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("%s remains: %v", path, err)
 		}
@@ -359,8 +322,7 @@ func TestUnclaimedStagedReleaseIsWithdrawn(t *testing.T) {
 	if last, fresh, err := TakeAttempt(fixture.updates); err != nil || fresh || last == nil || *last != *attempt {
 		t.Fatalf("the service reads %+v (fresh %v), %v; want the recorded attempt", last, fresh, err)
 	}
-	// Without a request the helper is working, or nothing was staged.
-	if attempt, err := WithdrawUnclaimed(fixture.updates, written.Add(time.Hour)); attempt != nil || err != nil {
+	if attempt, err := WithdrawUnapplied(fixture.updates, now); attempt != nil || err != nil {
 		t.Fatalf("no request = %+v, %v", attempt, err)
 	}
 }

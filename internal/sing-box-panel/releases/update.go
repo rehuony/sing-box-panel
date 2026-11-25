@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	releasecontract "github.com/rehuony/sing-box-panel/internal/release"
@@ -25,23 +26,19 @@ const (
 	// StateUpdating: the release is being downloaded, verified and
 	// installed or staged.
 	StateUpdating = "updating"
-	// StateStaged: the system service staged the release for its root
-	// update helper, which installs it and restarts the panel.
-	StateStaged = "staged"
-	// StateRestarting: the release is installed and the panel's unit
-	// restarts into it.
+	// StateRestarting: the panel restarts into the release: its unit
+	// restarts it once it installed the release in place, or the system
+	// service stops for its unit to install the release it staged and
+	// start it again.
 	StateRestarting = "restarting"
-	// StateRestartRequired: the release is installed and runs once the
-	// panel is restarted.
+	// StateRestartRequired: the release is installed, or staged for the
+	// system unit's install step, and runs once the panel is restarted.
 	StateRestartRequired = "restart_required"
 )
 
 const (
 	checkRecheck = time.Minute
 	checkRetry   = 5 * time.Minute
-	// resultCheck is how often the panel looks for its root update helper's
-	// result.
-	resultCheck = 2 * time.Second
 )
 
 var (
@@ -53,6 +50,9 @@ var (
 	ErrUpdateRunning = errors.New("an update of the panel is already in progress")
 	// ErrNoUpdate refuses an update when no newer release is known.
 	ErrNoUpdate = errors.New("no newer release of the panel is known; check for updates first")
+	// ErrNodeUpdatesRunning refuses the panel's update while nodes are
+	// being updated: the panel's restart would interrupt them.
+	ErrNodeUpdatesRunning = errors.New("nodes are being updated; update the panel once they finish")
 )
 
 // Attempt is the outcome of an update.
@@ -177,6 +177,10 @@ func (service *Service) Update(ctx context.Context) (UpdateStatus, error) {
 		defer service.mu.Unlock()
 		return service.statusLocked(), ErrUpdateRunning
 	}
+	if service.nodeUpdates > 0 {
+		defer service.mu.Unlock()
+		return service.statusLocked(), ErrNodeUpdatesRunning
+	}
 	target := service.update.latest
 	if target == "" || semver.Compare(target, service.build.Version) <= 0 {
 		defer service.mu.Unlock()
@@ -192,7 +196,7 @@ func (service *Service) Update(ctx context.Context) (UpdateStatus, error) {
 
 func (service *Service) runUpdate(ctx context.Context, version string) {
 	started := service.options.Now()
-	state, err := service.deliver(ctx, version)
+	state, staged, err := service.deliver(ctx, version)
 	attempt := &Attempt{Version: version, Succeeded: err == nil, FinishedAt: service.options.Now().UTC()}
 	if err != nil {
 		attempt.Code = selfupdate.FailureCode(err)
@@ -200,18 +204,26 @@ func (service *Service) runUpdate(ctx context.Context, version string) {
 	if service.records != nil {
 		service.records.RecordOperation(ctx, "panel.update", "Panel update", Failed(err), telemetry.OperationLogContext{StartedAt: started})
 	}
+	if staged && service.options.Exit == nil {
+		state = StateRestartRequired
+	}
 	service.mu.Lock()
 	service.update.state = state
 	if err != nil {
 		service.update.state, service.update.target = StateIdle, ""
 	}
-	// A staged release reports its result through the helper.
-	if state != StateStaged {
+	// The install step records a staged release's outcome, which the panel
+	// reads when it starts again.
+	if !staged {
 		service.update.last = attempt
 		_ = selfupdate.RecordAttempt(service.updatesDir(), *attempt)
 	}
 	service.mu.Unlock()
-	if state == StateRestarting {
+	switch {
+	case state != StateRestarting:
+	case staged:
+		service.options.Exit()
+	default:
 		if err := service.restart(ctx); err != nil {
 			service.mu.Lock()
 			service.update.state = StateRestartRequired
@@ -220,34 +232,61 @@ func (service *Service) runUpdate(ctx context.Context, version string) {
 	}
 }
 
-// deliver fetches, verifies and installs or stages version, and returns the
-// state it leaves.
-func (service *Service) deliver(ctx context.Context, version string) (string, error) {
+// deliver fetches, verifies and installs or stages version. It returns the
+// state it leaves and whether a system service staged the release for its
+// unit's install step.
+func (service *Service) deliver(ctx context.Context, version string) (string, bool, error) {
 	updater := service.updater(selfupdate.Panel)
 	incoming, err := selfupdate.IncomingDir(service.updatesDir())
 	if err != nil {
-		return StateIdle, err
+		return StateIdle, false, err
 	}
 	defer func() { _ = os.RemoveAll(incoming) }()
 	if err := updater.Fetch(ctx, version, []string{updater.AssetName()}, incoming); err != nil {
-		return StateIdle, err
+		return StateIdle, false, err
 	}
 	staged, err := updater.Verify(incoming, version, service.build.Version)
 	if err != nil {
-		return StateIdle, err
+		return StateIdle, false, err
 	}
 	scope, supervised := systemd.RunningScope()
 	delivery, err := updater.Deliver(ctx, staged, service.updatesDir(), supervised && scope == systemd.ScopeSystem)
 	switch {
 	case err != nil:
-		return StateIdle, err
+		return StateIdle, false, err
 	case delivery == selfupdate.DeliveryStaged:
-		return StateStaged, nil
+		return StateRestarting, true, nil
 	case supervised:
-		return StateRestarting, nil
+		return StateRestarting, false, nil
 	default:
-		return StateRestartRequired, nil
+		return StateRestartRequired, false, nil
 	}
+}
+
+// BeginNodeUpdate admits a node update unless the panel's own update is
+// under way, and holds off the panel's update until end is called.
+func (service *Service) BeginNodeUpdate() (end func(), err error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.update.state != StateIdle {
+		return nil, ErrUpdateRunning
+	}
+	service.nodeUpdates++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			service.nodeUpdates--
+		})
+	}, nil
+}
+
+// NodeUpdatesRunning reports whether nodes are being updated.
+func (service *Service) NodeUpdatesRunning() bool {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.nodeUpdates > 0
 }
 
 func (service *Service) restart(ctx context.Context) error {
@@ -257,20 +296,24 @@ func (service *Service) restart(ctx context.Context) error {
 	return service.options.Restart(ctx)
 }
 
-// Run reads the result of an update the root helper made since the panel
-// last ran, records it, clears finished staging, and checks for a new
+// Run reads the outcome of an update that the system unit's install step
+// made before the panel started, records it, withdraws a staged release the
+// unit did not install, clears finished staging, and checks for a new
 // release on the catalog refresh interval until ctx ends.
 func (service *Service) Run(ctx context.Context) {
 	service.mu.Lock()
 	service.lifetime = ctx
 	service.mu.Unlock()
 	attempt, fresh, err := selfupdate.TakeAttempt(service.updatesDir())
+	if withdrawn, withdrawErr := selfupdate.WithdrawUnapplied(service.updatesDir(), service.options.Now()); withdrawErr == nil && withdrawn != nil {
+		attempt, fresh, err = withdrawn, true, nil
+	}
 	if err == nil && attempt != nil {
 		service.mu.Lock()
 		service.update.last = attempt
 		service.mu.Unlock()
 		if fresh {
-			service.recordHelperAttempt(*attempt)
+			service.recordInstallAttempt(*attempt)
 		}
 	}
 	_ = selfupdate.CleanUpdates(service.updatesDir())
@@ -283,45 +326,17 @@ func (service *Service) Run(ctx context.Context) {
 		changes, unsubscribe = service.settings.SettingsChanges()
 		defer unsubscribe()
 	}
-	results := time.NewTicker(resultCheck)
-	defer results.Stop()
 	timer := time.NewTimer(service.checkStep(ctx))
 	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-results.C:
-			service.takeHelperResult()
-			continue
 		case <-changes:
 		case <-timer.C:
 		}
 		timer.Reset(service.checkStep(ctx))
 	}
-}
-
-// takeHelperResult records a result the root update helper wrote while the
-// panel runs, such as its refusal of the staged release, or withdraws a
-// staged release the helper never took.
-func (service *Service) takeHelperResult() {
-	attempt, err := selfupdate.TakeFreshAttempt(service.updatesDir())
-	if err == nil && attempt == nil {
-		attempt, err = selfupdate.WithdrawUnclaimed(service.updatesDir(), service.options.Now())
-	}
-	if err != nil || attempt == nil {
-		return
-	}
-	service.mu.Lock()
-	service.update.last = attempt
-	if service.update.state == StateStaged {
-		service.update.state, service.update.target = StateIdle, ""
-		if attempt.Succeeded {
-			service.update.state, service.update.target = StateRestarting, attempt.Version
-		}
-	}
-	service.mu.Unlock()
-	service.recordHelperAttempt(*attempt)
 }
 
 func (service *Service) checkStep(ctx context.Context) time.Duration {
@@ -343,15 +358,16 @@ func (service *Service) checkStep(ctx context.Context) time.Duration {
 	return checkRecheck
 }
 
-// recordHelperAttempt logs the update the root helper applied while the
-// panel was stopped.
-func (service *Service) recordHelperAttempt(attempt Attempt) {
+// recordInstallAttempt logs the update the system unit's install step
+// applied, or the staged release it did not install, before the panel
+// started.
+func (service *Service) recordInstallAttempt(attempt Attempt) {
 	if service.records == nil {
 		return
 	}
-	level, code, message := store.LogLevelInfo, "panel.update.applied", "The panel update helper installed a new version"
+	level, code, message := store.LogLevelInfo, "panel.update.applied", "The panel's unit installed a new version"
 	if !attempt.Succeeded {
-		level, code, message = store.LogLevelError, "panel.update.rejected", "The panel update helper could not install a new version"
+		level, code, message = store.LogLevelError, "panel.update.rejected", "The panel's unit could not install a new version"
 	}
 	service.records.RecordEvent(telemetry.LogRecordRequest{
 		Source: store.LogSourcePanel, Level: level, Code: code, Message: message,

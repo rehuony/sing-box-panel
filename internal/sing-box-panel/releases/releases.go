@@ -46,11 +46,15 @@ type Options struct {
 	HTTPClient  *http.Client
 	// Executable is the panel's own executable; nil is the running one.
 	Executable func() (string, error)
-	// Restart queues a restart of the panel's systemd unit in the scope
-	// that runs it; without it an installed update waits for a manual
-	// restart.
+	// Restart queues a restart of the panel's user unit once a release is
+	// installed in place; without it the installed update waits for a
+	// manual restart.
 	Restart func(context.Context) error
-	Now     func() time.Time
+	// Exit stops the panel so that its system unit starts it again, first
+	// installing the release the panel staged; without it the staged
+	// update waits for a manual restart.
+	Exit func()
+	Now  func() time.Time
 }
 
 // Service distributes the node release and updates the panel.
@@ -67,6 +71,9 @@ type Service struct {
 
 	mu     sync.Mutex
 	update updateState
+	// nodeUpdates counts the node updates in progress; the panel's own
+	// update waits for none.
+	nodeUpdates int
 	// lifetime bounds background updates; Run sets it.
 	lifetime context.Context
 }

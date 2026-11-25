@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/atomicfile"
 )
@@ -85,6 +85,11 @@ func (manager *Manager[T]) Install(ctx context.Context, request InstallRequest) 
 			return InstallResult[T]{}, err
 		}
 	}
+	retired, err := manager.removeRetired(ctx, scope)
+	installed = append(installed, retired...)
+	if err != nil {
+		return InstallResult[T]{}, err
+	}
 
 	if err := manager.runSystemctl(ctx, scope, "daemon-reload"); err != nil {
 		return InstallResult[T]{}, err
@@ -96,13 +101,6 @@ func (manager *Manager[T]) Install(ctx context.Context, request InstallRequest) 
 	enableArgs = append(enableArgs, manager.unitName)
 	if err := manager.runSystemctl(ctx, scope, enableArgs...); err != nil {
 		return InstallResult[T]{}, err
-	}
-	// Companions such as the update helper's path unit run whether or not
-	// the service starts now.
-	if names := manager.enabledCompanions(scope); len(names) != 0 {
-		if err := manager.runSystemctl(ctx, scope, append([]string{"enable", "--now"}, names...)...); err != nil {
-			return InstallResult[T]{}, err
-		}
 	}
 
 	return InstallResult[T]{
@@ -179,8 +177,9 @@ func (manager *Manager[T]) Uninstall(ctx context.Context, request UninstallReque
 		result.Stopped = true
 		return result, nil
 	}
-	// The update helper must not act on a service being removed.
-	if err := manager.stopCompanions(ctx, scope, existing); err != nil {
+	retired, err := manager.removeRetired(ctx, scope)
+	result.RemovedPaths = append(result.RemovedPaths, retired...)
+	if err != nil {
 		return result, err
 	}
 	if !unitStopped(status) {
@@ -275,40 +274,50 @@ func (manager *Manager[T]) Uninstall(ctx context.Context, request UninstallReque
 	return result, nil
 }
 
-// enabledCompanions names the companions enabled with the service.
-func (manager *Manager[T]) enabledCompanions(scope Scope) []string {
-	var names []string
-	if scope == ScopeSystem {
-		for _, companion := range manager.definition.Companions {
-			if companion.Enable {
-				names = append(names, companion.Name)
-			}
-		}
-	}
-	return names
-}
-
-// stopCompanions disables and stops the installed companions, the enabled
-// ones first so they start no other.
-func (manager *Manager[T]) stopCompanions(ctx context.Context, scope Scope, existing []string) error {
+// removeRetired stops and removes the retired units beside the system unit
+// that carry the installation's mark, in the order RetiredUnits lists them,
+// and returns the paths it removed.
+func (manager *Manager[T]) removeRetired(ctx context.Context, scope Scope) ([]string, error) {
 	if scope != ScopeSystem {
-		return nil
+		return nil, nil
 	}
-	for _, enabled := range []bool{true, false} {
-		for _, companion := range manager.definition.Companions {
-			if companion.Enable != enabled || !slices.Contains(existing, manager.companionPath(companion.Name)) {
-				continue
-			}
-			args := []string{"stop", companion.Name}
-			if enabled {
-				args = []string{"disable", "--now", companion.Name}
-			}
-			if err := manager.runSystemctl(ctx, scope, args...); err != nil {
-				return err
-			}
+	var removed []string
+	for _, name := range manager.definition.RetiredUnits {
+		path := filepath.Join(filepath.Dir(manager.layout.SystemUnitPath), name)
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
+		if err != nil {
+			return removed, err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return removed, err
+		}
+		if !bytes.Contains(data, []byte(manager.managedMark())) {
+			continue
+		}
+		// A path unit is disabled so that it starts nothing more.
+		args := []string{"stop", name}
+		if strings.HasSuffix(name, ".path") {
+			args = []string{"disable", "--now", name}
+		}
+		if err := manager.runSystemctl(ctx, scope, args...); err != nil {
+			return removed, err
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return removed, fmt.Errorf("remove retired unit %q: %w", path, err)
+		}
+		removed = append(removed, path)
 	}
-	return nil
+	if len(removed) != 0 {
+		return removed, atomicfile.SyncDir(filepath.Dir(manager.layout.SystemUnitPath))
+	}
+	return removed, nil
 }
 
 func unitStopped(status Status) bool {

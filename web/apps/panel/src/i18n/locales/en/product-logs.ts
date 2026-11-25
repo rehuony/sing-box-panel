@@ -271,7 +271,7 @@ export const productLogs = {
     core_log_current: 'Log files from the current UTC day cannot be deleted.',
     file_not_found: 'The target file does not exist.',
     permission_denied: 'The panel cannot access the target.',
-    helper_unavailable: 'The update helper did not take the staged release within two minutes.',
+    install_step_missing: 'The service started again without installing the staged release; rewrite its unit with systemd install.',
     update_in_progress: 'Another update of the node is in progress.',
     node_offline: 'The node is not connected.',
     operation_failed: 'The operation failed; no safe diagnostic is available.',

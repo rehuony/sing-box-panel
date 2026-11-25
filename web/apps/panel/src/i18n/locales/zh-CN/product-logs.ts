@@ -271,7 +271,7 @@ export const productLogs = {
     core_log_current: '不能删除 UTC 当天的日志文件。',
     file_not_found: '目标文件不存在。',
     permission_denied: '面板没有访问目标的权限。',
-    helper_unavailable: '升级辅助服务未在两分钟内接手暂存的版本。',
+    install_step_missing: '服务重新启动时没有安装暂存的版本，请用 systemd install 重写它的服务单元。',
     update_in_progress: '该节点的另一次升级仍在进行。',
     node_offline: '节点未连接。',
     operation_failed: '操作失败，未记录可安全展示的具体原因。',

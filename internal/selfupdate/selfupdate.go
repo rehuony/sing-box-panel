@@ -3,8 +3,9 @@
 // Package selfupdate fetches, verifies and installs signed release binaries
 // of the panel and the node. Its steps are shared by the panel's update
 // command, the panel's node release cache, both services' updates from the
-// panel and the root update helper of a system service: fetch a release's
-// files, verify staged files, and install a verified binary.
+// panel and the install step of a system service's unit: fetch a release's
+// files, verify staged files, and install a verified binary. Updates go one
+// way: an installed release replaces the binary, which is not kept.
 package selfupdate
 
 import (
@@ -67,12 +68,8 @@ var (
 	// ErrVersionNotNewer refuses a release older than the version that runs.
 	ErrVersionNotNewer = errors.New("the release is older than the version that runs")
 	// ErrExecutableNotWritable reports a process that may not replace its
-	// executable and has no update helper to do it.
+	// executable and has no unit to install a staged release for it.
 	ErrExecutableNotWritable = errors.New("this process may not replace its executable; run the update command with write access to it")
-	ErrNoPreviousExecutable  = errors.New("no previous executable is kept beside the current one")
-	// ErrNotActive reports a service that did not stay active after it was
-	// restarted into a new version.
-	ErrNotActive = errors.New("the service did not stay active after the update")
 )
 
 // Binary is one of the release's executables. It selects the release asset

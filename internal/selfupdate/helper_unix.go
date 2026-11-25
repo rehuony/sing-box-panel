@@ -24,31 +24,27 @@ func directoryWritable(path string) bool {
 	return unix.Access(path, unix.W_OK) == nil
 }
 
-// HelperOptions are what a system service's root update helper needs
+// HelperOptions are what the install step of a system service's unit needs
 // besides its updater.
 type HelperOptions struct {
-	// DataDir is the service's data directory, as the helper unit names it.
+	// DataDir is the service's data directory, as the unit names it.
 	DataDir string
-	// Current is the version of the installed executable: the helper's own.
+	// Current is the version of the installed executable: the step's own.
 	Current string
-	// Restart restarts the service and fails with an error wrapping
-	// ErrNotActive when it does not stay active.
-	Restart func(context.Context) error
 	Now     func() time.Time
 }
 
-// ApplyStaged installs the release a system service staged for its root
-// update helper and restarts the service. The service account owns the
-// staging directory, so the helper follows no symbolic link inside the data
-// directory, reads only regular files, and copies them beside the
-// executable, where only root writes, before reading them. It verifies them
-// with the key embedded in the installed executable, refuses a version that
-// is not newer, installs, restarts the service, and restores the previous
-// executable and restarts again when the service does not stay active. The
-// request is validated as a strict release version and is only compared
-// with directory entries, never used as a path. The result lands in the
-// updates directory for the service to read; nil means nothing was
-// requested.
+// ApplyStaged installs the release a system service staged before it exited
+// for its unit to start it again; the unit runs it as root before the
+// service. The service account owns the staging directory, so the step
+// follows no symbolic link inside the data directory, reads only regular
+// files, and copies them beside the executable, where only root writes,
+// before reading them. It verifies them with the key embedded in the
+// installed executable, refuses a version that is not newer, and installs.
+// An update goes one way: the replaced binary is not kept. The request is
+// validated as a strict release version and is only compared with directory
+// entries, never used as a path. The result lands in the updates directory
+// for the service that starts next to read; nil means nothing was requested.
 func (updater *Updater) ApplyStaged(ctx context.Context, options HelperOptions) (*Attempt, error) {
 	if options.Now == nil {
 		options.Now = time.Now
@@ -76,26 +72,17 @@ func (updater *Updater) ApplyStaged(ctx context.Context, options HelperOptions) 
 		return nil, fmt.Errorf("remove the update request: %w", removeErr)
 	}
 	attempt := Attempt{}
-	var recordErr error
-	recorded := false
-	// record publishes the outcome as it stands, before any restart, so the
-	// service that starts next reads it.
-	record := func(applyErr error) {
+	// finish publishes the outcome for the service that starts next.
+	finish := func(applyErr error) (*Attempt, error) {
 		attempt.Succeeded, attempt.Code = applyErr == nil, ""
 		if applyErr != nil {
 			attempt.Code = FailureCode(applyErr)
 		}
 		attempt.FinishedAt = options.Now().UTC()
-		recorded = true
 		if err := writeResultAt(updates, attempt); err != nil {
-			recordErr = fmt.Errorf("record the update result: %w", err)
+			return &attempt, errors.Join(applyErr, fmt.Errorf("record the update result: %w", err))
 		}
-	}
-	finish := func(applyErr error) (*Attempt, error) {
-		if !recorded || attempt.Succeeded != (applyErr == nil) {
-			record(applyErr)
-		}
-		return &attempt, errors.Join(applyErr, recordErr)
+		return &attempt, applyErr
 	}
 	if err != nil {
 		return finish(fmt.Errorf("%w: read the update request: %v", ErrStagedFileInvalid, err))
@@ -105,10 +92,10 @@ func (updater *Updater) ApplyStaged(ctx context.Context, options HelperOptions) 
 		return finish(err)
 	}
 	attempt.Version = version
-	return finish(updater.applyStaged(ctx, updates, version, options, record))
+	return finish(updater.applyStaged(ctx, updates, version, options))
 }
 
-func (updater *Updater) applyStaged(ctx context.Context, updates int, version string, options HelperOptions, record func(error)) error {
+func (updater *Updater) applyStaged(ctx context.Context, updates int, version string, options HelperOptions) error {
 	if err := updater.ready(options.Current); err != nil {
 		return err
 	}
@@ -148,30 +135,8 @@ func (updater *Updater) applyStaged(ctx context.Context, updates int, version st
 	if err != nil {
 		return fmt.Errorf("acquire update lock: %w", err)
 	}
-	err = updater.installLocked(ctx, verified, targetPath, targetMode, targetDigest)
-	_ = lock.Close()
-	if err != nil {
-		return err
-	}
-	record(nil)
-	restartErr := options.Restart(ctx)
-	if restartErr == nil {
-		return nil
-	}
-	if !errors.Is(restartErr, ErrNotActive) {
-		restartErr = fmt.Errorf("%w: %w", ErrNotActive, restartErr)
-	}
-	// Restart the previous version whatever the reason: the service must not
-	// stay down on the new one, and it reads the failure when it starts.
-	record(restartErr)
-	restoreErr := updater.RestorePrevious(context.WithoutCancel(ctx))
-	if restoreErr == nil {
-		restoreErr = options.Restart(context.WithoutCancel(ctx))
-	}
-	if restoreErr != nil {
-		return errors.Join(restartErr, fmt.Errorf("restore the previous executable: %w", restoreErr))
-	}
-	return restartErr
+	defer func() { _ = lock.Close() }()
+	return updater.installLocked(ctx, verified, targetPath, targetMode, targetDigest)
 }
 
 // openDirectoryPath opens the service's data directory. Its parent belongs

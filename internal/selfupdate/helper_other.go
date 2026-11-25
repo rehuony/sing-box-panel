@@ -14,7 +14,6 @@ func directoryWritable(string) bool { return false }
 type HelperOptions struct {
 	DataDir string
 	Current string
-	Restart func(context.Context) error
 	Now     func() time.Time
 }
 

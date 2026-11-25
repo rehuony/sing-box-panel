@@ -14,10 +14,18 @@ Environment=SING_BOX_NODE_HOST_PROC=/run/sing-box-node/host-proc
 Type=simple
 User=sing-box-node
 Group=sing-box-node
+# Installs a release the service staged before it exited with status 75: as
+# root and outside this sandbox, verified with the key the installed binary
+# embeds. The service starts whatever the outcome; the step records it.
+ExecStartPre=-+/usr/local/bin/sing-box-node update --apply-staged --data-dir /var/lib/sing-box-node
 ExecStart=/usr/local/bin/sing-box-node server start --config /etc/sing-box-node/setting.json
 WorkingDirectory=/var/lib/sing-box-node
 Restart=on-failure
 RestartSec=5s
+# Status 75 asks systemd to start the service again, such as once it staged
+# an update for the install step.
+SuccessExitStatus=75
+RestartForceExitStatus=75
 TimeoutStopSec=30s
 KillMode=mixed
 UMask=0077

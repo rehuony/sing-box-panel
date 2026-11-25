@@ -488,7 +488,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     restartPanel: vi.fn<ApiClient['restartPanel']>().mockResolvedValue({ started_at: '2026-09-19T00:00:00Z' }),
     checkSystemUpdate: vi.fn<ApiClient['checkSystemUpdate']>().mockResolvedValue(testSystemUpdate),
     startSystemUpdate: vi.fn<ApiClient['startSystemUpdate']>().mockResolvedValue({ ...testSystemUpdate, state: 'updating' }),
-    updateNode: vi.fn<ApiClient['updateNode']>().mockResolvedValue({ node_id: 'node-a', version: 'v1.1.0', state: 'staged' }),
+    updateNode: vi.fn<ApiClient['updateNode']>().mockResolvedValue({ node_id: 'node-a', version: 'v1.1.0', state: 'restarting' }),
   };
   const result = { ...client, ...overrides } as Mocked<ApiClient>;
   // A node's client shares the mocks, so tests observe node-scoped calls.

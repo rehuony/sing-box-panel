@@ -7,7 +7,7 @@ import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 
 /** States in which the panel's update is under way and its status worth following. */
-const following = new Set<SystemUpdate['state']>(['updating', 'staged', 'restarting']);
+const following = new Set<SystemUpdate['state']>(['updating', 'restarting']);
 /** The version this tab last reloaded for, so a reload happens once per version. */
 const RELOADED_KEY = 'sing-box-panel.reloaded-for';
 

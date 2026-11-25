@@ -16,6 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
@@ -253,14 +254,25 @@ func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Reque
 	case "update":
 		// Updates run one node at a time: each must come back with the
 		// panel's version before the next starts, and a failure stops them.
+		// The panel's own update waits for the whole batch.
 		if _, err := handler.services.Releases.NodeVersion(); err != nil {
 			nodeUpdateProblem(err).write(w, request)
+			return
+		}
+		if handler.services.Releases.Status().State != releases.StateIdle {
+			nodeUpdateProblem(releases.ErrUpdateRunning).write(w, request)
 			return
 		}
 		command = func(ctx context.Context, node fleet.Node) error {
 			return handler.services.Fleet.UpdateNodeAndWait(ctx, node.ID)
 		}
-		run = handler.services.Fleet.RunSequential
+		run = func(ctx context.Context, nodes []fleet.BatchNode, command func(context.Context, fleet.Node) error, report func(fleet.BatchResult)) {
+			// A panel update that began since is refused to each node in turn.
+			if end, err := handler.services.Releases.BeginNodeUpdate(); err == nil {
+				defer end()
+			}
+			handler.services.Fleet.RunSequential(ctx, nodes, command, report)
+		}
 	default:
 		invalid("action must be start, stop, restart, install_core or update.")
 		return

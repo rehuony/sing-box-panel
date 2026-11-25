@@ -244,11 +244,10 @@ const (
 	UpdateState_UPDATE_STATE_UNSPECIFIED UpdateState = 0
 	// The node already runs the version.
 	UpdateState_UPDATE_STATE_UP_TO_DATE UpdateState = 1
-	// The node installed the version and its service restarts into it now.
+	// The node restarts into the version now: its user service once it
+	// installed the version, or its system unit, which installs the version
+	// the node staged before it starts the node again.
 	UpdateState_UPDATE_STATE_RESTARTING UpdateState = 2
-	// The node's system service staged the version for its root update
-	// helper, which installs it and restarts the service.
-	UpdateState_UPDATE_STATE_STAGED UpdateState = 3
 	// The node installed the version, which runs once the node is restarted.
 	UpdateState_UPDATE_STATE_RESTART_REQUIRED UpdateState = 4
 )
@@ -259,14 +258,12 @@ var (
 		0: "UPDATE_STATE_UNSPECIFIED",
 		1: "UPDATE_STATE_UP_TO_DATE",
 		2: "UPDATE_STATE_RESTARTING",
-		3: "UPDATE_STATE_STAGED",
 		4: "UPDATE_STATE_RESTART_REQUIRED",
 	}
 	UpdateState_value = map[string]int32{
 		"UPDATE_STATE_UNSPECIFIED":      0,
 		"UPDATE_STATE_UP_TO_DATE":       1,
 		"UPDATE_STATE_RESTARTING":       2,
-		"UPDATE_STATE_STAGED":           3,
 		"UPDATE_STATE_RESTART_REQUIRED": 4,
 	}
 )
@@ -2719,8 +2716,9 @@ func (x *ClearCoreLog) GetFile() string {
 
 // UpdateNode updates the node to the panel's release of version. The node
 // fetches it from the release endpoint, verifies it with the release key
-// embedded in its own binary, and installs it or stages it for its root
-// update helper.
+// embedded in its own binary, and installs it, or stages it and stops for
+// its system unit to install it and start the node again. Updates go one
+// way.
 type UpdateNode struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -4222,8 +4220,8 @@ type StateReport struct {
 	// file is still the empty document it was created with.
 	ExistingConfiguration *ConfigurationRevision `protobuf:"bytes,6,opt,name=existing_configuration,json=existingConfiguration,proto3" json:"existing_configuration,omitempty"`
 	Runtime               *RuntimeStatus         `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
-	// The node's last update attempt, absent when it has made none. After a
-	// root update helper's attempt the node reports its result once it runs
+	// The node's last update attempt, absent when it has made none. After its
+	// system unit's install step the node reports the outcome once it runs
 	// again. Since minor version 1.
 	LastUpdate    *UpdateAttempt `protobuf:"bytes,8,opt,name=last_update,json=lastUpdate,proto3" json:"last_update,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -4313,8 +4311,8 @@ type UpdateAttempt struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Version   string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
 	Succeeded bool                   `protobuf:"varint,2,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
-	// On failure, a short code such as signature_invalid,
-	// service_not_active or helper_unavailable.
+	// On failure, a short code such as signature_invalid or
+	// install_step_missing.
 	Code          string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
 	FinishedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -5731,13 +5729,12 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\"STARTUP_ARTIFACT_STATE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eSTARTUP_ARTIFACT_STATE_PENDING\x10\x01\x12 \n" +
 	"\x1cSTARTUP_ARTIFACT_STATE_READY\x10\x02\x12!\n" +
-	"\x1dSTARTUP_ARTIFACT_STATE_FAILED\x10\x03*\xa1\x01\n" +
+	"\x1dSTARTUP_ARTIFACT_STATE_FAILED\x10\x03*\xa3\x01\n" +
 	"\vUpdateState\x12\x1c\n" +
 	"\x18UPDATE_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17UPDATE_STATE_UP_TO_DATE\x10\x01\x12\x1b\n" +
-	"\x17UPDATE_STATE_RESTARTING\x10\x02\x12\x17\n" +
-	"\x13UPDATE_STATE_STAGED\x10\x03\x12!\n" +
-	"\x1dUPDATE_STATE_RESTART_REQUIRED\x10\x04*\x98\x01\n" +
+	"\x17UPDATE_STATE_RESTARTING\x10\x02\x12!\n" +
+	"\x1dUPDATE_STATE_RESTART_REQUIRED\x10\x04\"\x04\b\x03\x10\x03*\x13UPDATE_STATE_STAGED*\x98\x01\n" +
 	"\fProcessState\x12\x1d\n" +
 	"\x19PROCESS_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15PROCESS_STATE_RUNNING\x10\x01\x12\x19\n" +

@@ -295,8 +295,9 @@ message ClearCoreLog {
 
 // UpdateNode updates the node to the panel's release of version. The node
 // fetches it from the release endpoint, verifies it with the release key
-// embedded in its own binary, and installs it or stages it for its root
-// update helper.
+// embedded in its own binary, and installs it, or stages it and stops for
+// its system unit to install it and start the node again. Updates go one
+// way.
 message UpdateNode {
   string version = 1;
 }
@@ -430,14 +431,15 @@ message UpdateOutcome {
 }
 
 enum UpdateState {
+  reserved 3;
+  reserved "UPDATE_STATE_STAGED";
   UPDATE_STATE_UNSPECIFIED = 0;
   // The node already runs the version.
   UPDATE_STATE_UP_TO_DATE = 1;
-  // The node installed the version and its service restarts into it now.
+  // The node restarts into the version now: its user service once it
+  // installed the version, or its system unit, which installs the version
+  // the node staged before it starts the node again.
   UPDATE_STATE_RESTARTING = 2;
-  // The node's system service staged the version for its root update
-  // helper, which installs it and restarts the service.
-  UPDATE_STATE_STAGED = 3;
   // The node installed the version, which runs once the node is restarted.
   UPDATE_STATE_RESTART_REQUIRED = 4;
 }
@@ -495,8 +497,8 @@ message StateReport {
   // file is still the empty document it was created with.
   ConfigurationRevision existing_configuration = 6;
   RuntimeStatus runtime = 7;
-  // The node's last update attempt, absent when it has made none. After a
-  // root update helper's attempt the node reports its result once it runs
+  // The node's last update attempt, absent when it has made none. After its
+  // system unit's install step the node reports the outcome once it runs
   // again. Since minor version 1.
   UpdateAttempt last_update = 8;
 }
@@ -504,8 +506,8 @@ message StateReport {
 message UpdateAttempt {
   string version = 1;
   bool succeeded = 2;
-  // On failure, a short code such as signature_invalid,
-  // service_not_active or helper_unavailable.
+  // On failure, a short code such as signature_invalid or
+  // install_step_missing.
   string code = 3;
   google.protobuf.Timestamp finished_at = 4;
 }

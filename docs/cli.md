@@ -421,9 +421,9 @@ itself, from the node's settings or in a batch; see
 sudo sing-box-node update --restart
 ```
 
-`sing-box-node update --apply-staged --data-dir DIR` is the entry point of the
-system service's root update helper, which the helper unit runs; see
-[systemd packaging](systemd.md#update-helper).
+`sing-box-node update --apply-staged --data-dir DIR` is the system unit's
+install step, which systemd runs as root before it starts the node; see
+[systemd packaging](systemd.md#updates).
 
 `sing-box-node systemd` manages the node's own service, with the same commands
 and flags as the panel's (`--scope`, `--force`, `--now`, `--keep-user`,
@@ -796,10 +796,11 @@ the lock is held. Cancellation is honored until that replacement commit point.
 Any missing or invalid evidence, concurrent replacement, changing release, or
 prior cancellation leaves the running executable unchanged.
 
-The invoking user must be able to write the executable's directory. The
-replaced binary is kept beside it as `sing-box-panel.previous`. Replacing the
-file does not restart an already-running systemd service. The Web UI's panel
-settings offer the same update, which a system service hands to its root update
-helper and which restarts the panel. `update --apply-staged --data-dir DIR` is
-that helper's entry point; see [systemd packaging](systemd.md#update-helper).
+The invoking user must be able to write the executable's directory. Updates go
+one way: the replaced binary is not kept, and nothing is left beside the
+executable. Replacing the file does not restart an already-running systemd
+service. The Web UI's panel settings offer the same update: a system service
+stages it and stops, and its unit installs it and starts the panel again.
+`update --apply-staged --data-dir DIR` is that unit's install step; see
+[systemd packaging](systemd.md#updates).
 See [Release process](release.md) for the signing and publication procedure.

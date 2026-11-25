@@ -25,15 +25,13 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/service"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
+	"github.com/rehuony/sing-box-panel/internal/systemd"
 )
 
 const (
 	// enrollmentCheckInterval is how often a running node looks for an
 	// enrollment saved while it runs.
 	enrollmentCheckInterval = 3 * time.Second
-	// resultCheckInterval is how often a running node looks for the result
-	// of its root update helper.
-	resultCheckInterval = 2 * time.Second
 	// handshakeTimeout bounds each handshake step of a session or release
 	// fetch; transferIdleTimeout bounds the wait for each chunk of a
 	// download.
@@ -214,7 +212,9 @@ func Run(ctx context.Context, link *Link, options Options) (runErr error) {
 	background.Go(func() { link.watch(ctx, enrollmentCheckInterval, options.logf) })
 	self := newUpdates(dataDir, link.build, options.Update)
 	self.load()
-	background.Go(func() { self.watch(ctx, resultCheckInterval) })
+	// A system service that staged an update stops for its unit to install
+	// it: Run then returns systemd.ErrRestart.
+	self.exit = func() { stop(systemd.ErrRestart) }
 	// The sessions' reports and the console share one host sampler.
 	sampler := &host.Sampler{}
 	if options.Console != nil {

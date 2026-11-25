@@ -34,9 +34,14 @@ func (handler *Handler) restartSystem(w http.ResponseWriter, request *http.Reque
 		return
 	}
 	if err := handler.restart(request.Context()); err != nil {
-		if errors.Is(err, releases.ErrUpdateRunning) {
+		switch {
+		case errors.Is(err, releases.ErrUpdateRunning):
 			writeProblem(w, request, http.StatusConflict, "update_in_progress", "Update in progress",
 				"The panel's update restarts it; wait until the update has finished.")
+			return
+		case errors.Is(err, releases.ErrNodeUpdatesRunning):
+			writeProblem(w, request, http.StatusConflict, "node_updates_in_progress", "Node updates in progress",
+				"A restart would interrupt the node updates; wait until they finish.")
 			return
 		}
 		writeProblem(w, request, http.StatusServiceUnavailable, "restart_failed", "Restart failed", "The panel could not prepare its restart.")

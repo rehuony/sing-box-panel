@@ -13,10 +13,18 @@ Environment=SING_BOX_PANEL_SUPERVISOR=systemd
 Type=simple
 User=sing-box-panel
 Group=sing-box-panel
+# Installs a release the service staged before it exited with status 75: as
+# root and outside this sandbox, verified with the key the installed binary
+# embeds. The service starts whatever the outcome; the step records it.
+ExecStartPre=-+/usr/local/bin/sing-box-panel update --apply-staged --data-dir /var/lib/sing-box-panel
 ExecStart=/usr/local/bin/sing-box-panel server start --config /etc/sing-box-panel/setting.json
 WorkingDirectory=/var/lib/sing-box-panel
 Restart=on-failure
 RestartSec=5s
+# Status 75 asks systemd to start the service again, such as once it staged
+# an update for the install step.
+SuccessExitStatus=75
+RestartForceExitStatus=75
 TimeoutStopSec=30s
 KillMode=mixed
 UMask=0077

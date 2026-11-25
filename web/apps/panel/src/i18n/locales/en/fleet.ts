@@ -153,8 +153,7 @@ export const node = {
     lastFailed: 'The update to {{version}} failed ({{code}})',
     result: {
       restart_required: '{{name}} installed {{version}}; restart the node to run it',
-      restarting: '{{name}} installed {{version}} and is restarting',
-      staged: '{{name}} staged {{version}}; its update helper installs it and restarts the node',
+      restarting: '{{name}} is restarting into {{version}}',
       up_to_date: '{{name}} already runs {{version}}',
     },
     title: 'Version',

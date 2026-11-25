@@ -324,9 +324,10 @@ paths:
         way a stop does and runs its program again in the same process, so
         the connection ends. The answer carries the start of the stopping
         process; getSystemStatus reports a later started_at once the panel is
-        back. Refused while an update of the panel runs or is staged, since
-        the update restarts the panel itself, and where the panel cannot
-        restart itself.
+        back. Refused while an update of the panel runs, since the update
+        restarts the panel itself, while nodes are being updated
+        (node_updates_in_progress), and where the panel cannot restart
+        itself.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -352,12 +353,13 @@ paths:
       operationId: startSystemUpdate
       description: >-
         Starts updating the panel to the newest stable release it knows, in
-        the background. A system service downloads and verifies the release
-        and stages it for its root update helper, which installs it and
-        restarts the panel; a panel that may replace its executable installs
-        it and, under a user unit, restarts, or otherwise waits for a manual
-        restart. Follow the state with getSystemUpdate; the panel restarts,
-        so the connection ends.
+        the background. A system service downloads and verifies the release,
+        stages it and stops; its unit installs it and starts the panel again.
+        A panel that may replace its executable installs it and, under a user
+        unit, restarts, or otherwise waits for a manual restart. Updates go
+        one way: the replaced binary is not kept. Follow the state with
+        getSystemUpdate; the panel restarts, so the connection ends. While
+        nodes are being updated the panel answers node_updates_in_progress.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -1910,12 +1912,14 @@ paths:
       description: >-
         Asks the node to update itself to the panel's release, which the
         panel caches and verifies first. The node fetches it from the panel,
-        verifies it with its own release key, and installs it or stages it
-        for its root update helper; restarting the node restarts its core, so
-        its proxy is briefly interrupted. A panel that is not a release build
-        answers node_update_unavailable, a node whose protocol predates
-        updates node_upgrade_required, and a node already updating
-        node_update_in_progress.
+        verifies it with its own release key, and installs it, or a system
+        service stages it and stops for its unit to install it and start the
+        node again; restarting the node restarts its core, so its proxy is
+        briefly interrupted. A panel that is not a release build answers
+        node_update_unavailable, a node whose protocol predates updates
+        node_upgrade_required, a node already updating
+        node_update_in_progress, and a panel that is updating itself
+        update_in_progress.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -2608,7 +2612,7 @@ components:
           type: boolean
           description: The node's version differs from the panel's release; always false on a panel that is not a release build.
         last_update:
-          description: The node's last update attempt as it last reported it; after its root update helper's attempt the node reports it once it runs again.
+          description: The node's last update attempt as it last reported it; after its system unit's install step the node reports it once it runs again.
           oneOf:
             - {$ref: '#/components/schemas/UpdateAttempt'}
             - {type: 'null'}
@@ -2621,7 +2625,7 @@ components:
         succeeded: {type: boolean}
         code:
           type: string
-          description: On failure, a short code such as signature_invalid, version_not_newer, service_not_active or helper_unavailable (the root update helper did not take a staged release within two minutes); empty on success.
+          description: On failure, a short code such as signature_invalid, version_not_newer or install_step_missing (the service started again with a staged release its unit did not install, as a unit an earlier release wrote does not); empty on success.
         finished_at:
           type: [string, "null"]
           format: date-time
@@ -2634,13 +2638,12 @@ components:
         version: {type: string, description: The panel's release the node was asked to run.}
         state:
           type: string
-          enum: [up_to_date, restarting, staged, restart_required]
+          enum: [up_to_date, restarting, restart_required]
           description: >-
             up_to_date: the node already runs it. restarting: the node
-            installed it and its service restarts now. staged: the node's
-            system service staged it for its root update helper, which
-            installs it and restarts the node. restart_required: the node
-            installed it and runs it once restarted.
+            restarts into it now, its user unit once it installed it or its
+            system unit, which installs it first. restart_required: the node
+            installed or staged it and runs it once restarted.
     SystemUpdate:
       type: object
       additionalProperties: false
@@ -2658,11 +2661,11 @@ components:
         update_available: {type: boolean}
         state:
           type: string
-          enum: [idle, updating, staged, restarting, restart_required]
+          enum: [idle, updating, restarting, restart_required]
           description: >-
             updating: the release is being downloaded, verified and installed
-            or staged. staged: the root update helper installs it and
-            restarts the panel. restarting: the panel's unit restarts into it.
+            or staged. restarting: the panel restarts into it, its user unit
+            once it installed it or its system unit, which installs it first.
             restart_required: it runs once the panel is restarted.
         target_version: {type: [string, "null"]}
         last_attempt:

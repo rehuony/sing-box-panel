@@ -154,13 +154,6 @@ func (manager *Manager[T]) installFiles(scope Scope, unit []byte, dataDir string
 			managedFile{path: manager.layout.SystemSysusersPath, data: manager.definition.Sysusers},
 			managedFile{path: manager.layout.SystemTmpfilesPath, data: []byte(tmpfiles)},
 		)
-		for _, companion := range manager.definition.Companions {
-			data, err := manager.RenderCompanion(companion, manager.layout.SystemExecutablePath, dataDir)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, managedFile{path: manager.companionPath(companion.Name), data: data})
-		}
 	}
 	return files, nil
 }
@@ -172,16 +165,8 @@ func (manager *Manager[T]) managedPaths(scope Scope) []string {
 	paths := []string{manager.unitPath(scope)}
 	if scope == ScopeSystem {
 		paths = append(paths, manager.layout.SystemSysusersPath, manager.layout.SystemTmpfilesPath)
-		for _, companion := range manager.definition.Companions {
-			paths = append(paths, manager.companionPath(companion.Name))
-		}
 	}
 	return paths
-}
-
-// companionPath is where a companion unit sits: beside the system unit.
-func (manager *Manager[T]) companionPath(name string) string {
-	return filepath.Join(filepath.Dir(manager.layout.SystemUnitPath), name)
 }
 
 func (manager *Manager[T]) unitPath(scope Scope) string {

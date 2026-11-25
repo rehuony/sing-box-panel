@@ -20,7 +20,6 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/nodeapi"
-	"github.com/rehuony/sing-box-panel/internal/selfupdate"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/agent"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 )
@@ -238,7 +237,7 @@ func TestBatchUpdateRunsOneNodeAtATimeAndStopsAtAFailure(t *testing.T) {
 }
 
 // TestRetriedUpdateIsNotBlamedForTheLastFailure retries an update soon after
-// the node's helper refused one: until the node comes back, it still reports
+// the node's unit refused one: until the node comes back, it still reports
 // that earlier failure, which is not this update's outcome.
 func TestRetriedUpdateIsNotBlamedForTheLastFailure(t *testing.T) {
 	served := startFleetWith(t, fleetSetup{version: "v1.1.0", release: map[string][]byte{}})
@@ -257,9 +256,9 @@ func TestRetriedUpdateIsNotBlamedForTheLastFailure(t *testing.T) {
 		t.Fatalf("expected an update command, got %v, %v", frame, err)
 	}
 	answerCommand(t, stream, frame.GetCommand().GetRequestId(), &nodeapi.Result_Update{Update: &nodeapi.UpdateOutcome{
-		State: nodeapi.UpdateState_UPDATE_STATE_STAGED, Version: "v1.1.0",
+		State: nodeapi.UpdateState_UPDATE_STATE_RESTARTING, Version: "v1.1.0",
 	}})
-	// The helper applies the retry while the node still reports the failure.
+	// The unit installs the retry while the node still reports the failure.
 	select {
 	case err := <-done:
 		t.Fatalf("the update ended with %v before the node came back", err)
@@ -360,8 +359,9 @@ func TestNodeUpdatesItselfFromThePanelsRelease(t *testing.T) {
 	if installed, err := os.ReadFile(executable); err != nil || !bytes.Equal(installed, binary) {
 		t.Fatalf("the executable is not the release: %v", err)
 	}
-	if previous, err := os.ReadFile(executable + selfupdate.PreviousSuffix); err != nil || string(previous) != "old binary" {
-		t.Fatalf("previous executable = %q, %v", previous, err)
+	// Updates go one way: nothing but the executable stays beside it.
+	if entries, err := os.ReadDir(filepath.Dir(executable)); err != nil || len(entries) != 1 {
+		t.Fatalf("beside the executable: %v, %v; want the executable alone", entries, err)
 	}
 	node, err := served.service.Node(t.Context(), enrollment.NodeID)
 	if err != nil || node.LastUpdate == nil || !node.LastUpdate.Succeeded || node.LastUpdate.Version != "v1.1.0" || !node.UpdateAvailable {
