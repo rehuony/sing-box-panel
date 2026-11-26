@@ -18,6 +18,8 @@ type SelectFieldProps<Value extends string | number> = Pick<
   onValueChange: (value: Value) => void;
   /** In a bar, marks a choice that filters what the view shows. */
   active?: boolean;
+  /** Classes for every option, such as the data face for values the configuration writes. */
+  itemClassName?: string;
 };
 
 export function SelectField<Value extends string | number>({
@@ -26,6 +28,7 @@ export function SelectField<Value extends string | number>({
   onValueChange,
   disabled,
   active,
+  itemClassName,
   ...props
 }: SelectFieldProps<Value>) {
   return (
@@ -41,7 +44,9 @@ export function SelectField<Value extends string | number>({
       <SelectContent>
         <SelectGroup>
           {items.map((item) => (
-            <SelectItem key={item.value} value={item.value} disabled={item.disabled}>{item.label}</SelectItem>
+            <SelectItem className={itemClassName} disabled={item.disabled} key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
           ))}
         </SelectGroup>
       </SelectContent>

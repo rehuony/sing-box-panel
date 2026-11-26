@@ -414,7 +414,9 @@ a note, because the exit rule sets the exit. A rule-set link may hold commas:
 the link is everything between the name and the trailing format and behavior,
 so every saved rule reads back the same. Other rule types, invalid values,
 formats the client cannot use and repeated rule-set names are listed by line,
-and saving is refused while one remains. The server's validation remains the
+and saving is refused while one remains. The entries add one rule, or every
+line of a pasted block that can be read, from the line at their foot, and
+refuse a rule the set already holds. The server's validation remains the
 final check.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
