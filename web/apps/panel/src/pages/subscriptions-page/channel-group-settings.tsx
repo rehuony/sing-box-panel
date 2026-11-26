@@ -21,7 +21,7 @@ import { SourceRuleInput } from './source-rule-input';
 import { FLEET_ORIGIN } from './subscription-node-pool';
 import { defaultGroupHealthCheck, groupTypeName } from './channel-policy';
 
-const fieldLabel = 'text-sm text-[var(--color-text-secondary)]';
+const fieldLabel = 'text-sm';
 const noMatch: ChannelGroupMatch = { include: [], exclude: [], origins: [], protocols: [] };
 
 /** A form row: the label column, then the control filling the rest; stacked below 520px. */
@@ -32,7 +32,7 @@ function Row({ children, htmlFor, label, labelId }: {
   labelId?: string;
 }) {
   return (
-    <div className='grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] items-start gap-x-4 gap-y-1 py-2 max-[520px]:grid-cols-1'>
+    <div className='grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-start gap-x-4 gap-y-1.5 max-[520px]:grid-cols-1'>
       <div className='flex min-h-(--control-height) items-center'>
         <label className={fieldLabel} htmlFor={htmlFor} id={labelId}>{label}</label>
       </div>
@@ -126,9 +126,9 @@ export function ChannelGroupSettings({ busy, format, nodes, onApply, onChange, o
   const protocols = present.map(protocol => ({ value: protocol, label: protocol }));
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-[34rem]'>
+      <DialogContent className='flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col overflow-hidden'>
         <form
-          className='flex min-h-0 min-w-0 flex-1 flex-col gap-4'
+          className='flex min-h-0 min-w-0 flex-1 flex-col gap-5'
           onSubmit={(event) => {
             event.preventDefault();
             if (!busy && value.name.trim()) onApply(value);
@@ -139,7 +139,7 @@ export function ChannelGroupSettings({ busy, format, nodes, onApply, onChange, o
             <DialogDescription className='sr-only'>{value.name}</DialogDescription>
           </DialogHeader>
           <div className='-mx-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-6'>
-            <div className='flex min-w-0 flex-col divide-y'>
+            <div className='flex min-w-0 flex-col gap-3'>
               <Row htmlFor={`${id}-name`} label={t('channels.groupName')}>
                 <Input autoComplete='off' disabled={busy} id={`${id}-name`} maxLength={128} onChange={(event) => onChange({ ...value, name: event.target.value })} value={value.name} />
               </Row>
@@ -172,9 +172,9 @@ export function ChannelGroupSettings({ busy, format, nodes, onApply, onChange, o
                   )
                 : null}
             </div>
-            <section aria-labelledby={`${id}-match`} className='mt-2 flex min-w-0 flex-col border-t pt-3'>
+            <section aria-labelledby={`${id}-match`} className='mt-5 flex min-w-0 flex-col gap-3 border-t pt-4'>
               <h3 className='text-xs text-[var(--color-text-secondary)]' id={`${id}-match`}>{t('channels.autoMatch')}</h3>
-              <div className='flex min-w-0 flex-col divide-y'>
+              <div className='flex min-w-0 flex-col gap-3'>
                 <Row htmlFor={`${id}-include`} label={t('channels.matchInclude')}>
                   <SourceRuleInput id={`${id}-include`} invalidRules={[]} onChange={include => setMatch({ include })} value={match.include} />
                 </Row>

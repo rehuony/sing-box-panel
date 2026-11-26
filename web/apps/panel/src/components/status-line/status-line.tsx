@@ -44,6 +44,7 @@ import type { NodeWindow, PanelWindow } from '@/utils/shell-windows';
 import { useTheme } from '@/theme';
 import { preloadPage } from '@/routes/page-loaders';
 import { useFleetView } from '@/stores/fleet-view.store';
+import { compactVersion } from '@/utils/compact-version';
 import { usePanelUpdate } from '@/hooks/use-panel-update';
 import { usePhoneLayout } from '@/hooks/use-phone-layout';
 import { useCommandSession } from '@/stores/command-session.store';
@@ -241,7 +242,8 @@ function PanelUpdateHint() {
   } else if (update.state !== 'idle') {
     text = t('shell.update.running');
   } else if (update.update_available && update.latest_version) {
-    text = `↑ ${update.latest_version}`;
+    // A development build's long version shows its release and commit; the tooltip has all of it.
+    text = `↑ ${compactVersion(update.latest_version)}`;
   }
   if (text === null) return null;
   const label = update.state === 'idle'

@@ -19,6 +19,7 @@ import type {
   Session,
   StartupArtifactSummary,
   SubscriptionChannel,
+  SubscriptionChannelSummary,
   SubscriptionRuleSet,
   SubscriptionSource,
   SubscriptionToken,
@@ -167,6 +168,13 @@ export const testSubscriptionChannels: SubscriptionChannel[] = [
     updated_at: '2026-08-26T07:05:00.000000001Z',
   },
 ];
+
+/** The channels as the list reads them: an empty channel publishes no nodes and exits DIRECT. */
+export const testSubscriptionChannelSummaries: SubscriptionChannelSummary[] = testSubscriptionChannels.map(channel => ({
+  id: channel.id, name: channel.name, format: channel.format, enabled: channel.enabled,
+  node_count: 0, route_count: 0, final_exit: { kind: 'direct' },
+  created_at: channel.created_at, updated_at: channel.updated_at,
+}));
 
 export const testSubscriptionRuleSets: SubscriptionRuleSet[] = [
   {
@@ -393,7 +401,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     stopRuntime: vi.fn<ApiClient['stopRuntime']>().mockResolvedValue({ desired_running: false, target_generation: 2, observation_state: 'stopped' }),
     restartRuntime: vi.fn<ApiClient['restartRuntime']>().mockResolvedValue(testRuntimeStatus),
     rollbackRuntime: vi.fn<ApiClient['rollbackRuntime']>(),
-    listSubscriptionChannels: vi.fn<ApiClient['listSubscriptionChannels']>().mockResolvedValue({ items: testSubscriptionChannels }),
+    listSubscriptionChannels: vi.fn<ApiClient['listSubscriptionChannels']>().mockResolvedValue({ items: testSubscriptionChannelSummaries }),
     getSubscriptionChannel: vi.fn<ApiClient['getSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
     createSubscriptionChannel: vi.fn<ApiClient['createSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
     updateSubscriptionChannel: vi.fn<ApiClient['updateSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),

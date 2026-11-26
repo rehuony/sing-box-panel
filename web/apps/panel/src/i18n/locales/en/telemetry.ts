@@ -38,6 +38,7 @@ export const telemetry = {
     runningDetail: 'Verified process',
     stale: 'Runtime evidence is stale',
     stopped: 'Stopped',
+    notEnabledDetail: 'No core version is enabled on this node',
     stoppedDetail: 'Verified stopped state',
   },
   startedAt: 'Started {{value}}',

@@ -10,21 +10,23 @@ import { Popover, PopoverContent, PopoverTrigger } from '@shared/components/ui/p
 
 import type { SubscriptionSourcePreview } from '@/api/api-client';
 
-import { messageLine } from '@/utils/message-line';
+import type { ReadIssue } from './source-read-issue';
 
 import { contentLabel, contentProtocols } from './source-format';
 
 /**
- * One line saying which nodes the content holds and the filter keeps, or why
- * they cannot be read, with an action that lists them in a floating panel.
- * The line keeps its height in every state, so the form never moves.
+ * One line saying which nodes the content holds and the filter keeps, with an
+ * action that lists them in a floating panel; or why they cannot be read, in
+ * danger, with the step that may fix it in the action's place. The line keeps
+ * its height in every state, so the form never moves.
  */
-export function SourceNodeSummary({ failure, labelId, loading, preview, waiting }: {
+export function SourceNodeSummary({ issue, labelId, loading, onAction, preview, waiting }: {
   labelId: string;
   waiting: boolean;
   loading: boolean;
-  /** Why the content or the filter could not be read. */
-  failure: string | null;
+  /** Why the content, its fetch or the filter could not be read. */
+  issue: ReadIssue | null;
+  onAction: (action: NonNullable<ReadIssue['action']>) => void;
   preview: SubscriptionSourcePreview | undefined;
 }) {
   const { t } = useTranslation();
@@ -39,19 +41,8 @@ export function SourceNodeSummary({ failure, labelId, loading, preview, waiting 
         {t('subscriptions.sources.preview.loading')}
       </span>
     );
-  } else if (failure !== null) {
-    status = <span className='text-[var(--color-danger-text)]'>{messageLine(failure)}</span>;
-  } else if (problem) {
-    status = (
-      <span className='text-[var(--color-danger-text)]'>
-        {/* A node that does not convert has a name; content that does not parse may only have a line. */}
-        {t(problem.name ? 'subscriptions.sources.preview.nodeError' : problem.location ? 'subscriptions.sources.preview.lineError' : 'subscriptions.sources.preview.contentError', {
-          code: problem.reason ? `${problem.code} (${problem.reason})` : problem.code,
-          location: problem.location ?? '',
-          name: problem.name ?? '',
-        })}
-      </span>
-    );
+  } else if (issue) {
+    status = <span className='text-[var(--color-danger-text)]' title={issue.detail}>{issue.text}</span>;
   } else if (preview) {
     const label = contentLabel(preview.format, contentProtocols(preview.items), t);
     status = (
@@ -70,13 +61,20 @@ export function SourceNodeSummary({ failure, labelId, loading, preview, waiting 
       </>
     );
   }
-  const items = loading || waiting || failure !== null ? [] : preview?.items ?? [];
+  const items = loading || waiting || issue?.action ? [] : preview?.items ?? [];
 
   return (
     <div className='flex min-h-(--control-height) min-w-0 items-center gap-2'>
       <p aria-busy={loading || undefined} aria-labelledby={labelId} className='min-w-0 flex-1 truncate text-sm' role='status'>
         {status}
       </p>
+      {issue?.action && !loading && !waiting
+        ? (
+            <Button className='flex-none text-primary' onClick={() => onAction(issue.action!)} size='sm' type='button' variant='ghost'>
+              {t(issue.action === 'format' ? 'subscriptions.sources.actions.format' : 'subscriptions.sources.actions.retry')}
+            </Button>
+          )
+        : null}
       {items.length > 0
         ? (
             <Popover>

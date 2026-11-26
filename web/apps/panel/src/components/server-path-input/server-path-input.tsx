@@ -39,7 +39,7 @@ export function ServerPathInput({ value, mode, onValueChange, disabled, readOnly
           </DialogTrigger>
         </InputGroupAddon>
       </InputGroup>
-      <DialogContent className='min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-5 overflow-hidden p-5 sm:max-w-2xl sm:p-6 lg:max-w-[60rem]'>
+      <DialogContent className='min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-sm:p-5' size='workspace'>
         {initial !== null && (
           <ServerPathPicker initialValue={initial} mode={mode} open={open && !disabled && !readOnly}
             onSelect={path => {

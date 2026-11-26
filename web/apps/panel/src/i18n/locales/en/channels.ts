@@ -16,7 +16,11 @@ export const channels = {
   selectedNodes: '{{count}} selected', clearNodes: 'Clear selection', removeNodes: 'Remove selected nodes',
   nodeDragInstructions: 'Press Space or Enter to select. Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
   nodeDragStart: 'Moving {{name}}.', nodeDragPosition: 'Position {{position}} of {{count}}.', nodeDragEnd: 'Node order updated.', nodeDragCancel: 'Reordering canceled.',
-  noActiveKeys: 'No active keys', keyUnavailable: 'This key is currently unavailable.', link: 'Link', duplicateSuffix: 'copy', duplicated: 'Channel duplicated',
+  link: 'Subscription link', linkKey: 'Key', linkURL: 'Link', copyLink: 'Copy link', copyFailed: 'Could not copy to the clipboard', linkCopied: 'Copied the subscription link of {{name}} (key: {{key}})',
+  showQRCode: 'Show QR code', hideQRCode: 'Hide QR code', qrCode: 'Subscription link QR code',
+  noActiveKeys: 'No active keys yet', newKey: 'New key', keyName: 'Name', keyNameRequired: 'Enter a key name', createKey: 'Create key', keyCreated: 'Created key {{label}}',
+  keyUnlimited: 'No limit', keyRemaining_one: '{{count}} download left', keyRemaining_other: '{{count}} downloads left', keyExpires: 'Expires {{date}}',
+  nodes: 'Nodes', more: 'More for {{name}}', openChannel: 'Open channel', duplicate: 'Duplicate', duplicateSuffix: 'copy', duplicated: 'Created {{name}}',
 
   addNodes: 'Add nodes', addSelectedNodes: 'Add {{count}} nodes', pickNodesHint: 'Choose nodes or strategy groups to add to this group.',
   emptyCandidates: 'No candidate nodes yet',
@@ -31,12 +35,11 @@ export const channels = {
   applyClientFirst: 'Choose Apply to apply the client before editing its template.',
   members: 'Group members', membersCount: '{{count}} nodes', finalExit: 'Final exit', searchNodes: 'Search nodes, groups, sources or protocols', noMatchingNodes: 'No matching nodes', ruleSet: 'Rule set',
   newGroupName: 'Strategy group {{number}}', noGroups: 'No strategy groups yet', noNodes: 'No nodes available. Add nodes in Subscription sources.', groupExitInUse: 'Exit rules use this group. Choose other exits for them before deleting or disabling it.',
-  subscriptionKey: 'Subscription key', keyPlaceholder: 'Paste an existing key', keyHint: 'Create keys in Key management. The same key can be used with multiple channels; it is not saved here.', copyURL: 'Copy subscription URL', channelUnavailable: 'This channel is disabled and cannot distribute subscriptions.',
   disabled: 'Disabled',
-  title: 'Channels', search: 'Search channels', add: 'Add channel', name: 'Channel name', client: 'Client', edit: 'Edit', remove: 'Delete channel', deletePrompt: 'Delete “{{name}}”? Its subscription URL will become unavailable.', save: 'Save changes', saved: 'Channel saved', empty: 'No channels', back: 'Back', distribution: 'Channel settings', preview: 'Subscription preview', enabled: 'Enabled', nameRequired: 'Enter a name', cancel: 'Cancel', apply: 'Apply', refresh: 'Refresh nodes',
+  title: 'Channels', search: 'Search channels', add: 'Add channel', name: 'Channel name', client: 'Client', edit: 'Edit', remove: 'Delete channel', deletePrompt: 'Delete “{{name}}”? Its subscription URL will become unavailable.', save: 'Save changes', saved: 'Channel saved', empty: 'No channels', back: 'Back', distribution: 'Channel settings', preview: 'Subscription preview', nameRequired: 'Enter a name', cancel: 'Cancel', apply: 'Apply', refresh: 'Refresh nodes',
 
   template: 'Config template', defaultTemplate: 'Default configuration', customTemplate: 'Custom configuration', editTemplate: 'Edit template', templateCode: 'Native configuration', validate: 'Validate', valid: 'Template structure is valid', formatConflict: 'Output client changed. Review strategy types, built-in nodes, exit rules and the template.', copy: 'Copy', copied: 'Copied',
-  groups: 'Strategy groups', addGroup: 'Add strategy group', editGroup: 'Edit strategy group', groupName: 'Group name', state: 'State', actions: 'Actions', candidates: 'Candidate nodes', missingNode: 'Unavailable node', deleteGroup: 'Delete strategy group',
+  groups: 'Strategy groups', addGroup: 'Add strategy group', editGroup: 'Edit strategy group', groupName: 'Group name', actions: 'Actions', candidates: 'Candidate nodes', missingNode: 'Unavailable node', deleteGroup: 'Delete strategy group',
   selectAll: 'Select all', unavailable: 'Currently unavailable',
   publicHost: 'Existing channel public host', enabledLabel: 'Channel enabled',
 

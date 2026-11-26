@@ -6,6 +6,7 @@ set -euo pipefail
 readonly installer_repository="rehuony/sing-box-panel"
 readonly installer_release_origin="https://github.com/${installer_repository}"
 readonly installer_public_key_url="https://raw.githubusercontent.com/${installer_repository}/main/.github/keypair/release-signing-public-key"
+readonly installer_cleanup_url="https://raw.githubusercontent.com/${installer_repository}/main/scripts/cleanup.sh"
 readonly installer_signature_domain="sing-box-panel release checksums v1"
 readonly installer_ed25519_spki_prefix="MCowBQYDK2VwAyEA"
 
@@ -46,7 +47,8 @@ The installer first reports which components are installed for this user and
 the state of their systemd services. It verifies the signed checksum manifest,
 installs the selected binary, and does not read, validate, or initialize
 settings or data. It does not install, start, stop, or restart a systemd
-service; the installed binary's systemd commands do that.
+service; the installed binary's systemd commands do that. scripts/cleanup.sh
+finds what earlier releases left behind and removes an installation.
 EOF
 }
 
@@ -219,7 +221,7 @@ installer_require_absolute_directory_base() {
 }
 
 # installer_resolve_layout selects the paths of component for the effective
-# user. The node has no settings file; its data directory holds its state.
+# user: its binary, its settings file and its default data directory.
 installer_resolve_layout() {
   local component="$1"
   local effective_uid="$2"
@@ -667,6 +669,19 @@ installer_cleanup() {
   installer_temporary_directory=""
 }
 
+# installer_leftovers reports whether earlier releases left files beside the
+# binary or, in system scope, their root update helper units.
+installer_leftovers() {
+  local directory="${installer_binary_path%/*}" name="${installer_binary_name}" path
+
+  for path in "${directory}/${name}.previous" "${directory}/.${name}.update.lock" \
+    "/etc/systemd/system/${name}-update.path"; do
+    [[ "${path}" == */"${name}-update.path" && "${installer_service_scope}" != system ]] && continue
+    [[ -e "${path}" || -L "${path}" ]] && return 0
+  done
+  return 1
+}
+
 # installer_print_next_steps summarizes the installed binary and the
 # commands that start it, in the aligned layout the binaries print.
 installer_print_next_steps() {
@@ -703,6 +718,12 @@ installer_print_next_steps() {
     'fish:' "${installer_binary_name} completion fish | source" \
     'zsh:' "eval \"\$(${installer_binary_name} completion zsh)\""
 
+  if installer_leftovers; then
+    printf '\n' >&2
+    installer_warn "Earlier releases left files behind; list and remove them with:"
+    printf '  curl -fsSL %s | %sbash -s -- legacy\n' "${installer_cleanup_url}" \
+      "$([[ "${installer_service_scope}" == system ]] && printf 'sudo ')" >&2
+  fi
   if [[ "${installer_service_scope}" == "user" ]]; then
     printf '\n' >&2
     case ":${PATH:-}:" in

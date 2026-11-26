@@ -16,7 +16,11 @@ export const channels = {
   selectedNodes: '已选 {{count}} 项', clearNodes: '清除选择', removeNodes: '删除选中节点',
   nodeDragInstructions: '空格或回车选择卡片。按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
   nodeDragStart: '正在移动 {{name}}。', nodeDragPosition: '第 {{position}} 项，共 {{count}} 项。', nodeDragEnd: '节点顺序已更新。', nodeDragCancel: '已取消排序。',
-  noActiveKeys: '暂无可用密钥', keyUnavailable: '此密钥当前不可用。', link: '链接', duplicateSuffix: '副本', duplicated: '渠道已复制',
+  link: '订阅链接', linkKey: '密钥', linkURL: '链接', copyLink: '复制链接', copyFailed: '无法复制到剪贴板', linkCopied: '已复制 {{name}} 的订阅链接（密钥：{{key}}）',
+  showQRCode: '显示二维码', hideQRCode: '收起二维码', qrCode: '订阅链接二维码',
+  noActiveKeys: '还没有可用的密钥', newKey: '新建密钥', keyName: '名称', keyNameRequired: '输入密钥名称', createKey: '创建密钥', keyCreated: '已创建密钥 {{label}}',
+  keyUnlimited: '不限次数', keyRemaining_one: '剩余 {{count}} 次', keyRemaining_other: '剩余 {{count}} 次', keyExpires: '{{date}} 到期',
+  nodes: '节点', more: '{{name}} 的更多操作', openChannel: '打开渠道', duplicate: '创建副本', duplicateSuffix: '副本', duplicated: '已创建 {{name}}',
 
   addNodes: '添加节点', addSelectedNodes: '添加 {{count}} 个节点', pickNodesHint: '选择要添加到当前策略组的节点或策略组。',
   emptyCandidates: '尚未添加候选节点',
@@ -31,12 +35,11 @@ export const channels = {
   applyClientFirst: '先点击“应用”确认客户端选择，再编辑对应模板。',
   members: '组内节点', membersCount: '{{count}} 个节点', finalExit: '最终出口', searchNodes: '搜索节点、策略组、来源或协议', noMatchingNodes: '没有匹配的节点', ruleSet: '规则集',
   newGroupName: '策略组 {{number}}', noGroups: '暂无策略组', noNodes: '暂无可用节点，请先在订阅来源中添加。', groupExitInUse: '出口规则正在使用此策略组，请先为它们改选其他出口，再删除或停用。',
-  subscriptionKey: '订阅密钥', keyPlaceholder: '粘贴已创建的密钥', keyHint: '请在密钥管理中创建密钥。同一密钥可用于多个渠道，此处不会保存密钥。', copyURL: '复制订阅链接', channelUnavailable: '此渠道已停用，无法分发订阅。',
   disabled: '停用',
-  title: '分发渠道', search: '搜索渠道', add: '添加渠道', name: '渠道名称', client: '客户端', edit: '编辑', remove: '删除渠道', deletePrompt: '删除“{{name}}”？该渠道的订阅地址将不再可用。', save: '保存更改', saved: '渠道已保存', empty: '暂无渠道', back: '返回', distribution: '渠道设置', preview: '订阅预览', enabled: '启用', nameRequired: '请输入名称', cancel: '取消', apply: '应用', refresh: '刷新节点',
+  title: '分发渠道', search: '搜索渠道', add: '添加渠道', name: '渠道名称', client: '客户端', edit: '编辑', remove: '删除渠道', deletePrompt: '删除“{{name}}”？该渠道的订阅地址将不再可用。', save: '保存更改', saved: '渠道已保存', empty: '暂无渠道', back: '返回', distribution: '渠道设置', preview: '订阅预览', nameRequired: '请输入名称', cancel: '取消', apply: '应用', refresh: '刷新节点',
 
   template: '配置模板', defaultTemplate: '默认配置', customTemplate: '自定义配置', editTemplate: '编辑模板', templateCode: '原生配置', validate: '校验', valid: '模板结构校验通过', formatConflict: '输出客户端已更改，请检查策略类型、内置节点、出口规则及模板。', copy: '复制', copied: '已复制',
-  groups: '策略组', addGroup: '添加策略组', editGroup: '编辑策略组', groupName: '组名称', state: '状态', actions: '操作', candidates: '候选节点', missingNode: '不可用节点', deleteGroup: '删除策略组',
+  groups: '策略组', addGroup: '添加策略组', editGroup: '编辑策略组', groupName: '组名称', actions: '操作', candidates: '候选节点', missingNode: '不可用节点', deleteGroup: '删除策略组',
   selectAll: '全选', unavailable: '当前不可用',
   publicHost: '原渠道对外地址', enabledLabel: '渠道启用',
 

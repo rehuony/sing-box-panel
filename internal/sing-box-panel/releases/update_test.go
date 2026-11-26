@@ -5,6 +5,8 @@ package releases
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,13 +105,30 @@ func TestPanelAndNodeUpdatesWaitForEachOther(t *testing.T) {
 	}
 }
 
+// Any build checks for the newest release, so the settings show where it
+// stands; only a release build on a supported platform is offered the update.
+func TestEveryBuildChecksButOnlySupportedOnesUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v1.1.0","draft":false,"prerelease":false,"assets":[]}`))
+	}))
+	defer server.Close()
+	service := New(buildinfo.Info{Version: "dev"}, t.TempDir(), nil, nil, Options{HTTPClient: server.Client(), ReleasesURL: server.URL})
+	status, err := service.Check(t.Context())
+	if err != nil || status.LatestVersion == nil || *status.LatestVersion != "v1.1.0" || status.CheckedAt == nil {
+		t.Fatalf("check of a development build = %+v, %v", status, err)
+	}
+	if status.Supported || status.UpdateAvailable {
+		t.Fatalf("a development build was offered the update: %+v", status)
+	}
+	if _, err := service.Update(t.Context()); err != ErrUpdateUnsupported {
+		t.Fatalf("update of a development build = %v", err)
+	}
+}
+
 func TestUpdateRefusesWithoutAKnownNewerRelease(t *testing.T) {
 	service := New(buildinfo.Info{Version: "v1.0.0"}, t.TempDir(), nil, nil, Options{})
 	if !service.supported() {
-		if _, err := service.Update(t.Context()); err != ErrUpdateUnsupported {
-			t.Fatalf("update on an unsupported platform = %v", err)
-		}
-		return
+		t.Skip("self-update runs only on linux/amd64 and linux/arm64")
 	}
 	if _, err := service.Update(t.Context()); err != ErrNoUpdate {
 		t.Fatalf("update without a checked release = %v", err)

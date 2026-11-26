@@ -39,13 +39,22 @@ function DialogOverlay({
   );
 }
 
+/** Widths: forms and confirmations, a form with a preview or code beside its fields, and a workspace. */
+const dialogSizes = {
+  default: 'sm:max-w-[30rem]',
+  wide: 'sm:max-w-[40rem]',
+  workspace: 'sm:max-w-[60rem]',
+} as const;
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  size = 'default',
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
+  size?: keyof typeof dialogSizes;
 }) {
   const { t } = useTranslation();
 
@@ -53,9 +62,11 @@ function DialogContent({
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Popup
+        data-size={size}
         data-slot='dialog-content'
         className={cn(
-          'fixed top-1/2 left-1/2 z-[calc(var(--z-modal)+1)] grid w-full max-h-[calc(100dvh-2rem)] overflow-y-auto max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[var(--radius-window)] bg-popover p-6 text-sm text-popover-foreground shadow-[var(--shadow-panel)] ring-1 ring-border/60 opacity-100 transition-[opacity,scale] duration-150 ease-out outline-none sm:max-w-[30rem] data-starting-style:opacity-0 data-starting-style:scale-98 data-ending-style:opacity-0 data-ending-style:scale-98',
+          'fixed top-1/2 left-1/2 z-[calc(var(--z-modal)+1)] grid w-full max-h-[calc(100dvh-2rem)] overflow-y-auto max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-5 rounded-[var(--radius-window)] bg-popover p-6 text-sm text-popover-foreground shadow-[var(--shadow-panel)] ring-1 ring-border/60 opacity-100 transition-[opacity,scale] duration-150 ease-out outline-none data-starting-style:opacity-0 data-starting-style:scale-98 data-ending-style:opacity-0 data-ending-style:scale-98',
+          dialogSizes[size],
           className,
         )}
         {...props}
@@ -86,7 +97,24 @@ function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='dialog-header'
-      className={cn('flex flex-col gap-4 text-left', className)}
+      className={cn('flex flex-col gap-1.5 text-left', className)}
+      {...props}
+    />
+  );
+}
+
+/**
+ * A form's rows: a 7rem label column and the control filling the rest,
+ * each label stacked over its control on a phone.
+ */
+function DialogFields({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot='dialog-fields'
+      className={cn(
+        'grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3 [&_[data-slot=select-trigger]]:w-full max-[520px]:grid-cols-1 max-[520px]:gap-y-1.5 max-[520px]:[&>:nth-child(odd):not(:first-child)]:mt-1.5',
+        className,
+      )}
       {...props}
     />
   );
@@ -95,10 +123,13 @@ function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  message,
   children,
   ...props
 }: React.ComponentProps<'div'> & {
   showCloseButton?: boolean;
+  /** Why the dialog cannot go on, in one line kept in place so nothing moves when it appears. */
+  message?: React.ReactNode;
 }) {
   const { t } = useTranslation();
 
@@ -106,11 +137,14 @@ function DialogFooter({
     <div
       data-slot='dialog-footer'
       className={cn(
-        'flex flex-wrap items-center justify-end gap-3 [&>button]:min-w-20',
+        'mt-1 flex flex-wrap items-center justify-end gap-2 [&>button]:min-w-20',
         className,
       )}
       {...props}
     >
+      {message === undefined
+        ? null
+        : <p className='me-auto min-w-0 flex-1 truncate text-compact text-[var(--color-danger-text)]' role='status' title={typeof message === 'string' && message ? message : undefined}>{message}</p>}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant='outline' />}>
           {t('common.cancel')}
@@ -155,6 +189,7 @@ export {
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFields,
   DialogFooter,
   DialogHeader,
   DialogOverlay,

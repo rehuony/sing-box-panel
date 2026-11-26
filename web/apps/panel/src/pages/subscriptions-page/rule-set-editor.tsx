@@ -1,82 +1,163 @@
-import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
+
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { PencilLine, Save, Undo2 } from 'lucide-react';
 import { Textarea } from '@shared/components/ui/textarea';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CirclePlus, PencilLine, Save, Trash2 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { SubscriptionRule, SubscriptionRuleSet } from '@/api/api-client';
 
 import { ApiRequestError } from '@/api/api-client';
 import { messageLine } from '@/utils/message-line';
 import { IconAction } from '@/components/icon-action';
-import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
+import { StripDivider } from '@/components/title-strip';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 
+import type { Entry, MatchKind, Row } from './rule-lines';
+import type { RuleTextErrorCode, RuleTextIssue, RuleTextNoteCode } from './rule-text';
+
 import { RuleEditor } from './rule-editor';
+import { RuleEditLine, RuleEntry, RuleList } from './rule-lines';
+import { dataFace, gutterCell, gutterWidth } from './rule-line-style';
 import { SubscriptionContentState } from './subscription-content-state';
-import { parseRules, ruleLine, ruleType, serializeRules } from './rule-text';
+import { parseRules, ruleLine, ruleType, serializeRules, withRuleType } from './rule-text';
 
-type Editing = { index: number; remote: boolean } | { index: null; remote: boolean };
+/** What the rail shows of the set being edited. */
+export interface RuleSetDraft {
+  id: string;
+  name: string;
+  dirty: boolean;
+  rules: readonly SubscriptionRule[];
+}
 
-/** A rule's value as a row shows it: a match value, or a remote rule set's name, link and format. */
-function RuleValue({ rule }: { rule: SubscriptionRule }) {
-  if (rule.kind !== 'remote' || !rule.remote) {
-    return <span className='font-[family-name:var(--font-data)] text-compact break-all'>{rule.value}</span>;
-  }
-  const { behavior, format, name, url } = rule.remote;
-  return (
-    <span className='flex min-w-0 flex-col gap-0.5'>
-      <span className='font-[family-name:var(--font-data)] text-compact break-all'>{name}</span>
-      <span className='font-[family-name:var(--font-data)] text-xs break-all text-[var(--color-text-secondary)]'>
-        {url}
-        <span aria-hidden='true' className='mx-1.5 text-[var(--color-text-faint)]'>·</span>
-        {[format, behavior].filter(Boolean).join(' · ')}
-      </span>
-    </span>
-  );
+// One toast says what the editor refused or did, each replacing the last.
+const NOTICE = 'rule-set-notice';
+// The name's face, at rest and while edited; inputs keep 16px on phones.
+const nameFace = 'text-base leading-5 font-medium md:text-sm';
+const NO_KEYS: ReadonlySet<number> = new Set();
+
+/** The saved rules as the draft's first rows. */
+function savedRows(saved: readonly SubscriptionRule[]): Row[] {
+  return saved.map((rule, index) => ({ key: index, origin: index, rule }));
+}
+
+/** Rows for rules, each matched to an unused saved rule with the same line. */
+function matchRows(
+  rules: readonly SubscriptionRule[],
+  saved: readonly SubscriptionRule[],
+  key: (index: number) => number,
+): Row[] {
+  const free = new Map<string, number[]>();
+  saved.forEach((rule, index) => free.set(ruleLine(rule), [...free.get(ruleLine(rule)) ?? [], index]));
+  return rules.map((rule, index) => ({ key: key(index), origin: free.get(ruleLine(rule))?.shift() ?? null, rule }));
+}
+
+function changed(row: Row, saved: readonly SubscriptionRule[]): boolean {
+  return row.origin === null || ruleLine(row.rule) !== ruleLine(saved[row.origin]!);
+}
+
+/** Rules added or changed, and saved rules no row holds any more. */
+function countChanges(rows: readonly Row[], saved: readonly SubscriptionRule[]): number {
+  const kept = new Set(rows.flatMap(row => row.origin === null ? [] : [row.origin]));
+  return rows.filter(row => changed(row, saved)).length + saved.length - kept.size;
+}
+
+/** What makes two rules the same: a remote set's name, or a match's kind and value in any case. */
+function identity(rule: SubscriptionRule): string {
+  return rule.kind === 'remote' ? `remote:${rule.remote?.name ?? ''}` : `${rule.kind}:${rule.value?.toLowerCase() ?? ''}`;
+}
+
+function duplicateOf(rule: SubscriptionRule, rows: readonly Row[]): Row | undefined {
+  const id = identity(rule);
+  return rows.find(row => identity(row.rule) === id);
 }
 
 /**
- * One rule set: its name over its client, rule count and the channels that
- * use it, with rename, delete and save; then its rules as entries or as
- * classic rule lines. Changes stay a draft until saved, and saving at a
- * stale version reads the set again and keeps the draft.
+ * One rule set: a toolbar with its name, the entries or text switch, what
+ * is unsaved and saving; then its rules as numbered lines over a prompt
+ * line that adds them, or as classic rule lines over the same numbers.
+ * What it refuses or does goes to one toast; saving or leaving the text with
+ * a problem focuses it and says why. Changes stay a draft until saved, and
+ * saving at a stale version reads the set again and keeps the draft.
  */
-export function RuleSetEditor({ onDelete, onRename, ruleSet }: {
+export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query, ruleSet, takenNames }: {
   ruleSet: SubscriptionRuleSet;
-  /** Asks for a new name; the editor's draft takes it. */
-  onRename: (name: string, apply: (name: string) => void) => void;
-  onDelete: (ruleSet: SubscriptionRuleSet) => void;
+  /** Filters the rules shown, in lower case; line numbers keep counting the whole list. */
+  query: string;
+  /** Names the client's other sets use, compared ignoring case. */
+  takenNames: readonly string[];
+  /** Puts the focus on the prompt line as the editor opens, as for a set just created. */
+  focusEntry: boolean;
+  onEntryFocused: () => void;
+  /** Reports the draft to the rail, and null once the editor closes. */
+  onDraftChange: (draft: RuleSetDraft | null) => void;
 }) {
   const { t } = useTranslation();
   const client = useApiClient();
   const cache = useQueryClient();
+  const saved = ruleSet.rules;
+  const nextKeyRef = useRef(saved.length);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const bandsRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState(ruleSet.name);
-  const [rules, setRules] = useState<SubscriptionRule[]>(ruleSet.rules);
+  const [naming, setNaming] = useState(false);
+  const [rows, setRows] = useState<Row[]>(() => savedRows(saved));
   const [text, setText] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Editing | null>(null);
+  const [caretLine, setCaretLine] = useState(0);
   const [version, setVersion] = useState(ruleSet.updated_at);
+  // The line whose last input was refused, its prompt in danger until it changes.
+  const [refused, setRefused] = useState<'entry' | 'row' | null>(null);
+  const [editingKey, setEditingKey] = useState<number | null>(null);
+  const [remote, setRemote] = useState<{ key: number | null } | null>(null);
+  const [flash, setFlash] = useState<number | null>(null);
+  const [follow, setFollow] = useState(0);
+  // Rules added while searching stay shown until the search changes.
+  const [pinned, setPinned] = useState<{ query: string; keys: ReadonlySet<number> }>({ query, keys: NO_KEYS });
+  const pinnedKeys = pinned.query === query ? pinned.keys : NO_KEYS;
+
   const parsed = useMemo(() => text === null ? null : parseRules(text, ruleSet.client), [ruleSet.client, text]);
-  const current = parsed && parsed.errors.length === 0 ? parsed.rules : rules;
-  const textInvalid = parsed !== null && parsed.errors.length > 0;
-  const dirty = name !== ruleSet.name || JSON.stringify(current) !== JSON.stringify(ruleSet.rules) || textInvalid;
+  const textRows = useMemo(() => parsed ? matchRows(parsed.rules, saved, index => index) : null, [parsed, saved]);
+  const current = textRows ?? rows;
+  const rules = useMemo(() => current.map(row => row.rule), [current]);
+  const textInvalid = (parsed?.errors.length ?? 0) > 0;
+  const trimmed = name.trim();
+  let nameIssue = '';
+  if (!trimmed) {
+    nameIssue = t('subscriptions.ruleSets.validation.setName');
+  } else if (takenNames.some(each => each.toLowerCase() === trimmed.toLowerCase())) {
+    nameIssue = t('subscriptions.ruleSets.validation.setNameTaken', { name: trimmed });
+  }
+  const changes = useMemo(() => countChanges(current, saved), [current, saved]) + (trimmed === ruleSet.name ? 0 : 1);
+  const dirty = changes > 0 || textInvalid;
 
   function discard() {
     setName(ruleSet.name);
-    setRules(ruleSet.rules);
+    setNaming(false);
+    setRows(savedRows(saved));
     setText(null);
+    setEditingKey(null);
+    setRefused(null);
   }
   useUnsavedChanges(dirty, discard);
 
+  useEffect(() => {
+    onDraftChange({ id: ruleSet.id, name: trimmed || ruleSet.name, rules, dirty });
+  }, [dirty, onDraftChange, ruleSet.id, ruleSet.name, rules, trimmed]);
+  useEffect(() => () => onDraftChange(null), [onDraftChange]);
+
   const save = useMutation({
-    mutationFn: () => client.updateSubscriptionRuleSet(ruleSet.id, { name, rules: current }, version),
-    onSuccess: (saved) => {
-      cache.setQueryData<SubscriptionRuleSet[]>(['ruleSets'], sets => sets?.map(set => set.id === saved.id ? saved : set));
+    mutationFn: () => client.updateSubscriptionRuleSet(ruleSet.id, { name: trimmed, rules }, version),
+    onSuccess: (updated) => {
+      cache.setQueryData<SubscriptionRuleSet[]>(['ruleSets'], sets => sets?.map(set => set.id === updated.id ? updated : set));
       void cache.invalidateQueries({ queryKey: ['ruleSets'] });
       setText(null);
       toast.add({ title: t('subscriptions.ruleSets.saved'), type: 'success' });
@@ -94,132 +175,461 @@ export function RuleSetEditor({ onDelete, onRename, ruleSet }: {
     },
   });
 
+  const issueText = (issue: RuleTextIssue<RuleTextErrorCode | RuleTextNoteCode>) =>
+    t(`subscriptions.ruleSets.textIssue.${issue.code}`, { detail: issue.detail ?? '' });
+  const lineIssue = (issue: RuleTextIssue<RuleTextErrorCode | RuleTextNoteCode>, count: number) => {
+    const line = t('subscriptions.ruleSets.textError', { line: issue.line, reason: issueText(issue) });
+    return count > 1 ? t('subscriptions.ruleSets.issueCount', { issue: line, count }) : line;
+  };
+  const duplicateText = (rule: SubscriptionRule) => rule.kind === 'remote'
+    ? t('subscriptions.ruleSets.validation.nameTaken', { name: rule.remote?.name ?? '' })
+    : t('subscriptions.ruleSets.duplicate', { rule: ruleLine(rule) });
+  const notify = (type: 'error' | 'info' | 'success' | 'warning', title: string, description?: string) => toast.add({
+    id: NOTICE,
+    title: messageLine(title),
+    description: description ? messageLine(description) : undefined,
+    type,
+  });
+  function refuse(line: 'entry' | 'row', type: 'error' | 'warning', reason: string) {
+    setRefused(line);
+    notify(type, reason);
+  }
+  function quiet() {
+    setRefused(null);
+    toast.close(NOTICE);
+  }
+
+  // A refused duplicate highlights the rule it repeats for a moment.
+  useEffect(() => {
+    if (flash === null) return;
+    const timer = window.setTimeout(setFlash, 1200, null);
+    return () => window.clearTimeout(timer);
+  }, [flash]);
+
+  /** Appends rules, each taking a saved rule with the same line that no row holds; the list follows them. */
+  function append(added: readonly SubscriptionRule[]) {
+    if (added.length === 0) return;
+    const held = new Set(rows.flatMap(row => row.origin === null ? [] : [row.origin]));
+    const next = added.map((rule) => {
+      const origin = saved.findIndex((each, index) => !held.has(index) && ruleLine(each) === ruleLine(rule));
+      if (origin >= 0) held.add(origin);
+      return { key: nextKeyRef.current++, origin: origin >= 0 ? origin : null, rule };
+    });
+    if (query) setPinned({ query, keys: new Set([...pinnedKeys, ...next.map(row => row.key)]) });
+    setRows([...rows, ...next]);
+    setFollow(count => count + 1);
+  }
+
+  /** Adds what the prompt line holds: one rule, or every line of a pasted block that can be read. */
+  function submitEntry(input: string, kind: MatchKind): boolean {
+    const lines = input.split(/\r?\n/).filter(each => each.trim() !== '');
+    if (lines.length === 0) {
+      refuse('entry', 'error', t('subscriptions.ruleSets.validation.value'));
+      return false;
+    }
+    const result = parseRules(lines.map(each => withRuleType(each, kind)).join('\n'), ruleSet.client);
+    if (lines.length === 1) {
+      const error = result.errors[0];
+      const rule = result.rules[0];
+      if (error || !rule) {
+        refuse('entry', 'error', error ? issueText(error) : t('subscriptions.ruleSets.validation.value'));
+        return false;
+      }
+      const duplicate = duplicateOf(rule, rows);
+      if (duplicate) {
+        refuse('entry', 'warning', duplicateText(rule));
+        setFlash(duplicate.key);
+        return false;
+      }
+      append([rule]);
+      quiet();
+      const note = result.notes[0];
+      if (note) notify('info', issueText(note));
+      return true;
+    }
+    const held = new Set(rows.map(row => identity(row.rule)));
+    const added: SubscriptionRule[] = [];
+    for (const rule of result.rules) {
+      if (held.has(identity(rule))) continue;
+      added.push(rule);
+      held.add(identity(rule));
+    }
+    append(added);
+    setRefused(null);
+    const parts: string[] = [];
+    const skipped = result.rules.length - added.length;
+    if (skipped > 0) parts.push(t('subscriptions.ruleSets.pasteSkipped', { count: skipped }));
+    if (result.notes.length > 0) parts.push(t('subscriptions.ruleSets.pasteIgnored', { count: result.notes.length }));
+    const error = result.errors[0];
+    if (error) parts.push(lineIssue(error, result.errors.length));
+    notify(error ? 'warning' : 'success', t('subscriptions.ruleSets.pasteAdded', { count: added.length }), parts.join(' · '));
+    return true;
+  }
+
+  function startEdit(key: number) {
+    const row = rows.find(each => each.key === key);
+    if (!row || editingKey !== null) return;
+    if (row.rule.kind === 'remote') {
+      setRemote({ key });
+      return;
+    }
+    setEditingKey(key);
+    setRefused(null);
+  }
+
+  /** Applies the line being edited; one that cannot be read stays open. */
+  function applyEdit(kind: MatchKind, input: string): boolean {
+    const row = rows.find(each => each.key === editingKey);
+    const value = input.trim();
+    if (!row) return true;
+    if (row.rule.kind === kind && row.rule.value === value) {
+      setEditingKey(null);
+      quiet();
+      return true;
+    }
+    const result = parseRules(`${ruleType(kind)},${value}`, ruleSet.client);
+    const error = result.errors[0];
+    const rule = result.rules[0];
+    if (error || !rule || result.notes.length > 0) {
+      refuse('row', 'error', error ? issueText(error) : t('subscriptions.ruleSets.validation.value'));
+      return false;
+    }
+    const duplicate = duplicateOf(rule, rows.filter(each => each.key !== row.key));
+    if (duplicate) {
+      refuse('row', 'warning', duplicateText(rule));
+      setFlash(duplicate.key);
+      return false;
+    }
+    setRows(rows.map(each => each.key === row.key ? { ...each, rule } : each));
+    setEditingKey(null);
+    quiet();
+    return true;
+  }
+
+  /** Removes a rule; the toast that says so puts it back in its place. */
+  function removeRow(key: number) {
+    const index = rows.findIndex(row => row.key === key);
+    const row = rows[index];
+    if (!row) return;
+    setRows(rows.filter(each => each.key !== key));
+    if (editingKey === key) setEditingKey(null);
+    setRefused(null);
+    toast.add({
+      id: NOTICE,
+      title: t('subscriptions.ruleSets.removed', { rule: ruleLine(row.rule) }),
+      type: 'info',
+      actionProps: {
+        children: t('subscriptions.ruleSets.undo'),
+        onClick: () => {
+          setRows(now => now.some(each => each.key === key) ? now : [...now.slice(0, index), row, ...now.slice(index)]);
+          toast.close(NOTICE);
+        },
+      },
+    });
+  }
+
+  // The list's lines are memoized, so they get callbacks that stay the same and reach the latest draft.
+  const handlersRef = useRef({ edit: startEdit, remove: removeRow });
+  useLayoutEffect(() => {
+    handlersRef.current = { edit: startEdit, remove: removeRow };
+  });
+  const onEdit = useCallback((key: number) => handlersRef.current.edit(key), []);
+  const onRemove = useCallback((key: number) => handlersRef.current.remove(key), []);
+  const isChanged = useCallback((row: Row) => changed(row, saved), [saved]);
+
+  useEffect(() => {
+    if (!naming) return;
+    const input = nameRef.current;
+    input?.focus();
+    input?.setSelectionRange(input.value.length, input.value.length);
+  }, [naming]);
+
+  function syncText(area: HTMLTextAreaElement) {
+    if (gutterRef.current) gutterRef.current.scrollTop = area.scrollTop;
+    if (bandsRef.current) bandsRef.current.style.transform = `translateY(${-area.scrollTop}px)`;
+  }
+
+  /** Says why the text cannot be used yet and puts the caret on its first unreadable line; false when it can. */
+  function blockedByText(): boolean {
+    const error = parsed?.errors[0];
+    if (!parsed || !error || text === null) return false;
+    notify('error', lineIssue(error, parsed.errors.length));
+    const area = textRef.current;
+    if (area) {
+      const start = text.split('\n').slice(0, error.line - 1).reduce((offset, line) => offset + line.length + 1, 0);
+      area.focus();
+      area.setSelectionRange(start, start);
+      setCaretLine(error.line);
+      area.scrollTop = Math.max(0, (error.line - 1) * 20 - area.clientHeight / 2);
+      syncText(area);
+    }
+    return true;
+  }
+
+  /** Says why the name cannot be saved and focuses it; false when it can. */
+  function blockedByName(): boolean {
+    if (!nameIssue) return false;
+    notify('error', nameIssue);
+    if (naming) nameRef.current?.focus();
+    else setNaming(true);
+    return true;
+  }
+
   function changeView(view: string) {
-    if (view === 'text') {
-      setText(serializeRules(rules));
-    } else if (parsed && parsed.errors.length === 0) {
-      setRules(parsed.rules);
+    if (view === 'text' && text === null) {
+      setText(serializeRules(rows.map(row => row.rule)));
+      setCaretLine(0);
+      setEditingKey(null);
+      quiet();
+    } else if (view === 'entries' && parsed && !blockedByText()) {
+      // Text left as it was keeps the rows, and what changed in them.
+      if (text !== serializeRules(rows.map(row => row.rule))) {
+        setRows(matchRows(parsed.rules, saved, () => nextKeyRef.current++));
+      }
       setText(null);
+      const note = parsed.notes[0];
+      if (note) notify('info', lineIssue(note, parsed.notes.length));
     }
   }
 
-  const remoteNames = (except: number | null) =>
-    rules.flatMap((rule, index) => index !== except && rule.remote ? [rule.remote.name] : []);
-  const usedBy = ruleSet.channels.length > 0
-    ? t('subscriptions.ruleSets.usedBy', { count: ruleSet.channels.length })
-    : t('subscriptions.ruleSets.unused');
-  const firstError = parsed?.errors[0];
-  const status = firstError
-    ? t('subscriptions.ruleSets.textError', {
-        count: parsed.errors.length,
-        line: firstError.line,
-        reason: t(`subscriptions.ruleSets.textIssue.${firstError.code}`, { detail: firstError.detail ?? '' }),
-      })
-    : '';
+  const shown = useMemo<Entry[]>(() => {
+    const matches = (row: Row) =>
+      !query || pinnedKeys.has(row.key) || row.key === editingKey || ruleLine(row.rule).toLowerCase().includes(query);
+    return rows.flatMap((row, index) => matches(row) ? [{ position: index + 1, row }] : []);
+  }, [editingKey, pinnedKeys, query, rows]);
+  const showNameInput = naming || name !== ruleSet.name;
+  const lineCount = text === null ? rows.length : text.split('\n').length;
+
+  let body;
+  if (parsed && text !== null) {
+    const errorLines = new Set(parsed.errors.map(issue => issue.line));
+    const noteLines = new Set(parsed.notes.map(issue => issue.line));
+    const changedLines = new Set(textRows!.flatMap((row, index) => changed(row, saved) ? [parsed.lines[index]!] : []));
+    // A marked number says on hover why: the line's first problem, or what was left out of it.
+    const reasons = new Map<number, string>();
+    for (const issue of [...parsed.errors, ...parsed.notes]) {
+      if (!reasons.has(issue.line)) reasons.set(issue.line, messageLine(issueText(issue)));
+    }
+    const lineTone = (line: number) => {
+      if (errorLines.has(line)) return 'text-[var(--color-danger-text)]';
+      if (noteLines.has(line)) return 'text-[var(--color-warning-text)]';
+      if (changedLines.has(line)) return 'text-primary';
+      return line === caretLine ? 'text-foreground' : 'text-[var(--color-text-faint)]';
+    };
+    body = (
+      <div className='relative flex min-h-0 flex-1 overflow-hidden'>
+        {/* A line that cannot be read sits on a danger band, which scrolls with the text. */}
+        <div aria-hidden='true' className='pointer-events-none absolute inset-0 overflow-hidden'>
+          <div className='absolute inset-x-0 top-0' ref={bandsRef}>
+            {[...errorLines].map(line => (
+              <span className='absolute inset-x-0 h-5 bg-[var(--color-danger-soft)]' key={line} style={{ top: `calc(0.75rem + ${(line - 1) * 1.25}rem)` }} />
+            ))}
+          </div>
+        </div>
+        <div aria-hidden='true' className={cn(gutterCell, 'relative w-[calc(1rem+var(--rule-gutter))] flex-none overflow-hidden py-3 ps-4 select-none')} ref={gutterRef}>
+          {text.split('\n').map((_, index) => {
+            const line = index + 1;
+            // eslint-disable-next-line react/no-array-index-key
+            return <div className={lineTone(line)} key={index} title={reasons.get(line)}>{line}</div>;
+          })}
+        </div>
+        <Textarea
+          aria-invalid={textInvalid || undefined}
+          aria-label={t('subscriptions.ruleSets.textLabel')}
+          className={cn(dataFace, 'relative min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent py-3 ps-3 pe-4 text-compact leading-5 focus-visible:outline-none aria-invalid:ring-0 md:text-compact dark:bg-transparent @max-[30rem]/editor:ps-2')}
+          onChange={event => setText(event.target.value)}
+          onScroll={event => syncText(event.currentTarget)}
+          onSelect={(event) => {
+            const area = event.currentTarget;
+            setCaretLine(area.value.slice(0, area.selectionStart).split('\n').length);
+          }}
+          ref={textRef}
+          spellCheck={false}
+          value={text}
+          wrap='off'
+        />
+      </div>
+    );
+  } else {
+    const editingRow = editingKey === null ? undefined : rows.find(row => row.key === editingKey);
+    let list;
+    if (rows.length === 0) {
+      list = <SubscriptionContentState kind='rules' title={t('subscriptions.ruleSets.noRules')} />;
+    } else if (shown.length === 0) {
+      list = <SubscriptionContentState kind='search' title={t('subscriptions.ruleSets.noMatches')} />;
+    } else {
+      list = (
+        <RuleList
+          editingKey={editingKey}
+          editLine={editingRow
+            ? (
+                <RuleEditLine
+                  onApply={applyEdit}
+                  onCancel={() => {
+                    setEditingKey(null);
+                    quiet();
+                  }}
+                  onInput={() => refused === 'row' && quiet()}
+                  onRemove={() => removeRow(editingRow.key)}
+                  position={rows.indexOf(editingRow) + 1}
+                  refused={refused === 'row'}
+                  row={editingRow}
+                />
+              )
+            : null}
+          entries={shown}
+          flashKey={flash}
+          followSignal={follow}
+          isChanged={isChanged}
+          label={t('subscriptions.ruleSets.rules')}
+          onEdit={onEdit}
+          onRemove={onRemove}
+        />
+      );
+    }
+    body = (
+      <>
+        {list}
+        <RuleEntry
+          autoFocus={focusEntry}
+          onAddRemote={() => setRemote({ key: null })}
+          onFocused={onEntryFocused}
+          onInput={() => refused === 'entry' && quiet()}
+          onSubmit={submitEntry}
+          refused={refused === 'entry'}
+        />
+      </>
+    );
+  }
 
   return (
-    <section aria-label={name} className='flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
-      <header className='flex h-16 flex-none items-center gap-2 border-b ps-4 pe-3'>
-        <div className='min-w-0 flex-1'>
-          <h2 className='truncate text-base font-medium' title={name}>{name}</h2>
-          <p className='truncate font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]'>
-            {[ruleSet.client, t('subscriptions.ruleSets.ruleCount', { count: current.length }), usedBy].join(' · ')}
-          </p>
-        </div>
-        <StripAction icon={<PencilLine aria-hidden='true' data-icon='inline-start' />} label={t('subscriptions.ruleSets.rename')} onClick={() => onRename(name, setName)} />
-        <StripAction icon={<Trash2 aria-hidden='true' data-icon='inline-start' />} label={t('subscriptions.ruleSets.delete')} onClick={() => onDelete(ruleSet)} />
-        <Button
-          aria-busy={save.isPending || undefined}
-          disabled={!dirty || (parsed !== null && parsed.errors.length > 0)}
-          onClick={() => !save.isPending && save.mutate()}
-          size='sm'
-          variant='flat'
+    <section
+      aria-label={trimmed || ruleSet.name}
+      className='@container/editor flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'
+      style={{ '--rule-gutter': gutterWidth(lineCount) } as CSSProperties}
+    >
+      <div className='flex h-12 flex-none items-center gap-2 border-b px-4'>
+        {/* The name is a prompt line in the gutter: faint at rest, lit while edited, in danger while refused. */}
+        <span
+          aria-hidden='true'
+          className={cn(
+            gutterCell,
+            'me-1 w-(--rule-gutter) flex-none text-compact',
+            nameIssue && 'text-[var(--color-danger-text)]',
+            !nameIssue && (showNameInput ? 'text-[var(--color-highlight-yellow)]' : 'text-[var(--color-text-faint)]'),
+          )}
         >
-          <Save aria-hidden='true' data-icon='inline-start' />
-          {t('subscriptions.ruleSets.save')}
-        </Button>
-      </header>
-      <div className='flex h-12 flex-none items-center gap-1 border-b ps-3 pe-3'>
-        <Button disabled={text !== null} onClick={() => setEditing({ index: null, remote: false })} size='sm' variant='flat'>
-          <CirclePlus aria-hidden='true' data-icon='inline-start' />
-          {t('subscriptions.ruleSets.addRule')}
-        </Button>
-        <Button disabled={text !== null} onClick={() => setEditing({ index: null, remote: true })} size='sm' variant='flat'>
-          <CirclePlus aria-hidden='true' data-icon='inline-start' />
-          {t('subscriptions.ruleSets.addRemote')}
-        </Button>
-        <span className='flex-1' />
+          λ
+        </span>
+        <div className='flex min-w-0 flex-1 items-center gap-1'>
+          <h2 className='flex min-w-0'>
+            {showNameInput
+              ? (
+                  // The field takes the name's width, so the edit action after it stays where it was.
+                  <span className='inline-grid max-w-full'>
+                    <span aria-hidden='true' className={cn(nameFace, 'invisible col-start-1 row-start-1 min-w-0 overflow-hidden whitespace-pre')}>{name || ' '}</span>
+                    <input
+                      aria-invalid={nameIssue ? true : undefined}
+                      aria-label={t('subscriptions.ruleSets.field.setName')}
+                      autoComplete='off'
+                      className={cn(nameFace, 'terminal-input col-start-1 row-start-1 w-full min-w-[2ch] bg-transparent p-0 text-foreground outline-none')}
+                      data-slot='terminal-input'
+                      maxLength={128}
+                      onBlur={() => {
+                        if (name.trim() !== ruleSet.name) return;
+                        setName(ruleSet.name);
+                        setNaming(false);
+                      }}
+                      onChange={event => setName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          setName(ruleSet.name);
+                          setNaming(false);
+                        } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          if (!blockedByName()) event.currentTarget.blur();
+                        }
+                      }}
+                      ref={nameRef}
+                      size={1}
+                      spellCheck={false}
+                      value={name}
+                    />
+                  </span>
+                )
+              : (
+                  // The name edits itself; a narrow editor keeps only it.
+                  <button
+                    aria-description={t('subscriptions.ruleSets.rename')}
+                    className={cn(nameFace, 'block max-w-full cursor-text truncate rounded-[var(--radius-control)] outline-none focus-visible:ring-1 focus-visible:ring-primary')}
+                    onClick={() => setNaming(true)}
+                    type='button'
+                  >
+                    {name}
+                  </button>
+                )}
+          </h2>
+          <IconAction
+            className='flex-none @max-md/editor:hidden'
+            label={t('subscriptions.ruleSets.rename')}
+            onClick={() => showNameInput ? nameRef.current?.focus() : setNaming(true)}
+            size='icon-xs'
+          >
+            <PencilLine aria-hidden='true' />
+          </IconAction>
+        </div>
         <Tabs className='flex-none gap-0' onValueChange={changeView} value={text === null ? 'entries' : 'text'}>
           <TabsList aria-label={t('subscriptions.ruleSets.view')} variant='pill'>
             <TabsTrigger value='entries'>{t('subscriptions.ruleSets.entries')}</TabsTrigger>
             <TabsTrigger value='text'>{t('subscriptions.ruleSets.text')}</TabsTrigger>
           </TabsList>
         </Tabs>
+        <StripDivider className='@max-md/editor:hidden' />
+        {dirty
+          ? (
+              <>
+                <span className='text-compact whitespace-nowrap text-[var(--color-text-faint)] tabular-nums @max-2xl/editor:hidden'>
+                  {t('subscriptions.ruleSets.unsaved', { count: Math.max(changes, 1) })}
+                </span>
+                <Button className='@max-xl/editor:w-(--control-height-sm) @max-xl/editor:px-0' onClick={discard} size='sm' type='button' variant='flat'>
+                  <Undo2 aria-hidden='true' data-icon='inline-start' />
+                  <span className='@max-xl/editor:sr-only'>{t('subscriptions.ruleSets.revert')}</span>
+                </Button>
+                <StripDivider className='@max-md/editor:hidden' />
+              </>
+            )
+          : null}
+        <Button
+          aria-busy={save.isPending || undefined}
+          className='@max-md/editor:w-(--control-height-sm) @max-md/editor:px-0'
+          disabled={!dirty}
+          onClick={() => {
+            if (save.isPending || blockedByName() || blockedByText()) return;
+            save.mutate();
+          }}
+          size='sm'
+          type='button'
+          variant='flat'
+        >
+          <Save aria-hidden='true' data-icon='inline-start' />
+          <span className='@max-md/editor:sr-only'>{t('subscriptions.ruleSets.save')}</span>
+        </Button>
       </div>
-      {text === null
-        ? (
-            rules.length === 0
-              ? <SubscriptionContentState kind='rules' title={t('subscriptions.ruleSets.noRules')} />
-              : (
-                  <ol aria-label={t('subscriptions.ruleSets.rules')} className='min-h-0 flex-1 overflow-y-auto overscroll-contain'>
-                    {rules.map((rule, index) => (
-                      <li
-                        className='group/rule grid min-h-11 grid-cols-[7rem_minmax(0,1fr)_3.5rem] items-center gap-3 border-b py-2.5 ps-4 pe-3'
-                        // Rules repeat only by mistake; their position is their identity.
-                        // eslint-disable-next-line react/no-array-index-key
-                        key={index}
-                        title={ruleLine(rule)}
-                      >
-                        <span className='font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]'>{ruleType(rule.kind)}</span>
-                        <RuleValue rule={rule} />
-                        <span className='invisible flex justify-end gap-0.5 group-focus-within/rule:visible group-hover/rule:visible'>
-                          <IconAction label={t('subscriptions.ruleSets.editRule')} onClick={() => setEditing({ index, remote: rule.kind === 'remote' })} size='icon-xs'>
-                            <PencilLine aria-hidden='true' />
-                          </IconAction>
-                          <IconAction label={t('subscriptions.ruleSets.removeRule')} onClick={() => setRules(rules.filter((_, each) => each !== index))} size='icon-xs'>
-                            <Trash2 aria-hidden='true' />
-                          </IconAction>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                )
-          )
-        : (
-            <div className='flex min-h-0 flex-1 flex-col'>
-              <Textarea
-                aria-describedby={`${ruleSet.id}-text-status`}
-                aria-invalid={Boolean(firstError) || undefined}
-                aria-label={t('subscriptions.ruleSets.textLabel')}
-                className='min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-4 py-3 font-[family-name:var(--font-data)] text-xs leading-5 focus-visible:outline-none md:text-xs'
-                onChange={event => setText(event.target.value)}
-                spellCheck={false}
-                value={text}
-                wrap='off'
-              />
-              <p
-                className='flex h-9 flex-none items-center truncate border-t px-4 text-sm text-[var(--color-danger-text)]'
-                id={`${ruleSet.id}-text-status`}
-                role='status'
-                title={messageLine(status) || undefined}
-              >
-                {messageLine(status)}
-              </p>
-            </div>
-          )}
-      {editing
+      {body}
+      {remote
         ? (
             <RuleEditor
               client={ruleSet.client}
-              onClose={() => setEditing(null)}
+              onClose={() => setRemote(null)}
               onSave={(rule) => {
-                const { index: at } = editing;
-                setRules(at === null ? [...rules, rule] : rules.map((each, index) => index === at ? rule : each));
-                setEditing(null);
+                if (remote.key === null) append([rule]);
+                else setRows(rows.map(row => row.key === remote.key ? { ...row, rule } : row));
+                setRemote(null);
               }}
-              remote={editing.remote}
-              rule={editing.index === null ? null : rules[editing.index] ?? null}
-              takenNames={remoteNames(editing.index)}
+              remote
+              rule={remote.key === null ? null : rows.find(row => row.key === remote.key)?.rule ?? null}
+              takenNames={rows.flatMap(row => row.key !== remote.key && row.rule.remote ? [row.rule.remote.name] : [])}
             />
           )
         : null}

@@ -1,14 +1,14 @@
 import type { FormEvent } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { CirclePlus, Layers3 } from 'lucide-react';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
+import { CirclePlus, Layers3, Trash2 } from 'lucide-react';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useDeferredValue, useId, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { SubscriptionFormat, SubscriptionRuleSet } from '@/api/api-client';
 
@@ -16,6 +16,7 @@ import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
 import { compareText } from '@/utils/compare-text';
 import { messageLine } from '@/utils/message-line';
+import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { RegionError } from '@/components/region-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
@@ -25,23 +26,25 @@ import { describeRequestError } from '@/components/error-notice';
 import { StripDivider, StripSearch } from '@/components/title-strip';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 
+import type { RuleSetDraft } from './rule-set-editor';
+
+import { ruleLine } from './rule-text';
 import { RuleSetEditor } from './rule-set-editor';
 import { SubscriptionContentState } from './subscription-content-state';
 
 const CLIENTS: readonly SubscriptionFormat[] = ['sing-box', 'mihomo', 'loon'];
 
-/** Names a rule set when it is added or renamed; the name is unique among the client's sets. */
-function NameDialog({ initial, onClose, onSubmit, taken, title }: {
+/** Names a rule set as it is added; the name is unique among the client's sets. */
+function NameDialog({ onClose, onSubmit, taken, title }: {
   title: string;
-  initial: string;
-  /** Names the client's other sets use, compared ignoring case. */
+  /** Names the client's sets use, compared ignoring case. */
   taken: readonly string[];
-  onSubmit: (name: string) => Promise<void> | void;
+  onSubmit: (name: string) => Promise<void>;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const id = useId();
-  const [name, setName] = useState(initial);
+  const [name, setName] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -69,13 +72,13 @@ function NameDialog({ initial, onClose, onSubmit, taken, title }: {
   return (
     <Dialog open onOpenChange={open => !open && !busy && onClose()}>
       <DialogContent>
-        <form className='flex flex-col gap-4' noValidate onSubmit={submit}>
+        <form className='contents' noValidate onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription className='sr-only'>{title}</DialogDescription>
           </DialogHeader>
-          <div className='grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-4 max-[520px]:grid-cols-1 max-[520px]:gap-1'>
-            <label className='text-sm text-[var(--color-text-secondary)]' htmlFor={id}>{t('subscriptions.ruleSets.field.setName')}</label>
+          <DialogFields>
+            <label htmlFor={id}>{t('subscriptions.ruleSets.field.setName')}</label>
             <Input
               aria-invalid={Boolean(message) || undefined}
               autoComplete='off'
@@ -87,9 +90,8 @@ function NameDialog({ initial, onClose, onSubmit, taken, title }: {
               }}
               value={name}
             />
-          </div>
-          <DialogFooter className='flex-nowrap'>
-            <p className='min-h-5 min-w-0 flex-1 truncate text-sm text-[var(--color-danger-text)]' role='status' title={messageLine(message) || undefined}>{messageLine(message)}</p>
+          </DialogFields>
+          <DialogFooter className='flex-nowrap' message={messageLine(message)}>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button aria-busy={busy || undefined} type='submit'>{t('subscriptions.ruleSets.apply')}</Button>
           </DialogFooter>
@@ -101,8 +103,9 @@ function NameDialog({ initial, onClose, onSubmit, taken, title }: {
 
 /**
  * The rule sets tab: a client picker above the rail of that client's rule
- * sets, and the selected set's editor beside it. The strip searches the
- * list and adds a set to the picked client.
+ * sets, and the selected set's editor beside it. The rail shows the set
+ * being edited as its draft stands and deletes sets; the strip searches set
+ * names and rules and adds a set to the picked client.
  */
 export function RuleSetPanel({ active = true, toolbarTarget }: {
   active?: boolean;
@@ -119,8 +122,11 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search.trim().toLowerCase());
-  const [naming, setNaming] = useState<{ kind: 'create' } | { kind: 'rename'; initial: string; apply: (name: string) => void } | null>(null);
+  const [naming, setNaming] = useState(false);
   const [deleting, setDeleting] = useState<SubscriptionRuleSet | null>(null);
+  const [draft, setDraft] = useState<RuleSetDraft | null>(null);
+  // A set just created opens with its prompt line focused, once.
+  const [created, setCreated] = useState<string | null>(null);
 
   const all = useMemo(() => list.data ?? [], [list.data]);
   const counts = useMemo(
@@ -131,16 +137,22 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
     () => all.filter(set => set.client === picked).sort((left, right) => compareText(left.name, right.name)),
     [all, picked],
   );
-  const shown = sets.filter(set => query === '' || set.name.toLowerCase().includes(query));
-  const ruleSet = sets.find(set => set.id === selected) ?? shown[0] ?? null;
+  const rulesOf = (set: SubscriptionRuleSet) => draft?.id === set.id ? draft.rules : set.rules;
+  const hits = (set: SubscriptionRuleSet) =>
+    rulesOf(set).filter(rule => ruleLine(rule).toLowerCase().includes(query)).length;
+  // The set open in the editor, picked or first shown, stays open and in the rail whatever the search finds.
+  const chosen = sets.find(set => set.id === selected) ?? sets.find(set => set.id === draft?.id);
+  const shown = sets.filter(set => query === '' || set.id === chosen?.id || set.name.toLowerCase().includes(query) || hits(set) > 0);
+  const ruleSet = chosen ?? shown[0] ?? null;
 
   const create = useMutation({
     mutationFn: (name: string) => client.createSubscriptionRuleSet({ client: picked, name, rules: [] }),
     onSuccess: (created) => {
       cache.setQueryData<SubscriptionRuleSet[]>(['ruleSets'], current => [...current ?? [], created]);
       void cache.invalidateQueries({ queryKey: ['ruleSets'] });
-      setSelected(created.id);
-      setNaming(null);
+      setNaming(false);
+      setCreated(created.id);
+      confirmNavigation(() => setSelected(created.id));
     },
   });
   const remove = useMutation({
@@ -167,10 +179,13 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
   } else {
     editor = (
       <RuleSetEditor
+        focusEntry={created === ruleSet.id}
         key={`${ruleSet.id}-${ruleSet.updated_at}`}
-        onDelete={setDeleting}
-        onRename={(initial, apply) => setNaming({ kind: 'rename', initial, apply })}
+        onDraftChange={setDraft}
+        onEntryFocused={() => setCreated(null)}
+        query={query}
         ruleSet={ruleSet}
+        takenNames={sets.flatMap(set => set.id === ruleSet.id ? [] : [set.name])}
       />
     );
   }
@@ -217,7 +232,7 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
           <Button
             aria-label={t('subscriptions.ruleSets.add')}
             className='max-sm:w-(--control-height-sm) max-sm:px-0'
-            onClick={() => setNaming({ kind: 'create' })}
+            onClick={() => setNaming(true)}
             size='sm'
             variant='flat'
           >
@@ -228,17 +243,30 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
       </ToolbarActions>
       <div className='grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)] gap-3 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,13rem)_minmax(0,1fr)]'>
         <Rail label={t('subscriptions.ruleSets.list', { client: picked })} top={picker}>
-          {shown.map(set => (
-            <RailItem
-              current={set.id === ruleSet?.id}
-              end={<RailCount>{set.rules.length}</RailCount>}
-              icon={<Layers3 />}
-              key={set.id}
-              name={set.name}
-              onClick={() => set.id !== ruleSet?.id && confirmNavigation(() => setSelected(set.id))}
-              sub={set.channels.length > 0 ? t('subscriptions.ruleSets.usedBy', { count: set.channels.length }) : t('subscriptions.ruleSets.unused')}
-            />
-          ))}
+          {shown.map((set) => {
+            const editing = draft?.id === set.id ? draft : null;
+            const name = editing?.name ?? set.name;
+            return (
+              <RailItem
+                actions={(
+                  <IconAction label={t('subscriptions.ruleSets.delete')} onClick={() => setDeleting(set)} size='icon-xs'>
+                    <Trash2 aria-hidden='true' />
+                  </IconAction>
+                )}
+                current={set.id === ruleSet?.id}
+                // While searching, a set counts the rules that match.
+                end={<RailCount>{query === '' ? rulesOf(set).length : hits(set)}</RailCount>}
+                icon={<Layers3 />}
+                key={set.id}
+                marker={editing?.dirty
+                  ? <span aria-label={t('subscriptions.ruleSets.unsavedMark')} className='size-1.5 flex-none rounded-full bg-primary' role='img' />
+                  : undefined}
+                name={name}
+                onClick={() => set.id !== ruleSet?.id && confirmNavigation(() => setSelected(set.id))}
+                sub={set.channels.length > 0 ? t('subscriptions.ruleSets.usedBy', { count: set.channels.length }) : t('subscriptions.ruleSets.unused')}
+              />
+            );
+          })}
         </Rail>
         {/* Loading, empty and failed states take the editor's card, so the region keeps its frame. */}
         {ruleSet && list.data !== undefined
@@ -248,18 +276,12 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
       {naming
         ? (
             <NameDialog
-              initial={naming.kind === 'rename' ? naming.initial : ''}
-              onClose={() => setNaming(null)}
+              onClose={() => setNaming(false)}
               onSubmit={async (name) => {
-                if (naming.kind === 'rename') {
-                  naming.apply(name);
-                  setNaming(null);
-                  return;
-                }
                 await create.mutateAsync(name);
               }}
-              taken={sets.filter(set => naming.kind === 'create' || set.id !== ruleSet?.id).map(set => set.name)}
-              title={t(naming.kind === 'create' ? 'subscriptions.ruleSets.addTitle' : 'subscriptions.ruleSets.renameTitle', { client: picked })}
+              taken={sets.map(set => set.name)}
+              title={t('subscriptions.ruleSets.addTitle', { client: picked })}
             />
           )
         : null}

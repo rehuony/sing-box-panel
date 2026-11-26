@@ -58,9 +58,16 @@ func (application *Service) ListSubscriptionChannels(
 	if err != nil {
 		return SubscriptionChannelPage{}, err
 	}
+	pool, err := application.database.SubscriptionPool(ctx)
+	if err != nil {
+		return SubscriptionChannelPage{}, err
+	}
+	nodes := channelNodes(pool)
 	page := SubscriptionChannelPage{Items: make([]SubscriptionChannelSummary, len(stored.Items))}
 	for index, channel := range stored.Items {
-		page.Items[index] = applicationSubscriptionChannelSummary(channel)
+		if page.Items[index], err = applicationSubscriptionChannelSummary(channel, nodes); err != nil {
+			return SubscriptionChannelPage{}, err
+		}
 	}
 	page.Next = applicationSubscriptionCursor(stored.Next)
 	return page, nil

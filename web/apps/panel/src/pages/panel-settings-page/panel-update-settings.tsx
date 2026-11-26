@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 
 import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { CircleArrowUp, RefreshCw } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDateTime, formatRelativeTime } from '@shared/lib/format-time';
 import {
@@ -20,7 +20,6 @@ import {
 import type { SystemUpdate } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
-import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { usePanelUpdate } from '@/hooks/use-panel-update';
 import { describeRequestError } from '@/components/error-notice';
@@ -37,9 +36,11 @@ function updateLine(status: SystemUpdate, t: ReturnType<typeof useTranslation>['
 }
 
 /**
- * The panel's version, the newest release it knows with where its update
- * stands, and the actions that check and update; the settings that fetch
- * releases follow as rows of their own.
+ * The panel's version, then the newest release it knows with where its
+ * update stands and, at the row's end, one action: checking for a newer
+ * release, which updating to it replaces once one is available. Every build
+ * checks; only a supported one is offered the update, and its help says why.
+ * The settings that fetch releases follow as rows of their own.
  */
 export function PanelUpdateSettings({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation();
@@ -65,20 +66,7 @@ export function PanelUpdateSettings({ children }: { children: ReactNode }) {
   const unsupported = value?.supported === false;
   const checked = value?.checked_at;
   return (
-    <SettingsCard
-      actions={unsupported
-        ? null
-        : (
-            <StripAction
-              icon={<RefreshCw aria-hidden='true' className={check.isPending ? 'animate-spin motion-reduce:animate-none' : undefined} data-icon='inline-start' />}
-              label={t(check.isPending ? 'panelSettings.checking' : 'panelSettings.checkUpdate')}
-              onClick={() => {
-                if (!busy) check.mutate();
-              }}
-            />
-          )}
-      title={t('panelSettings.updates')}
-    >
+    <SettingsCard title={t('panelSettings.updates')}>
       <SettingsField id='panel-version' label={t('panelSettings.currentVersion')}>
         <output className='flex min-h-10 items-center font-[family-name:var(--font-data)] text-sm' id='panel-version'>{value?.current_version ?? '—'}</output>
       </SettingsField>
@@ -86,22 +74,32 @@ export function PanelUpdateSettings({ children }: { children: ReactNode }) {
         <div className='flex min-h-10 items-center gap-3'>
           <output className='flex min-w-0 flex-1 items-baseline gap-2 text-sm' id='panel-latest-version'>
             <span className='font-[family-name:var(--font-data)]'>{value?.latest_version ?? '—'}</span>
-            {line || unsupported
-              ? <span className='min-w-0 truncate text-compact text-[var(--color-text-faint)]' title={line || undefined}>{line || t('panelSettings.updateUnsupported')}</span>
+            {line
+              ? <span className='min-w-0 truncate text-compact text-[var(--color-text-faint)]' title={line}>{line}</span>
               : checked && (
                 <span className='min-w-0 truncate text-compact text-[var(--color-text-faint)]' title={formatDateTime(checked, locale)}>
                   {t('panelSettings.checkedAt', { time: formatRelativeTime(checked, locale) })}
                 </span>
               )}
           </output>
-          {value?.update_available && value.state === 'idle' && (
-            <Button size='sm' type='button' variant='outline' onClick={() => {
-              start.reset();
-              setConfirming(true);
-            }}>
-              {t('panelSettings.updateTo', { version: value.latest_version })}
-            </Button>
-          )}
+          {value?.update_available && value.state === 'idle'
+            ? (
+                <Button size='sm' type='button' variant='outline' onClick={() => {
+                  start.reset();
+                  setConfirming(true);
+                }}>
+                  <CircleArrowUp aria-hidden='true' data-icon='inline-start' />
+                  {t('panelSettings.updateTo', { version: value.latest_version })}
+                </Button>
+              )
+            : (
+                <Button size='sm' type='button' variant='outline' onClick={() => {
+                  if (!busy) check.mutate();
+                }}>
+                  <RefreshCw aria-hidden='true' className={check.isPending ? 'animate-spin motion-reduce:animate-none' : undefined} data-icon='inline-start' />
+                  {t(check.isPending ? 'panelSettings.checking' : 'panelSettings.checkUpdate')}
+                </Button>
+              )}
         </div>
       </SettingsField>
       {children}

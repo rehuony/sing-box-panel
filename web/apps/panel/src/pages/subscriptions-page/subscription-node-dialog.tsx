@@ -28,8 +28,8 @@ interface Message {
 }
 
 /** A row's label column, then its value or control; stacked below 520px. */
-const row = 'grid min-h-12 min-w-0 grid-cols-[8rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1 py-1 max-[520px]:min-h-0 max-[520px]:grid-cols-1 max-[520px]:py-2';
-const rowLabel = 'text-sm text-[var(--color-text-secondary)]';
+const row = 'grid min-h-(--control-height) min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 max-[520px]:min-h-0 max-[520px]:grid-cols-1';
+const rowLabel = 'text-sm';
 /**
  * Values read in the data face, as on the node cards. These faces are joined as
  * plain text, since class merging reads `text-compact` as a colour.
@@ -159,15 +159,15 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
     <Dialog open onOpenChange={(open) => {
       if (!open && !save.isPending) onClose();
     }}>
-      <DialogContent className='sm:max-w-[40rem]' initialFocus={titleRef}>
-        <form className='flex min-w-0 flex-col gap-6' noValidate onSubmit={submit}>
+      <DialogContent initialFocus={titleRef} size='wide'>
+        <form className='flex min-w-0 flex-col gap-5' noValidate onSubmit={submit}>
           <DialogHeader className='gap-1'>
             <DialogTitle className='truncate outline-none' ref={titleRef} tabIndex={-1}>{current.display_name}</DialogTitle>
             <DialogDescription className='truncate font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]' title={summary}>
               {summary}
             </DialogDescription>
           </DialogHeader>
-          <div className='flex min-w-0 flex-col divide-y'>
+          <div className='flex min-w-0 flex-col gap-3'>
             <div className={row}>
               {editing
                 ? <label className={rowLabel} htmlFor={nameId}>{t('subscriptions.pool.detail.name')}</label>
@@ -250,7 +250,7 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
           </section>
           <DialogFooter className='flex-nowrap'>
             <p
-              className={cn('min-h-5 min-w-0 flex-1 truncate text-sm', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
+              className={cn('min-h-5 min-w-0 flex-1 truncate text-compact', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
               id={messageId}
               role='status'
               title={message ? messageLine(message.text) : undefined}

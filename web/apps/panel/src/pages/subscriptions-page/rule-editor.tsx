@@ -24,12 +24,12 @@ const MATCH_KINDS: readonly MatchKind[] = ['domain', 'domain_suffix', 'domain_ke
 const FORMAT_LABELS: Record<ChannelRemoteRuleSet['format'], string> = {
   source: 'JSON (source)', binary: 'SRS (binary)', yaml: 'YAML', text: 'TEXT', mrs: 'MRS', loon: 'loon',
 };
-const fieldLabel = 'text-sm text-[var(--color-text-secondary)]';
+const fieldLabel = 'text-sm';
 
 /** A form row: the label column, then the control filling the rest; stacked below 520px. */
 function Row({ children, htmlFor, label }: { children: ReactNode; htmlFor: string; label: string }) {
   return (
-    <div className='grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1 py-2 max-[520px]:grid-cols-1'>
+    <div className='grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 max-[520px]:grid-cols-1'>
       <label className={fieldLabel} htmlFor={htmlFor}>{label}</label>
       <div className='min-w-0 *:data-[slot=select-trigger]:w-full'>{children}</div>
     </div>
@@ -108,13 +108,13 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
 
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
-      <DialogContent className='flex max-h-[min(40rem,calc(100dvh-2rem))] flex-col sm:max-w-[34rem]'>
-        <form className='flex min-h-0 min-w-0 flex-1 flex-col gap-4' noValidate onSubmit={submit}>
+      <DialogContent className='flex max-h-[min(40rem,calc(100dvh-2rem))] flex-col'>
+        <form className='flex min-h-0 min-w-0 flex-1 flex-col gap-5' noValidate onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{t(`subscriptions.ruleSets.${titleKey}`)}</DialogTitle>
             <DialogDescription className='sr-only'>{client}</DialogDescription>
           </DialogHeader>
-          <div className='flex min-w-0 flex-col divide-y'>
+          <div className='flex min-w-0 flex-col gap-3'>
             {remote
               ? (
                   <>
@@ -230,10 +230,7 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                   </>
                 )}
           </div>
-          <DialogFooter className='flex-nowrap'>
-            <p className='min-h-5 min-w-0 flex-1 truncate text-sm text-[var(--color-danger-text)]' role='status' title={messageLine(message) || undefined}>
-              {messageLine(message)}
-            </p>
+          <DialogFooter className='flex-nowrap' message={messageLine(message)}>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button type='submit'>{t('subscriptions.ruleSets.apply')}</Button>
           </DialogFooter>

@@ -19,6 +19,7 @@ import { describeRequestError } from '@/components/error-notice';
 import type { SourceDialogMode } from './subscription-source-dialog';
 
 import { contentLabel } from './source-format';
+import { attemptReason } from './source-read-issue';
 import { useIntervalLabel } from './use-interval-label';
 import { SubscriptionSourceDialog } from './subscription-source-dialog';
 
@@ -42,7 +43,7 @@ export function SourceRailItem({ count, current, onEdit, onRefresh, onSelect, re
   const intervalLabel = useIntervalLabel();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const failure = source.last_error
-    ? t('subscriptions.sources.lastError', { code: source.last_error, time: formatDateTime(source.last_attempt_at, locale) || '—' })
+    ? t('subscriptions.sources.lastError', { reason: attemptReason(source.last_error, t), time: formatDateTime(source.last_attempt_at, locale) || '—' })
     : '';
   const details = [
     source.kind === 'url' ? source.url ?? '' : t('subscriptions.sources.kind.file'),

@@ -16,17 +16,21 @@ through `GET /subscription/tokens/{tokenId}/secret`. This response is `no-store`
 ordinary token metadata, lists, channel configuration and logs never include it.
 The database and its backups therefore contain recoverable subscription credentials.
 Creation does not choose a channel or generate a subscription URL.
-Link export lists all active subscription keys, rechecks channel/key availability,
-reads the selected secret and copies the channel URL without requesting a
-subscription body or spending quota. Existing global key scope, user grants,
+A channel's subscription link, from its row or its workspace, lists all active
+keys, reads the secret of the key it shows and displays the full channel URL
+with copy and a QR code, without requesting a subscription body or spending
+quota. With no active key it creates one from a name alone; expiry and quota stay
+in the key list. Existing global key scope, user grants,
 expiry, quota and revocation checks still govern delivery. Channel-to-key export
 bindings have been removed; API clients must omit `config.export_token_ids`.
 The key list provides View, enable/disable, rotation and deletion. Its metadata
 and in-flight list request survive subscription-tab switches, with refreshes after
 key changes or pagination. Leaving the subscriptions page releases that state.
-Secret dialog contents are cleared on close or when leaving the tab. The channel
-list provides Edit, Copy, Link and Delete; Copy creates an independent channel
-with the same configuration. Preview, clipboard and public delivery use the same
+Secret dialog contents, and the secret a channel link read, are cleared on close
+or when leaving the tab. The channel list shows each channel's client, the pool
+nodes it publishes, its exit rules and its final exit; a row opens its channel,
+and its menu duplicates it as an independent channel with the same configuration
+or deletes it. Preview, clipboard and public delivery use the same
 formatted output: indented JSON, block-style YAML, or native line-oriented Loon.
 Any unrevoked key can be rotated, whether enabled, disabled, expired or exhausted.
 Rotation replaces its secret while preserving enablement, scope, quota and usage;
@@ -38,9 +42,8 @@ Disabling or deleting a key invalidates future requests, not credentials already
 downloaded by a client. Existing API revocation and rotation invalidation remain
 supported; revoked keys cannot be re-enabled.
 
-Channel names are display-only; use the row's Edit button to open a channel's
-workspace. Channel forms omit enablement controls: new channels are enabled and
-editing preserves the stored state.
+Channel forms and the channel list omit enablement: new channels are enabled
+and editing preserves the stored state.
 
 The API also supports user-scoped keys, which require an enabled user and grants
 naming pool node IDs. An empty grant set renders an empty subscription. User/grant
@@ -205,7 +208,19 @@ private, link-local, shared (`100.64.0.0/10`), benchmarking, documentation,
 reserved and multicast ranges, and the IPv6 translation prefixes that embed them,
 are denied unless `subscription.private_source_cidrs` explicitly allows them.
 Core downloads apply the same address rules. Public subscription requests never
-fetch upstream data.
+fetch upstream data. A URL the policy refuses answers 422
+`subscription_source_url_rejected` and a fetch that fails answers 502
+`subscription_source_fetch_failed`, each with the failure's code in
+`fields.reason`: `invalid_url`, `address_denied`, `too_many_redirects`,
+`body_too_large`, `http_status_<status>` or `request_failed`, the codes
+`last_error` records.
+
+In the Web UI a new source has one field: a link typed or pasted on one line
+makes a URL source, and content pasted, dropped or read from a file makes a file
+source. Its name may stay empty, and then it is the link's host without a
+leading `sub.`, `www.` or `api.`, or the file's name. The dialog reads what was
+given before saving it, says why it cannot be read with the step that may fix
+it, choosing a format or retrying the fetch, and saves only what it could read.
 
 Each source has a filter of name rules. Plain text matches a case-insensitive
 substring of a node's name in the source; text wrapped in slashes is an RE2
@@ -414,7 +429,9 @@ a note, because the exit rule sets the exit. A rule-set link may hold commas:
 the link is everything between the name and the trailing format and behavior,
 so every saved rule reads back the same. Other rule types, invalid values,
 formats the client cannot use and repeated rule-set names are listed by line,
-and saving is refused while one remains. The server's validation remains the
+and saving is refused while one remains. The entries add one rule, or every
+line of a pasted block that can be read, from the line at their foot, and
+refuse a rule the set already holds. The server's validation remains the
 final check.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;

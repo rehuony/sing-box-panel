@@ -87,22 +87,13 @@ type SubscriptionChannelRoute struct {
 	Exit   SubscriptionChannelExit
 }
 
-type SubscriptionChannelSummary struct {
-	ID        string
-	Name      string
-	Format    SubscriptionFormat
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
 type SubscriptionChannelListFilter struct {
 	Cursor *CreatedAtCursor
 	Limit  int
 }
 
 type SubscriptionChannelPage struct {
-	Items []SubscriptionChannelSummary
+	Items []SubscriptionChannel
 	Next  *CreatedAtCursor
 }
 
@@ -161,6 +152,8 @@ func (s *Store) GetSubscriptionChannel(ctx context.Context, channelID string) (S
 	return channel, tx.Commit()
 }
 
+// ListSubscriptionChannels reads a page of channels, newest first, each with
+// its groups, members and exit rules, all from one snapshot.
 func (s *Store) ListSubscriptionChannels(ctx context.Context, filter SubscriptionChannelListFilter) (SubscriptionChannelPage, error) {
 	limit, err := normalizePageLimit(filter.Limit)
 	if err != nil {
@@ -169,7 +162,7 @@ func (s *Store) ListSubscriptionChannels(ctx context.Context, filter Subscriptio
 	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
 		return SubscriptionChannelPage{}, err
 	}
-	query := `SELECT id, name, format, enabled, created_at, updated_at FROM subscription_channels`
+	query := `SELECT id FROM subscription_channels`
 	args := make([]any, 0, 4)
 	if filter.Cursor != nil {
 		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
@@ -178,30 +171,40 @@ func (s *Store) ListSubscriptionChannels(ctx context.Context, filter Subscriptio
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
 	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return SubscriptionChannelPage{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return SubscriptionChannelPage{}, fmt.Errorf("list subscription channels: %w", err)
 	}
-	defer rows.Close()
-	items := make([]SubscriptionChannelSummary, 0, limit+1)
+	ids := make([]string, 0, limit+1)
 	for rows.Next() {
-		var channel SubscriptionChannelSummary
-		var enabled int
-		var createdAt, updatedAt string
-		if err := rows.Scan(&channel.ID, &channel.Name, &channel.Format, &enabled, &createdAt, &updatedAt); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
 			return SubscriptionChannelPage{}, fmt.Errorf("scan subscription channel: %w", err)
 		}
-		channel.Enabled = enabled != 0
-		if channel.CreatedAt, err = parseTime(createdAt); err != nil {
-			return SubscriptionChannelPage{}, err
-		}
-		if channel.UpdatedAt, err = parseTime(updatedAt); err != nil {
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return SubscriptionChannelPage{}, err
+	}
+	if err := rows.Err(); err != nil {
+		return SubscriptionChannelPage{}, fmt.Errorf("iterate subscription channels: %w", err)
+	}
+	items := make([]SubscriptionChannel, 0, len(ids))
+	for _, id := range ids {
+		channel, err := getSubscriptionChannel(ctx, tx, id)
+		if err != nil {
 			return SubscriptionChannelPage{}, err
 		}
 		items = append(items, channel)
 	}
-	if err := rows.Err(); err != nil {
-		return SubscriptionChannelPage{}, fmt.Errorf("iterate subscription channels: %w", err)
+	if err := tx.Commit(); err != nil {
+		return SubscriptionChannelPage{}, err
 	}
 	page := SubscriptionChannelPage{Items: items}
 	if len(items) > limit {

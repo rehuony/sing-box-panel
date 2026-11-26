@@ -1,7 +1,8 @@
 # Project scripts
 
 This directory owns executable project scripts. `installer.sh` installs a
-published release on a Linux host. `build.sh` builds and verifies an
+published release on a Linux host and `cleanup.sh` removes one. `build.sh`
+builds and verifies an
 isolated source snapshot. `test/` contains local script tests and the
 shared release smoke orchestration plus the native Linux sing-box core
 contract. GitHub workflow YAML and the release signing trust root remain under
@@ -51,11 +52,47 @@ commands and the Bash, Fish and Zsh completion commands. When the component's
 service is installed, it says that the service still runs the previous binary
 and gives the `systemd install` command that refreshes its unit, which an
 earlier release may have written with other arguments, before `systemd restart`.
+When an earlier release left a kept binary, its lock file or, in system scope,
+its update helper unit, the summary gives the `cleanup.sh legacy` command.
 The installer does not modify shell profiles or configure, start, stop, or
 restart systemd. Run its network-independent contract tests locally with:
 
 ```sh
 bash scripts/test/installer-test.sh
+```
+
+## Cleanup
+
+`cleanup.sh` finds what sing-box-panel and sing-box-node left on a Linux host
+and removes it. Like the installer it is read from the default branch, so it is
+not part of a release and also knows the files of earlier releases. Run as root
+it covers the system services and every user's installation (homes of root and
+of accounts from UID 1000), otherwise only the caller's own.
+
+- `check`, the default, reports in three groups and changes nothing: what is
+  installed, what earlier releases or interrupted updates left behind, and what
+  needs attention.
+- `legacy` removes only what was left behind and drops the settings fields the
+  current release rejects, keeping the installation running.
+- `purge` stops and disables the units, stops the processes still running a
+  listed binary or a core from a listed node data directory, and removes the
+  units with their drop-ins and enablement links, the sysusers and tmpfiles
+  declarations, the binaries, the settings and data directories and the service
+  accounts. `--keep-data` keeps the settings, the data and the accounts.
+
+| Group | What it looks for |
+| --- | --- |
+| Installed | `NAME.service` with its drop-ins and enablement links, in system and user scope; `/etc/sysusers.d/NAME.conf` and `/etc/tmpfiles.d/NAME.conf`; the binary in `/usr/local/bin` or `~/.local/bin`; the settings directory; the default data directory and the one the settings name; the service account; running processes |
+| Left behind | The update helper units `NAME-update.path` and `NAME-update.service` and their enablement links; `NAME.previous`, `.NAME.update.lock` and the temporary files of interrupted updates and installs beside the binary; `node-tls.pem`, `artifacts/`, `runtime/`, `logs/`, `panel-control.sock` and `runtime-executor.lock` in a panel data directory; the settings fields `nodes.endpoint`, `nodes.trust` and `auth.secure_cookie` |
+| Needs attention | A system unit without the install step, a node enrolled before WebSocket enrollment, an update request no unit installed, a process running a replaced binary, units a distribution package installed, a data directory without the service's files, and an account with a login shell; none is changed |
+
+A custom data directory is removed only when it holds the service's files, and
+never when it is a system directory or a home. Confirmation is read from the
+terminal; without one, `--yes` is required. Its tests run a scratch host with
+stubbed system commands:
+
+```sh
+bash scripts/test/cleanup-test.sh
 ```
 
 ## Release automation

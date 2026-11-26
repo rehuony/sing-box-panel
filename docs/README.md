@@ -38,7 +38,7 @@ are described in the core guide.
 | Supported sing-box release lines | [`internal/singbox/line.go`](../internal/singbox/line.go) |
 | Reviewed 1.13 configuration schema and its provenance | [Source definition](../internal/sing-box-panel/schema/1.13.json) |
 | Service layouts, ownership and hardening | [systemd packaging](systemd.md) |
-| Installer, packaging scripts and generated release files | [Project scripts](../scripts/README.md) |
+| Installer, cleanup, packaging scripts and generated release files | [Project scripts](../scripts/README.md) |
 | Frontend ownership, embedding and HTTP client boundaries | [Web application](../web/README.md) |
 | Visual identity, design tokens and interface rules | [`DESIGN.md`](../DESIGN.md) |
 

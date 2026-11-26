@@ -349,7 +349,23 @@ test_replacement_confirmation() (
   installer_main || fail "a declined choice should exit successfully"
 )
 
+# Files an earlier release left beside the binary are reported after an install.
+# The globals set here are the sourced installer's, read by installer_leftovers.
+# shellcheck disable=SC2034
+test_leftover_detection() {
+  local directory="${test_root}/leftovers"
+  mkdir -p "${directory}"
+  installer_binary_name=sing-box-node
+  installer_binary_path="${directory}/sing-box-node"
+  installer_service_scope=user
+  expect_failure installer_leftovers
+  touch "${directory}/sing-box-node.previous"
+  installer_leftovers || fail "a kept previous binary was not reported"
+  pass
+}
+
 test_entrypoints
+test_leftover_detection
 test_arguments_and_versions
 test_architectures_and_layouts
 test_component_choice

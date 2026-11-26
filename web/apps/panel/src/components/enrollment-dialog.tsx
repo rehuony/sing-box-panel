@@ -10,7 +10,7 @@ import { Spinner } from '@shared/components/ui/spinner';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
+import { Dialog, DialogContent, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { FleetNode } from '@/api/api-client';
 import type { PendingEnrollment } from '@/stores/enrollment-dialog.store';
@@ -201,14 +201,14 @@ export function EnrollmentDialog() {
       open={open}
     >
       <DialogContent>
-        <form className='flex min-w-0 flex-col gap-6' noValidate onSubmit={submit}>
+        <form className='flex min-w-0 flex-col gap-5' noValidate onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
           {naming
             ? (
-                <div className='grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4'>
-                  <label className='text-sm font-medium' htmlFor={nameId}>{t('fleet.add.name')}</label>
+                <DialogFields>
+                  <label htmlFor={nameId}>{t('fleet.add.name')}</label>
                   <Input
                     aria-describedby={messageId}
                     aria-invalid={missing || issue.error ? true : undefined}
@@ -224,7 +224,7 @@ export function EnrollmentDialog() {
                     spellCheck={false}
                     value={name}
                   />
-                </div>
+                </DialogFields>
               )
             : (
                 // Both later states share one cell, so the dialog keeps its height when the node arrives.
@@ -259,7 +259,7 @@ export function EnrollmentDialog() {
                 </div>
               )}
           <DialogFooter className='flex-nowrap justify-between'>
-            <p className='flex min-h-5 min-w-0 flex-1 items-center gap-2 text-sm' id={messageId} role='status'>
+            <p className='flex min-h-5 min-w-0 flex-1 items-center gap-2 text-compact' id={messageId} role='status'>
               {message
                 ? <span className={cn('truncate', expired && !issue.error ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}>{messageLine(message)}</span>
                 : null}

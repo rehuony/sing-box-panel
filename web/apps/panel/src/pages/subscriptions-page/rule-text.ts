@@ -28,6 +28,9 @@ export interface RuleTextIssue<Code extends string> {
 }
 
 export interface RuleTextResult {
+  /** The line each rule came from, from 1. */
+  lines: number[];
+  /** The rules of the lines that could be read, in order. */
   rules: SubscriptionRule[];
   notes: RuleTextIssue<RuleTextNoteCode>[];
   errors: RuleTextIssue<RuleTextErrorCode>[];
@@ -71,16 +74,23 @@ export function serializeRules(rules: readonly SubscriptionRule[]): string {
   return rules.map(ruleLine).join('\n');
 }
 
+/** A line as a classic rule line: one that does not start with a rule type takes the kind's. */
+export function withRuleType(line: string, kind: Exclude<SubscriptionRule['kind'], 'remote'>): string {
+  const type = unwrapLine(line).split(',')[0]!.trim().toUpperCase();
+  return type === 'RULE-SET' || Object.hasOwn(typeKinds, type) ? line : `${kindTypes[kind]},${line.trim()}`;
+}
+
 /**
  * Reads classic rule lines into rules, in order. Blank lines and lines
  * starting with `#` or `//` are skipped; a YAML list marker and quotes
  * around a line are removed. A trailing `no-resolve`, and a policy name
  * after a match value, are dropped with a note, since the exit rule that
  * uses the rules decides the exit; a rule set's link may hold commas.
- * Remote rule sets need distinct names.
+ * Remote rule sets need distinct names. Text with errors is not a rule
+ * list yet; its readable lines still come back, for marking and pasting.
  */
 export function parseRules(text: string, format: SubscriptionFormat): RuleTextResult {
-  const result: RuleTextResult = { rules: [], errors: [], notes: [] };
+  const result: RuleTextResult = { rules: [], lines: [], errors: [], notes: [] };
   const names = new Set<string>();
   text.split(/\r?\n/).forEach((raw, position) => {
     const line = position + 1;
@@ -125,8 +135,8 @@ export function parseRules(text: string, format: SubscriptionFormat): RuleTextRe
         : { line, code: 'policy_dropped', detail: field });
     }
     result.rules.push(rule);
+    result.lines.push(line);
   });
-  if (result.errors.length) result.rules = [];
   return result;
 }
 

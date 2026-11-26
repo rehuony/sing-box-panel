@@ -15,7 +15,8 @@ import type { NodeStatus } from '@/utils/fleet-summary';
 
 import { useClock } from '@/hooks/use-clock';
 import { nodePath } from '@/utils/node-path';
-import { attentionItems, coreVersionLabel, hostLoad, nodeRates, percentOf } from '@/utils/fleet-summary';
+import { compactVersion } from '@/utils/compact-version';
+import { attentionItems, coreState, coreVersionLabel, hostLoad, nodeRates, percentOf } from '@/utils/fleet-summary';
 
 type Tone = 'danger' | 'warning';
 type Health = Tone | 'neutral' | 'success';
@@ -111,12 +112,12 @@ function TitleEnd({ item, release }: { item: NodeStatus; release: string | null 
   if (node.update_available && release) {
     const version = `v${release.replace(/^v/i, '')}`;
     const label = t('fleet.pane.update', { version });
-    // The release takes the room the name leaves, up to its whole width, before the host does;
+    // A development build's long version shows its release and commit, so the host keeps its room;
     // short of room it keeps its arrow and truncates, the whole of it on hover.
     return (
-      <Detail className='flex max-w-fit min-w-[4ch] grow-[10000] basis-0 items-baseline gap-[1ch] text-[var(--color-info-text)]' content={label}>
+      <Detail className='flex min-w-[4ch] items-baseline gap-[1ch] text-[var(--color-info-text)]' content={label}>
         <span aria-hidden='true' className='flex-none'>↑</span>
-        <span aria-hidden='true' className='min-w-0 truncate'>{version}</span>
+        <span aria-hidden='true' className='min-w-0 truncate'>{compactVersion(version)}</span>
         <span className='sr-only'>{label}</span>
       </Detail>
     );
@@ -195,12 +196,19 @@ function Headline({ item, now }: { item: NodeStatus; now: number }) {
   );
 }
 
+/** The dot between a row's readings. */
+function Separator() {
+  return <span aria-hidden='true' className='flex-none whitespace-pre text-muted-foreground'>{' · '}</span>;
+}
+
 /**
- * The core's state, version and uptime: running in the text colour, stopped
- * in secondary text and unknown in warning. An offline node's line holds the
- * version it last ran and the traffic its period has recorded.
+ * The core's row, labelled like the meters: its state, version and uptime,
+ * running in the text colour, stopped in secondary text, unknown in warning,
+ * and not enabled when the node has no core set; the version gives way first.
+ * An offline node's row holds the version it last ran and the traffic its
+ * period has recorded.
  */
-function CoreLine({ item, now }: { item: NodeStatus; now: number }) {
+function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
   const { t } = useTranslation();
   const locale = useLocale();
   const units = useUnits();
@@ -209,41 +217,58 @@ function CoreLine({ item, now }: { item: NodeStatus; now: number }) {
   if (node.state === 'offline') {
     const period = item.metrics.current_traffic_period;
     return (
-      <ReadoutParts className='text-[var(--color-text-secondary)]'>
-        {[
-          version,
-          <span key='download'>
-            <span className='text-muted-foreground'>{`${t('fleet.pane.period')} `}</span>
-            <span aria-hidden='true' className={trafficDirectionText.download}>↓ </span>
-            <span className='sr-only'>{t('telemetry.metric.download')}</span>
-            <span className={trafficValueText('download', period.inbound_bytes)}>{formatBytes(period.inbound_bytes, locale)}</span>
-          </span>,
-          <span key='upload'>
-            <span aria-hidden='true' className={trafficDirectionText.upload}>↑ </span>
-            <span className='sr-only'>{t('telemetry.metric.upload')}</span>
-            <span className={trafficValueText('upload', period.outbound_bytes)}>{formatBytes(period.outbound_bytes, locale)}</span>
-          </span>,
-        ]}
-      </ReadoutParts>
+      <ReadoutRow label={t('fleet.pane.core')}>
+        <ReadoutParts className='overflow-hidden text-[var(--color-text-secondary)]'>
+          {[
+            version,
+            <span key='download'>
+              <span className='text-muted-foreground'>{`${t('fleet.pane.period')} `}</span>
+              <span aria-hidden='true' className={trafficDirectionText.download}>↓ </span>
+              <span className='sr-only'>{t('telemetry.metric.download')}</span>
+              <span className={trafficValueText('download', period.inbound_bytes)}>{formatBytes(period.inbound_bytes, locale)}</span>
+            </span>,
+            <span key='upload'>
+              <span aria-hidden='true' className={trafficDirectionText.upload}>↑ </span>
+              <span className='sr-only'>{t('telemetry.metric.upload')}</span>
+              <span className={trafficValueText('upload', period.outbound_bytes)}>{formatBytes(period.outbound_bytes, locale)}</span>
+            </span>,
+          ]}
+        </ReadoutParts>
+      </ReadoutRow>
     );
   }
   const runtime = node.runtime;
   const started = runtime?.observation_state === 'running' ? runtime.running?.started_at : undefined;
-  let state = <span className='text-[var(--color-warning-text)]' key='state'>{t('fleet.pane.unknown')}</span>;
-  if (started !== undefined) state = <span key='state'>{t('fleet.pane.running')}</span>;
-  else if (runtime?.observation_state === 'stopped') state = <span className='text-[var(--color-text-secondary)]' key='state'>{t('fleet.pane.stopped')}</span>;
+  const stopped = started === undefined && runtime?.observation_state === 'stopped';
+  let state = <span className='text-[var(--color-warning-text)]'>{t('fleet.pane.unknown')}</span>;
+  if (started !== undefined) state = <span>{t('fleet.pane.running')}</span>;
+  else if (stopped) state = <span className='text-[var(--color-text-secondary)]'>{t(coreState(item) === 'notEnabled' ? 'fleet.pane.noCore' : 'fleet.pane.stopped')}</span>;
   const platform = node.os && node.arch ? `${node.os}/${node.arch}` : null;
+  // Its hover says the whole version, which the row may cut short, and the platform.
+  const detail = [version, platform].filter(Boolean).join(' · ') || null;
   return (
-    <Detail className='min-w-0' content={platform}>
-      <ReadoutParts>
-        {[
-          state,
-          version,
-          // The pane keeps one line a row, so uptime shows its largest unit; the node's window has the rest.
-          started === undefined ? null : t('fleet.pane.uptime', { value: formatDuration(now - Date.parse(started), units, 1) }),
-        ]}
-      </ReadoutParts>
-    </Detail>
+    <ReadoutRow label={t('fleet.pane.core')}>
+      <Detail className='flex min-w-0 items-baseline' content={detail}>
+        <span className='flex-none'>{state}</span>
+        {version
+          ? (
+              <>
+                <Separator />
+                <span className={cn('min-w-0 truncate', stopped && 'text-[var(--color-text-secondary)]')}>{version}</span>
+              </>
+            )
+          : null}
+        {/* The pane keeps one line a row, so uptime shows its largest unit; the node's window has the rest. */}
+        {started === undefined
+          ? null
+          : (
+              <>
+                <Separator />
+                <span className='flex-none'>{t('fleet.pane.uptime', { value: formatDuration(now - Date.parse(started), units, 1) })}</span>
+              </>
+            )}
+      </Detail>
+    </ReadoutRow>
   );
 }
 
@@ -322,7 +347,7 @@ function QuotaMeter({ item }: { item: NodeStatus }) {
   return <Meter detail={detail} percent={share} limits={QUOTA_LIMITS} tone={tone} value={value} />;
 }
 
-/** The headline, the core's line, then host load and quota as meters. */
+/** The headline, then the core's row, host load and quota in one labelled column. */
 function Readings({ item, now }: { item: NodeStatus; now: number }) {
   const { t } = useTranslation();
   const locale = useLocale();
@@ -333,8 +358,8 @@ function Readings({ item, now }: { item: NodeStatus; now: number }) {
     // Each line keeps to one line, so the pane holds its fixed height.
     <div className='flex min-h-0 flex-1 flex-col justify-center px-3 whitespace-nowrap'>
       <Headline item={item} now={now} />
-      <div className='flex h-5 min-w-0 items-center overflow-hidden'><CoreLine item={item} now={now} /></div>
       <dl className='mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3'>
+        <CoreRow item={item} now={now} />
         <ReadoutRow label={t('fleet.pane.cpu')}>
           <Share
             detail={host ? `${t('fleet.pane.cores', { count: host.cpu_count })} · ${t('fleet.pane.load', { value: host.load_one.toFixed(2) })}` : null}

@@ -70,8 +70,10 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(loaded, channel) {
 		t.Fatalf("loaded channel = %+v, err=%v", loaded, err)
 	}
+	// The list counts the nodes the group and the exit rule publish, and names the final exit.
 	listed, err := app.ListSubscriptionChannels(ctx, SubscriptionListRequest{})
-	if err != nil || len(listed.Items) != 1 || listed.Items[0].ID != channel.ID {
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].ID != channel.ID || listed.Items[0].NodeCount != 2 ||
+		listed.Items[0].RouteCount != 1 || listed.Items[0].FinalExit != (ChannelFinalExit{Kind: "group", Name: "Main"}) {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
 	}
 	if _, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{

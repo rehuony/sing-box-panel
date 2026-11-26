@@ -271,8 +271,9 @@ system service.
 
 A release build updates itself to a newer signed release; the panel and the
 node are released together under one version. The panel settings'
-maintenance category shows the panel's version and the newest stable release
-and updates the panel; a node's settings tab updates that node to the panel's
+maintenance category shows the panel's version and the newest stable release,
+which every build checks, and updates the panel when it is a release build on
+Linux; a node's settings tab updates that node to the panel's
 own release, and enrolled nodes never contact GitHub. Restarting a node restarts
 its core, so its proxy is briefly interrupted. From a shell, `sing-box-panel
 update` and `sing-box-node update` do the same; a node that is not enrolled
@@ -282,3 +283,6 @@ installs it and starts the service again, as the [systemd packaging
 guide](systemd.md#updates) describes. Updates go one way.
 After replacing a binary by hand or with the installer, refresh its service
 with `systemd install` before restarting it.
+To list what earlier releases left on a host, such as their update helper
+units or a kept previous binary, and remove it, or to remove an installation
+entirely, use [`cleanup.sh`](../scripts/README.md#cleanup).

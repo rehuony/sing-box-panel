@@ -67,7 +67,7 @@ export function PanelLogDetails({ item, open, onOpenChange, onClosed, returnFocu
     <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={value => {
       if (!value) onClosed();
     }}>
-      <DialogContent className='flex w-220 max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-220' initialFocus={titleRef} finalFocus={returnFocus}>
+      <DialogContent className='flex flex-col gap-0 overflow-hidden p-0' finalFocus={returnFocus} initialFocus={titleRef} size='workspace'>
         {item && record && (
           <>
             <DialogHeader className='shrink-0 gap-3 border-b p-4 sm:p-6'>

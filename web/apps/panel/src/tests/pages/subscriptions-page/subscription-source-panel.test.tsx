@@ -33,11 +33,10 @@ describe('subscription sources', () => {
     expect(await screen.findByText(testSubscriptionSources[0].name)).toBeVisible();
     await user.click(screen.getAllByRole('button', { name: 'Add source' })[0]);
     const dialog = await screen.findByRole('dialog', { name: 'Add source' });
-    await user.type(within(dialog).getByLabelText('Name'), 'Provider');
-    await user.click(within(dialog).getByRole('combobox', { name: 'Kind' }));
-    await user.click(await screen.findByRole('option', { name: 'File' }));
-    await user.click(within(dialog).getByLabelText('Content'));
+    // The source field takes the focus, and content pasted into it makes a file source.
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Source' })).toHaveFocus());
     await user.paste(content);
+    await user.type(within(dialog).getByLabelText('Name'), 'Provider');
     await user.type(within(dialog).getByRole('textbox', { name: 'Include' }), 'HK{Enter}');
     const filter = { include: ['HK'], exclude: [] };
     await waitFor(() => expect(client.previewSubscriptionSource).toHaveBeenLastCalledWith(
@@ -76,10 +75,58 @@ describe('subscription sources', () => {
     await user.click(within(dialog).getByRole('button', { name: 'View the content' }));
     expect(await screen.findByText('trojan://secret@us.example:443#US%2001')).toBeVisible();
     await user.keyboard('{Escape}');
+    // New content is read before it is saved.
+    expect(await within(dialog).findByText('0 of 0 nodes kept', {}, { timeout: 2_000 })).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
     await waitFor(() => expect(client.updateSubscriptionSource).toHaveBeenCalledWith(
       source.id, { content, filter: source.filter, format: 'auto', name: 'Renamed' }, source.updated_at,
     ));
+  });
+
+  it('names a new source after its link, says why the link cannot be fetched and saves once a retry reads it', async () => {
+    const user = userEvent.setup();
+    const url = 'https://sub.example.com/api?token=demo';
+    const client = createMockApiClient({
+      previewSubscriptionSource: vi.fn()
+        .mockRejectedValueOnce(new ApiRequestError('The source could not be fetched (http_status_404).', {
+          code: 'subscription_source_fetch_failed', fields: { reason: 'http_status_404' }, status: 502,
+        }))
+        .mockResolvedValue({ format: 'share-links', items: [{ location: 'line 1', name: 'HK 01', protocol: 'vless', kept: true }] }),
+    });
+    render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    await screen.findByText(testSubscriptionSources[0].name);
+    await user.click(screen.getAllByRole('button', { name: 'Add source' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Add source' });
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Source' })).toHaveFocus());
+    await user.paste(url);
+    expect(within(dialog).getByLabelText('Name')).toHaveAttribute('placeholder', 'example.com');
+    expect(await within(dialog).findByText('The link answered HTTP 404', {}, { timeout: 2_000 })).toBeVisible();
+    // What cannot be read is not sent to be saved.
+    await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
+    expect(within(dialog).getByText('The source cannot be read; fix what the nodes line says first')).toBeVisible();
+    expect(client.createSubscriptionSource).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    expect(await within(dialog).findByText('1 of 1 nodes kept', {}, { timeout: 2_000 })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
+    await waitFor(() => expect(client.createSubscriptionSource).toHaveBeenCalledWith({
+      filter: { exclude: [], include: [] }, format: 'auto', kind: 'url', name: 'example.com', refresh_minutes: 360, url,
+    }));
+  });
+
+  it('offers the format list when the content\'s format is not recognized', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient({
+      previewSubscriptionSource: vi.fn().mockResolvedValue({ items: [], error: { code: 'unrecognized_format' } }),
+    });
+    render(<TestRouter initialEntries={['/subscriptions#subscription-nodes']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+    await screen.findByText(testSubscriptionSources[0].name);
+    await user.click(screen.getAllByRole('button', { name: 'Add source' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Add source' });
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: 'Source' })).toHaveFocus());
+    await user.paste('not a subscription');
+    expect(await within(dialog).findByText('The content’s format is not recognized', {}, { timeout: 2_000 })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Choose a format' }));
+    expect(await screen.findByRole('option', { name: 'sing-box' })).toBeVisible();
   });
 
   it('splits typed rules into pills and marks the rule the server refuses', async () => {
