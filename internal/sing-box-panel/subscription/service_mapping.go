@@ -47,11 +47,34 @@ func applicationSubscriptionChannel(value store.SubscriptionChannel) (Subscripti
 	}, nil
 }
 
-func applicationSubscriptionChannelSummary(value store.SubscriptionChannelSummary) SubscriptionChannelSummary {
+// applicationSubscriptionChannelSummary describes a channel by the nodes of
+// pool it publishes, as rendering picks them, its exit rules and its final exit.
+func applicationSubscriptionChannelSummary(value store.SubscriptionChannel, pool []ChannelNode) (SubscriptionChannelSummary, error) {
+	config, err := applicationChannelConfig(value.Config, value.Format)
+	if err != nil {
+		return SubscriptionChannelSummary{}, err
+	}
+	published := publishedNodeIDs(expandGroupMatches(config, pool))
+	final := ChannelFinalExit{Kind: config.DefaultExit.Kind}
+	nodes := 0
+	for _, node := range pool {
+		if published[node.ID] && publishableOutbound(node.Protocol) {
+			nodes++
+		}
+		if final.Kind == "node" && node.ID == config.DefaultExit.ID {
+			final.Name = node.Name
+		}
+	}
+	for _, group := range config.Groups {
+		if final.Kind == "group" && group.ID == config.DefaultExit.ID {
+			final.Name = group.Name
+		}
+	}
 	return SubscriptionChannelSummary{
 		ID: value.ID, Name: value.Name, Format: value.Format, Enabled: value.Enabled,
+		NodeCount: nodes, RouteCount: len(config.Routes), FinalExit: final,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
-	}
+	}, nil
 }
 
 func applicationSubscriptionToken(value store.SubscriptionToken, at time.Time) SubscriptionToken {

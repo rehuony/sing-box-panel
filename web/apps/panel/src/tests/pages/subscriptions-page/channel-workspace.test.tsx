@@ -44,7 +44,7 @@ function mount(
   function Workspace() {
     const [saved, setSaved] = useState(value);
     return (
-      <ChannelWorkspace channel={saved} nodes={nodes} onBack={vi.fn()} onDelete={vi.fn()} onSaved={setSaved} />
+      <ChannelWorkspace channel={saved} linkKey='' nodes={nodes} onBack={vi.fn()} onDelete={vi.fn()} onLinkKeyChange={vi.fn()} onSaved={setSaved} />
     );
   }
   render(

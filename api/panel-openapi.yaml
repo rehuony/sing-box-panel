@@ -3351,14 +3351,25 @@ components:
     SubscriptionChannelSummary:
       type: object
       additionalProperties: false
-      required: [id, name, format, enabled, created_at, updated_at]
+      required: [id, name, format, enabled, node_count, route_count, final_exit, created_at, updated_at]
       properties:
         id: {type: string}
         name: {type: string}
         format: {type: string, enum: [sing-box, mihomo, loon]}
         enabled: {type: boolean}
+        node_count: {type: integer, minimum: 0, description: "The pool nodes its enabled groups, exit rules and final exit publish."}
+        route_count: {type: integer, minimum: 0, description: Its exit rules.}
+        final_exit: {$ref: "#/components/schemas/ChannelFinalExit"}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    ChannelFinalExit:
+      type: object
+      additionalProperties: false
+      description: Where the channel sends what no exit rule matches.
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [direct, reject, node, group]}
+        name: {type: string, description: "The group's or node's name; DIRECT and REJECT have none."}
     SubscriptionChannel:
       type: object
       additionalProperties: false

@@ -15,6 +15,7 @@ import {
   CirclePlus,
   Eye,
   Gauge,
+  Link2,
   MoreHorizontal,
   MousePointer2,
   Route,
@@ -43,7 +44,9 @@ import { useExits } from './channel-exits';
 import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
 import { useChannelDraft } from './use-channel-draft';
+import { ChannelClientTag } from './channel-client-tag';
 import { ChannelGroupEditor } from './channel-group-editor';
+import { ChannelLinkPopover } from './channel-link-popover';
 import { ChannelGroupSettings } from './channel-group-settings';
 import { ChannelTemplateEditor } from './channel-template-editor';
 import { ChannelRouteAdd, ChannelRouteList } from './channel-route-list';
@@ -128,6 +131,8 @@ function GroupRailItem({
 }
 
 interface Props {
+  /** The key the last link used, and where a link made here reports its key. */
+  linkKey: string;
   active?: boolean;
   onBack: () => void;
   /** Asks to delete the channel. */
@@ -136,6 +141,7 @@ interface Props {
   nodes: SubscriptionNode[];
   channel: SubscriptionChannel;
   toolbarTarget?: HTMLElement | null;
+  onLinkKeyChange: (id: string) => void;
   onSaved: (channel: SubscriptionChannel) => void;
 }
 
@@ -143,7 +149,9 @@ interface Props {
  * One channel: the rail of its exit rules and strategy groups beside the
  * one shown, with its name, client and the actions on it in the title strip.
  */
-export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes, onBack, onDelete, onSaved }: Props) {
+export function ChannelWorkspace({
+  active = true, toolbarTarget, channel, linkKey, nodes, onBack, onDelete, onLinkKeyChange, onSaved,
+}: Props) {
   const { t } = useTranslation();
   const [groupTab, setGroupTab] = useState<ChannelGroupTab>('nodes');
   const {
@@ -194,10 +202,19 @@ export function ChannelWorkspace({ active = true, toolbarTarget, channel, nodes,
               <ArrowLeft aria-hidden='true' />
             </IconAction>
             <span className='min-w-0 truncate text-sm font-semibold' title={name}>{name}</span>
-            <span className='flex h-5 flex-none items-center rounded-[var(--radius-pill)] border px-2 font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)]'>{format}</span>
+            <ChannelClientTag format={format} />
           </div>
           {/* Actions from looking to changing; saving stands apart after a divider. */}
           <div className='ms-auto flex flex-none items-center gap-2'>
+            <ChannelLinkPopover
+              channel={channel}
+              keyID={linkKey}
+              onKeyChange={onLinkKeyChange}
+              trigger={<Button className='max-sm:w-(--control-height-sm) max-sm:px-0 data-popup-open:bg-[var(--color-hover)]' size='sm' type='button' variant='flat' />}
+            >
+              <Link2 aria-hidden='true' data-icon='inline-start' />
+              <span className='max-sm:sr-only'>{t('channels.link')}</span>
+            </ChannelLinkPopover>
             <StripAction disabled={busy} icon={<Eye aria-hidden='true' data-icon='inline-start' />} label={t('channels.preview')} onClick={() => void showPreview()} />
             <StripAction disabled={busy} icon={<Settings2 aria-hidden='true' data-icon='inline-start' />} label={t('channels.distribution')} onClick={() => setOptionsOpen(true)} />
             <StripDivider />

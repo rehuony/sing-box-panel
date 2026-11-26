@@ -22,12 +22,23 @@ type SubscriptionChannel struct {
 }
 
 type SubscriptionChannelSummary struct {
-	ID        string                   `json:"id"`
-	Name      string                   `json:"name"`
-	Format    store.SubscriptionFormat `json:"format"`
-	Enabled   bool                     `json:"enabled"`
-	CreatedAt time.Time                `json:"created_at"`
-	UpdatedAt time.Time                `json:"updated_at"`
+	ID      string                   `json:"id"`
+	Name    string                   `json:"name"`
+	Format  store.SubscriptionFormat `json:"format"`
+	Enabled bool                     `json:"enabled"`
+	// NodeCount is the pool nodes its groups, exit rules and final exit publish.
+	NodeCount  int              `json:"node_count"`
+	RouteCount int              `json:"route_count"`
+	FinalExit  ChannelFinalExit `json:"final_exit"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
+}
+
+// ChannelFinalExit is where a channel sends what no exit rule matches.
+type ChannelFinalExit struct {
+	Kind string `json:"kind"`
+	// Name is the group's or node's name; DIRECT and REJECT have none.
+	Name string `json:"name,omitempty"`
 }
 
 type CreateSubscriptionChannelRequest struct {

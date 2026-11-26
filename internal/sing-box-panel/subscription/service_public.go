@@ -98,6 +98,18 @@ func (application *Service) PublicSubscription(
 	}, nil
 }
 
+// channelNodes is the pool as channels render it, in pool order.
+func channelNodes(pool []store.SubscriptionPoolNode) []ChannelNode {
+	nodes := make([]ChannelNode, len(pool))
+	for index, node := range pool {
+		nodes[index] = ChannelNode{
+			ID: node.ID, Name: node.DisplayName, Protocol: node.Protocol,
+			SourceID: node.SourceID, OriginName: node.OriginName, Outbound: node.Outbound,
+		}
+	}
+	return nodes
+}
+
 // publicSubscriptionTraffic is the usage the subscription header reports:
 // the traffic of the nodes whose inbounds the subscription carries, each in
 // its own current period. Quotas belong to nodes, so the header reports no
@@ -114,14 +126,7 @@ func (application *Service) publicSubscriptionTraffic(ctx context.Context, at ti
 // place, from the pool nodes state allows and the rule sets config routes
 // by, and returns the fleet nodes whose inbounds the output delivers.
 func (application *Service) renderSubscriptionState(state store.PublicSubscriptionState, format store.SubscriptionFormat, config ChannelConfig, ruleSets map[string]ChannelRuleSet) (RenderResult, []string, error) {
-	nodes := make([]ChannelNode, len(state.Pool))
-	for index, node := range state.Pool {
-		nodes[index] = ChannelNode{
-			ID: node.ID, Name: node.DisplayName, Protocol: node.Protocol,
-			SourceID: node.SourceID, OriginName: node.OriginName, Outbound: node.Outbound,
-		}
-	}
-	rendered, err := RenderChannelNodes(nodes, RenderFormat(format), config, ruleSets)
+	rendered, err := RenderChannelNodes(channelNodes(state.Pool), RenderFormat(format), config, ruleSets)
 	if err != nil {
 		return RenderResult{}, nil, err
 	}
