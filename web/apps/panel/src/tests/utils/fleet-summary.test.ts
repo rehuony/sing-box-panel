@@ -16,13 +16,17 @@ function period(outbound: number, inbound: number) {
 
 describe('fleet summary', () => {
   it('sums usage but never quotas, and tells a known zero rate from an unknown one', () => {
+    const enabled = { core_artifact_id: 'artifact_1', exact_core_version: '1.12.3' };
     const items = [
-      status('idle', { runtime: stopped }, { current_traffic_period: period(100, 400), quota_bytes: 1_000 }),
+      status('idle', { runtime: { ...stopped, enabled_core: enabled } }, { current_traffic_period: period(100, 400), quota_bytes: 1_000 }),
       status('away', { state: 'offline' }, { current_traffic_period: period(50, 50), quota_bytes: 10 }),
+      // A node with no core set is not enabled rather than stopped.
+      status('bare', { runtime: stopped }, { current_traffic_period: period(0, 0) }),
     ];
     const figures = fleetFigures(items);
     expect(figures).toMatchObject({
-      download: 450, exhausted: 0, offline: 1, online: 1, running: 0, stopped: 1, unknown: 1, upload: 150,
+      download: 450, exhausted: 0, offline: 1, online: 2, upload: 150,
+      running: 0, stopped: 1, notEnabled: 1, unknown: 1,
     });
     // The stopped node's rates are a known zero; the offline one adds nothing unknown to them.
     expect(figures.rates).toEqual({ download: 0, upload: 0 });

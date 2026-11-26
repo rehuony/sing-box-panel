@@ -242,15 +242,16 @@ function LiveStrip({ node }: { node: FleetNode }) {
   const verifiedRunning = runtimeStatus?.observation_state === 'running'
     && runtimeStatus.running !== undefined;
   const verifiedStopped = runtimeStatus?.observation_state === 'stopped';
-  const runtimeLabel = verifiedRunning
-    ? t('telemetry.runtime.running')
-    : verifiedStopped
-      ? t('telemetry.runtime.stopped')
-      : t('fleet.pane.unknown');
+  // A node with no core set has nothing to stop; it says so rather than stopped.
+  const notEnabled = verifiedStopped && !runtimeStatus.enabled_core;
+  let runtimeLabel = t('fleet.pane.unknown');
+  if (verifiedRunning) runtimeLabel = t('telemetry.runtime.running');
+  else if (notEnabled) runtimeLabel = t('fleet.pane.noCore');
+  else if (verifiedStopped) runtimeLabel = t('telemetry.runtime.stopped');
   const runtimeDetail = verifiedRunning
     ? t('telemetry.runtime.runningDetail')
     : verifiedStopped
-      ? t('telemetry.runtime.stoppedDetail')
+      ? t(notEnabled ? 'telemetry.runtime.notEnabledDetail' : 'telemetry.runtime.stoppedDetail')
       : runtimeStatus?.observation_state === 'stale'
         ? t('telemetry.runtime.stale')
         : runtimeStatus?.observation_state === 'inspection_unavailable'

@@ -54,6 +54,20 @@ export function periodUsage(metrics: MetricsSnapshot): number {
   return period.inbound_bytes + period.outbound_bytes;
 }
 
+/**
+ * What a node's core is doing: running; stopped with a core set; not enabled
+ * when the node has no core set; or unknown, as it is while the node is away.
+ */
+export type CoreState = 'running' | 'stopped' | 'notEnabled' | 'unknown';
+
+export function coreState({ node }: NodeStatus): CoreState {
+  const runtime = node.runtime;
+  if (node.state !== 'online') return 'unknown';
+  if (runtime?.observation_state === 'running') return 'running';
+  if (runtime?.observation_state === 'stopped') return runtime.enabled_core ? 'stopped' : 'notEnabled';
+  return 'unknown';
+}
+
 export interface FleetFigures {
   /** Summed rates; a node with unknown rates makes the sum unknown only when no node reports any. */
   rates: Rates;
@@ -62,13 +76,14 @@ export interface FleetFigures {
   /** Summed usage of every node's own current period; quotas are never summed. */
   upload: number;
   offline: number;
-  /** Online nodes whose core runs, and whose core is stopped; every other node's core is unknown. */
+  /** Nodes by their core's state, as coreState reads it. */
   running: number;
   stopped: number;
   unknown: number;
   download: number;
   /** Nodes that reached their own quota. */
   exhausted: number;
+  notEnabled: number;
   connections: number;
 }
 
@@ -80,8 +95,8 @@ function sum(values: (number | null)[]): number | null {
 export function fleetFigures(items: readonly NodeStatus[]): FleetFigures {
   const rates = items.map(nodeRates);
   const online = items.filter(item => item.node.state === 'online');
-  const running = online.filter(item => item.node.runtime?.observation_state === 'running').length;
-  const stopped = online.filter(item => item.node.runtime?.observation_state === 'stopped').length;
+  const states = items.map(coreState);
+  const count = (state: CoreState) => states.filter(each => each === state).length;
   return {
     connections: items.reduce((total, item) => total + (item.metrics.live_sample?.active_connections ?? 0), 0),
     download: items.reduce((total, item) => total + item.metrics.current_traffic_period.inbound_bytes, 0),
@@ -89,10 +104,11 @@ export function fleetFigures(items: readonly NodeStatus[]): FleetFigures {
     offline: items.filter(item => item.node.state === 'offline').length,
     online: online.length,
     rates: { download: sum(rates.map(rate => rate.download)), upload: sum(rates.map(rate => rate.upload)) },
-    running,
-    stopped,
+    running: count('running'),
+    stopped: count('stopped'),
+    notEnabled: count('notEnabled'),
     total: items.length,
-    unknown: items.length - running - stopped,
+    unknown: count('unknown'),
     upload: items.reduce((total, item) => total + item.metrics.current_traffic_period.outbound_bytes, 0),
   };
 }
