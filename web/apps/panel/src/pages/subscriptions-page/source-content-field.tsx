@@ -14,28 +14,14 @@ import type { SubscriptionSource } from '@/api/api-client';
 
 import { IconAction } from '@/components/icon-action';
 
-import { contentLabel } from './source-format';
+import type { SourceContent } from './source-content';
 
-/** The largest content a source holds. */
-const MAX_CONTENT_BYTES = 4 * 1024 * 1024;
+import { contentLabel } from './source-format';
+import { pastedContent, readContentFile } from './source-content';
+
 /** The view of new content shows at most this many lines, and of each at most this many characters. */
 const VIEW_LINES = 2000;
 const VIEW_LINE_CHARACTERS = 4000;
-
-/** Content given in the dialog: pasted, or read from a file. */
-export interface SourceContent {
-  size: number;
-  text: string;
-  origin: { kind: 'paste'; lines: number } | { kind: 'file'; name: string };
-}
-
-function pasted(text: string): SourceContent {
-  return {
-    origin: { kind: 'paste', lines: text.split(/\r?\n/).filter(line => line.trim() !== '').length },
-    size: new Blob([text]).size,
-    text,
-  };
-}
 
 /**
  * New content as the server reads it, one numbered line a row, so a line a
@@ -95,22 +81,16 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
 
   function take(text: string) {
     if (text.trim() === '') return;
-    const content = pasted(text);
-    if (content.size > MAX_CONTENT_BYTES) onError(t('subscriptions.sources.fileTooLarge'));
+    const content = pastedContent(text, t);
+    if (typeof content === 'string') onError(content);
     else onChange(content);
   }
 
   async function read(file: File | undefined) {
     if (!file) return;
-    if (file.size > MAX_CONTENT_BYTES) {
-      onError(t('subscriptions.sources.fileTooLarge'));
-      return;
-    }
-    try {
-      onChange({ origin: { kind: 'file', name: file.name }, size: file.size, text: await file.text() });
-    } catch {
-      onError(t('subscriptions.sources.content.unreadable'));
-    }
+    const content = await readContentFile(file, t);
+    if (typeof content === 'string') onError(content);
+    else onChange(content);
   }
 
   function onPaste(event: ClipboardEvent<HTMLDivElement>) {
@@ -175,6 +155,13 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
       <span className='flex flex-none items-center gap-0.5'>
         {value
           ? (
+              <IconAction label={reset} onClick={() => onChange(null)} size='icon-xs'>
+                <X aria-hidden='true' />
+              </IconAction>
+            )
+          : null}
+        {value
+          ? (
               <Popover>
                 <Tooltip>
                   <TooltipTrigger
@@ -194,13 +181,6 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
                   <ContentView text={value.text} />
                 </PopoverContent>
               </Popover>
-            )
-          : null}
-        {value
-          ? (
-              <IconAction label={reset} onClick={() => onChange(null)} size='icon-xs'>
-                <X aria-hidden='true' />
-              </IconAction>
             )
           : null}
         <IconAction

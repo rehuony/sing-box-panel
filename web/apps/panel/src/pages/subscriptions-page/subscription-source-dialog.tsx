@@ -6,16 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
-import { useEffect, useId, useMemo, useState } from 'react';
 import { formatShortDateTime } from '@shared/lib/format-time';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type {
   SubscriptionSource,
   SubscriptionSourceFilter,
   SubscriptionSourceFormatChoice,
-  SubscriptionSourceKind,
   SubscriptionSourcePreview,
   SubscriptionSourcePreviewRequest,
 } from '@/api/api-client';
@@ -28,12 +27,16 @@ import { SelectField } from '@/components/select-field';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 
-import type { SourceContent } from './source-content-field';
+import type { ReadIssue } from './source-read-issue';
+import type { SourceContent } from './source-content';
 
+import { webURL } from './source-content';
+import { SourceInput } from './source-input';
 import { SourceRuleInput } from './source-rule-input';
 import { useIntervalLabel } from './use-interval-label';
 import { SourceNodeSummary } from './source-node-summary';
 import { SourceContentField } from './source-content-field';
+import { parseReason, requestReason } from './source-read-issue';
 import { contentProtocols, formatChoiceLabel, SOURCE_FORMATS } from './source-format';
 
 /** What the dialog does: add a source, or edit one's settings and a file source's content together. */
@@ -54,7 +57,6 @@ interface Draft {
   refresh: number;
   exclude: string[];
   include: string[];
-  kind: SubscriptionSourceKind;
   /** New content for a file source; null keeps what the source holds. */
   content: SourceContent | null;
   format: SubscriptionSourceFormatChoice;
@@ -78,7 +80,6 @@ interface Message {
 function initialDraft(source: SubscriptionSource | undefined): Draft {
   return {
     name: source?.name ?? '',
-    kind: source?.kind ?? 'url',
     url: source?.url ?? '',
     refresh: source?.refresh_minutes ?? 360,
     format: source?.format ?? 'auto',
@@ -116,12 +117,13 @@ function describeSourceError(error: unknown, filter: SubscriptionSourceFilter, t
   });
 }
 
-/** An http or https URL, the only kind a source fetches. */
-function webURL(value: string): boolean {
+/** A name for a source the user has not named: its link's host or its file's name. */
+function suggestedName(url: string, content: SourceContent | null, t: TFunction): string {
+  if (content) return content.origin.kind === 'file' ? content.origin.name.replace(/\.[^.]+$/, '') : t('subscriptions.sources.pastedName');
   try {
-    return ['http:', 'https:'].includes(new URL(value).protocol);
+    return new URL(url).hostname.replace(/^(?:sub|subs|subscribe|www|api)\./i, '');
   } catch {
-    return false;
+    return '';
   }
 }
 
@@ -173,7 +175,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     exclude: `${id}-exclude`,
     format: `${id}-format`,
     include: `${id}-include`,
-    kind: `${id}-kind`,
     message: `${id}-message`,
     name: `${id}-name`,
     nodes: `${id}-nodes`,
@@ -186,10 +187,13 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
   const [message, setMessage] = useState<Message | null>(null);
   // The version an edit was read at; a stale save reads the source again and keeps the draft.
   const [version, setVersion] = useState(source?.updated_at ?? '');
-  const kind = source?.kind ?? draft.kind;
+  // A new source is a file source once its field holds content, and a URL source otherwise.
+  const kind = source?.kind ?? (draft.content ? 'file' : 'url');
   const takesContent = kind === 'file';
+  const sourceRef = useRef<HTMLInputElement>(null);
+  const [formatOpen, setFormatOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const dirty = draft.name !== baseline.name
-    || draft.kind !== baseline.kind
     || draft.url !== baseline.url
     || draft.refresh !== baseline.refresh
     || draft.format !== baseline.format
@@ -232,22 +236,26 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [client, request]);
+  }, [attempt, client, request]);
   const current = result?.request === request ? result : null;
   // While the preview reads the stored content, its nodes say which protocols that content holds.
   const storedProtocols = request?.source_id && current?.preview ? contentProtocols(current.preview.items) : undefined;
   const refused = ruleProblems(current?.error);
   const refusedRules = (list: RuleProblem['list']) => refused.flatMap(problem => problem.list === list && problem.index !== undefined ? [problem.index] : []);
-  let failure: string | null = null;
+  // Why what was given cannot be read: a refused filter rule, a failed request or fetch, or unreadable content.
+  let issue: ReadIssue | null = null;
   if (current?.error !== undefined) {
-    failure = refused.length > 0
-      ? describeSourceError(current.error, filter, t)
-      : t('subscriptions.sources.preview.failed', { reason: describeRequestError(current.error) });
+    issue = refused.length > 0
+      ? { text: describeSourceError(current.error, filter, t) }
+      : requestReason(current.error, t);
+  } else if (current?.preview?.error) {
+    issue = parseReason(current.preview.error, format, t);
   }
+  const suggestion = suggestedName(url, content, t);
 
   const save = useMutation({
     mutationFn: async () => {
-      const name = draft.name.trim();
+      const name = draft.name.trim() || suggestion;
       const location = kind === 'url' ? { refresh_minutes: draft.refresh, url } : {};
       if (source) {
         const changes = { filter, format, name, ...location, ...(content ? { content: content.text } : {}) };
@@ -270,13 +278,27 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     },
   });
 
+  /** Says why the form cannot be saved and focuses the field at fault, if one is. */
+  function refuse(text: string, field?: Field) {
+    setMessage({ field, text, tone: 'danger' });
+    const target = field ?? (takesContent ? 'content' : 'url');
+    // The content field is named by its row's label, which holds the content row's id.
+    const element = target === 'content' ? document.querySelector<HTMLElement>(`[aria-labelledby="${ids.content}"]`) : document.getElementById(ids[target]);
+    element?.focus();
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (save.isPending) return;
-    if (draft.name.trim() === '') setMessage({ field: 'name', text: t('subscriptions.sources.validation.name'), tone: 'danger' });
-    else if (kind === 'url' && !webURL(url)) setMessage({ field: 'url', text: t('subscriptions.sources.validation.url'), tone: 'danger' });
-    else if (!source && takesContent && !content) setMessage({ field: 'content', text: t('subscriptions.sources.validation.content'), tone: 'danger' });
-    else save.mutate();
+    if (!source && !content && url === '') return refuse(t('subscriptions.sources.validation.source'), 'url');
+    if (kind === 'url' && !webURL(url)) return refuse(t('subscriptions.sources.validation.url'), 'url');
+    if (!draft.name.trim() && !suggestion) return refuse(t('subscriptions.sources.validation.name'), 'name');
+    // What was given here is read before it is saved; a source's stored content is the server's to check.
+    if (request !== null && request.source_id === undefined) {
+      if (current === null) return refuse(t('subscriptions.sources.saveWaiting'));
+      if (issue) return refuse(t('subscriptions.sources.saveBlocked'));
+    }
+    save.mutate();
   }
 
   const invalid = (field: Field) => message?.field === field || undefined;
@@ -293,7 +315,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     <Dialog open onOpenChange={(open) => {
       if (!open && !save.isPending) onClose();
     }}>
-      <DialogContent className='flex max-h-[min(48rem,calc(100dvh-2rem))] flex-col overflow-hidden' size='wide'>
+      <DialogContent className='flex max-h-[min(48rem,calc(100dvh-2rem))] flex-col overflow-hidden' initialFocus={source ? undefined : sourceRef} size='wide'>
         <form className='flex min-h-0 min-w-0 flex-1 flex-col gap-5' noValidate onSubmit={submit}>
           <DialogHeader className='gap-1'>
             <DialogTitle className='truncate'>{source ? source.name : t('subscriptions.sources.add')}</DialogTitle>
@@ -307,52 +329,58 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
           </DialogHeader>
           <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 py-0.5'>
             <div className='flex min-w-0 flex-col gap-3'>
-              <FieldRow htmlFor={ids.name} label={t('subscriptions.sources.field.name')}>
-                <Input aria-describedby={ids.message} aria-invalid={invalid('name')} autoComplete='off' id={ids.name} maxLength={128} onChange={event => update({ name: event.target.value })} value={draft.name} />
-              </FieldRow>
-              {source
-                ? null
-                : (
-                    <FieldRow htmlFor={ids.kind} label={t('subscriptions.sources.field.kind')}>
-                      <SelectField<SubscriptionSourceKind>
-                        id={ids.kind}
-                        items={[{ label: t('subscriptions.sources.kind.url'), value: 'url' }, { label: t('subscriptions.sources.kind.file'), value: 'file' }]}
-                        onValueChange={value => update({ kind: value })}
-                        value={draft.kind}
-                      />
-                    </FieldRow>
-                  )}
               {kind === 'url'
                 ? (
-                    // The address and how often it is fetched share one row.
-                    <FieldRow htmlFor={ids.url} label={t('subscriptions.sources.field.url')}>
+                    // The link and how often it is fetched share one row; a new source shows the interval for a link.
+                    <FieldRow htmlFor={ids.url} label={t(source ? 'subscriptions.sources.field.url' : 'subscriptions.sources.field.source')}>
                       <div className='flex min-w-0 flex-wrap gap-2'>
-                        <Input
-                          aria-describedby={ids.message}
-                          aria-invalid={invalid('url')}
-                          autoComplete='off'
-                          className='min-w-48 flex-1 font-[family-name:var(--font-data)]'
-                          id={ids.url}
-                          maxLength={4096}
-                          onChange={event => update({ url: event.target.value })}
-                          placeholder='https://'
-                          spellCheck={false}
-                          type='url'
-                          value={draft.url}
-                        />
-                        <SelectField<number>
-                          aria-label={t('subscriptions.sources.field.refresh')}
-                          className='w-36 flex-none max-[520px]:w-full'
-                          id={ids.refresh}
-                          items={intervals.map(value => ({ label: intervalLabel(value), value }))}
-                          onValueChange={value => update({ refresh: value })}
-                          value={draft.refresh}
-                        />
+                        {source
+                          ? (
+                              <Input
+                                aria-describedby={ids.message}
+                                aria-invalid={invalid('url')}
+                                autoComplete='off'
+                                className='min-w-48 flex-1 font-[family-name:var(--font-data)]'
+                                id={ids.url}
+                                maxLength={4096}
+                                onChange={event => update({ url: event.target.value })}
+                                placeholder='https://'
+                                spellCheck={false}
+                                type='url'
+                                value={draft.url}
+                              />
+                            )
+                          : (
+                              <div className='min-w-48 flex-1'>
+                                <SourceInput
+                                  describedBy={ids.message}
+                                  id={ids.url}
+                                  inputRef={sourceRef}
+                                  invalid={invalid('url')}
+                                  onContent={next => update({ content: next, url: '' })}
+                                  onError={text => setMessage({ field: 'url', text, tone: 'danger' })}
+                                  onURL={next => update({ url: next })}
+                                  url={draft.url}
+                                />
+                              </div>
+                            )}
+                        {source || webURL(url)
+                          ? (
+                              <SelectField<number>
+                                aria-label={t('subscriptions.sources.field.refresh')}
+                                className='w-36 flex-none max-[520px]:w-full'
+                                id={ids.refresh}
+                                items={intervals.map(value => ({ label: intervalLabel(value), value }))}
+                                onValueChange={value => update({ refresh: value })}
+                                value={draft.refresh}
+                              />
+                            )
+                          : null}
                       </div>
                     </FieldRow>
                   )
                 : (
-                    <FieldRow label={t('subscriptions.sources.field.content')} labelId={ids.content}>
+                    <FieldRow label={t(source ? 'subscriptions.sources.field.content' : 'subscriptions.sources.field.source')} labelId={ids.content}>
                       <SourceContentField
                         current={source}
                         describedBy={ids.message}
@@ -365,11 +393,25 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                       />
                     </FieldRow>
                   )}
+              <FieldRow htmlFor={ids.name} label={t('subscriptions.sources.field.name')}>
+                <Input
+                  aria-describedby={ids.message}
+                  aria-invalid={invalid('name')}
+                  autoComplete='off'
+                  id={ids.name}
+                  maxLength={128}
+                  onChange={event => update({ name: event.target.value })}
+                  placeholder={suggestion || t('subscriptions.sources.namePlaceholder')}
+                  value={draft.name}
+                />
+              </FieldRow>
               <FieldRow htmlFor={ids.format} label={t('subscriptions.sources.field.format')}>
                 <SelectField<SubscriptionSourceFormatChoice>
                   id={ids.format}
                   items={SOURCE_FORMATS.map(value => ({ label: formatChoiceLabel(value, t), value }))}
+                  onOpenChange={setFormatOpen}
                   onValueChange={value => update({ format: value })}
+                  open={formatOpen}
                   value={draft.format}
                 />
               </FieldRow>
@@ -398,8 +440,17 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
               </FieldRow>
               <FieldRow label={t('subscriptions.sources.field.nodes')} labelId={ids.nodes}>
                 <SourceNodeSummary
-                  failure={failure}
+                  issue={issue}
                   labelId={ids.nodes}
+                  onAction={(action) => {
+                    if (action === 'format') {
+                      document.getElementById(ids.format)?.focus();
+                      setFormatOpen(true);
+                      return;
+                    }
+                    setResult(null);
+                    setAttempt(value => value + 1);
+                  }}
                   loading={request !== null && current === null}
                   preview={current?.preview}
                   waiting={request === null}

@@ -208,7 +208,19 @@ private, link-local, shared (`100.64.0.0/10`), benchmarking, documentation,
 reserved and multicast ranges, and the IPv6 translation prefixes that embed them,
 are denied unless `subscription.private_source_cidrs` explicitly allows them.
 Core downloads apply the same address rules. Public subscription requests never
-fetch upstream data.
+fetch upstream data. A URL the policy refuses answers 422
+`subscription_source_url_rejected` and a fetch that fails answers 502
+`subscription_source_fetch_failed`, each with the failure's code in
+`fields.reason`: `invalid_url`, `address_denied`, `too_many_redirects`,
+`body_too_large`, `http_status_<status>` or `request_failed`, the codes
+`last_error` records.
+
+In the Web UI a new source has one field: a link typed or pasted on one line
+makes a URL source, and content pasted, dropped or read from a file makes a file
+source. Its name may stay empty, and then it is the link's host without a
+leading `sub.`, `www.` or `api.`, or the file's name. The dialog reads what was
+given before saving it, says why it cannot be read with the step that may fix
+it, choosing a format or retrying the fetch, and saves only what it could read.
 
 Each source has a filter of name rules. Plain text matches a case-insensitive
 substring of a node's name in the source; text wrapped in slashes is an RE2

@@ -118,10 +118,12 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 	}
 	switch {
 	case errors.Is(err, subscription.ErrInvalidSourceURL), errors.Is(err, subscription.ErrSourceAddressDenied):
-		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_url_rejected", "Source URL rejected", sourceFetchDetail(err))
+		writeProblemFields(w, request, http.StatusUnprocessableEntity, "subscription_source_url_rejected", "Source URL rejected",
+			sourceFetchDetail(err), map[string]string{"reason": subscription.FetchErrorCode(err)})
 	case errors.Is(err, subscription.ErrSourceRequestFailed), errors.Is(err, subscription.ErrTooManySourceRedirects),
 		errors.Is(err, subscription.ErrSourceBodyTooLarge):
-		writeProblem(w, request, http.StatusBadGateway, "subscription_source_fetch_failed", "Source fetch failed", sourceFetchDetail(err))
+		writeProblemFields(w, request, http.StatusBadGateway, "subscription_source_fetch_failed", "Source fetch failed",
+			sourceFetchDetail(err), map[string]string{"reason": subscription.FetchErrorCode(err)})
 	case errors.Is(err, subscription.ErrSourceKindMismatch):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_kind_mismatch", "Operation not available", "Only URL sources refresh, and only file sources take uploaded content.")
 	case errors.Is(err, subscription.ErrInvalidNodeDisplayName):

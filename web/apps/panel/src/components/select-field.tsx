@@ -20,6 +20,9 @@ type SelectFieldProps<Value extends string | number> = Pick<
   active?: boolean;
   /** Classes for every option, such as the data face for values the configuration writes. */
   itemClassName?: string;
+  /** Holds the list open from outside, such as from an action that asks for a choice. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function SelectField<Value extends string | number>({
@@ -29,12 +32,16 @@ export function SelectField<Value extends string | number>({
   disabled,
   active,
   itemClassName,
+  onOpenChange,
+  open,
   ...props
 }: SelectFieldProps<Value>) {
   return (
     <Select<Value>
       disabled={disabled}
       items={items}
+      onOpenChange={onOpenChange === undefined ? undefined : next => onOpenChange(next)}
+      open={open}
       value={value}
       onValueChange={(next) => {
         if (next !== null) onValueChange(next);

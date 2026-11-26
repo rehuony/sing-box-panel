@@ -125,7 +125,7 @@ func TestSubscriptionSourceHTTP(t *testing.T) {
 	}
 	if denied := authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/sources",
 		`{"name":"Private","kind":"url","url":"http://127.0.0.1/sub","refresh_minutes":0,"filter":{"include":[],"exclude":[]}}`, ""); denied.Code != http.StatusUnprocessableEntity ||
-		!strings.Contains(denied.Body.String(), "subscription_source_url_rejected") {
+		!strings.Contains(denied.Body.String(), "subscription_source_url_rejected") || !strings.Contains(denied.Body.String(), `"reason":"address_denied"`) {
 		t.Fatalf("private URL status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	if deleted := authenticatedRequest(t, handler, http.MethodDelete, sourcePath, "", replaced.Header().Get("ETag")); deleted.Code != http.StatusNoContent {
