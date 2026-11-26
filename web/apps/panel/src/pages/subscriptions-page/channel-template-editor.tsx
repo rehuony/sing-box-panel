@@ -72,7 +72,7 @@ export function ChannelTemplateEditor({ template, format, nodes, onClose, onPrev
       if (busy) details.cancel();
       else if (!open) onClose();
     }}>
-      <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] w-240 max-w-[calc(100vw-32px)] flex-col overflow-hidden sm:max-w-240'>
+      <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] flex-col overflow-hidden' size='workspace'>
         <DialogHeader>
           <DialogTitle>{t('channels.editTemplate')}</DialogTitle>
           <DialogDescription>{t('channels.templateDraftHint')}</DialogDescription>

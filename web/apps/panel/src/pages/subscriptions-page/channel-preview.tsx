@@ -48,7 +48,7 @@ export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
   }
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] w-240 max-w-[calc(100vw-32px)] flex-col overflow-hidden sm:max-w-240'>
+      <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] flex-col overflow-hidden' size='workspace'>
         <DialogHeader>
           <div className='flex flex-wrap items-center gap-2 pr-8'>
             <DialogTitle className='pr-0'>{t('channels.preview')}</DialogTitle>

@@ -8,7 +8,7 @@ import { toast } from '@shared/components/ui/toast-manager';
 import { useDeferredValue, useId, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { SubscriptionFormat, SubscriptionRuleSet } from '@/api/api-client';
 
@@ -72,13 +72,13 @@ function NameDialog({ onClose, onSubmit, taken, title }: {
   return (
     <Dialog open onOpenChange={open => !open && !busy && onClose()}>
       <DialogContent>
-        <form className='flex flex-col gap-4' noValidate onSubmit={submit}>
+        <form className='contents' noValidate onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription className='sr-only'>{title}</DialogDescription>
           </DialogHeader>
-          <div className='grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-4 max-[520px]:grid-cols-1 max-[520px]:gap-1'>
-            <label className='text-sm text-[var(--color-text-secondary)]' htmlFor={id}>{t('subscriptions.ruleSets.field.setName')}</label>
+          <DialogFields>
+            <label htmlFor={id}>{t('subscriptions.ruleSets.field.setName')}</label>
             <Input
               aria-invalid={Boolean(message) || undefined}
               autoComplete='off'
@@ -90,9 +90,8 @@ function NameDialog({ onClose, onSubmit, taken, title }: {
               }}
               value={name}
             />
-          </div>
-          <DialogFooter className='flex-nowrap'>
-            <p className='min-h-5 min-w-0 flex-1 truncate text-sm text-[var(--color-danger-text)]' role='status' title={messageLine(message) || undefined}>{messageLine(message)}</p>
+          </DialogFields>
+          <DialogFooter className='flex-nowrap' message={messageLine(message)}>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button aria-busy={busy || undefined} type='submit'>{t('subscriptions.ruleSets.apply')}</Button>
           </DialogFooter>

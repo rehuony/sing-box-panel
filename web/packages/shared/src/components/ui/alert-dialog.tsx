@@ -56,7 +56,7 @@ function AlertDialogContent({
         data-slot='alert-dialog-content'
         data-size={size}
         className={cn(
-          'fixed top-1/2 left-1/2 z-[calc(var(--z-modal)+1)] grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-[var(--radius-window)] bg-popover p-6 text-popover-foreground shadow-[var(--shadow-panel)] ring-1 ring-border/60 duration-100 outline-none data-[size=default]:max-w-[30rem] data-[size=sm]:max-w-xs data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          'fixed top-1/2 left-1/2 z-[calc(var(--z-modal)+1)] grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-5 overflow-y-auto rounded-[var(--radius-window)] bg-popover p-6 text-popover-foreground shadow-[var(--shadow-panel)] ring-1 ring-border/60 duration-100 outline-none data-[size=default]:max-w-[30rem] data-[size=sm]:max-w-xs data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
           className,
         )}
         {...props}
@@ -90,7 +90,7 @@ function AlertDialogHeader({
     <div
       data-slot='alert-dialog-header'
       className={cn(
-        'flex flex-col gap-4 text-left',
+        'flex flex-col gap-1.5 text-left',
         className,
       )}
       {...props}
@@ -106,7 +106,7 @@ function AlertDialogFooter({
     <div
       data-slot='alert-dialog-footer'
       className={cn(
-        'flex flex-wrap items-center justify-end gap-3 [&>button]:min-w-20',
+        'mt-1 flex flex-wrap items-center justify-end gap-2 [&>button]:min-w-20',
         className,
       )}
       {...props}

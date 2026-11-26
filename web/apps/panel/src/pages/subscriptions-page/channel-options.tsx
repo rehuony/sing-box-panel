@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFields,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -39,13 +40,13 @@ export function ChannelOptions({
   useUnsavedChanges(dirty, onClose);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='flex max-h-[min(576px,calc(100dvh-48px))] w-170 max-w-[calc(100vw-48px)] flex-col overflow-hidden sm:max-w-170 [&>[data-slot=dialog-footer]]:flex-none [&>[data-slot=dialog-header]]:flex-none'>
+      <DialogContent className='flex max-h-[min(576px,calc(100dvh-48px))] flex-col overflow-hidden [&>[data-slot=dialog-footer]]:flex-none [&>[data-slot=dialog-header]]:flex-none'>
         <DialogHeader>
           <DialogTitle>{t('channels.distribution')}</DialogTitle>
           <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
         </DialogHeader>
         <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-6 py-0.5'>
-          <div className='grid grid-cols-[minmax(max-content,1fr)_minmax(0,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) *:min-w-0 [&>label]:whitespace-nowrap [&>span]:whitespace-nowrap max-[720px]:grid-cols-[max-content_minmax(0,1fr)] max-[720px]:gap-3 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
+          <DialogFields className='*:min-w-0'>
             <label htmlFor='channel-edit-name'>{t('channels.name')}</label>
             <Input id='channel-edit-name' value={draftName} onChange={(event) => setDraftName(event.target.value)} />
             <label htmlFor='channel-output'>{t('channels.client')}</label>
@@ -66,7 +67,7 @@ export function ChannelOptions({
                 {t('channels.edit')}
               </Button>
             </div>
-          </div>
+          </DialogFields>
           {draftFormat !== format && (
             <p role='status' className='text-sm text-muted-foreground'>{t(template ? 'channels.replaceTemplateHint' : 'channels.applyClientFirst')}</p>
           )}

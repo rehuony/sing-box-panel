@@ -61,13 +61,13 @@ export function CoreImportDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className='sm:max-w-[27.5rem]' showCloseButton={!busy}>
+      <DialogContent showCloseButton={!busy}>
         <DialogHeader className='gap-1.5'>
           <DialogTitle>{t('cores.import.title')}</DialogTitle>
           <DialogDescription>{t('cores.import.description')}</DialogDescription>
         </DialogHeader>
         <form
-          className='flex min-w-0 flex-col gap-4'
+          className='flex min-w-0 flex-col gap-5'
           aria-busy={busy}
           onSubmit={async (event) => {
             event.preventDefault();

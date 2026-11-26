@@ -74,7 +74,7 @@ export function ConfigurationCopyDialog({ disabled, draft, onReplace }: Configur
         <span className='max-sm:sr-only'>{t('configuration.copy.action')}</span>
       </Button>
       <Dialog onOpenChange={setOpen} open={open}>
-        <DialogContent className='flex h-[min(44rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-[min(64rem,calc(100%-2rem))]'>
+        <DialogContent className='flex h-[min(44rem,calc(100dvh-2rem))] flex-col overflow-hidden' size='workspace'>
           <DialogHeader>
             <DialogTitle>{t('configuration.copy.title', { name: node.name })}</DialogTitle>
             <DialogDescription>{t('configuration.copy.description')}</DialogDescription>

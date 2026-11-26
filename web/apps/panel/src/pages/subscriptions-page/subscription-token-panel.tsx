@@ -3,13 +3,16 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CirclePause, CirclePlay, CirclePlus, Eye, RefreshCw, Trash2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
+import { Check, CirclePause, CirclePlay, CirclePlus, Copy, Eye, RefreshCw, Trash2 } from 'lucide-react';
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@shared/components/ui/input-group';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
+import { DateTimeField } from '@/components/date-time-field';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
@@ -21,6 +24,10 @@ import { SubscriptionContentState } from './subscription-content-state';
 
 type KeyAction = 'rotate' | 'delete';
 
+/** How long a new key lasts: never, a number of days from now, or a chosen time. */
+type Expiry = 'never' | '1' | '7' | '30' | '90' | '365' | 'custom';
+const expiries: Expiry[] = ['never', '1', '7', '30', '90', '365', 'custom'];
+
 export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   list: ReturnType<typeof useSubscriptionTokenPage>;
   active?: boolean;
@@ -31,17 +38,35 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   const { items, page, pageSize, pages, loading, error, refresh, setPage, setPageSize } = list;
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState('');
-  const [expiry, setExpiry] = useState('');
+  const [expiry, setExpiry] = useState<Expiry>('never');
+  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  // The earliest time a chosen expiry may take, read when the choice opens.
+  const [earliest, setEarliest] = useState(() => new Date());
   const [limit, setLimit] = useState('');
-  const [issued, setIssued] = useState<CreatedSubscriptionToken | null>(null);
+  // A form problem names the field it focuses; a refused request names none.
+  const [issue, setIssue] = useState<{ field?: 'name' | 'expiry' | 'quota'; message: string } | null>(null);
+  const [issued, setIssued] = useState<{ key: CreatedSubscriptionToken; kind: 'created' | 'rotated' | 'viewed' } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const quotaRef = useRef<HTMLInputElement>(null);
   const [confirmation, setConfirmation] = useState<{ action: KeyAction; key: SubscriptionToken } | null>(null);
   const [busy, setBusy] = useState(false);
-  useUnsavedChanges(creating && (label !== '' || expiry !== '' || limit !== ''), () => {
-    setCreating(false);
+  function resetForm() {
     setLabel('');
-    setExpiry('');
+    setExpiry('never');
+    setExpiresAt(null);
     setLimit('');
+    setIssue(null);
+  }
+  useUnsavedChanges(creating && (label !== '' || expiry !== 'never' || limit !== ''), () => {
+    setCreating(false);
+    resetForm();
   }, busy);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(setCopied, 1500, false);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   const operationRef = useRef(0);
   useEffect(() => () => {
     operationRef.current++;
@@ -63,32 +88,50 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   function usage(key: SubscriptionToken) {
     return `${key.body_response_count} / ${key.download_limit ?? '∞'}`;
   }
+  function expiryDate(choice: Exclude<Expiry, 'never' | 'custom'>) {
+    return new Date(Date.now() + Number(choice) * 86_400_000);
+  }
+  function expiryLabel(choice: Expiry) {
+    if (choice === 'never') return t('subscriptions.keys.expiryNever');
+    if (choice === 'custom') return t('subscriptions.keys.expiryCustom');
+    if (choice === '365') return t('subscriptions.keys.expiryYear');
+    return t('subscriptions.keys.expiryDays', { count: Number(choice) });
+  }
+  /** Saying why the form cannot be saved focuses the field at fault. */
+  function refuse(field: 'name' | 'expiry' | 'quota', message: string) {
+    setIssue({ field, message });
+    if (field === 'name') nameRef.current?.focus();
+    else if (field === 'quota') quotaRef.current?.focus();
+    else document.getElementById('key-expiry')?.focus();
+  }
   async function create() {
     if (busy) return;
-    const downloadLimit = limit === '' ? undefined : Number(limit);
-    const invalidQuota = downloadLimit !== undefined
-      && (!Number.isSafeInteger(downloadLimit) || downloadLimit < 1 || downloadLimit > 1_000_000_000);
-    if (!label.trim() || invalidQuota) {
-      report(new Error(t('subscriptions.keys.invalid')));
-      return;
+    if (!label.trim()) return refuse('name', t('subscriptions.keys.nameRequired'));
+    let expires: Date | undefined;
+    if (expiry === 'custom') {
+      if (!expiresAt) return refuse('expiry', t('subscriptions.keys.expiryMissing'));
+      if (expiresAt.getTime() <= Date.now()) return refuse('expiry', t('subscriptions.keys.expiryPast'));
+      expires = expiresAt;
+    } else if (expiry !== 'never') {
+      expires = expiryDate(expiry);
     }
-    if (expiry && (!Number.isFinite(new Date(expiry).getTime()) || new Date(expiry).getTime() <= Date.now())) {
-      report(new Error(t('subscriptions.token.validation.expiry')));
-      return;
+    const quota = limit.trim();
+    const downloadLimit = quota === '' ? undefined : Number(quota);
+    if (downloadLimit !== undefined && (!/^\d+$/.test(quota) || downloadLimit < 1 || downloadLimit > 1_000_000_000)) {
+      return refuse('quota', t('subscriptions.keys.quotaInvalid'));
     }
     setBusy(true);
+    setIssue(null);
     try {
       const result = await client.createSubscriptionToken({
-        label: label.trim(), expiresAt: expiry ? new Date(expiry).toISOString() : undefined, downloadLimit,
+        label: label.trim(), expiresAt: expires?.toISOString(), downloadLimit,
       });
       setCreating(false);
-      setIssued(result);
+      setIssued({ key: result, kind: 'created' });
       refresh();
-      setLabel('');
-      setExpiry('');
-      setLimit('');
+      resetForm();
     } catch (reason) {
-      report(reason);
+      setIssue({ message: describeRequestError(reason) });
     } finally {
       setBusy(false);
     }
@@ -99,7 +142,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     try {
       if (action === 'rotate') {
         const result = await client.rotateSubscriptionToken(key.id);
-        setIssued({ metadata: result.created, token: result.token });
+        setIssued({ key: { metadata: result.created, token: result.token }, kind: 'rotated' });
       } else if (action === 'delete') {
         await client.deleteSubscriptionToken(key.id);
       } else {
@@ -120,7 +163,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     setBusy(true);
     try {
       const secret = await client.getSubscriptionTokenSecret(key.id);
-      if (generation === operationRef.current) setIssued({ metadata: key, token: secret.token });
+      if (generation === operationRef.current) setIssued({ key: { metadata: key, token: secret.token }, kind: 'viewed' });
     } catch (reason) {
       if (generation === operationRef.current) report(reason);
     } finally {
@@ -131,7 +174,9 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     const generation = operationRef.current;
     try {
       await navigator.clipboard.writeText(value);
-      if (generation === operationRef.current) toast.add({ title: t('subscriptions.token.secret.copied'), type: 'success' });
+      if (generation !== operationRef.current) return;
+      setCopied(true);
+      toast.add({ title: t('subscriptions.token.secret.copied'), type: 'success' });
     } catch (reason) {
       if (generation === operationRef.current) report(reason);
     }
@@ -218,24 +263,101 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       <Dialog open={creating} onOpenChange={open => {
         if (!busy) setCreating(open);
       }}>
-        <DialogContent className='sm:max-w-[640px]'>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('subscriptions.keys.create')}</DialogTitle>
             <DialogDescription className='sr-only'>{t('subscriptions.keys.shared')}</DialogDescription>
           </DialogHeader>
-          <form className='grid grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] items-center gap-(--form-field-gap) [&_[data-slot=dialog-footer]]:col-span-full' onSubmit={event => {
+          <form className='contents' noValidate onSubmit={event => {
             event.preventDefault();
             void create();
           }}>
-            <label htmlFor='key-name'>{t('subscriptions.common.name')}</label>
-            <Input id='key-name' value={label} onChange={event => setLabel(event.target.value)} required disabled={busy} maxLength={128} />
-            <label htmlFor='key-expiry'>{t('subscriptions.keys.expiry')}</label>
-            <Input id='key-expiry' type='datetime-local' value={expiry} onChange={event => setExpiry(event.target.value)} disabled={busy} />
-            <label htmlFor='key-quota' title={t('subscriptions.keys.shared')}>{t('subscriptions.keys.quota')}</label>
-            <Input id='key-quota' type='number' min={1} max={1_000_000_000} step={1} placeholder={t('subscriptions.keys.unlimited')} value={limit} onChange={event => setLimit(event.target.value)} disabled={busy} />
-            <DialogFooter>
+            <DialogFields>
+              <label htmlFor='key-name'>{t('subscriptions.common.name')}</label>
+              <Input
+                aria-invalid={issue?.field === 'name' || undefined}
+                id='key-name'
+                maxLength={128}
+                onChange={event => {
+                  setLabel(event.target.value);
+                  setIssue(null);
+                }}
+                ref={nameRef}
+                value={label}
+              />
+              <label htmlFor='key-expiry'>{t('subscriptions.keys.expiry')}</label>
+              {expiry === 'custom'
+                ? (
+                    <DateTimeField
+                      clearLabel={t('subscriptions.keys.backToPresets')}
+                      defaultOpen
+                      id='key-expiry'
+                      invalid={issue?.field === 'expiry'}
+                      min={earliest}
+                      onChange={(value) => {
+                        setExpiresAt(value);
+                        setIssue(null);
+                      }}
+                      onClear={() => {
+                        setExpiry('never');
+                        setExpiresAt(null);
+                        setIssue(null);
+                      }}
+                      value={expiresAt}
+                    />
+                  )
+                : (
+                    <Select<Expiry>
+                      items={expiries.map(value => ({ value, label: expiryLabel(value) }))}
+                      onValueChange={(next) => {
+                        if (next === null) return;
+                        if (next === 'custom') setEarliest(new Date());
+                        setExpiry(next);
+                        setIssue(null);
+                      }}
+                      value={expiry}
+                    >
+                      <SelectTrigger id='key-expiry'>
+                        <SelectValue />
+                        {expiry === 'never'
+                          ? null
+                          : (
+                              <span className='ms-auto flex-none ps-2 text-xs text-muted-foreground'>
+                                {t('subscriptions.keys.expiresOn', { date: expiryDate(expiry).toLocaleDateString(i18n.resolvedLanguage, { dateStyle: 'medium' }) })}
+                              </span>
+                            )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {expiries.map(value => (
+                            <SelectItem key={value} value={value}>{expiryLabel(value)}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+              <label htmlFor='key-quota'>{t('subscriptions.keys.quota')}</label>
+              <InputGroup>
+                <InputGroupInput
+                  aria-invalid={issue?.field === 'quota' || undefined}
+                  id='key-quota'
+                  inputMode='numeric'
+                  onChange={event => {
+                    setLimit(event.target.value);
+                    setIssue(null);
+                  }}
+                  placeholder={t('subscriptions.keys.unlimited')}
+                  ref={quotaRef}
+                  value={limit}
+                />
+                <InputGroupAddon align='inline-end'>
+                  <InputGroupText>{t('subscriptions.keys.quotaUnit')}</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
+            </DialogFields>
+            <DialogFooter message={issue?.message ?? ''}>
               <Button type='button' variant='outline' disabled={busy} onClick={() => setCreating(false)}>{t('subscriptions.keys.cancel')}</Button>
-              <Button type='submit' disabled={busy}>{t('subscriptions.keys.create')}</Button>
+              <Button aria-busy={busy || undefined} type='submit'>{t('subscriptions.keys.create')}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -247,30 +369,48 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
           operationRef.current++;
         }
       }}>
-        <DialogContent className='sm:max-w-[640px]'>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('subscriptions.keys.details')}</DialogTitle>
-            <DialogDescription className='sr-only'>{t('subscriptions.keys.key')}</DialogDescription>
+            <DialogTitle>
+              {t(issued?.kind === 'created' ? 'subscriptions.keys.created' : issued?.kind === 'rotated' ? 'subscriptions.keys.rotated' : 'subscriptions.keys.details')}
+            </DialogTitle>
+            <DialogDescription className={issued?.kind === 'created' ? undefined : 'sr-only'}>
+              {t(issued?.kind === 'created' ? 'subscriptions.keys.createdNote' : 'subscriptions.keys.key')}
+            </DialogDescription>
           </DialogHeader>
           {issued
             ? (
                 <>
-                  <dl className='grid grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] items-center gap-(--form-field-gap) [&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:wrap-anywhere [&_dt]:text-muted-foreground'>
-                    <dt>{t('subscriptions.keys.key')}</dt>
-                    <dd><code>{issued.token}</code></dd>
-                    <dt>{t('subscriptions.keys.expiry')}</dt>
-                    <dd>{formatDate(issued.metadata.expires_at)}</dd>
-                    <dt>{t('subscriptions.keys.quota')}</dt>
-                    <dd>{issued.metadata.download_limit ?? t('subscriptions.keys.unlimited')}</dd>
-                  </dl>
+                  <DialogFields className='[&>span]:min-w-0 [&>span]:truncate [&>span]:leading-10'>
+                    <span>{t('subscriptions.common.name')}</span>
+                    <span>{issued.key.metadata.label}</span>
+                    <span>{t('subscriptions.keys.expiry')}</span>
+                    <span>{formatDate(issued.key.metadata.expires_at)}</span>
+                    <span>{t('subscriptions.keys.quota')}</span>
+                    <span className='tabular-nums'>
+                      {issued.key.metadata.download_limit === undefined
+                        ? t('subscriptions.keys.unlimited')
+                        : `${issued.key.metadata.download_limit.toLocaleString(i18n.resolvedLanguage)} ${t('subscriptions.keys.quotaUnit')}`}
+                    </span>
+                    <span>{t('subscriptions.keys.key')}</span>
+                    <div className='flex h-(--control-height) min-w-0 items-center gap-1 rounded-lg bg-[var(--color-surface-raised)] ps-3 pe-1'>
+                      <code className='min-w-0 flex-1 truncate font-[family-name:var(--font-data)] text-compact' title={issued.key.token}>{issued.key.token}</code>
+                      <IconAction
+                        className={copied ? 'text-[var(--color-success-text)] hover:text-[var(--color-success-text)]' : undefined}
+                        label={t(copied ? 'subscriptions.token.secret.copied' : 'subscriptions.token.secret.copy')}
+                        onClick={() => void copy(issued.key.token)}
+                      >
+                        {copied ? <Check aria-hidden='true' /> : <Copy aria-hidden='true' />}
+                      </IconAction>
+                    </div>
+                  </DialogFields>
                   <DialogFooter>
-                    <Button variant='outline' onClick={() => {
+                    <Button onClick={() => {
                       setIssued(null);
                       operationRef.current++;
                     }}>
-                      {t('common.cancel')}
+                      {t('subscriptions.keys.done')}
                     </Button>
-                    <Button onClick={() => void copy(issued.token)}>{t('subscriptions.token.secret.copy')}</Button>
                   </DialogFooter>
                 </>
               )
@@ -281,20 +421,19 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       <Dialog open={confirmation !== null} onOpenChange={open => {
         if (!open && !busy) setConfirmation(null);
       }}>
-        <DialogContent className='sm:max-w-[640px]'>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>{confirmation ? t(`subscriptions.token.action.${confirmation.action}.name`) : ''}</DialogTitle>
-            <DialogDescription>{confirmation?.key.label}</DialogDescription>
+            <DialogTitle>{confirmation ? t(`subscriptions.token.action.${confirmation.action}.title`) : ''}</DialogTitle>
+            <DialogDescription>
+              {confirmation ? t(`subscriptions.token.action.${confirmation.action}.prompt`, { name: confirmation.key.label }) : ''}
+            </DialogDescription>
           </DialogHeader>
           {confirmation
             ? (
-                <>
-                  <p>{t(`subscriptions.token.action.${confirmation.action}.prompt`)}</p>
-                  <DialogFooter>
-                    <Button variant='outline' disabled={busy} onClick={() => setConfirmation(null)}>{t('subscriptions.keys.cancel')}</Button>
-                    <Button variant={confirmation.action === 'delete' ? 'destructive' : 'default'} disabled={busy} onClick={() => void run(confirmation.action, confirmation.key)}>{t(`subscriptions.token.action.${confirmation.action}.name`)}</Button>
-                  </DialogFooter>
-                </>
+                <DialogFooter>
+                  <Button variant='outline' disabled={busy} onClick={() => setConfirmation(null)}>{t('subscriptions.keys.cancel')}</Button>
+                  <Button variant={confirmation.action === 'delete' ? 'destructive' : 'default'} disabled={busy} onClick={() => void run(confirmation.action, confirmation.key)}>{t(`subscriptions.token.action.${confirmation.action}.name`)}</Button>
+                </DialogFooter>
               )
             : null}
         </DialogContent>

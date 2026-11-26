@@ -95,7 +95,8 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
       }
     }}>
       <DialogContent
-        className='flex h-[min(640px,calc(100dvh-32px))] w-240 max-w-[calc(100vw-32px)] flex-col overflow-hidden sm:max-w-240 max-[600px]:p-4'
+        className='flex h-[min(640px,calc(100dvh-32px))] flex-col overflow-hidden max-[600px]:p-4'
+        size='workspace'
         showCloseButton={false}
         onKeyDown={(event) => {
           // The dialog normally traps arrow keys before DND-KIT's document listener.

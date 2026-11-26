@@ -7,20 +7,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CirclePlus, CopyPlus, Link2, MoreHorizontal, Trash2 } from 'lucide-react';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@shared/components/ui/dialog';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@shared/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFields,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@shared/components/ui/dialog';
 
 import type {
   SubscriptionChannel,
@@ -338,41 +339,47 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
             </>
           )}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>
-        <DialogContent className='w-160 max-w-[calc(100vw-32px)] sm:max-w-160'>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('channels.add')}</DialogTitle>
             <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
           </DialogHeader>
-          <div className='grid grid-cols-[minmax(120px,1fr)_minmax(200px,2fr)] items-center gap-x-6 gap-y-(--form-field-gap) pt-2 pb-(--form-field-gap) max-[720px]:grid-cols-[minmax(100px,1fr)_minmax(0,2fr)] max-[720px]:gap-3 max-[480px]:grid-cols-1 max-[480px]:gap-2 [&_[aria-invalid=true]]:outline-1 [&_[aria-invalid=true]]:outline-[var(--color-danger)] [&_[data-slot=select-trigger]]:w-full [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input[type=checkbox]]:justify-self-start [&_textarea]:max-h-45 [&_textarea]:min-h-[90px] [&_textarea]:resize-y [&_textarea]:rounded-[var(--radius-control)] [&_textarea]:border-0 [&_textarea]:bg-[var(--color-surface-raised)] [&_textarea]:p-3'>
-            <label htmlFor='channel-name'>{t('channels.name')}</label>
-            <Input
-              id='channel-name'
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            <label htmlFor='channel-format'>{t('channels.client')}</label>
-            <SelectField<SubscriptionFormat>
-              id='channel-format'
-              value={format}
-              onValueChange={setFormat}
-              items={[
-                { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
-                { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
-                { value: 'loon', label: t('subscriptions.channel.format.loon') },
-              ]}
-            />
-          </div>
-          {formError && (
-            <ErrorNotice error={formError} />
-          )}
-          <DialogFooter>
-            <Button disabled={busy} variant='outline' onClick={() => setCreating(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button disabled={busy} variant='default' onClick={() => void create()}>
-              {t('channels.add')}
-            </Button>
-          </DialogFooter>
+          <form className='contents' noValidate onSubmit={(event) => {
+            event.preventDefault();
+            void create();
+          }}>
+            <DialogFields>
+              <label htmlFor='channel-name'>{t('channels.name')}</label>
+              <Input
+                aria-invalid={formError ? true : undefined}
+                id='channel-name'
+                value={name}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setFormError('');
+                }}
+              />
+              <label htmlFor='channel-format'>{t('channels.client')}</label>
+              <SelectField<SubscriptionFormat>
+                id='channel-format'
+                value={format}
+                onValueChange={setFormat}
+                items={[
+                  { value: 'sing-box', label: t('subscriptions.channel.format.singBox') },
+                  { value: 'mihomo', label: t('subscriptions.channel.format.mihomo') },
+                  { value: 'loon', label: t('subscriptions.channel.format.loon') },
+                ]}
+              />
+            </DialogFields>
+            <DialogFooter message={formError}>
+              <Button disabled={busy} type='button' variant='outline' onClick={() => setCreating(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button aria-busy={busy || undefined} type='submit' variant='default'>
+                {t('channels.add')}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       <Dialog open={deleting != null} onOpenChange={(open) => !open && !busy && setDeleting(null)}>

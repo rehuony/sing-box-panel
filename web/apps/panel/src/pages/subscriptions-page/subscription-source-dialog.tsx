@@ -44,7 +44,7 @@ export type SourceDialogMode
 /** How long typing rests before the preview reads the content again. */
 const PREVIEW_DELAY_MS = 500;
 const INTERVALS = [0, 15, 60, 360, 720, 1440];
-const fieldLabel = 'text-sm text-[var(--color-text-secondary)]';
+const fieldLabel = 'text-sm';
 /** A refused rule's path in a problem's fields, such as `filter.include[2]`; a whole list has no index. */
 const RULE_PATH = /^filter\.(include|exclude)(?:\[(\d+)\])?$/;
 
@@ -136,7 +136,7 @@ function FieldRow({ children, help, helpLabel, htmlFor, label, labelId }: {
   labelId?: string;
 }) {
   return (
-    <div className='grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] items-start gap-x-4 gap-y-1 py-2 max-[520px]:grid-cols-1'>
+    <div className='grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-start gap-x-4 gap-y-1.5 max-[520px]:grid-cols-1'>
       <div className='flex min-h-(--control-height) items-center gap-1'>
         {htmlFor
           ? <label className={fieldLabel} htmlFor={htmlFor} id={labelId}>{label}</label>
@@ -293,8 +293,8 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     <Dialog open onOpenChange={(open) => {
       if (!open && !save.isPending) onClose();
     }}>
-      <DialogContent className='flex max-h-[min(48rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-[40rem]'>
-        <form className='flex min-h-0 min-w-0 flex-1 flex-col gap-4' noValidate onSubmit={submit}>
+      <DialogContent className='flex max-h-[min(48rem,calc(100dvh-2rem))] flex-col overflow-hidden' size='wide'>
+        <form className='flex min-h-0 min-w-0 flex-1 flex-col gap-5' noValidate onSubmit={submit}>
           <DialogHeader className='gap-1'>
             <DialogTitle className='truncate'>{source ? source.name : t('subscriptions.sources.add')}</DialogTitle>
             {source
@@ -306,7 +306,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
               : <DialogDescription className='sr-only'>{t('subscriptions.sources.description')}</DialogDescription>}
           </DialogHeader>
           <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 py-0.5'>
-            <div className='flex min-w-0 flex-col divide-y'>
+            <div className='flex min-w-0 flex-col gap-3'>
               <FieldRow htmlFor={ids.name} label={t('subscriptions.sources.field.name')}>
                 <Input aria-describedby={ids.message} aria-invalid={invalid('name')} autoComplete='off' id={ids.name} maxLength={128} onChange={event => update({ name: event.target.value })} value={draft.name} />
               </FieldRow>
@@ -409,7 +409,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
           </div>
           <DialogFooter className='flex-nowrap'>
             <p
-              className={cn('min-h-5 min-w-0 flex-1 truncate text-sm', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
+              className={cn('min-h-5 min-w-0 flex-1 truncate text-compact', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
               id={ids.message}
               role='status'
               title={message ? messageLine(message.text) : undefined}

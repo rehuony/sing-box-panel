@@ -48,7 +48,7 @@ export function AppearanceColorPicker({ id, value, onChange }: {
         <span className='block size-3 flex-none rounded-full shadow-[inset_0_0_0_1px_var(--border)]' style={{ backgroundColor: value }} aria-hidden='true' />
         <span className='font-[family-name:var(--font-data)] text-xs'>{value.toUpperCase()}</span>
       </DialogTrigger>
-      <DialogContent className='w-[min(420px,calc(100vw-32px))] gap-5'>
+      <DialogContent>
         <DialogHeader><DialogTitle>{t('panelSettings.customColorTitle')}</DialogTitle></DialogHeader>
         <HexColorPicker className='appearance-color-picker h-auto! w-full! gap-5' color={pickerColor} onChange={updateColor} />
         <Field className='grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2' data-invalid={!valid}>
