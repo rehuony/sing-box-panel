@@ -10,195 +10,172 @@
   </div>
   <div>
     <a href="#features">Features</a> ·
-    <a href="#installation">Installation</a> ·
-    <a href="#quick-start">Quick start</a> ·
+    <a href="#deploy">Deploy</a> ·
+    <a href="#uninstall-and-clean-up">Uninstall</a> ·
     <a href="#documentation">Documentation</a> ·
     <a href="https://github.com/rehuony/sing-box-panel/issues">Issues</a>
   </div>
 </div>
 
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-node-overview-dark.webp">
+  <img src="docs/images/panel-node-overview-light.webp" alt="A node's overview in the panel: the core's state, host load, live traffic and connections, and the runtime timeline">
+</picture>
+
 sing-box-panel manages sing-box on any number of Linux hosts from one panel.
-The panel, `sing-box-panel`, holds every node's configuration, the core version
-catalog, subscriptions and aggregated telemetry, and runs no sing-box itself. A
-node, `sing-box-node`, runs one exact-version sing-box on its host, reports its
-state and carries out the panel's commands. Release builds embed each service's
-React interface and SQLite schema in its Go executable, so a target host does
-not need Go, Node.js, pnpm, or a separate SQLite CLI.
+The panel, `sing-box-panel`, holds every node's configuration, the core
+versions, subscriptions and the fleet's telemetry, and runs no sing-box itself.
+A node, `sing-box-node`, runs one exact sing-box version on its host, reports
+its state and carries out the panel's commands. Both are static Go executables
+with their Web interfaces built in, so a host needs no Go, Node.js or database
+server.
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-nodes-dark.webp">
+        <img src="docs/images/panel-nodes-light.webp" alt="The panel's nodes home: running cores, live traffic, connections and each node's load">
+      </picture>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/node-console-dark.webp">
+        <img src="docs/images/node-console-light.webp" alt="A node's own console reporting its link to the panel, its core, traffic and host">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">The fleet in the panel</td>
+    <td align="center">A node's own console</td>
+  </tr>
+</table>
 
 ## Features
 
-- Manage a fleet from one panel: nodes dial out to the panel over WebSocket, enroll
-  with a one-time code and a node-generated Ed25519 key, and keep running their
-  applied configuration while the panel is unreachable.
-- Manage official and administrator-imported sing-box artifacts by exact
-  version and Linux architecture (amd64 or arm64), with recorded installation hashes.
-  The panel caches and verifies each archive and nodes install from it. Each
-  platform uses the static musl build.
-- Edit one lossless sing-box JSON document per node, validate every candidate
-  with the selected exact binary on that node, and edit it in a structured form
-  for any version on a supported release line, from the panel's reviewed 1.13
-  schema or the schema a 1.14 or later core prints itself.
-- Keep canonical revisions, checked startup artifacts, applied bundles, and
-  rollback bundles separate and immutable; roll back to the previous bundle
-  through the authenticated API.
-- Publish live, authorized subscriptions in sing-box, Mihomo, and Loon formats
-  from each node's last applied inbounds and current third-party source versions.
-- Manage nodes, core versions, configuration and subscriptions through the
-  embedded React UI and versioned HTTP API; maintain panel settings, nodes and
-  services through a focused CLI and audited systemd integration.
-- Return completed operation results, serialize each node's process controls,
-  and retain sanitized logs and immutable runtime history.
+- **One panel, many nodes.** Nodes enroll with a one-time code and their own
+  Ed25519 key, dial out to the panel over WebSocket through its HTTPS address,
+  and keep running their configuration while the panel is away.
+- **Exact sing-box versions.** Install official or imported sing-box builds by
+  exact version for amd64 or arm64. The panel downloads and verifies each archive
+  once, and nodes install it from the panel.
+- **Checked configuration.** Each node has one sing-box JSON document, checked
+  with the node's own binary before it runs and edited in a form built from the
+  schema of its sing-box release line.
+- **Subscriptions.** Publish authorized subscriptions in sing-box, Mihomo and
+  Loon formats from a pool of fleet nodes and third-party sources, with
+  per-channel groups and routing rules.
+- **Live operations.** Live traffic and connections, per-node quotas and
+  periods, a runtime timeline, the panel's log and each node's events and core
+  log, and batch start, stop, restart and update from the panel or its command
+  line.
+- **Signed one-way updates.** The panel and its nodes update themselves to a
+  newer signed release from the interface or the command line, and their
+  systemd units install it before the service starts again.
 
-The supported deployment targets are `linux/amd64` and `linux/arm64`. Windows,
-macOS, BSD, more than one sing-box runtime on a node, and external databases are
-outside the current product contract.
+Supported hosts are Linux on amd64 and arm64.
 
-## Installation
+## Deploy
 
-A release has two components: the panel, `sing-box-panel`, and the node agent
-that runs sing-box on each proxy host, `sing-box-node`. The installer supports
-Linux on amd64 and arm64 and installs one component per run. With no
-arguments it selects the latest published stable GitHub Release. An explicit
-`--version vX.Y.Z` may select an already published stable release or GitHub
-pre-release. It first reports which components are installed for the current
-user and the state of their systemd services, then installs `--component panel`
-or `--component node`, or asks which one when neither is given; without a
-terminal the component is required. The installer authenticates the exact
-`SHA256SUMS` bytes and release version with the Ed25519 key retrieved from the
-repository's canonical `.github/keypair/release-signing-public-key` file,
-verifies the selected binary's SHA-256 digest, and installs only that binary.
-It does not read, initialize, migrate, or rewrite settings or data.
-
-Install the panel for the current user, or a node as root:
+**1. Install the panel** on its host as root and start its service. Installing
+the service creates its settings and prints the administrator's email and
+password once.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash -s -- --component panel
+sudo sing-box-panel systemd install --scope=system --now
+```
+
+The installer verifies the release signature and the binary's checksum and
+writes only the binary; see [scripts](scripts/README.md#release-installer).
+
+**2. Publish it over HTTPS.** The panel listens on `127.0.0.1:3000`. Put a
+reverse proxy with a trusted certificate in front of it on the same host, as in
+[Behind Nginx](docs/configuration-and-runtime.md#behind-nginx), then set the
+public origin so nodes on other hosts can reach it:
+
+```sh
+sudo sing-box-panel config set server.external_origin https://panel.example.com
+sudo sing-box-panel systemd restart
+```
+
+**3. Add a node.** Choose *Add node* in the panel and copy its command. On the
+node's host:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | sudo bash -s -- --component node
+sudo sing-box-node systemd install --scope=system --now
+sudo sing-box-node enroll --code sbp2....
 ```
 
-Pin an exact published release, including a pre-release, when reproducibility
-matters:
+**4. Run sing-box.** In the node's *cores* window install a sing-box version,
+write its configuration in *configuration*, and start it from the node's title
+strip.
+
+**5. Publish subscriptions** from *subscriptions*; see
+[Subscriptions and observability](docs/subscriptions-and-observability.md).
+
+**6. Update** the panel from its settings and each node from its own, or run
+`sudo sing-box-panel update` and `sudo sing-box-node update`. Nodes always
+follow the panel's release.
+
+[Getting started](docs/getting-started.md) covers each step, a regular user's
+installation and running from a source build.
+
+## Uninstall and clean up
+
+`cleanup.sh` lists what sing-box-panel and sing-box-node left on a host,
+including what earlier releases left behind, and removes it. It changes nothing
+until asked:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/installer.sh | bash -s -- --component panel --version v0.1.0
+# List the installation, leftovers of earlier releases, and what needs attention
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/cleanup.sh | sudo bash
+
+# Remove only what earlier releases and interrupted updates left behind
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/cleanup.sh | sudo bash -s -- legacy
+
+# Stop and remove the services, binaries, settings, data and service accounts
+curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts/cleanup.sh | sudo bash -s -- purge
 ```
 
-The default layouts are:
+Add `--component panel` or `--component node` to act on one, `--keep-data` to
+keep settings and data through a purge, and `--yes` to skip the confirmation.
+See [scripts](scripts/README.md#cleanup) for what it finds.
 
-| Component | Effective user | Binary | Settings | Data |
-| --- | --- | --- | --- | --- |
-| Panel | Regular user | `~/.local/bin/sing-box-panel` | `${XDG_CONFIG_HOME:-$HOME/.config}/sing-box-panel/setting.json` | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-panel` |
-| Panel | root | `/usr/local/bin/sing-box-panel` | `/etc/sing-box-panel/setting.json` | `/var/lib/sing-box-panel` |
-| Node | Regular user | `~/.local/bin/sing-box-node` | — | `${XDG_DATA_HOME:-$HOME/.local/share}/sing-box-node` |
-| Node | root | `/usr/local/bin/sing-box-node` | — | `/var/lib/sing-box-node` |
+## Build from source
 
-An existing binary requires overwrite confirmation; pass `--yes` for an unattended
-replacement. The formatted completion summary lists the installed binary, default
-settings and data paths, and shell-completion commands, for example:
-
-```sh
-eval "$(sing-box-panel completion zsh)"
-```
-
-The installer leaves shell startup files and systemd unchanged. Add `~/.local/bin`
-to `PATH` when it is not already present. To install and start an audited service
-explicitly:
-
-```sh
-# Regular user
-~/.local/bin/sing-box-panel systemd install --scope=user --now
-
-# Root/systemd installation
-/usr/local/bin/sing-box-panel systemd install --scope=system --now
-```
-
-A node installs its service the same way. It starts at once, prints its
-console password and waits to be enrolled: run the command the panel shows when
-the node is added, or enroll it from its console at `http://127.0.0.1:8000/`:
-
-```sh
-sudo /usr/local/bin/sing-box-node systemd install --scope=system --now
-sudo /usr/local/bin/sing-box-node enroll --code ...
-```
-
-A user service requires administrator-enabled lingering if it must continue
-after logout. An already running service keeps its existing process after a
-binary upgrade; restart it explicitly when ready. See the authoritative
-[systemd packaging guide](docs/systemd.md) for ownership and hardening.
-
-The no-argument latest-version lookup requires at least one published,
-non-prerelease GitHub Release. Before the first stable release is published,
-the installer exits without changing the host and reports that no latest
-release can be resolved. Use `--version` to install an already published
-pre-release such as `v0.1.0` explicitly.
-
-## Build requirements
-
-Building from source requires:
-
-- Go 1.26, as declared by `go.mod`.
-- Node.js 22.12 or newer.
-- Corepack with the package-pinned pnpm 11.21.0.
-
-A production build targets Linux and embeds its web assets. The managed
-sing-box binary is installed or imported separately through the panel. The
-supported build workflow generates `web/apps/panel/dist` and `web/apps/node/dist` before compiling the binaries; Go
-has no alternate UI input.
-
-## Quick start
-
-Install the locked frontend dependencies, run the repository checks, and build
-both binaries with their Web applications:
+Building needs Go 1.26, Node.js 22.12 or newer and Corepack with the pinned
+pnpm 11.21.0:
 
 ```sh
 make deps
 make check build
-```
-
-For daily work, `make build` builds `bin/sing-box-panel` and `bin/sing-box-node`,
-`make check` runs the ordinary checks, and `make fmt` formats Go sources; plain
-`make` lists every target. See [Contributing](.github/CONTRIBUTING.md#validation)
-for focused checks and generated-file maintenance.
-
-Initialize an isolated development instance and start the server:
-
-```sh
-./bin/sing-box-panel init --config ./setting.json
-./bin/sing-box-panel config verify --config ./setting.json
 ./bin/sing-box-panel server start --config ./setting.json
 ```
 
-`server start` also creates default settings automatically when the selected
-file is missing, so `init` is optional. On creation, it prints a concise summary
-of the paths, default URL, and generated administrator email and password. Every successful start also
-prints the bound panel URL and streams formatted panel logs. Existing settings
-are never overwritten by startup.
-
-The default listener is `127.0.0.1:3000`. The settings file contains a random
-password hash and must not be committed. The panel runs no sing-box: add a node
-in the Web UI, then enroll and start `sing-box-node` on a Linux host with the
-command the panel shows. Use the Web UI for nodes, catalog refresh, installation,
-import, configuration and subscription management.
-
-See [Getting started](docs/getting-started.md) for adding the first node, the
-first configuration, settings precedence, and systemd deployment paths.
+`make build` writes `bin/sing-box-panel` and `bin/sing-box-node` with their Web
+interfaces; plain `make` lists every target. See
+[Contributing](.github/CONTRIBUTING.md#validation) for focused checks.
 
 ## Documentation
 
 | Workflow | Guide |
 | --- | --- |
-| Build, initialize, and run the panel | [Getting started](docs/getting-started.md) |
-| Use commands, automation output, and shell completion | [CLI reference](docs/cli.md) |
-| Install core versions and inspect their release-line capabilities | [Core versions](docs/core-versions.md) |
-| Edit, check, apply, and restart configuration; roll back through the API | [Configuration and runtime](docs/configuration-and-runtime.md) |
-| Publish subscriptions and inspect operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
-| Understand the panel and node services, their protocol and state ownership | [Panel and node architecture](docs/panel-node-architecture.md) |
-| Integrate with the API and operate its security boundary | [HTTP API and security](docs/architecture.md#http-api-and-security) |
-| Build, sign, test, and publish release artifacts | [Release process](docs/release.md) |
+| Install, run and update the panel and nodes | [Getting started](docs/getting-started.md) |
+| Use the commands, their output and shell completion | [CLI reference](docs/cli.md) |
+| Run the services under systemd | [systemd packaging](docs/systemd.md) |
+| Install core versions and their release-line capabilities | [Core versions](docs/core-versions.md) |
+| Edit, check, apply and restart configuration | [Configuration and runtime](docs/configuration-and-runtime.md) |
+| Publish subscriptions and read operational data | [Subscriptions and observability](docs/subscriptions-and-observability.md) |
+| Understand the panel and nodes, their protocol and state | [Panel and node architecture](docs/panel-node-architecture.md) |
+| Integrate with the API and its security boundary | [HTTP API and security](docs/architecture.md#http-api-and-security) |
+| Build, sign, test and publish releases | [Release process](docs/release.md) |
 
-The [documentation index](docs/README.md) also links the component-level
-sources of truth for OpenAPI, version capabilities, systemd packaging, release
-builds, and the web application.
+The [documentation index](docs/README.md) also links the contracts and the
+component-level references.
 
 ## Project map
 
@@ -206,9 +183,9 @@ builds, and the web application.
 .github/             Workflows, community templates, code ownership, and signing keys
 api/                 HTTP (OpenAPI) and panel–node (protobuf) contracts
 cmd/                 The panel and node binaries' main.go files
-docs/                Guides, architecture, testing, packaging, and release process
+docs/                Guides, architecture, testing, packaging, release process and README images
 internal/            Go packages: sing-box-panel/ and sing-box-node/ per service, shared ones beside them
-scripts/             End-user installation, release, and local test scripts
+scripts/             Installation, cleanup, release and local test scripts
 tools/               Maintainer commands run through go tool
 web/                 pnpm workspace: the panel and node console React applications and their shared package
 DESIGN.md            Visual identity, design tokens, and interface rules

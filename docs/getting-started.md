@@ -282,3 +282,6 @@ installs it and starts the service again, as the [systemd packaging
 guide](systemd.md#updates) describes. Updates go one way.
 After replacing a binary by hand or with the installer, refresh its service
 with `systemd install` before restarting it.
+To list what earlier releases left on a host, such as their update helper
+units or a kept previous binary, and remove it, or to remove an installation
+entirely, use [`cleanup.sh`](../scripts/README.md#cleanup).
