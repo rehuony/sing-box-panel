@@ -51,7 +51,6 @@ export const panelSettings = {
   checkUpdate: '立即检查',
   checking: '检查中…',
   updateTo: '升级到 {{version}}',
-  updateUnsupported: '此构建不支持自动升级',
   updateConfirmTitle: '将面板升级到 {{version}}？',
   updateConfirm: '面板将下载并校验 {{version}}，替换 {{current}} 后重启。Web 界面会短暂不可用，节点会自动重新连接，其代理不受影响。',
   updateAction: '升级并重启',

@@ -271,8 +271,9 @@ system service.
 
 A release build updates itself to a newer signed release; the panel and the
 node are released together under one version. The panel settings'
-maintenance category shows the panel's version and the newest stable release
-and updates the panel; a node's settings tab updates that node to the panel's
+maintenance category shows the panel's version and the newest stable release,
+which every build checks, and updates the panel when it is a release build on
+Linux; a node's settings tab updates that node to the panel's
 own release, and enrolled nodes never contact GitHub. Restarting a node restarts
 its core, so its proxy is briefly interrupted. From a shell, `sing-box-panel
 update` and `sing-box-node update` do the same; a node that is not enrolled

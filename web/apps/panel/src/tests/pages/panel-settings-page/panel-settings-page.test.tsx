@@ -108,10 +108,10 @@ describe('panel settings', () => {
     expect(github).toHaveAccessibleDescription('Configured; leave blank to retain');
     expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Remove' }));
-    expect(github).toBeDisabled();
+    expect(github).toHaveAttribute('readonly');
     expect(github).toHaveAttribute('placeholder', 'Removed when saved');
     await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(github).toBeEnabled();
+    expect(github).not.toHaveAttribute('readonly');
     expect(github.getAttribute('placeholder')).toMatch(/^•+$/);
     fireEvent.change(screen.getByLabelText('Check interval'), { target: { value: '24' } });
     await user.click(screen.getByRole('button', { name: 'Save settings' }));

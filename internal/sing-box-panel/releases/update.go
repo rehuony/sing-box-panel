@@ -146,11 +146,9 @@ func (service *Service) statusLocked() UpdateStatus {
 	return status
 }
 
-// Check asks GitHub for the newest stable release.
+// Check asks GitHub for the newest stable release. Any build may check, so
+// it shows where it stands; only a supported one updates.
 func (service *Service) Check(ctx context.Context) (UpdateStatus, error) {
-	if !service.supported() {
-		return service.Status(), ErrUpdateUnsupported
-	}
 	latest, err := service.updater(selfupdate.Panel).Latest(ctx)
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -299,7 +297,8 @@ func (service *Service) restart(ctx context.Context) error {
 // Run reads the outcome of an update that the system unit's install step
 // made before the panel started, records it, withdraws a staged release the
 // unit did not install, clears finished staging, and checks for a new
-// release on the catalog refresh interval until ctx ends.
+// release on the catalog refresh interval until ctx ends, whether or not
+// this build can update itself.
 func (service *Service) Run(ctx context.Context) {
 	service.mu.Lock()
 	service.lifetime = ctx
@@ -317,9 +316,6 @@ func (service *Service) Run(ctx context.Context) {
 		}
 	}
 	_ = selfupdate.CleanUpdates(service.updatesDir())
-	if !service.supported() {
-		return
-	}
 	var changes <-chan struct{}
 	if service.settings != nil {
 		var unsubscribe func()

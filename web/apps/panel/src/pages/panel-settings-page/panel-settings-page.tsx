@@ -5,7 +5,7 @@ import { Slider } from '@shared/components/ui/slider';
 import { RotateCcw, Save, Undo2 } from 'lucide-react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { ToggleGroup, ToggleGroupItem } from '@shared/components/ui/toggle-group';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@shared/components/ui/input-group';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 
 import type { PanelSettingsView } from '@/api/api-client';
@@ -230,29 +230,35 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
 
             <PanelUpdateSettings>
               <SettingsField {...field('github-token')} help={t('panelSettings.githubHelp')} label={t('panelSettings.github')}>
-                <div className='flex items-center gap-2'>
-                  <Input
+                {/* One field like its neighbours: a stored token reads as the password's dots,
+                    and Remove sits inside the field's end. */}
+                <InputGroup>
+                  <InputGroupInput
                     aria-description={initial.github_token_configured && !clearGithub ? t('panelSettings.configured') : undefined}
                     aria-invalid={invalidField === 'github-token' || undefined}
                     autoComplete='new-password'
-                    className={initial.github_token_configured && !clearGithub ? 'min-w-0 flex-1 placeholder:text-foreground' : 'min-w-0 flex-1'}
-                    disabled={clearGithub}
+                    // The token's dots, stored or typed, read as the password's: the data face at 16px.
+                    className={clearGithub ? undefined : 'font-[family-name:var(--font-data)] text-base placeholder:text-[var(--color-text-faint)] md:text-base'}
                     id='github-token'
                     maxLength={8192}
                     placeholder={clearGithub ? t('panelSettings.removed') : initial.github_token_configured ? '••••••••••••' : undefined}
+                    readOnly={clearGithub}
+                    spellCheck={false}
                     type='password'
                     value={github}
                     onChange={e => setGithub(e.target.value)}
                   />
                   {initial.github_token_configured && (
-                    <Button size='sm' type='button' variant='ghost' onClick={() => {
-                      setClearGithub(!clearGithub);
-                      setGithub('');
-                    }}>
-                      {t(clearGithub ? 'panelSettings.undo' : 'panelSettings.remove')}
-                    </Button>
+                    <InputGroupAddon align='inline-end'>
+                      <InputGroupButton onClick={() => {
+                        setClearGithub(!clearGithub);
+                        setGithub('');
+                      }}>
+                        {t(clearGithub ? 'panelSettings.undo' : 'panelSettings.remove')}
+                      </InputGroupButton>
+                    </InputGroupAddon>
                   )}
-                </div>
+                </InputGroup>
               </SettingsField>
               <SettingsField {...field('catalog-refresh-interval')} label={t('panelSettings.catalogRefreshInterval')}>
                 <UnitInput {...input('catalog-refresh-interval')} max={720} min={1} unit={t('panelSettings.hours')} value={service.catalog_refresh_interval_hours} onChange={value => updateService('catalog_refresh_interval_hours', value)} />

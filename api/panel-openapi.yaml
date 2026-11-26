@@ -343,7 +343,7 @@ paths:
       description: >-
         The panel's version, the newest stable release it knows, when it last
         checked, and the state of its update. The panel checks on the catalog
-        refresh interval.
+        refresh interval, whether or not it can update itself.
       responses:
         "200":
           $ref: "#/components/responses/SystemUpdate"
@@ -372,14 +372,14 @@ paths:
   /system/update/check:
     post:
       operationId: checkSystemUpdate
-      description: Asks GitHub for the newest stable release now.
+      description: >-
+        Asks GitHub for the newest stable release now. Any build checks;
+        only a supported one can update to it.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
         "200":
           $ref: "#/components/responses/SystemUpdate"
-        "409":
-          $ref: "#/components/responses/Problem"
         "502":
           $ref: "#/components/responses/Problem"
         default:
@@ -2688,7 +2688,9 @@ components:
         check_failure:
           type: [string, "null"]
           description: The code of the last check's failure.
-        update_available: {type: boolean}
+        update_available:
+          type: boolean
+          description: The newest known release is newer and this build is supported, so it can update to it.
         state:
           type: string
           enum: [idle, updating, restarting, restart_required]

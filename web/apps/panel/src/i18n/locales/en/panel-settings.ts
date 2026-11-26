@@ -51,7 +51,6 @@ export const panelSettings = {
   checkUpdate: 'Check now',
   checking: 'Checking…',
   updateTo: 'Update to {{version}}',
-  updateUnsupported: 'This build cannot update itself',
   updateConfirmTitle: 'Update the panel to {{version}}?',
   updateConfirm: 'The panel downloads and verifies {{version}}, replaces {{current}} and restarts. The Web UI is unavailable for a moment, and nodes reconnect on their own; their proxies keep running.',
   updateAction: 'Update and restart',
