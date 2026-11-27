@@ -21,7 +21,7 @@
   --secondary-foreground: var(--foreground);
   --border: #e2e2e9;
   --input: #e2e2e9;
-  --input-focus: color-mix(in oklch, var(--foreground) 25%, var(--background));
+  --input-focus: color-mix(in oklab, var(--foreground) 25%, var(--background));
   --color-border-strong: #cfcfd9;
   --color-text-secondary: oklch(40% 0.015 280);
   --color-text-faint: oklch(54% 0.012 280);
@@ -195,7 +195,7 @@
 
 @media (prefers-contrast: more) {
   :root {
-    --input-focus: color-mix(in oklch, var(--foreground) 55%, var(--background));
+    --input-focus: color-mix(in oklab, var(--foreground) 55%, var(--background));
     --border: #2a374c47;
     --color-border-strong: #2a374c7a;
     --muted-foreground: #4c586a;

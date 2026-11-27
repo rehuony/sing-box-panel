@@ -4,6 +4,12 @@ import { TableRow } from '@shared/components/ui/table';
 
 import { formatLogTimeCompact } from '@/utils/panel-log-presentation';
 
+/**
+ * A log table cell of small data-face text: its line box matches the text, so
+ * the time and the level share one baseline.
+ */
+export const logDataCell = 'font-[family-name:var(--font-data)] text-xs';
+
 /** When a log line happened in the data face, without the seconds on a phone; the details hold the full time. */
 export function LogTime({ language, value }: { language?: string; value: string }) {
   return (

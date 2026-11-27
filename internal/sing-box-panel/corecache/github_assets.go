@@ -46,7 +46,7 @@ func (client *GitHubClient) filter(repositoryID int64, releases []githubRelease)
 			diagnostics = append(diagnostics, Diagnostic{Step: StepFilter, Severity: DiagnosticWarning, Code: "invalid_release_skipped", Message: "a release without a strict stable tag or identity was skipped"})
 			continue
 		}
-		if !supportedRelease(release) {
+		if !supportedTag(release.TagName) {
 			diagnostics = append(diagnostics, Diagnostic{Step: StepFilter, Severity: DiagnosticInfo, Code: "unsupported_release_skipped", Message: "a release before the first supported release line was skipped"})
 			continue
 		}

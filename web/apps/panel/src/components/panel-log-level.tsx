@@ -13,7 +13,10 @@ const levelText: Partial<Record<LogLevel, string>> = {
   fatal: 'text-[var(--color-danger-text)]',
 };
 
-/** A log line's level as a word; only a warning or an error takes a colour. */
+/**
+ * A log line's level as a word: a routine one in faint text, so the column
+ * recedes, and only a warning or an error in a colour.
+ */
 export function PanelLogLevelText({ level }: { level: LogLevel }) {
-  return <span className={levelText[level] ?? 'text-muted-foreground'}>{level.toUpperCase()}</span>;
+  return <span className={levelText[level] ?? 'text-[var(--color-text-faint)]'}>{level.toUpperCase()}</span>;
 }

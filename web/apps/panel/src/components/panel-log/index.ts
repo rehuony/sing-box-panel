@@ -1,5 +1,5 @@
 export { logContext, logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
-export { LogRow, LogRowTitle, LogTime } from './log-table';
+export { logDataCell, LogRow, LogRowTitle, LogTime } from './log-table';
 export { RuntimeStateBadge } from './runtime-state-badge';
 export type { PanelLogRecord } from './panel-log-details';
 export { PanelLogDetails } from './panel-log-details';

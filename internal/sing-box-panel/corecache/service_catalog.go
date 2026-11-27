@@ -19,7 +19,9 @@ import (
 const maximumCatalogBytes = 64 << 20
 
 type catalogRefresher interface {
-	Refresh(context.Context, string) (RefreshResult, error)
+	// Refresh brings the previous catalog, nil when there is none, up to date
+	// and returns the whole catalog.
+	Refresh(ctx context.Context, validator string, previous *Catalog) (RefreshResult, error)
 }
 
 type CatalogSnapshot struct {
@@ -196,24 +198,18 @@ func (application *Service) refreshCatalogWith(ctx context.Context, client catal
 		return CatalogSnapshot{}, err
 	}
 	validator := ""
+	var previousCatalog *Catalog
 	if previous != nil {
-		validator = previous.Validator
+		// A stored catalog that no longer decodes is rebuilt from GitHub.
+		if decoded, err := decodeCatalog(previous.Catalog); err == nil {
+			validator, previousCatalog = previous.Validator, &decoded
+		}
 	}
-	result, err := client.Refresh(ctx, validator)
+	result, err := client.Refresh(ctx, validator, previousCatalog)
 	if err != nil {
 		return CatalogSnapshot{}, err
 	}
 	currentCatalog := result.Catalog
-	if result.NotModified {
-		if previous == nil {
-			return CatalogSnapshot{}, errors.New("upstream returned not-modified without a local catalog")
-		}
-		currentCatalog, err = decodeCatalog(previous.Catalog)
-		if err != nil {
-			return CatalogSnapshot{}, err
-		}
-		result.ETag = previous.Validator
-	}
 	if err := validateCatalog(currentCatalog); err != nil {
 		return CatalogSnapshot{}, err
 	}

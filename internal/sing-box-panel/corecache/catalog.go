@@ -23,6 +23,7 @@ var (
 type Step string
 
 const (
+	StepTags       Step = "tags"
 	StepReleases   Step = "releases"
 	StepRepository Step = "repository"
 	StepFilter     Step = "filter"
@@ -156,7 +157,7 @@ func (catalog Catalog) Assets() []Asset {
 
 type RefreshResult struct {
 	Catalog Catalog `json:"catalog"`
-	// ETag is an opaque validator for the complete paginated snapshot. Persist
+	// ETag is an opaque validator of the tag pages the refresh read. Persist
 	// and pass it back unchanged; it is not a single GitHub page's HTTP ETag.
 	ETag        string       `json:"validator"`
 	NotModified bool         `json:"not_modified"`

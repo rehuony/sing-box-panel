@@ -27,7 +27,7 @@ import type { PanelLogRecord } from './panel-log-details';
 import { useLogRowFocus } from './use-log-row-focus';
 import { ClearLogsAction } from './clear-logs-action';
 import { PanelLogDetails } from './panel-log-details';
-import { LogRow, LogRowTitle, LogTime } from './log-table';
+import { logDataCell, LogRow, LogRowTitle, LogTime } from './log-table';
 import { logContext, logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
 
 /**
@@ -133,8 +133,8 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
                 const context = logContext(item.metadata, t, { language, nodeName });
                 return (
                   <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
-                    <TableCell><LogTime language={language} value={item.time} /></TableCell>
-                    <TableCell className='font-[family-name:var(--font-data)] text-xs'><PanelLogLevelText level={item.level} /></TableCell>
+                    <TableCell className={logDataCell}><LogTime language={language} value={item.time} /></TableCell>
+                    <TableCell className={logDataCell}><PanelLogLevelText level={item.level} /></TableCell>
                     <TableCell>
                       <div className='flex min-w-0 items-center gap-2'>
                         {item.source === 'security' && <Badge variant='secondary'>{t('productLogs.sources.security')}</Badge>}

@@ -7,45 +7,93 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/rehuony/sing-box-panel/internal/coreartifact"
 )
 
-func (client *GitHubClient) loadReleasePages(ctx context.Context, remainingBytes *int64) ([]githubRelease, []string, []Diagnostic, error) {
-	rawReleases := make([]githubRelease, 0)
+type githubTag struct {
+	Name string `json:"name"`
+}
+
+// loadTagPages reads the repository's tags, which GitHub lists newest
+// version first, until a page holds no tag of a supported line: the pages
+// after it hold only older tags. It returns the tags and each page's ETag.
+func (client *GitHubClient) loadTagPages(ctx context.Context, remainingBytes *int64) ([]string, []string, error) {
+	tags := make([]string, 0)
 	pageETags := make([]string, 0)
-	diagnostics := make([]Diagnostic, 0)
 	for page := 1; page <= client.maximumPages; page++ {
-		response, body, err := client.requestJSON(ctx, StepReleases, releasePageURL(page), nil, false, remainingBytes)
+		response, body, err := client.requestJSON(ctx, StepTags, tagPageURL(page), nil, false, remainingBytes)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		pageETag := response.Header.Get("ETag")
 		if pageETag != "" && !validHTTPETag(pageETag) {
-			return nil, nil, nil, fail(StepReleases, "invalid_page_etag", nil)
+			return nil, nil, fail(StepTags, "invalid_page_etag", nil)
 		}
 		pageETags = append(pageETags, pageETag)
-		var releases []githubRelease
-		if err := decodeGitHubJSON(body, &releases); err != nil {
-			return nil, nil, nil, fail(StepReleases, "invalid_json", err)
+		var pageTags []githubTag
+		if err := decodeGitHubJSON(body, &pageTags); err != nil {
+			return nil, nil, fail(StepTags, "invalid_json", err)
 		}
-		rawReleases = append(rawReleases, releases...)
-		diagnostics = append(diagnostics, Diagnostic{Step: StepReleases, Severity: DiagnosticInfo, Code: "page_loaded", Message: fmt.Sprintf("loaded release page %d", page)})
-		// GitHub lists releases newest first, so a page without a release of
-		// a supported line ends discovery: the pages after it hold only
-		// older releases, none of which enter the catalog.
-		if !hasNextLink(response.Header.Get("Link")) || !slices.ContainsFunc(releases, supportedRelease) {
-			return rawReleases, pageETags, diagnostics, nil
+		for _, tag := range pageTags {
+			tags = append(tags, tag.Name)
 		}
-		if page == client.maximumPages {
-			return nil, nil, nil, fail(StepReleases, "page_limit", nil)
+		if !hasNextLink(response.Header.Get("Link")) || !slices.ContainsFunc(pageTags, func(tag githubTag) bool { return supportedTag(tag.Name) }) {
+			return tags, pageETags, nil
 		}
 	}
-	return nil, nil, nil, fail(StepReleases, "page_limit", nil)
+	return nil, nil, fail(StepTags, "page_limit", nil)
+}
+
+// tagPagesUnchanged asks for each tag page read last time with its ETag. A
+// new or removed tag changes the page holding it, so unchanged pages up to
+// the one that ended discovery leave the catalog unchanged.
+func (client *GitHubClient) tagPagesUnchanged(ctx context.Context, pageETags []string, remainingBytes *int64) (bool, error) {
+	for index, pageETag := range pageETags {
+		headers := make(http.Header)
+		headers.Set("If-None-Match", pageETag)
+		response, _, err := client.requestJSON(ctx, StepTags, tagPageURL(index+1), headers, true, remainingBytes)
+		if err != nil {
+			return false, err
+		}
+		if response.StatusCode != http.StatusNotModified {
+			return false, nil
+		}
+		responseETag := response.Header.Get("ETag")
+		if responseETag != "" && (!validHTTPETag(responseETag) || responseETag != pageETag) {
+			return false, fail(StepTags, "invalid_page_etag", nil)
+		}
+	}
+	return true, nil
+}
+
+// loadRelease reads the release of one tag; found is false while the tag
+// has no published release, as before its release is published.
+func (client *GitHubClient) loadRelease(ctx context.Context, tag string, remainingBytes *int64) (githubRelease, bool, error) {
+	_, body, err := client.requestJSON(ctx, StepReleases, releaseByTagURL(tag), nil, false, remainingBytes)
+	var failure *Failure
+	if errors.As(err, &failure) && failure.Status == http.StatusNotFound {
+		return githubRelease{}, false, nil
+	}
+	if err != nil {
+		return githubRelease{}, false, err
+	}
+	var release githubRelease
+	if err := decodeGitHubJSON(body, &release); err != nil {
+		return githubRelease{}, false, fail(StepReleases, "invalid_json", err)
+	}
+	if release.TagName != tag {
+		return githubRelease{}, false, fail(StepReleases, "release_tag_mismatch", nil)
+	}
+	return release, true, nil
 }
 
 func (client *GitHubClient) loadRepository(ctx context.Context, remainingBytes *int64) (int64, error) {
@@ -67,87 +115,125 @@ func (client *GitHubClient) loadRepository(ctx context.Context, remainingBytes *
 	return repository.ID, nil
 }
 
-func (client *GitHubClient) releasePagesUnchanged(ctx context.Context, pageETags []string, remainingBytes *int64) (bool, error) {
-	for index, pageETag := range pageETags {
-		headers := make(http.Header)
-		headers.Set("If-None-Match", pageETag)
-		response, _, err := client.requestJSON(ctx, StepReleases, releasePageURL(index+1), headers, true, remainingBytes)
-		if err != nil {
-			return false, err
-		}
-		if response.StatusCode != http.StatusNotModified {
-			return false, nil
-		}
-		responseETag := response.Header.Get("ETag")
-		if (responseETag != "" && !validHTTPETag(responseETag)) || (responseETag != "" && responseETag != pageETag) {
-			return false, fail(StepReleases, "invalid_page_etag", nil)
+// refreshPlan is what a refresh keeps of the previous catalog and the tags
+// whose releases it reads.
+type refreshPlan struct {
+	keep    []Release
+	read    []string
+	dropped int
+}
+
+// planRefresh keeps each previous release whose stable tag of a supported
+// line is still listed and which holds both architectures' packages, reads
+// the release of every other such tag, and drops the previous releases whose
+// tags are gone.
+func planRefresh(tags []string, previous *Catalog) refreshPlan {
+	stored := make(map[coreartifact.ExactVersion]Release)
+	if previous != nil {
+		for _, release := range previous.Releases {
+			stored[release.Version] = release
 		}
 	}
-	// A new release would change the first page, so pages unchanged up to the
-	// one that ended discovery leave the catalog unchanged; the older pages
-	// after it never enter it.
-	return true, nil
+	plan := refreshPlan{keep: make([]Release, 0), read: make([]string, 0)}
+	listed := make(map[coreartifact.ExactVersion]struct{})
+	for _, tag := range tags {
+		version, stable := stableVersion(tag)
+		if !stable || !supportedTag(tag) {
+			continue
+		}
+		if _, duplicate := listed[version]; duplicate {
+			continue
+		}
+		listed[version] = struct{}{}
+		if release, ok := stored[version]; ok && completeRelease(release) {
+			plan.keep = append(plan.keep, release)
+		} else {
+			plan.read = append(plan.read, tag)
+		}
+	}
+	for version := range stored {
+		if _, ok := listed[version]; !ok {
+			plan.dropped++
+		}
+	}
+	return plan
 }
 
-func releasePageURL(page int) string {
-	return githubAPIOrigin + githubRepositoryPath + "/releases?per_page=" +
-		strconv.Itoa(defaultPerPage) + "&page=" + strconv.Itoa(page)
+// completeRelease reports whether a release holds the packages of both
+// supported architectures, after which its release is not read again.
+func completeRelease(release Release) bool {
+	architectures := make(map[coreartifact.Architecture]struct{}, 2)
+	for _, asset := range release.Assets {
+		architectures[asset.Architecture] = struct{}{}
+	}
+	_, amd64 := architectures[coreartifact.ArchitectureAMD64]
+	_, arm64 := architectures[coreartifact.ArchitectureARM64]
+	return amd64 && arm64
 }
 
-type pageValidatorWire struct {
+func tagPageURL(page int) string {
+	return githubAPIOrigin + githubRepositoryPath + "/tags?per_page=" +
+		strconv.Itoa(tagsPerPage) + "&page=" + strconv.Itoa(page)
+}
+
+func releaseByTagURL(tag string) string {
+	return githubAPIOrigin + githubRepositoryPath + "/releases/tags/" + url.PathEscape(tag)
+}
+
+type tagValidatorWire struct {
 	PageETags []string `json:"page_etags"`
 }
 
-func encodePageValidator(pageETags []string) (string, error) {
+func encodeTagValidator(pageETags []string) (string, error) {
 	if len(pageETags) == 0 {
 		return "", nil
 	}
 	for _, pageETag := range pageETags {
-		// A partial validator cannot safely prove a multi-page snapshot. Return
-		// no validator and make the next refresh unconditional.
+		// Without every page's ETag the next refresh cannot prove the tags
+		// unchanged; it reads them again.
 		if pageETag == "" {
 			return "", nil
 		}
 		if !validHTTPETag(pageETag) {
-			return "", fail(StepReleases, "invalid_page_etag", nil)
+			return "", fail(StepTags, "invalid_page_etag", nil)
 		}
 	}
-	encoded, err := json.Marshal(pageValidatorWire{PageETags: pageETags})
+	encoded, err := json.Marshal(tagValidatorWire{PageETags: pageETags})
 	if err != nil {
-		return "", fail(StepReleases, "validator_encode", err)
+		return "", fail(StepTags, "validator_encode", err)
 	}
-	value := pageValidatorPrefix + base64.RawURLEncoding.EncodeToString(encoded)
+	value := tagValidatorPrefix + base64.RawURLEncoding.EncodeToString(encoded)
 	if len(value) > maximumValidatorSize {
-		return "", fail(StepReleases, "validator_too_large", nil)
+		return "", fail(StepTags, "validator_too_large", nil)
 	}
 	return value, nil
 }
 
-func (client *GitHubClient) decodePageValidator(value string) ([]string, error) {
-	// Earlier validators name other pages: v1 pages of 20 releases, v2 the
-	// whole release history. The next refresh loads the pages anew.
-	if value == "" || (strings.HasPrefix(value, "sbp-github-pages-v") && !strings.HasPrefix(value, pageValidatorPrefix)) {
+func (client *GitHubClient) decodeTagValidator(value string) ([]string, error) {
+	// Validators of earlier refreshes name release pages; the next refresh
+	// reads the tags anew.
+	if value == "" || strings.HasPrefix(value, "sbp-github-pages-v") {
 		return nil, nil
 	}
-	if len(value) > maximumValidatorSize || containsControl(value) || !strings.HasPrefix(value, pageValidatorPrefix) {
-		return nil, fail(StepReleases, "invalid_etag", nil)
+	if len(value) > maximumValidatorSize || containsControl(value) || !strings.HasPrefix(value, tagValidatorPrefix) {
+		return nil, fail(StepTags, "invalid_etag", nil)
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, pageValidatorPrefix))
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, tagValidatorPrefix))
 	if err != nil || len(raw) > maximumValidatorSize || rejectDuplicateKeys(raw) != nil {
-		return nil, fail(StepReleases, "invalid_etag", err)
+		return nil, fail(StepTags, "invalid_etag", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	var wire pageValidatorWire
+	var wire tagValidatorWire
 	if err := decoder.Decode(&wire); err != nil {
-		return nil, fail(StepReleases, "invalid_etag", err)
+		return nil, fail(StepTags, "invalid_etag", err)
 	}
 	if err := ensureJSONEOF(decoder); err != nil || len(wire.PageETags) == 0 || len(wire.PageETags) > client.maximumPages {
-		return nil, fail(StepReleases, "invalid_etag", err)
+		return nil, fail(StepTags, "invalid_etag", err)
 	}
 	for _, pageETag := range wire.PageETags {
 		if !validHTTPETag(pageETag) {
-			return nil, fail(StepReleases, "invalid_etag", nil)
+			return nil, fail(StepTags, "invalid_etag", nil)
 		}
 	}
 	return append([]string(nil), wire.PageETags...), nil

@@ -20,6 +20,7 @@ import { logTitle } from '@/utils/panel-log-presentation';
 import { ListPagination } from '@/components/list-pagination';
 import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 import {
+  logDataCell,
   LogRow,
   LogRowTitle,
   LogTime,
@@ -121,7 +122,9 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
                 const title = logTitle({ code: item.reason }, t);
                 return (
                   <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
-                    <TableCell><LogTime language={language} value={item.occurred_at} /></TableCell>
+                    <TableCell className={logDataCell}>
+                      <LogTime language={language} value={item.occurred_at} />
+                    </TableCell>
                     <TableCell><RuntimeStateBadge state={item.state} /></TableCell>
                     <TableCell>
                       <LogRowTitle

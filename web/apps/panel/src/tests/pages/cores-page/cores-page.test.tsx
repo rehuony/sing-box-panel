@@ -78,7 +78,7 @@ describe('inline version library', () => {
     expect(client.refreshCatalog).toHaveBeenCalledWith(false, expect.any(AbortSignal));
     await user.click(screen.getByRole('tab', { name: 'Available' }));
     await act(async () => finish());
-    expect(await screen.findByRole('link', { name: testCatalog.assets[0].name })).toBeVisible();
+    expect(await screen.findByRole('link', { name: `View v${testCatalog.assets[0].version} on GitHub` })).toBeVisible();
     expect(client.listCatalogAssets).toHaveBeenCalledTimes(2);
   });
 
@@ -93,7 +93,7 @@ describe('inline version library', () => {
     await screen.findByText(testArtifacts.items[0].exact_version);
     expect(client.refreshCatalog).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Available' }));
-    expect(await screen.findByRole('link', { name: testCatalog.assets[0].name })).toBeVisible();
+    expect(await screen.findByRole('link', { name: `View v${testCatalog.assets[0].version} on GitHub` })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Check GitHub for updates' }));
     await waitFor(() => expect(client.refreshCatalog).toHaveBeenCalledWith(true, expect.any(AbortSignal)));
   });
@@ -170,7 +170,10 @@ describe('inline version library', () => {
     renderCores(client);
     const enabled = await screen.findByRole('button', { name: 'Disable' });
     expect(enabled).toBeEnabled();
-    expect(within(enabled.closest('tr')!).getByRole('button', { name: 'Remove' })).toBeDisabled();
+    // The enabled version cannot be removed from its row menu.
+    await user.click(within(enabled.closest('tr')!).getByRole('button', { name: /^More actions for / }));
+    expect(await screen.findByRole('menuitem', { name: 'Remove' })).toHaveAttribute('aria-disabled', 'true');
+    await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Enable' }));
     expect(client.enableCore).toHaveBeenCalledWith('imported', expect.any(AbortSignal));
     expect(client.stopRuntime).not.toHaveBeenCalled();
@@ -192,11 +195,11 @@ describe('inline version library', () => {
     await screen.findByText(testArtifacts.items[0].exact_version);
     await user.click(screen.getByRole('tab', { name: 'Available' }));
     const installed = screen.getByText(testCatalog.assets[0].version).closest('tr')!;
-    const releaseLink = within(installed).getByRole('link', { name: testCatalog.assets[0].name });
+    const releaseLink = within(installed).getByRole('link', { name: `View v${testCatalog.assets[0].version} on GitHub` });
     expect(releaseLink).toHaveAttribute('href', 'https://github.com/SagerNet/sing-box/releases/tag/v1.13.19');
     expect(releaseLink).toHaveAttribute('target', '_blank');
     expect(releaseLink).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(within(installed).getByRole('button', { name: 'Installed' })).toBeDisabled();
+    expect(within(installed).getByText('Installed')).toBeVisible();
     expect(within(installed).queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
     const missing = screen.getByText('1.14.0').closest('tr')!;
     expect(within(missing).getByRole('link')).toHaveAttribute('href', 'https://github.com/SagerNet/sing-box/releases/tag/v1.14.0');
@@ -306,12 +309,13 @@ describe('inline version library', () => {
     expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
   });
 
-  it('removes a version through a direct button with confirmation', async () => {
+  it('removes a version from its row menu with confirmation', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();
     renderCores(client);
     await screen.findByText(testArtifacts.items[0].exact_version);
-    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await user.click(screen.getByRole('button', { name: `More actions for ${testArtifacts.items[0].exact_version}` }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
     const dialog = await screen.findByRole('dialog');
     expect(client.removeCoreArtifact).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole('button', { name: 'Confirm' }));

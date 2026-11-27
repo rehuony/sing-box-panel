@@ -58,12 +58,20 @@ before the first line, invalid names and unrelated assets are filtered. There is
 no plain/glibc fallback. Missing, malformed or conflicting digest metadata does
 not hide a package or prevent installation.
 
-GitHub lists releases newest first. Discovery reads pages of 50 and stops after
-the first page that holds no release of a supported line, since every later page
-holds only older releases. It reads at most 100 pages, with a 32 MiB page limit,
-a 256 MiB aggregate limit and a three-minute deadline. JSON depth and duplicate
-keys are checked. A successful complete catalog and its HTTP validator remain in
-SQLite until another complete refresh succeeds. Failed refreshes retain the last
+A refresh builds on the stored catalog and reads the repository's tags rather
+than its release list, whose pages carry every asset's download count and run
+to megabytes. GitHub lists tags newest version first; discovery reads pages of
+100 and stops after the first page that holds no tag of a supported line. When
+every tag page read last time answers its stored ETag as unchanged, the refresh
+reads nothing more. Otherwise it reads one release, by its tag, only for each
+stable tag of a supported line that the catalog lacks or holds without both
+architectures' packages; a tag whose release is not published yet waits for the
+next refresh. Releases whose tags are gone leave the catalog, and any change
+first confirms the repository's pinned identity. A release already complete in
+the catalog is not read again. A refresh reads at most 100 tag pages, with a
+32 MiB response limit, a 256 MiB aggregate limit and a three-minute deadline.
+JSON depth and duplicate keys are checked. A successful complete catalog and its
+validator remain in SQLite until another complete refresh succeeds. Failed refreshes retain the last
 usable cache. `github.catalog_refresh_interval_hours` controls refresh
 scheduling, not cache expiration. Scheduled refreshes honor the interval; the
 explicit Web refresh action bypasses it.
