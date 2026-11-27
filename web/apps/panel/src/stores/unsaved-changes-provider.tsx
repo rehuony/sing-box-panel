@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
-import { useBlocker } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { NavigationType, useBlocker } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { UnsavedChangesDialog } from '@/components/unsaved-changes-dialog';
 
@@ -15,8 +15,10 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<(() => void) | null>(null);
   const dirty = changes.size > 0;
   const busy = [...changes.values()].some(change => change.busy);
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
-    if (!dirty) return false;
+  // Read when the router asks, which can be before a settled change has left the guard.
+  const skippingRef = useRef(false);
+  const blocker = useBlocker(({ currentLocation, historyAction, nextLocation }) => {
+    if (!dirty || (skippingRef.current && historyAction !== NavigationType.Pop)) return false;
     if (currentLocation.pathname !== nextLocation.pathname) return true;
     if ([...changes.values()].every(change => change.allowSamePathNavigation)) return false;
     return currentLocation.search !== nextLocation.search || currentLocation.hash !== nextLocation.hash;
@@ -34,13 +36,22 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     if (dirty) setPending(() => action);
     else action();
   }, [dirty]);
-  const value = useMemo(() => ({ register, confirmNavigation }), [register, confirmNavigation]);
+  const skipGuard = useCallback((action: () => void) => {
+    skippingRef.current = true;
+    try {
+      action();
+    } finally {
+      skippingRef.current = false;
+    }
+  }, []);
+  const value = useMemo(() => ({ register, confirmNavigation, skipGuard }), [register, confirmNavigation, skipGuard]);
 
   useEffect(() => {
     if (!dirty) return;
+    // Browsers show their own prompt; older ones need a return value as well.
     const prevent = (event: BeforeUnloadEvent) => {
       event.preventDefault();
-      event.returnValue = '';
+      event.returnValue = true;
     };
     window.addEventListener('beforeunload', prevent);
     return () => window.removeEventListener('beforeunload', prevent);

@@ -189,8 +189,11 @@ it('shows the key name and quota without a legacy description, inspect or revoke
   expect(screen.queryByText('Original user grants retained')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Inspect' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /revoke/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Rotate' })).toBeEnabled();
-  expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+  // Rotating and deleting wait in the row's menu.
+  expect(screen.queryByRole('button', { name: 'Rotate' })).not.toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole('button', { name: `More for ${key.label}` }));
+  expect(await screen.findByRole('menuitem', { name: 'Rotate' })).toBeVisible();
+  expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
   expect(client.getSubscriptionToken).not.toHaveBeenCalled();
 });
 
@@ -221,7 +224,8 @@ it.each([true, false])('rotates an enabled=%s key after confirmation and shows t
     listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key], total: 1 }),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
-  await user.click(await screen.findByRole('button', { name: 'Rotate' }));
+  await user.click(await screen.findByRole('button', { name: `More for ${key.label}` }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Rotate' }));
   const confirmation = screen.getByRole('dialog', { name: 'Rotate key' });
   expect(confirmation).toHaveTextContent(testSubscriptionTokens[0].label);
   expect(client.rotateSubscriptionToken).not.toHaveBeenCalled();
@@ -244,14 +248,18 @@ it('deletes the selected revoked key, with cancellation and retry after failure'
     deleteSubscriptionToken: vi.fn().mockRejectedValueOnce(new Error('delete failed')).mockResolvedValueOnce(undefined),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
-  const row = (await screen.findByText('Unused')).closest('tr')!;
-  expect(within(row).getByRole('button', { name: 'Disable' })).toBeDisabled();
-  expect(within(row).getByRole('button', { name: 'Rotate' })).toBeDisabled();
-  await user.click(within(row).getByRole('button', { name: 'Delete' }));
+  const row = (await screen.findByRole('button', { name: 'Unused' })).closest('tr')!;
+  // A revoked key can only be deleted.
+  expect(within(row).queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+  const more = within(row).getByRole('button', { name: 'More for Unused' });
+  await user.click(more);
+  expect(screen.queryByRole('menuitem', { name: 'Rotate' })).not.toBeInTheDocument();
+  await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
   await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(client.deleteSubscriptionToken).not.toHaveBeenCalled();
-  await user.click(within(row).getByRole('button', { name: 'Delete' }));
+  await user.click(more);
+  await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
   const confirmation = screen.getByRole('dialog', { name: 'Delete key' });
   expect(confirmation).toHaveTextContent('Unused');
   await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
@@ -286,7 +294,8 @@ it('reveals stored key contents only on request and clears them when closed', as
   const user = userEvent.setup();
   const client = createMockApiClient();
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
-  const view = await screen.findByRole('button', { name: 'View' });
+  // The row's title opens the key's details.
+  const view = await screen.findByRole('button', { name: testSubscriptionTokens[0].label });
   await waitFor(() => expect(view).toBeEnabled());
   expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
   await user.click(view);

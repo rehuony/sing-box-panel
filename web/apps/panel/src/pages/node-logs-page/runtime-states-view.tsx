@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 
 import type { PanelLogRecord } from '@/components/panel-log';
 import type { NodeRuntimeTransition, RuntimeTransitionState } from '@/api/api-client';
@@ -21,7 +22,6 @@ import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip
 import {
   LogRow,
   LogRowTitle,
-  logTableClass,
   LogTime,
   logTimeColumnClass,
   matchingEventCodes,
@@ -106,36 +106,36 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
           />
         </CardToolbar>
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
-          <table className={logTableClass}>
-            <thead>
-              <tr>
+          <Table>
+            <TableHeader>
+              <TableRow>
                 {columns.map(column => (
-                  <th className={`sticky top-0 z-1 bg-[var(--color-surface-raised)] ${column.className}`} scope='col' key={column.key}>
+                  <TableHead className={column.className} key={column.key}>
                     {t(`productLogs.stateColumns.${column.key}`)}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody onKeyDown={rowFocus.onKeyDown}>
+              </TableRow>
+            </TableHeader>
+            <TableBody onKeyDown={rowFocus.onKeyDown}>
               {result.items.map((item) => {
                 const title = logTitle({ code: item.reason }, t);
                 return (
                   <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
-                    <td className='truncate'><LogTime language={language} value={item.occurred_at} /></td>
-                    <td><RuntimeStateBadge state={item.state} /></td>
-                    <td>
+                    <TableCell><LogTime language={language} value={item.occurred_at} /></TableCell>
+                    <TableCell><RuntimeStateBadge state={item.state} /></TableCell>
+                    <TableCell>
                       <LogRowTitle
                         tabIndex={rowFocus.tabIndex(String(item.id))}
                         title={title}
                         onFocus={() => rowFocus.onFocus(String(item.id))}
                         onOpen={trigger => open(item, trigger)}
                       />
-                    </td>
+                    </TableCell>
                   </LogRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {!result.items.length && (loading
             ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
             : <RegionState icon={Activity} title={t('productLogs.empty')} />)}

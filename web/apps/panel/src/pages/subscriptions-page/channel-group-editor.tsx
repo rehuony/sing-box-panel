@@ -154,7 +154,7 @@ export function ChannelGroupEditor({
                         onChange({ ...group, members: next.map(key => byKey.get(key)!) });
                       }}
                     />
-                    <ChannelMatchedCards nodes={matched} />
+                    <ChannelMatchedCards format={format} nodes={matched} />
                   </fieldset>
                 </ScrollArea>
               )

@@ -67,29 +67,6 @@
   font-weight: 700;
 }
 
-.workspace-table {
-  font-size: var(--text-sm);
-  font-weight: 400;
-}
-
-.workspace-table > thead > tr > th {
-  font-weight: 500;
-  height: 44px;
-  padding-block: 0;
-  line-height: 20px;
-  vertical-align: middle;
-}
-
-.workspace-table > tbody > tr > td {
-  height: var(--workspace-row-height);
-  padding-block: 12px;
-  vertical-align: middle;
-}
-
-.workspace-table > tbody :is(strong, b, [data-slot='badge'], [data-slot='button']) {
-  font-weight: 400;
-}
-
 .loading-screen {
   align-items: center;
   display: flex;

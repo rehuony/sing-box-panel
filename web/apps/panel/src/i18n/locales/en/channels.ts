@@ -56,6 +56,7 @@ export const channels = {
   noRoutes: 'No exit rules yet', noGroupRoutes: 'No exit rules use this group',
   autoMatch: 'Automatic match', autoMatched: 'Automatic match · {{count}}',
   matchInclude: 'Include', matchExclude: 'Exclude', matchOrigins: 'Origins', matchProtocols: 'Protocols', matchAll: 'All',
-  candidateStrategy: 'strategy', candidateMembers: 'members',
+  draftRestored: 'Restored the changes left unsaved before the reload', draftOutdated: 'The channel changed elsewhere, so the changes left unsaved before the reload were not restored',
+  memberCount_one: '{{count}} member', memberCount_other: '{{count}} members',
   removed: 'Channel deleted',
 } as const;

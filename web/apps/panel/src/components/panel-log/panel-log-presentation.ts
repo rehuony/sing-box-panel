@@ -8,16 +8,6 @@ import { formatLogTime, inCurrentYear } from '@/utils/panel-log-presentation';
 
 const eventCodes = Object.keys(english.events) as (keyof typeof english.events)[];
 
-/**
- * The log tables' shape: 44px rows of one short reading a cell, inset 16px,
- * 12px on a phone, so the time, the level or state and the event fit
- * without scrolling sideways.
- */
-export const logTableClass = [
-  'workspace-table w-full flex-none table-fixed border-collapse [--workspace-row-height:2.75rem]',
-  '[&_td]:px-4 [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground max-sm:[&_td]:px-3 max-sm:[&_th]:px-3',
-].join(' ');
-
 /** The time column's width: room for the year when a listed line is from another one. */
 export function logTimeColumnClass(times: readonly string[]): string {
   return times.every(time => inCurrentYear(time)) ? 'w-36 max-sm:w-28' : 'w-44 max-sm:w-38';

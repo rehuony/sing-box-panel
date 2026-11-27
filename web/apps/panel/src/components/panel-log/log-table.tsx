@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react';
 
-import { cn } from '@shared/lib/utils';
+import { TableRow } from '@shared/components/ui/table';
 
 import { formatLogTimeCompact } from '@/utils/panel-log-presentation';
 
@@ -30,17 +30,7 @@ export function LogRow({ children, onOpen }: { children: ReactNode; onOpen: Open
     if ((event.target as Element).closest('button')) return;
     onOpen(null);
   }
-  return (
-    <tr
-      className={cn(
-        'cursor-pointer border-b transition-colors duration-[var(--dur-micro)] ease-out motion-reduce:transition-none',
-        'hover:bg-[var(--color-hover)] has-[[data-log-title]:focus-visible]:bg-[var(--color-hover)]',
-      )}
-      onClick={openFromRow}
-    >
-      {children}
-    </tr>
-  );
+  return <TableRow interactive onClick={openFromRow}>{children}</TableRow>;
 }
 
 interface LogRowTitleProps {
@@ -58,7 +48,7 @@ export function LogRowTitle({ detail, onFocus, onOpen, tabIndex, title }: LogRow
     <button
       aria-haspopup='dialog'
       className='block min-w-0 cursor-pointer truncate text-start outline-none'
-      data-log-title=''
+      data-row-title=''
       tabIndex={tabIndex}
       type='button'
       onFocus={onFocus}

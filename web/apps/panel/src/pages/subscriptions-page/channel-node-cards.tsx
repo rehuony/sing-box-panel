@@ -3,7 +3,6 @@ import { CSS } from '@dnd-kit/utilities';
 import { memo, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
-import { ReadoutRow } from '@shared/components/terminal';
 
 import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNode } from '@/api/api-client';
 
@@ -12,8 +11,8 @@ import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 import { dropSlotCard } from './drag-slot';
 import { groupTypeName } from './channel-policy';
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
-import { PoolNodeCardContent } from './subscription-node-card';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
+import { nodeAddress, nodeOrigin, nodeSecurity } from './subscription-node-pool';
 
 export interface ChannelNodeCard {
   id: string;
@@ -36,42 +35,59 @@ interface Props {
   onMove: (active: string, over: string) => void;
 }
 
-/** A candidate's face: a pool node's card, its title bar over labelled rows in the data face. */
-const candidateFace = 'relative flex h-[var(--pane-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact';
-/** Candidates as the pool shows its nodes: cards of their own in the panes' grid and gaps. */
-const candidateGrid = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3';
+/**
+ * A candidate's face: a compact node card, its title bar over two lines in
+ * the data face, so a picker shows three of them a row.
+ */
+const candidateFace = 'group/candidate relative flex h-[var(--candidate-height)] min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border font-[family-name:var(--font-data)] text-compact';
+/** Candidates as cards of their own in one grid with the panes' gaps. */
+const candidateGrid = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--candidate-min-width)),1fr))] content-start gap-3';
 
 /**
- * A candidate as a pool node shows: a pool node's labelled rows, or for a
- * built-in exit, a group or a node no longer in the pool, what it is.
- * Why it cannot be chosen, or that it is unavailable, ends the title bar.
+ * A candidate: its name, then why it cannot be chosen or that it is
+ * unavailable, or else its protocol or strategy, ending the title bar; below,
+ * a pool node's address over its transport, security and origin, a group
+ * over its member count, a built-in exit as one, or the ID of a node no
+ * longer in the pool. A candidate that cannot be chosen dims all but why.
  */
 const CandidateContent = memo(({ format, item }: { item: ChannelNodeCard; format: SubscriptionFormat }) => {
   const { t } = useTranslation();
   const { builtin, disabledReason, group, node, unavailable } = item;
-  if (node) return <PoolNodeCardContent node={node} />;
-  const name = group?.name ?? (builtin ? BUILTIN_EXIT_NAMES[builtin] : t('channels.missingNode'));
-  let kind = t('channels.missingNode');
-  if (builtin) kind = t('channels.builtinNode');
-  if (group) kind = t('channels.strategyGroup');
   const note = disabledReason ?? (unavailable ? t('channels.unavailable') : '');
+  let name = t('channels.missingNode');
+  let kind = '';
+  let lines = [item.id.replace(/^node:/, ''), ''];
+  if (node) {
+    name = node.display_name;
+    kind = node.protocol;
+    lines = [nodeAddress(node), [node.transport, ...nodeSecurity(node), nodeOrigin(node)].filter(Boolean).join(' · ')];
+  } else if (group) {
+    name = group.name;
+    kind = groupTypeName(group.type, format);
+    lines = [t('channels.strategyGroup'), t('channels.memberCount', { count: group.members.length })];
+  } else if (builtin) {
+    name = BUILTIN_EXIT_NAMES[builtin];
+    lines = [t('channels.builtinNode'), ''];
+  }
+  const dim = 'group-data-[disabled=true]/candidate:opacity-50';
+  let end = kind ? <span className={cn('flex-none text-[var(--color-text-faint)]', dim)}>{kind}</span> : null;
+  if (note) {
+    end = (
+      <span className={cn('flex-none font-[family-name:var(--font-body)] text-xs', unavailable ? 'text-[var(--color-warning-text)]' : 'text-muted-foreground')}>
+        {note}
+      </span>
+    );
+  }
   return (
     <>
-      <header className='flex h-8 flex-none items-center gap-2 border-b px-3 font-[family-name:var(--font-body)]'>
-        <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{name}</h2>
-        {note ? <span className={cn('flex-none text-xs', disabledReason ? 'text-muted-foreground' : 'text-[var(--color-warning-text)]')}>{note}</span> : null}
+      <header className='flex h-8 flex-none items-center gap-2 border-b px-3'>
+        <h2 className={cn('min-w-0 flex-1 truncate font-[family-name:var(--font-body)] text-sm font-medium', dim)}>{name}</h2>
+        {end}
       </header>
-      <dl className='grid min-h-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] content-start gap-x-3 px-3 py-3 whitespace-nowrap'>
-        <ReadoutRow label={t('subscriptions.pool.card.type')}><span className='min-w-0 truncate'>{kind}</span></ReadoutRow>
-        {group
-          ? (
-              <>
-                <ReadoutRow label={t('channels.candidateStrategy')}><span className='min-w-0 truncate'>{groupTypeName(group.type, format)}</span></ReadoutRow>
-                <ReadoutRow label={t('channels.candidateMembers')}><span className='tabular-nums'>{group.members.length}</span></ReadoutRow>
-              </>
-            )
-          : null}
-      </dl>
+      <div className={cn('flex min-h-0 flex-col px-3 pt-1.5 leading-5 whitespace-nowrap', dim)}>
+        <span className='truncate'>{lines[0]}</span>
+        {lines[1] ? <span className='truncate text-[var(--color-text-secondary)]'>{lines[1]}</span> : null}
+      </div>
     </>
   );
 });
@@ -99,7 +115,7 @@ function SortableCard({ format, item, onToggle }: { item: ChannelNodeCard; forma
       tabIndex={item.disabled ? -1 : 0}
       className={cn(
         candidateFace,
-        'cursor-pointer touch-pan-y outline-none select-none transition-colors duration-[var(--dur-short)] ease-out focus-visible:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:opacity-50',
+        'cursor-pointer touch-pan-y outline-none select-none transition-colors duration-[var(--dur-short)] ease-out focus-visible:border-primary data-[disabled=true]:cursor-default',
         // A chosen candidate takes the accent's soft fill, a 50% accent hairline and a 25% accent
         // divider, as a selected pane does.
         item.selected
@@ -177,7 +193,11 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
  * heading with their count: cards like the members', neither selectable
  * nor sortable.
  */
-export function ChannelMatchedCards({ nodes }: { nodes: readonly SubscriptionNode[] }) {
+export function ChannelMatchedCards({ format, nodes }: {
+  /** The channel's client. */
+  format: SubscriptionFormat;
+  nodes: readonly SubscriptionNode[];
+}) {
   const { t } = useTranslation();
   if (!nodes.length) return null;
   const heading = t('channels.autoMatched', { count: nodes.length });
@@ -189,7 +209,10 @@ export function ChannelMatchedCards({ nodes }: { nodes: readonly SubscriptionNod
       <ul className={candidateGrid}>
         {nodes.map(node => (
           <li aria-label={node.display_name} className={cn(candidateFace, 'bg-[var(--color-surface-translucent)] select-none')} key={node.id}>
-            <PoolNodeCardContent node={node} />
+            <CandidateContent
+              format={format}
+              item={{ id: `node:${node.id}`, label: node.display_name, node, selected: false }}
+            />
           </li>
         ))}
       </ul>

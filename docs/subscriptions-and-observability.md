@@ -23,7 +23,11 @@ quota. With no active key it creates one from a name alone; expiry and quota sta
 in the key list. Existing global key scope, user grants,
 expiry, quota and revocation checks still govern delivery. Channel-to-key export
 bindings have been removed; API clients must omit `config.export_token_ids`.
-The key list provides View, enable/disable, rotation and deletion. Its metadata
+The key list shows each key's name, its state (active, disabled, used up,
+expired or revoked), when it was last used, its expiry and its downloads against
+its quota; a phone keeps the name and state. A row opens the key's
+details with its secret; its actions are enable/disable and a menu with rotation
+and deletion, and a revoked key can only be deleted. Its metadata
 and in-flight list request survive subscription-tab switches, with refreshes after
 key changes or pagination. Leaving the subscriptions page releases that state.
 Secret dialog contents, and the secret a channel link read, are cleared on close
@@ -151,7 +155,9 @@ new content, has its filter changed, or is deleted; and once when the panel star
 
 Nothing about a removed node is kept, so a node that returns later is new: it
 joins the end of the order and no channel. A source whose stored content no
-longer reads keeps its nodes and records the failure in `last_error`.
+longer reads keeps its nodes and records the failure in `last_error`, and a
+fleet node whose public host is not known keeps its nodes the same way, as
+[Fleet inbounds](#fleet-inbounds) describes.
 
 `PUT /subscription/node-order` takes every current ID exactly once. A different
 set means the pool was synchronized since it was read and answers 409; the UI
@@ -167,8 +173,14 @@ configuration is never published, and a rollback changes the applied bundle and
 therefore the inbounds. A node whose revision the panel no longer holds or whose
 digest differs, whose core version has no release line, whose configuration cannot
 be read, or that has neither a public host nor a reported public IP contributes
-no nodes and adds a diagnostic naming it; its earlier nodes leave the pool with
-the next synchronization, and the other nodes publish as usual.
+no nodes and adds a diagnostic naming it, and the other nodes publish as usual.
+The earlier nodes of a node with a failed revision, digest, core version or
+configuration leave the pool with the next synchronization. A missing public
+host is not a property of the configuration but a hint that may come back: the
+nodes a node published before keep their names, places and channels until its
+host is known again, so a node that briefly reports no public IP takes nothing
+out of a channel. The node refreshes its public IP hint before it expires, so a
+healthy node does not report an empty one between refreshes.
 
 A core version uses the inbound family of its
 [release line](core-versions.md#release-lines); a version without a line fails
@@ -291,18 +303,28 @@ group enablement control. Opening the page or cancelling the dialog preserves
 previously stored disabled groups. The top-level toolbar
 contains back, channel settings, preview and save. Channel settings contain name,
 client and template; node names, membership and order are managed
-directly through nodes and candidate cards. Candidate cards show
-the node name and a compact source/protocol summary; addresses remain available
-on hover. A group's menu in the sidebar sets or clears it as the final exit,
+directly through nodes and candidate cards. A candidate card is a compact node
+card: its name with the protocol, strategy or the reason it cannot be chosen at
+the end, then a node's address over its transport, security and origin, a
+group's member count, or a built-in exit as one. A group's menu in the sidebar sets or clears it as the final exit,
 which the sidebar marks beside the group's name and the exit rules item names;
 the exit rules list holds only exit rules. Selecting another group replaces the
 previous choice, and clearing it, or disabling or deleting that group, restores
 direct fallback. New groups are not automatically selected as the final exit.
 A stored node or reject fallback is preserved until explicitly changed. Group drafts survive
-switching groups and are persisted together by Save changes. Leaving an edited
-channel through Back, a subscription tab or another panel route prompts to keep
-editing or discard the changes. Confirmed departure clears the detail workspace;
-returning to Channels opens the channel list. Source settings use the same navigation protection. Adding a node to a
+switching groups and are persisted together by Save changes. The open channel
+is part of the address, `#subscription-channels/<channel ID>`, so reloading the
+page or going back and forward shows it again; a channel that no longer exists
+says why and shows the list. An unsaved draft waits out a reload in the tab's
+session storage: reloading the same version of the channel brings it back with
+a notice that can discard it, while a draft whose channel changed elsewhere is
+dropped with a warning; saving, discarding or leaving the channel removes it.
+This covers browsers that reload without asking, as embedded ones do. Back
+returns to the list, to its own history entry when the channel was opened from
+it. Leaving an edited channel through Back,
+the browser's back and forward, a subscription tab or another panel route
+prompts to keep editing or discard the changes. Confirmed departure clears the
+detail workspace; returning to Channels opens the channel list. Source settings use the same navigation protection. Adding a node to a
 group publishes it in the channel. Card order is the sole source of each manual group's initial selection: the first
 candidate is selected, and an empty group rejects traffic. The final group must be
 cleared before deletion. Existing exits remain unchanged until explicitly edited.
@@ -323,14 +345,14 @@ clears all selections. Only Remove selected nodes removes the selected candidate
 from the group, including selections hidden by search, and clears the selection.
 Switching groups resets card selection without changing either group's members.
 Add opens
-a selection dialog containing the pool's nodes in pool order, both built-in cards and other strategy groups;
+a selection dialog listing DIRECT and REJECT, the channel's other strategy groups in their order, then the pool's nodes in pool order;
 unsupported client options are disabled. Only confirmed additions appear in the
 group; cancelling the dialog discards its selection and sorting. Its title, compact
 selection actions and search share a header; there is no corner close button.
 Clicking a card toggles its selection outline, and selecting any new cards reveals
 the same count, dashed divider and clear action before Select all. Already-added
 cards remain checked and disabled and are excluded from the new-selection count.
-Card presentation is shared with the node pool.
+Candidate cards look the same in the picker and in the group's candidate list.
 DND-KIT sorts whole cards in both the picker and the candidate list; a short mouse
 movement threshold distinguishes dragging from selection, and touch uses a long
 press. Space/Enter toggle selection; F2 starts/finishes keyboard sorting, arrow

@@ -33,10 +33,11 @@ const BUILTINS = ['direct', 'reject'] as const;
 type Candidate = ChannelGroupMember & { node?: SubscriptionNode; group?: ChannelRuleGroup };
 
 /**
- * Picks candidates to add to a group: the pool's nodes in pool order, the
- * built-in exits, then the channel's other groups. Candidates already in the
- * group, unsupported by the client, disabled or making a cycle stay listed
- * but cannot be chosen; the chosen ones join in the order shown here.
+ * Picks candidates to add to a group: the built-in exits DIRECT and REJECT,
+ * the channel's other groups in their order, then the pool's nodes in pool
+ * order. Candidates already in the group, unsupported by the client, disabled
+ * or making a cycle stay listed but cannot be chosen; the chosen ones join in
+ * the order shown here.
  */
 export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd }: Props) {
   const { t } = useTranslation();
@@ -45,9 +46,9 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
   const [selected, setSelected] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const catalog = useMemo(() => new Map<string, Candidate>([
-    ...nodes.map(node => [`node:${node.id}`, { kind: 'node' as const, id: node.id, node }] as const),
     ...BUILTINS.map(id => [`builtin:${id}`, { kind: 'builtin' as const, id }] as const),
     ...groups.filter(value => value.id !== group.id).map(value => [`group:${value.id}`, { kind: 'group' as const, id: value.id, group: value }] as const),
+    ...nodes.map(node => [`node:${node.id}`, { kind: 'node' as const, id: node.id, node }] as const),
   ]), [group.id, groups, nodes]);
   const [order, setOrder] = useState(() => [...catalog.keys()]);
   const query = deferredSearch.trim().toLowerCase();

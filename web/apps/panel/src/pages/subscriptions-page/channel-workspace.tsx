@@ -179,7 +179,6 @@ export function ChannelWorkspace({
     setPreview,
     dirty,
     conflict,
-    confirmNavigation,
     render,
     save,
     showPreview,
@@ -198,7 +197,7 @@ export function ChannelWorkspace({
         {/* The channel keeps room for its name and client; when narrow, the actions take the next line. */}
         <div className='flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
           <div className='flex min-w-[min(100%,12rem)] flex-1 items-center gap-2'>
-            <IconAction disabled={busy} label={t('channels.back')} onClick={() => confirmNavigation(onBack)} variant='flat'>
+            <IconAction disabled={busy} label={t('channels.back')} onClick={onBack} variant='flat'>
               <ArrowLeft aria-hidden='true' />
             </IconAction>
             <span className='min-w-0 truncate text-sm font-semibold' title={name}>{name}</span>

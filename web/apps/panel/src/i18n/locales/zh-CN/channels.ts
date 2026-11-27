@@ -56,6 +56,7 @@ export const channels = {
   noRoutes: '还没有出口规则', noGroupRoutes: '没有经由此策略组的出口规则',
   autoMatch: '自动匹配', autoMatched: '自动匹配 · {{count}}',
   matchInclude: '包含', matchExclude: '排除', matchOrigins: '来源', matchProtocols: '协议', matchAll: '全部',
-  candidateStrategy: '策略', candidateMembers: '成员',
+  draftRestored: '已恢复刷新前未保存的更改', draftOutdated: '渠道已在其他地方更改，刷新前未保存的更改未恢复',
+  memberCount_one: '{{count}} 个成员', memberCount_other: '{{count}} 个成员',
   removed: '渠道已删除',
 } as const;

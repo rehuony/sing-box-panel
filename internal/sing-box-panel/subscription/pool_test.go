@@ -339,3 +339,55 @@ func TestFleetChangesSynchronizeThePool(t *testing.T) {
 		t.Fatalf("a deleted node's inbounds stayed: %v", names)
 	}
 }
+
+func TestPoolKeepsNodesOfAFleetNodeThatCannotPublish(t *testing.T) {
+	ctx := t.Context()
+	db, app := newPoolTestApplication(t)
+	id := testutil.PublishNode(t, db, "edge", testutil.InboundDocument, "edge.example", "")
+	app.PoolInputsChanged(ctx)
+	_, nodes := poolSummary(t, app)
+	edge := nodes["edge · vless-in"]
+	config, _ := json.Marshal(map[string]any{
+		"groups": []any{map[string]any{"id": "main", "name": "Main", "enabled": true, "type": "select",
+			"members": []any{map[string]any{"kind": "node", "id": edge.ID}}}},
+		"routes": []any{}, "default_exit": map[string]any{"kind": "direct"},
+	})
+	channel, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{Name: "channel", Format: store.SubscriptionFormatMihomo, Config: config, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moveHost := func(host string) {
+		t.Helper()
+		node, err := db.Node(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.SaveNodeSettings(ctx, id, node.Settings.Revision, store.NodeSettings{
+			PublicHost: host, Traffic: store.NodeTrafficSettings{PeriodMonths: 1, ResetDay: 1},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		app.PoolInputsChanged(ctx)
+	}
+	members := func() []GroupMember {
+		t.Helper()
+		stored, err := app.SubscriptionChannel(ctx, channel.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored.Config.Groups[0].Members
+	}
+
+	// With neither a public host nor a reported IP the node cannot publish: its pool node stays, in its channel.
+	moveHost("")
+	_, kept := poolSummary(t, app)
+	if kept["edge · vless-in"].ID != edge.ID || kept["edge · vless-in"].Server != "edge.example" || len(members()) != 1 {
+		t.Fatalf("pool = %+v, members = %+v", kept, members())
+	}
+	moveHost("moved.example")
+	_, moved := poolSummary(t, app)
+	if moved["edge · vless-in"].ID != edge.ID || moved["edge · vless-in"].Server != "moved.example" ||
+		!slices.Equal(members(), []GroupMember{{Kind: "node", ID: edge.ID}}) {
+		t.Fatalf("pool = %+v, members = %+v", moved, members())
+	}
+}

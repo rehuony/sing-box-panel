@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { ExternalLink, Package, PackageSearch, RefreshCw, SearchX, Upload } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -189,30 +190,30 @@ export function CoresPage() {
           aria-busy={listLoading}
         >
           <ScrollArea className='flex-1' viewportClassName='flex flex-col'>
-            <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:px-4 [&_td]:wrap-anywhere [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground [&_tbody_tr]:border-b [&_td:last-child]:text-center [&_th:last-child]:text-center'>
-              <thead>
-                <tr>
-                  <th className='w-1/5'>{t('cores.library.version')}</th>
-                  <th className='w-[24%]'>{t('cores.library.source')}</th>
-                  {tab === 'catalog' && <th className='w-[38%]'>{t('cores.library.officialLink')}</th>}
-                  {tab === 'installed' && <th className='w-[38%]'>{t('cores.library.status')}</th>}
-                  <th>{t('cores.library.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className='min-w-160' density='comfortable'>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className='w-1/5'>{t('cores.library.version')}</TableHead>
+                  <TableHead className='w-[24%]'>{t('cores.library.source')}</TableHead>
+                  {tab === 'catalog' && <TableHead className='w-[38%]'>{t('cores.library.officialLink')}</TableHead>}
+                  {tab === 'installed' && <TableHead className='w-[38%]'>{t('cores.library.status')}</TableHead>}
+                  <TableHead><span className='sr-only'>{t('cores.library.actions')}</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {tab === 'installed'
                   ? installed.slice(start, start + size).map((artifact) => {
                       const enabled
                         = library.runtime?.enabled_core?.core_artifact_id === artifact.id;
                       return (
-                        <tr key={artifact.id}>
-                          <td>
-                            <strong className='font-mono text-muted-foreground'>{artifact.exact_version}</strong>
-                          </td>
-                          <td>
+                        <TableRow key={artifact.id}>
+                          <TableCell kind='wrap'>
+                            <span className='font-mono text-muted-foreground'>{artifact.exact_version}</span>
+                          </TableCell>
+                          <TableCell kind='wrap'>
                             {t(artifact.source_kind === 'official' ? 'cores.source.official' : 'cores.source.user_verified')}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell kind='wrap'>
                             <span className={enabled ? 'text-[var(--color-success-text)]' : undefined}>
                               {pending?.key === artifact.id
                                 ? t(`cores.library.${pending.status}`)
@@ -222,51 +223,49 @@ export function CoresPage() {
                                     ? t('cores.library.unknown')
                                     : t('cores.library.disabled')}
                             </span>
-                          </td>
-                          <td>
-                            <div className='flex items-center justify-center gap-2'>
-                              <Button
-                                size='sm'
-                                variant={enabled ? 'destructive' : 'default'}
-                                title={runtimeUncertain ? t('cores.library.unknown') : undefined}
-                                disabled={
-                                  Boolean(pending)
-                                  || runtimeUncertain
-                                }
-                                onClick={() =>
-                                  void run(artifact.id, (signal) =>
-                                    enabled
-                                      ? client.disableCore(artifact.id, signal)
-                                      : client.enableCore(artifact.id, signal),
-                                  )
-                                }
-                              >
-                                {t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
-                              </Button>
-                              <Button
-                                size='sm'
-                                variant='destructive'
-                                disabled={Boolean(pending) || enabled || runtimeUncertain}
-                                onClick={() => setConfirmation(artifact)}
-                              >
-                                {t('cores.action.remove')}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
+                          </TableCell>
+                          <TableCell className='[&>div]:gap-2' kind='actions'>
+                            <Button
+                              size='sm'
+                              variant={enabled ? 'destructive' : 'default'}
+                              title={runtimeUncertain ? t('cores.library.unknown') : undefined}
+                              disabled={
+                                Boolean(pending)
+                                || runtimeUncertain
+                              }
+                              onClick={() =>
+                                void run(artifact.id, (signal) =>
+                                  enabled
+                                    ? client.disableCore(artifact.id, signal)
+                                    : client.enableCore(artifact.id, signal),
+                                )
+                              }
+                            >
+                              {t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
+                            </Button>
+                            <Button
+                              size='sm'
+                              variant='destructive'
+                              disabled={Boolean(pending) || enabled || runtimeUncertain}
+                              onClick={() => setConfirmation(artifact)}
+                            >
+                              {t('cores.action.remove')}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       );
                     })
                   : available.slice(start, start + size).map((asset) => {
                       const exists = library.artifacts.some((artifact) => artifact.asset_id === asset.asset_id);
                       return (
-                        <tr key={asset.asset_id}>
-                          <td>
-                            <strong className='font-mono text-muted-foreground'>{asset.version}</strong>
-                          </td>
-                          <td>
+                        <TableRow key={asset.asset_id}>
+                          <TableCell kind='wrap'>
+                            <span className='font-mono text-muted-foreground'>{asset.version}</span>
+                          </TableCell>
+                          <TableCell kind='wrap'>
                             {t('cores.source.official')}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell kind='wrap'>
                             <Badge
                               className='max-w-full'
                               title={asset.name}
@@ -281,8 +280,8 @@ export function CoresPage() {
                               <span className='truncate'>{asset.name}</span>
                               <ExternalLink aria-hidden='true' data-icon='inline-end' />
                             </Badge>
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell kind='actions'>
                             <Button
                               size='sm'
                               variant='default'
@@ -297,12 +296,12 @@ export function CoresPage() {
                                 ? t(`cores.library.${pending.status}`)
                                 : t(exists ? 'cores.library.installed' : 'cores.library.download')}
                             </Button>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             {!count
               ? listLoading
                 ? <LoadingState label={t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')} fullScreen={false} />

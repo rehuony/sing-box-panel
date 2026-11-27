@@ -75,8 +75,6 @@ type SubscriptionPoolSource struct {
 	ContentFormat string
 	Filter        SubscriptionSourceFilter
 	Content       []byte
-	// NodeCount is the number of pool nodes the source contributes.
-	NodeCount int
 }
 
 // SubscriptionPoolNodeInput is a node the pool's inputs yield.
@@ -103,7 +101,11 @@ type SubscriptionPoolSynchronization struct {
 	// as they are, and SourceErrors records why.
 	KeptSources  map[string]bool
 	SourceErrors map[string]string
-	At           time.Time
+	// KeptNodes are fleet nodes whose public host is not known right now,
+	// with neither an override nor a reported public IP: their nodes stay as
+	// they are until it is.
+	KeptNodes map[string]bool
+	At        time.Time
 }
 
 const subscriptionPoolColumns = `
@@ -287,8 +289,7 @@ func (s *Store) LoadSubscriptionPoolInputs(ctx context.Context) (SubscriptionPoo
 	if inputs.Publications, err = loadNodePublications(ctx, tx); err != nil {
 		return SubscriptionPoolInputs{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT s.id, s.name, s.content_format, s.include_rules, s.exclude_rules, s.content,
-		(SELECT count(*) FROM subscription_nodes AS n WHERE n.source_id = s.id)
+	rows, err := tx.QueryContext(ctx, `SELECT s.id, s.name, s.content_format, s.include_rules, s.exclude_rules, s.content
 		FROM subscription_sources AS s ORDER BY s.created_at, s.id`)
 	if err != nil {
 		return SubscriptionPoolInputs{}, fmt.Errorf("read subscription sources: %w", err)
@@ -297,7 +298,7 @@ func (s *Store) LoadSubscriptionPoolInputs(ctx context.Context) (SubscriptionPoo
 	for rows.Next() {
 		var source SubscriptionPoolSource
 		var include, exclude string
-		if err := rows.Scan(&source.ID, &source.Name, &source.ContentFormat, &include, &exclude, &source.Content, &source.NodeCount); err != nil {
+		if err := rows.Scan(&source.ID, &source.Name, &source.ContentFormat, &include, &exclude, &source.Content); err != nil {
 			return SubscriptionPoolInputs{}, err
 		}
 		if err := json.Unmarshal([]byte(include), &source.Filter.Include); err != nil {
@@ -364,8 +365,9 @@ func subscriptionPoolFingerprint(ctx context.Context, tx *sql.Tx) (string, error
 // SynchronizeSubscriptionPool makes the pool what its inputs yield, when the
 // inputs are still those the synchronization was computed from: it deletes
 // the nodes that are gone, which removes them from every channel and grant,
-// replaces the content of the nodes that remain and appends new nodes in
-// origin order with free display names.
+// keeps those of kept sources and fleet nodes, replaces the content of the
+// nodes that remain and appends new nodes in origin order with free display
+// names. The pool holds at most MaximumSubscriptionNodes.
 func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input SubscriptionPoolSynchronization) error {
 	at, err := requiredUTC(input.At, "subscription pool synchronization time")
 	if err != nil {
@@ -385,9 +387,9 @@ func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input Subscript
 			return ErrSubscriptionPoolInputsChanged
 		}
 		type existingNode struct {
-			sourceID, displayName string
+			nodeID, sourceID, displayName string
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(source_id, ''), display_name FROM subscription_nodes`)
+		rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(node_id, ''), coalesce(source_id, ''), display_name FROM subscription_nodes`)
 		if err != nil {
 			return err
 		}
@@ -395,7 +397,7 @@ func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input Subscript
 		for rows.Next() {
 			var id string
 			var node existingNode
-			if err := rows.Scan(&id, &node.sourceID, &node.displayName); err != nil {
+			if err := rows.Scan(&id, &node.nodeID, &node.sourceID, &node.displayName); err != nil {
 				_ = rows.Close()
 				return err
 			}
@@ -416,12 +418,20 @@ func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input Subscript
 		}
 		taken := map[string]bool{}
 		gone := []string{}
+		kept := 0
 		for id, node := range existing {
-			if desired[id] || input.KeptSources[node.sourceID] {
-				taken[foldDisplayName(node.displayName)] = true
+			switch {
+			case desired[id]:
+			case input.KeptSources[node.sourceID] || input.KeptNodes[node.nodeID]:
+				kept++
+			default:
+				gone = append(gone, id)
 				continue
 			}
-			gone = append(gone, id)
+			taken[foldDisplayName(node.displayName)] = true
+		}
+		if len(input.Nodes)+kept > MaximumSubscriptionNodes {
+			return fmt.Errorf("%w: the pool would hold more than %d nodes", ErrSubscriptionLimitExceeded, MaximumSubscriptionNodes)
 		}
 		slices.Sort(gone)
 		for _, id := range gone {

@@ -1,12 +1,22 @@
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
+import { EM_DASH } from '@shared/lib/telemetry-format';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, CirclePause, CirclePlay, CirclePlus, Copy, Eye, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, CirclePlus, Copy, MoreHorizontal, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@shared/components/ui/input-group';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@shared/components/ui/dropdown-menu';
 
 import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
@@ -76,14 +86,22 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     toast.add({ title: describeRequestError(reason), type: 'error' });
   }, []);
 
-  function keyState(key: SubscriptionToken) {
-    if (key.revoked_at) return t('subscriptions.token.state.revoked');
-    if (!key.enabled) return t('subscriptions.token.state.disabled');
-    if (key.download_limit !== undefined && key.body_response_count >= key.download_limit) return t('subscriptions.keys.exhausted');
-    return t(key.active ? 'subscriptions.token.state.active' : 'subscriptions.token.state.expired');
+  /** A key's state and the colour its dot takes: usable, used up or expired, paused, or revoked. */
+  function keyState(key: SubscriptionToken): { label: string; tone: string } {
+    if (key.revoked_at) return { label: t('subscriptions.token.state.revoked'), tone: 'text-[var(--color-danger-text)]' };
+    if (!key.enabled) return { label: t('subscriptions.token.state.disabled'), tone: 'text-muted-foreground' };
+    if (key.download_limit !== undefined && key.body_response_count >= key.download_limit) {
+      return { label: t('subscriptions.keys.exhausted'), tone: 'text-[var(--color-warning-text)]' };
+    }
+    return key.active
+      ? { label: t('subscriptions.token.state.active'), tone: 'text-[var(--color-success-text)]' }
+      : { label: t('subscriptions.token.state.expired'), tone: 'text-[var(--color-warning-text)]' };
+  }
+  function formatTime(value: string) {
+    return new Date(value).toLocaleString(i18n.resolvedLanguage, { dateStyle: 'medium', timeStyle: 'short' });
   }
   function formatDate(value?: string) {
-    return value ? new Date(value).toLocaleString(i18n.resolvedLanguage, { dateStyle: 'medium', timeStyle: 'short' }) : t('subscriptions.keys.unlimited');
+    return value ? formatTime(value) : t('subscriptions.keys.unlimited');
   }
   function usage(key: SubscriptionToken) {
     return `${key.body_response_count} / ${key.download_limit ?? '∞'}`;
@@ -201,52 +219,112 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
-      <div className='relative min-h-0 flex-1 overflow-auto flex flex-col *:[table]:flex-none' aria-busy={loading}>
-        <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:px-4 [&_td]:text-center [&_td]:whitespace-nowrap [&_td:first-child]:max-w-60 [&_td:first-child]:truncate [&_td:first-child]:text-left [&_tbody_tr]:border-b [&_th]:px-4 [&_th]:text-center [&_th]:whitespace-nowrap [&_th:first-child]:text-left [&_th:nth-child(1)]:w-[30%] [&_th:nth-child(2)]:w-[20%] [&_th:nth-child(3)]:w-[15%] [&_th:nth-child(4)]:w-[15%] [&_th:nth-child(5)]:w-[20%] [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&>thead]:text-muted-foreground'>
-          <thead>
-            <tr>
-              <th>{t('subscriptions.common.name')}</th>
-              <th>{t('subscriptions.keys.expiry')}</th>
-              <th>{t('subscriptions.keys.downloads')}</th>
-              <th>{t('subscriptions.common.state')}</th>
-              <th>{t('subscriptions.common.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(key => (
-              <tr key={key.id}>
-                <td>
-                  <strong>{key.label}</strong>
-                </td>
-                <td>{formatDate(key.expires_at)}</td>
-                <td>{usage(key)}</td>
-                <td><span className={key.active ? 'text-xs text-[var(--color-success-text)]' : 'text-xs'}>{keyState(key)}</span></td>
-                <td>
-                  <IconAction disabled={busy || loading} label={t('subscriptions.keys.view')} onClick={() => void reveal(key)}>
-                    <Eye aria-hidden='true' />
-                  </IconAction>
-                  <IconAction
-                    disabled={busy || loading || !!key.revoked_at}
-                    label={t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}
-                    onClick={() => void run('toggle', key)}
+      {/*
+        One short reading a cell: a row opens the key's details, its state and dates read from the start, its
+        downloads end the readings and its actions end the row; a phone keeps the name, state and actions.
+      */}
+      <div className='relative flex min-h-0 flex-1 flex-col overflow-auto' aria-busy={loading}>
+        <Table className='sm:min-w-236'>
+          <TableHeader>
+            <TableRow>
+              <TableHead className='sm:w-64'>{t('subscriptions.common.name')}</TableHead>
+              <TableHead className='w-24 sm:w-28'>{t('subscriptions.common.state')}</TableHead>
+              <TableHead className='w-48 max-sm:hidden'>{t('subscriptions.keys.lastUsed')}</TableHead>
+              <TableHead className='w-48 max-sm:hidden'>{t('subscriptions.keys.expiry')}</TableHead>
+              <TableHead className='w-28 text-end max-sm:hidden'>{t('subscriptions.keys.downloads')}</TableHead>
+              <TableHead className='max-sm:w-24'><span className='sr-only'>{t('subscriptions.common.actions')}</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((key) => {
+              const state = keyState(key);
+              const lastUsed = key.last_used_at ? formatTime(key.last_used_at) : EM_DASH;
+              const expires = formatDate(key.expires_at);
+              const revoked = Boolean(key.revoked_at);
+              return (
+                <TableRow
+                  interactive
+                  key={key.id}
+                  onClick={(event) => {
+                    // The row opens the key's details; its buttons and their floating layers do their own work.
+                    const target = event.target as Element;
+                    if (event.currentTarget.contains(target) && !target.closest('button')) void reveal(key);
+                  }}
+                >
+                  <TableCell>
+                    <button
+                      aria-haspopup='dialog'
+                      className='block w-full cursor-pointer truncate text-start font-medium outline-none'
+                      data-row-title=''
+                      onClick={() => void reveal(key)}
+                      title={key.label}
+                      type='button'
+                    >
+                      {key.label}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', state.tone)}>
+                      <span aria-hidden='true' className='size-1.5 flex-none rounded-full bg-current' />
+                      {state.label}
+                    </span>
+                  </TableCell>
+                  <TableCell className='max-sm:hidden' kind='data' title={lastUsed}>{lastUsed}</TableCell>
+                  <TableCell
+                    className={cn('max-sm:hidden', !key.expires_at && 'font-[family-name:var(--font-body)] text-sm')}
+                    kind='data'
+                    title={expires}
                   >
-                    {key.enabled ? <CirclePause aria-hidden='true' /> : <CirclePlay aria-hidden='true' />}
-                  </IconAction>
-                  <IconAction
-                    disabled={busy || loading || !!key.revoked_at}
-                    label={t('subscriptions.token.action.rotate.name')}
-                    onClick={() => setConfirmation({ action: 'rotate', key })}
-                  >
-                    <RefreshCw aria-hidden='true' />
-                  </IconAction>
-                  <IconAction disabled={busy || loading} label={t('subscriptions.token.action.delete.name')} onClick={() => setConfirmation({ action: 'delete', key })}>
-                    <Trash2 aria-hidden='true' />
-                  </IconAction>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {expires}
+                  </TableCell>
+                  <TableCell className='max-sm:hidden' kind='number'>{usage(key)}</TableCell>
+                  <TableCell kind='actions'>
+                    {/* A revoked key can only be deleted. */}
+                    {revoked
+                      ? null
+                      : (
+                          <IconAction
+                            disabled={busy || loading}
+                            label={t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}
+                            onClick={() => void run('toggle', key)}
+                          >
+                            {key.enabled ? <PowerOff aria-hidden='true' /> : <Power aria-hidden='true' />}
+                          </IconAction>
+                        )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={(
+                          <IconAction
+                            className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground'
+                            label={t('subscriptions.keys.more', { name: key.label })}
+                          />
+                        )}
+                      >
+                        <MoreHorizontal aria-hidden='true' />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align='end' className='w-auto min-w-36'>
+                        <DropdownMenuGroup>
+                          {revoked
+                            ? null
+                            : (
+                                <DropdownMenuItem onClick={() => setConfirmation({ action: 'rotate', key })}>
+                                  <RefreshCw aria-hidden='true' />
+                                  {t('subscriptions.token.action.rotate.name')}
+                                </DropdownMenuItem>
+                              )}
+                          <DropdownMenuItem onClick={() => setConfirmation({ action: 'delete', key })} variant='destructive'>
+                            <Trash2 aria-hidden='true' />
+                            {t('subscriptions.token.action.delete.name')}
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
         {items.length === 0 && (loading
           ? <SubscriptionContentState loading />
           : !error && <SubscriptionContentState kind='keys' title={t('subscriptions.keys.empty')} />)}

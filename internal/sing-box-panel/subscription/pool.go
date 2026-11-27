@@ -54,7 +54,10 @@ func inboundTag(originKey string) string {
 // published inbounds and every node a source's filter keeps. Nodes that are
 // gone are deleted with their channel memberships and grants, the others
 // keep their display names and positions, and new nodes are appended in
-// origin order. Synchronizations run one at a time.
+// origin order. A source whose content no longer reads and a fleet node with
+// neither a public host nor a public IP keep their nodes as they are, so a
+// node that briefly reports no public IP takes no node out of its channels.
+// Synchronizations run one at a time.
 func (application *Service) SyncPool(ctx context.Context) error {
 	application.poolMu.Lock()
 	defer application.poolMu.Unlock()
@@ -85,12 +88,11 @@ func (application *Service) PoolInputsChanged(ctx context.Context) {
 }
 
 func (application *Service) planPool(inputs store.SubscriptionPoolInputs) (store.SubscriptionPoolSynchronization, error) {
+	locals := application.localNodes(inputs.Publications)
 	plan := store.SubscriptionPoolSynchronization{
 		Fingerprint: inputs.Fingerprint, KeptSources: map[string]bool{}, SourceErrors: map[string]string{},
-		At: application.now().UTC(),
+		KeptNodes: locals.Hostless, At: application.now().UTC(),
 	}
-	kept := 0
-	locals := application.localNodes(inputs.Publications)
 	for _, inbound := range locals.Inbounds {
 		key := inboundOriginKey(inbound.Node)
 		outbound, err := outboundWithoutTag(inbound.Node.Outbound)
@@ -108,7 +110,6 @@ func (application *Service) planPool(inputs store.SubscriptionPoolInputs) (store
 		if err != nil {
 			plan.KeptSources[source.ID] = true
 			plan.SourceErrors[source.ID] = sourceErrorCode(err)
-			kept += source.NodeCount
 			continue
 		}
 		for _, item := range reading.Kept() {
@@ -121,9 +122,6 @@ func (application *Service) planPool(inputs store.SubscriptionPoolInputs) (store
 				OriginName: item.Name, DisplayName: item.Name, Protocol: item.Protocol, Outbound: outbound,
 			})
 		}
-	}
-	if len(plan.Nodes)+kept > MaximumNodes {
-		return store.SubscriptionPoolSynchronization{}, fmt.Errorf("%w: the pool would hold more than %d nodes", store.ErrSubscriptionLimitExceeded, MaximumNodes)
 	}
 	return plan, nil
 }

@@ -35,6 +35,42 @@ describe('subscriptionsPage', () => {
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
 
+  it('names the open channel in the address, so a reload opens it again and back returns to the list', async () => {
+    const user = userEvent.setup();
+    const [channel] = testSubscriptionChannels;
+    const hash = () => JSON.parse(screen.getByTestId('location').textContent!).hash;
+    const client = createMockApiClient();
+    const { unmount } = render(
+      <TestRouter initialEntries={['/subscriptions#subscription-channels']}>
+        <ApiClientProvider client={client}>
+          <SubscriptionsPage />
+          <LocationProbe />
+        </ApiClientProvider>
+      </TestRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: channel.name }));
+    expect(await screen.findByRole('button', { name: 'Back' })).toBeVisible();
+    expect(hash()).toBe(`#subscription-channels/${channel.id}`);
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('searchbox', { name: 'Search channels' })).toBeVisible();
+    expect(hash()).toBe('#subscription-channels');
+    unmount();
+
+    // A reload starts on the channel's address.
+    render(
+      <TestRouter initialEntries={[`/subscriptions#subscription-channels/${channel.id}`]}>
+        <ApiClientProvider client={client}>
+          <SubscriptionsPage />
+          <LocationProbe />
+        </ApiClientProvider>
+      </TestRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('searchbox', { name: 'Search channels' })).toBeVisible();
+    expect(hash()).toBe('#subscription-channels');
+    expect(client.getSubscriptionChannel).toHaveBeenLastCalledWith(channel.id, expect.any(AbortSignal));
+  });
+
   it('keeps edits on canceled navigation and returns to the channel list after discarding', async () => {
     const user = userEvent.setup();
     const client = createMockApiClient();

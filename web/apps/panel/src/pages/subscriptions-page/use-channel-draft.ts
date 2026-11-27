@@ -13,13 +13,56 @@ import { channelTemplateDefaults } from '@/constants/channel-templates';
 
 import { groupInUse, incompatibleConfig, newRuleGroup, releaseFinalExit, remapRuleSets, removeGroupReferences } from './channel-policy';
 
+/** A channel's unsaved draft as it waits out a reload, with the version it was made on. */
+interface StoredDraft {
+  base: string;
+  name: string;
+  format: SubscriptionFormat;
+  config: SubscriptionChannelConfig;
+}
+
+/** Where a channel's draft waits out a reload: this tab's session storage, which a closed tab clears. */
+function draftKey(channelID: string) {
+  return `sing-box-panel.channel-draft.${channelID}`;
+}
+
+/**
+ * The draft a reload left for the channel: restored when it was made on the
+ * version at hand, outdated when the channel changed since. Reading it
+ * changes nothing, as a component may be rendered twice.
+ */
+function readStoredDraft(channel: SubscriptionChannel): { draft?: StoredDraft; outdated: boolean } {
+  try {
+    const raw = window.sessionStorage.getItem(draftKey(channel.id));
+    if (raw === null) return { outdated: false };
+    const draft = JSON.parse(raw) as Partial<StoredDraft> | null;
+    if (typeof draft?.base !== 'string' || typeof draft.name !== 'string' || typeof draft.format !== 'string' || !Array.isArray(draft.config?.groups)) {
+      return { outdated: false };
+    }
+    return draft.base === channel.updated_at ? { draft: draft as StoredDraft, outdated: false } : { outdated: true };
+  } catch {
+    return { outdated: false };
+  }
+}
+
+function storeDraft(channelID: string, draft: StoredDraft | null) {
+  try {
+    if (draft) window.sessionStorage.setItem(draftKey(channelID), JSON.stringify(draft));
+    else window.sessionStorage.removeItem(draftKey(channelID));
+  } catch {
+    // Without storage a reload loses the draft, as it would anyway.
+  }
+}
+
 export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel: SubscriptionChannel) => void) {
   const { t } = useTranslation();
   const client = useApiClient();
   const ruleSets = useQuery(queries.ruleSets(client)).data;
-  const [config, setConfig] = useState(() => structuredClone(channel.config));
-  const [format, setFormat] = useState<SubscriptionFormat>(channel.format);
-  const [name, setName] = useState(channel.name);
+  // A browser may reload without asking, as an embedded one does, so an unsaved draft outlives the reload.
+  const [stored] = useState(() => readStoredDraft(channel));
+  const [config, setConfig] = useState(() => structuredClone(stored.draft?.config ?? channel.config));
+  const [format, setFormat] = useState<SubscriptionFormat>(stored.draft?.format ?? channel.format);
+  const [name, setName] = useState(stored.draft?.name ?? channel.name);
   const [busy, setBusy] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
@@ -31,11 +74,11 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
   const [preview, setPreview] = useState<SubscriptionPreview | null>(null);
   const lifeRef = useRef<AbortController | null>(null);
   const signature = (c: SubscriptionChannelConfig, f: SubscriptionFormat, n: string) => JSON.stringify({ c, f, n });
-  const [savedSignature, setSavedSignature] = useState(() => signature(config, format, name));
+  const [savedSignature, setSavedSignature] = useState(() => signature(channel.config, channel.format, channel.name));
   const dirty = signature(config, format, name) !== savedSignature;
   const settingsDirty = groupSettings !== null
     && JSON.stringify(groupSettings) !== JSON.stringify(config.groups.find(value => value.id === groupSettings.id));
-  const confirmNavigation = useUnsavedChanges(dirty || settingsDirty, () => {
+  function discard() {
     const restored = structuredClone(channel.config);
     setConfig(restored);
     setFormat(channel.format);
@@ -44,7 +87,33 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
     setGroupSettings(null);
     setOptionsOpen(false);
     setTemplateOpen(false);
-  }, busy);
+  }
+  const discardRef = useRef(discard);
+  useEffect(() => {
+    discardRef.current = discard;
+  });
+  useUnsavedChanges(dirty || settingsDirty, discard, busy);
+  // The draft is kept while unsaved and dropped once saved or discarded;
+  // leaving the channel drops it, a reload does not.
+  useEffect(() => {
+    storeDraft(channel.id, dirty ? { base: channel.updated_at, name, format, config } : null);
+  }, [channel.id, channel.updated_at, config, dirty, format, name]);
+  useEffect(() => () => storeDraft(channel.id, null), [channel.id]);
+  // Says once that a reload's draft came back, with the way to drop it, or that it could not.
+  const noticedRef = useRef(false);
+  useEffect(() => {
+    if (noticedRef.current) return;
+    noticedRef.current = true;
+    if (stored.draft && dirty) {
+      toast.add({
+        title: t('channels.draftRestored'),
+        type: 'info',
+        actionProps: { children: t('common.unsaved.discard'), onClick: () => discardRef.current() },
+      });
+    } else if (stored.outdated) {
+      toast.add({ title: t('channels.draftOutdated'), type: 'warning' });
+    }
+  }, [dirty, stored, t]);
   useEffect(() => {
     const controller = new AbortController();
     lifeRef.current = controller;
@@ -189,7 +258,6 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
     setPreview,
     dirty,
     conflict,
-    confirmNavigation,
     render,
     save,
     showPreview,

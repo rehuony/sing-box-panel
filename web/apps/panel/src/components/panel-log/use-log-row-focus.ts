@@ -20,7 +20,7 @@ export function useLogRowFocus(ids: readonly string[]) {
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     const move = moves[event.key];
     if (!move) return;
-    const titles = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-log-title]')];
+    const titles = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-row-title]')];
     const index = titles.indexOf(document.activeElement as HTMLButtonElement);
     if (index < 0) return;
     event.preventDefault();

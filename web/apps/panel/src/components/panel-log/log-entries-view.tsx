@@ -6,6 +6,7 @@ import { Badge } from '@shared/components/ui/badge';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 
 import type { LogEntry, LogLevel, LogScope } from '@/api/api-client';
 
@@ -26,7 +27,7 @@ import { useLogRowFocus } from './use-log-row-focus';
 import { ClearLogsAction } from './clear-logs-action';
 import { PanelLogDetails } from './panel-log-details';
 import { LogRow, LogRowTitle, LogTime } from './log-table';
-import { logTableClass, logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
+import { logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
 
 /**
  * The panel's log in one scope, filtered by level: the panel's own entries
@@ -110,25 +111,26 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
       <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
         {lead != null && <CardToolbar>{controls}</CardToolbar>}
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
-          <table className={logTableClass}>
-            <thead>
-              <tr>
+          {/* The time, the level and the event fit a phone without scrolling sideways. */}
+          <Table>
+            <TableHeader>
+              <TableRow>
                 {columns.map(column => (
-                  <th className={`sticky top-0 z-1 bg-[var(--color-surface-raised)] ${column.className}`} scope='col' key={column.key}>
+                  <TableHead className={column.className} key={column.key}>
                     {t(`productLogs.columns.${column.key}`)}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody onKeyDown={rowFocus.onKeyDown}>
+              </TableRow>
+            </TableHeader>
+            <TableBody onKeyDown={rowFocus.onKeyDown}>
               {result.items.map((item) => {
                 const title = logTitle(item, t);
                 const failure = typeof item.metadata.error_code === 'string' ? item.metadata.error_code : undefined;
                 return (
                   <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
-                    <td className='truncate'><LogTime language={language} value={item.time} /></td>
-                    <td className='font-[family-name:var(--font-data)] text-xs'><PanelLogLevelText level={item.level} /></td>
-                    <td>
+                    <TableCell><LogTime language={language} value={item.time} /></TableCell>
+                    <TableCell className='font-[family-name:var(--font-data)] text-xs'><PanelLogLevelText level={item.level} /></TableCell>
+                    <TableCell>
                       <div className='flex min-w-0 items-center gap-2'>
                         {item.source === 'security' && <Badge variant='secondary'>{t('productLogs.sources.security')}</Badge>}
                         <LogRowTitle
@@ -139,12 +141,12 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
                           onOpen={trigger => open(item, trigger)}
                         />
                       </div>
-                    </td>
+                    </TableCell>
                   </LogRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {!result.items.length && (loading
             ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
             : <RegionState icon={ScrollText} title={t('productLogs.empty')} />)}

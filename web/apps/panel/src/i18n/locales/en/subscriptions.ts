@@ -191,13 +191,14 @@ export const subscriptions = {
   },
   keys: {
     secretUnavailable: 'This older key has no stored secret. Rotate it and bind the replacement key to the channel.',
-    view: 'View', details: 'Key details',
+    details: 'Key details', more: 'More for {{name}}',
     create: 'Create key',
     key: 'Key',
     quota: 'Download limit',
     quotaUnit: 'downloads',
     expiry: 'Expires',
     downloads: 'Downloads',
+    lastUsed: 'Last used',
     exhausted: 'Quota reached',
     unlimited: 'Unlimited',
     shared:

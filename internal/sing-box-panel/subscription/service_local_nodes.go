@@ -50,6 +50,9 @@ type nodeLocals struct {
 	Inbounds    []fleetInbound
 	Diagnostics []ConversionDiagnostic
 	Summaries   []NodePublicationSummary
+	// Hostless holds the nodes that publish while neither a public host nor a
+	// public IP is known for them.
+	Hostless map[string]bool
 	// Documents holds each node's applied configuration, for preview
 	// diagnostics.
 	Documents map[string][]byte
@@ -72,7 +75,9 @@ func publishedHost(publication store.NodePublication) string {
 // cannot be published adds a diagnostic and contributes no inbounds, without
 // failing the others.
 func (application *Service) localNodes(publications []store.NodePublication) nodeLocals {
-	result := nodeLocals{Documents: map[string][]byte{}, Summaries: []NodePublicationSummary{}, Diagnostics: []ConversionDiagnostic{}}
+	result := nodeLocals{
+		Documents: map[string][]byte{}, Summaries: []NodePublicationSummary{}, Diagnostics: []ConversionDiagnostic{}, Hostless: map[string]bool{},
+	}
 	for _, publication := range publications {
 		host := publishedHost(publication)
 		result.Summaries = append(result.Summaries, NodePublicationSummary{
@@ -90,6 +95,7 @@ func (application *Service) localNodes(publications []store.NodePublication) nod
 			continue
 		}
 		if host == "" {
+			result.Hostless[publication.NodeID] = true
 			fail(DiagnosticPublicHostUnavailable)
 			continue
 		}

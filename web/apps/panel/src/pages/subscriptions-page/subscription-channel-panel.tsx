@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CirclePlus, CopyPlus, Link2, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +39,7 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { StripDivider, StripSearch } from '@/components/title-strip';
+import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import { describeRequestError, ErrorNotice } from '@/components/error-notice';
 
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
@@ -58,6 +61,9 @@ function FinalExit({ exit }: { exit: SubscriptionChannelSummary['final_exit'] })
   return <span className='block truncate'>{exit.name ?? '—'}</span>;
 }
 
+/** The channels tab's address; an open channel's ID follows it after a slash. */
+const CHANNELS_HASH = '#subscription-channels';
+
 export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   active?: boolean;
   toolbarTarget?: HTMLElement | null;
@@ -70,7 +76,16 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const catalog = useQuery({ ...queries.nodes(client), enabled: active && visible });
   const channels = list.data ?? [];
   const nodes = catalog.data?.items ?? [];
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { skipGuard } = useUnsavedChangesContext();
+  // The address names the open channel, so reloading, or going back and forward, shows it again.
+  const openID = location.hash.startsWith(`${CHANNELS_HASH}/`) ? decodeURIComponent(location.hash.slice(CHANNELS_HASH.length + 1)) : '';
   const [channel, setChannel] = useState<SubscriptionChannel | null>(null);
+  const shown = openID !== '' && channel?.id === openID ? channel : null;
+  // Whether the open channel was opened from the list here, so leaving it goes back to the list's entry.
+  const fromListRef = useRef(false);
+  const wasOpenRef = useRef(openID !== '');
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const error = list.error ?? catalog.error;
@@ -102,6 +117,29 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     lifetimeRef.current = controller;
     return () => controller.abort();
   }, []);
+  const { pathname, search: query, state } = location;
+  /** Shows a channel, or the list without one, keeping the rest of the address and its state. */
+  const show = useCallback((id: string, replace = false) => navigate(
+    { pathname, search: query, hash: id ? `${CHANNELS_HASH}/${encodeURIComponent(id)}` : CHANNELS_HASH },
+    { replace, state },
+  ), [navigate, pathname, query, state]);
+  // The channel the address names is read when it is not the one at hand; one that cannot be read leaves for the list.
+  const channelID = channel?.id;
+  useEffect(() => {
+    if (openID === '' || channelID === openID) return;
+    const controller = new AbortController();
+    client.getSubscriptionChannel(openID, controller.signal).then(setChannel, (reason) => {
+      if (controller.signal.aborted) return;
+      toast.add({ title: describeRequestError(reason), type: 'error' });
+      void show('', true);
+    });
+    return () => controller.abort();
+  }, [channelID, client, openID, show]);
+  // Leaving a channel reads the list again, which its edits may have changed.
+  useEffect(() => {
+    if (openID === '' && wasOpenRef.current) void load(lifetimeRef.current?.signal);
+    wasOpenRef.current = openID !== '';
+  }, [load, openID]);
   // A new copy is marked where the list puts it, then the mark fades.
   useEffect(() => {
     if (!flash) return;
@@ -122,10 +160,8 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     }
   }
   function open(id: string) {
-    return once('open', async (signal) => {
-      const value = await client.getSubscriptionChannel(id, signal);
-      if (!signal?.aborted) setChannel(value);
-    });
+    fromListRef.current = true;
+    void show(id);
   }
   function duplicate(id: string) {
     return once(`duplicate:${id}`, async (signal) => {
@@ -150,7 +186,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       toast.add({
         title: t('channels.duplicated', { name: created.name }),
         type: 'success',
-        actionProps: { children: t('channels.openChannel'), onClick: () => setChannel(created) },
+        actionProps: { children: t('channels.openChannel'), onClick: () => open(created.id) },
       });
     });
   }
@@ -170,6 +206,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       if (lifetimeRef.current?.signal.aborted) return;
       setCreating(false);
       setChannel(value);
+      fromListRef.current = true;
+      // The form just saved is still dirty until it closes; it must not ask about opening its channel.
+      skipGuard(() => void show(value.id));
       await load(lifetimeRef.current?.signal);
       toast.add({ title: t('channels.saved'), type: 'success' });
     } catch (reason) {
@@ -190,8 +229,8 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       );
       if (lifetimeRef.current?.signal.aborted) return;
       setDeleting(null);
-      // Deleting from its settings leaves the channel's workspace.
-      if (channel?.id === fresh.id) setChannel(null);
+      // Deleting from its settings leaves the channel's workspace, whose edits went with it.
+      if (shown?.id === fresh.id) skipGuard(() => void show('', true));
       await load(lifetimeRef.current?.signal);
       toast.add({ title: t('channels.removed'), type: 'success' });
     } catch (reason) {
@@ -206,98 +245,95 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   return (
     <section className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
       {error != null && <ErrorNotice error={error} title={t('channels.title')} />}
-      {channel
+      {shown
         ? (
             <ChannelWorkspace
-              key={channel.id}
+              key={shown.id}
               active={active}
               toolbarTarget={toolbarTarget}
-              channel={channel}
+              channel={shown}
               linkKey={linkKey}
               nodes={nodes}
-              onBack={() => {
-                setChannel(null);
-                void load(lifetimeRef.current?.signal);
-              }}
-              onDelete={() => setDeleting(channel)}
+              // Back returns to the list's entry when the channel was opened from it, and otherwise replaces this one.
+              onBack={() => void (fromListRef.current ? navigate(-1) : show('', true))}
+              onDelete={() => setDeleting(shown)}
               onLinkKeyChange={setLinkKey}
               onSaved={setChannel}
             />
           )
-        : (
-            <>
-              <ToolbarActions active={active} target={toolbarTarget}>
-                <div className='flex w-full min-w-0 flex-1 items-center gap-2'>
-                  <StripSearch
-                    label={t('channels.search')}
-                    value={search}
-                    onValueChange={setSearch}
-                  />
-                  <StripDivider />
-                  <Button
-                    aria-label={t('channels.add')}
-                    className='max-sm:w-(--control-height-sm) max-sm:px-0'
-                    size='sm'
-                    variant='flat'
-                    onClick={() => {
-                      setCreating(true);
-                      setName('');
-                      setFormat('sing-box');
-                      setFormError('');
-                    }}
-                  >
-                    <CirclePlus aria-hidden='true' data-icon='inline-start' />
-                    <span className='max-sm:sr-only'>{t('channels.add')}</span>
-                  </Button>
-                </div>
-              </ToolbarActions>
-              {/* The list scrolls inside the card under its header; a narrow card scrolls it sideways. */}
-              <div className='flex min-h-0 flex-1 flex-col overflow-auto' aria-busy={list.isPending} ref={listRef}>
-                <table className='w-full min-w-160 flex-none table-fixed border-collapse text-sm'>
-                  <thead className='sticky top-0 z-1 bg-[var(--color-surface-raised)] text-muted-foreground'>
-                    <tr className='h-11 *:px-4 *:text-start *:font-medium'>
-                      <th>{t('channels.name')}</th>
-                      <th className='w-28'>{t('channels.client')}</th>
-                      <th className='w-20 text-end!'>{t('channels.nodes')}</th>
-                      <th className='w-24 text-end!'>{t('channels.routes')}</th>
-                      <th className='w-40'>{t('channels.finalExit')}</th>
-                      <th className='w-24'><span className='sr-only'>{t('channels.actions')}</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((value) => (
-                      <tr
-                        className={cn(
-                          'h-11 cursor-pointer border-b transition-colors duration-[var(--dur-short)] ease-out *:px-4 hover:bg-[var(--color-hover)] has-[[data-row-title]:focus-visible]:bg-[var(--color-hover)]',
-                          flash === value.id && 'bg-accent hover:bg-accent',
-                        )}
-                        data-channel-id={value.id}
-                        key={value.id}
-                        onClick={(event) => {
+        : openID
+          ? <SubscriptionContentState loading />
+          : (
+              <>
+                <ToolbarActions active={active} target={toolbarTarget}>
+                  <div className='flex w-full min-w-0 flex-1 items-center gap-2'>
+                    <StripSearch
+                      label={t('channels.search')}
+                      value={search}
+                      onValueChange={setSearch}
+                    />
+                    <StripDivider />
+                    <Button
+                      aria-label={t('channels.add')}
+                      className='max-sm:w-(--control-height-sm) max-sm:px-0'
+                      size='sm'
+                      variant='flat'
+                      onClick={() => {
+                        setCreating(true);
+                        setName('');
+                        setFormat('sing-box');
+                        setFormError('');
+                      }}
+                    >
+                      <CirclePlus aria-hidden='true' data-icon='inline-start' />
+                      <span className='max-sm:sr-only'>{t('channels.add')}</span>
+                    </Button>
+                  </div>
+                </ToolbarActions>
+                {/* The list scrolls inside the card under its header; a narrow card scrolls it sideways. */}
+                <div className='flex min-h-0 flex-1 flex-col overflow-auto' aria-busy={list.isPending} ref={listRef}>
+                  <Table className='min-w-160'>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('channels.name')}</TableHead>
+                        <TableHead className='w-28'>{t('channels.client')}</TableHead>
+                        <TableHead className='w-20 text-end'>{t('channels.nodes')}</TableHead>
+                        <TableHead className='w-24 text-end'>{t('channels.routes')}</TableHead>
+                        <TableHead className='w-40'>{t('channels.finalExit')}</TableHead>
+                        <TableHead className='w-24'><span className='sr-only'>{t('channels.actions')}</span></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.map((value) => (
+                        <TableRow
+                          className={cn(flash === value.id && 'bg-accent hover:bg-accent')}
+                          data-channel-id={value.id}
+                          interactive
+                          key={value.id}
+                          onClick={(event) => {
                           // The row opens its channel; its buttons and their floating layers do their own work.
-                          const target = event.target as Element;
-                          if (!event.currentTarget.contains(target) || target.closest('button')) return;
-                          void open(value.id);
-                        }}
-                      >
-                        <td>
-                          <button
-                            className='block w-full cursor-pointer truncate text-start font-medium outline-none'
-                            data-row-title=''
-                            onClick={() => void open(value.id)}
-                            type='button'
-                          >
-                            {value.name}
-                          </button>
-                        </td>
-                        <td><ChannelClientTag format={value.format} /></td>
-                        <td className={cn('text-end font-[family-name:var(--font-data)] text-compact tabular-nums', value.node_count === 0 && 'text-[var(--color-warning-text)]')}>
-                          {value.node_count}
-                        </td>
-                        <td className='text-end font-[family-name:var(--font-data)] text-compact tabular-nums'>{value.route_count}</td>
-                        <td className='text-compact'><FinalExit exit={value.final_exit} /></td>
-                        <td>
-                          <div className='flex items-center justify-end gap-0.5'>
+                            const target = event.target as Element;
+                            if (!event.currentTarget.contains(target) || target.closest('button')) return;
+                            open(value.id);
+                          }}
+                        >
+                          <TableCell>
+                            <button
+                              className='block w-full cursor-pointer truncate text-start font-medium outline-none'
+                              data-row-title=''
+                              onClick={() => open(value.id)}
+                              type='button'
+                            >
+                              {value.name}
+                            </button>
+                          </TableCell>
+                          <TableCell><ChannelClientTag format={value.format} /></TableCell>
+                          <TableCell className={cn(value.node_count === 0 && 'text-[var(--color-warning-text)]')} kind='number'>
+                            {value.node_count}
+                          </TableCell>
+                          <TableCell kind='number'>{value.route_count}</TableCell>
+                          <TableCell className='text-compact'><FinalExit exit={value.final_exit} /></TableCell>
+                          <TableCell kind='actions'>
                             <ChannelLinkPopover
                               channel={value}
                               keyID={linkKey}
@@ -312,7 +348,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align='end' className='w-auto min-w-40'>
                                 <DropdownMenuGroup>
-                                  <DropdownMenuItem onClick={() => void open(value.id)}>
+                                  <DropdownMenuItem onClick={() => open(value.id)}>
                                     <ArrowUpRight aria-hidden='true' />
                                     {t('channels.openChannel')}
                                   </DropdownMenuItem>
@@ -327,18 +363,17 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                                 </DropdownMenuGroup>
                               </DropdownMenuContent>
                             </DropdownMenu>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {list.isPending && !filtered.length
-                  ? <SubscriptionContentState loading />
-                  : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
-              </div>
-            </>
-          )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {list.isPending && !filtered.length
+                    ? <SubscriptionContentState loading />
+                    : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
+                </div>
+              </>
+            )}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>
         <DialogContent>
           <DialogHeader>
