@@ -346,7 +346,7 @@ from the group, including selections hidden by search, and clears the selection.
 Switching groups resets card selection without changing either group's members.
 Add opens
 a selection dialog listing DIRECT and REJECT, the channel's other strategy groups in their order, then the pool's nodes in pool order;
-unsupported client options are disabled. Only confirmed additions appear in the
+built-ins the client lacks for the group are left out unless the group holds them. Only confirmed additions appear in the
 group; cancelling the dialog discards its selection and sorting. Its title, compact
 selection actions and search share a header; there is no corner close button.
 Clicking a card toggles its selection outline, and selecting any new cards reveals
@@ -366,7 +366,8 @@ traffic through exit rules naming it; no candidate is inserted.
 Mihomo and Loon support all three types. Mihomo supports both built-ins;
 Loon supports them in manual groups only; auto groups reject built-in candidates. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
-validation and disabled in the editor. Sing-box rejection remains a route action,
+validation and left out of the editor unless a group already holds them, as after a
+client change. Sing-box rejection remains a route action,
 not an obsolete block outbound.
 
 Automatic groups may configure `health_check` with an HTTP(S) URL, an interval

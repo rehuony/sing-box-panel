@@ -139,11 +139,12 @@ function NumberField({ disabled, id, label, max, min, onChange, unit, value }: {
 }
 
 /**
- * The strategy as one choice of three in an inset bar, as the tab bars draw
- * theirs: each with its icon from the rail and the client's name for it, the
- * current one on a raised thumb that slides to it. One Tab stop that the
- * arrow keys move and choose with; a strategy the client lacks stays listed,
- * muted, and is passed over.
+ * The strategy as one choice of the client's in an inset bar, as the tab bars
+ * draw theirs: each with its icon from the rail and the client's name for it,
+ * the current one on a raised thumb that slides to it. One Tab stop that the
+ * arrow keys move and choose with. A strategy the client lacks is left out,
+ * unless the group holds it, as after the channel's client changed: it then
+ * shows muted and is passed over until another is chosen.
  */
 function StrategyChoice({ format, labelId, onChange, value }: {
   format: SubscriptionFormat;
@@ -151,34 +152,36 @@ function StrategyChoice({ format, labelId, onChange, value }: {
   value: ChannelRuleGroup['type'];
   onChange: (value: ChannelRuleGroup['type']) => void;
 }) {
-  const index = STRATEGIES.indexOf(value);
   const unavailable = (type: ChannelRuleGroup['type']) => format === 'sing-box' && type === 'fallback';
+  const shown = STRATEGIES.filter(type => !unavailable(type) || type === value);
+  const index = shown.indexOf(value);
 
   function move(event: KeyboardEvent<HTMLDivElement>) {
     const step = { ArrowDown: 1, ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1 }[event.key];
     if (!step) return;
     event.preventDefault();
     let next = index;
-    do next = (next + step + STRATEGIES.length) % STRATEGIES.length;
-    while (unavailable(STRATEGIES[next]!));
-    onChange(STRATEGIES[next]!);
+    do next = (next + step + shown.length) % shown.length;
+    while (unavailable(shown[next]!));
+    onChange(shown[next]!);
     event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
   }
 
   return (
     <div
       aria-labelledby={labelId}
-      className='relative isolate grid h-(--control-height) grid-cols-3 gap-0.5 rounded-lg border bg-[var(--color-canvas)] p-[3px]'
+      className='relative isolate grid h-(--control-height) grid-cols-[repeat(var(--strategies),minmax(0,1fr))] gap-0.5 rounded-lg border bg-[var(--color-canvas)] p-[3px]'
       onKeyDown={move}
       role='radiogroup'
+      style={{ '--strategies': shown.length } as CSSProperties}
     >
       {/* The thumb sits behind the choices, so the current one's text stays on top of it. */}
       <span
         aria-hidden='true'
-        className='absolute inset-y-[3px] start-[calc(3px+var(--strategy)*(100%-6px+2px)/3)] -z-10 w-[calc((100%-6px-4px)/3)] rounded-[calc(var(--radius-card)-4px)] bg-popover shadow-[var(--shadow-thumb)] ring-1 ring-border transition-[inset-inline-start] duration-[var(--dur-short)] ease-[var(--ease-out)] motion-reduce:transition-none'
+        className='absolute inset-y-[3px] start-[calc(3px+var(--strategy)*(100%-6px+2px)/var(--strategies))] -z-10 w-[calc((100%-6px-(var(--strategies)-1)*2px)/var(--strategies))] rounded-[calc(var(--radius-card)-4px)] bg-popover shadow-[var(--shadow-thumb)] ring-1 ring-border transition-[inset-inline-start] duration-[var(--dur-short)] ease-[var(--ease-out)] motion-reduce:transition-none'
         style={{ '--strategy': index } as CSSProperties}
       />
-      {STRATEGIES.map((type) => {
+      {shown.map((type) => {
         const Icon = GROUP_ICONS[type];
         const off = unavailable(type);
         return (

@@ -39,10 +39,11 @@ describe('channel node picker', () => {
       { ...newRuleGroup([{ kind: 'group', id: 'current' }]), id: 'cycle', name: 'Cycle' },
     ];
     const { dialog, onAdd } = mount(current, 'sing-box', groups);
-    expect(cardNames()).toEqual(['DIRECT', 'REJECT', 'Auto', 'Cycle', 'Seattle', 'Tokyo']);
+    // sing-box has no REJECT outbound, so the picker leaves it out.
+    expect(cardNames()).toEqual(['DIRECT', 'Auto', 'Cycle', 'Seattle', 'Tokyo']);
     expect(within(dialog).getByRole('checkbox', { name: 'Seattle' })).toHaveTextContent('edge · seattle-in');
-    // Already a member, unsupported by the client, or making a cycle: listed but not chosen.
-    for (const name of ['Tokyo', 'REJECT', 'Cycle']) {
+    // Already a member or making a cycle: listed but not chosen.
+    for (const name of ['Tokyo', 'Cycle']) {
       expect(within(dialog).getByRole('checkbox', { name })).toHaveAttribute('aria-disabled', 'true');
     }
     for (const name of ['Auto', 'DIRECT', 'Seattle']) await user.click(within(dialog).getByRole('checkbox', { name }));

@@ -35,9 +35,10 @@ type Candidate = ChannelGroupMember & { node?: SubscriptionNode; group?: Channel
 /**
  * Picks candidates to add to a group: the built-in exits DIRECT and REJECT,
  * the channel's other groups in their order, then the pool's nodes in pool
- * order. Candidates already in the group, unsupported by the client, disabled
- * or making a cycle stay listed but cannot be chosen; the chosen ones join in
- * the order shown here.
+ * order. A built-in the client lacks for the group, such as REJECT for
+ * sing-box, is left out unless the group holds it; candidates already in the
+ * group, disabled or making a cycle stay listed but cannot be chosen. The
+ * chosen ones join in the order shown here.
  */
 export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd }: Props) {
   const { t } = useTranslation();
@@ -60,6 +61,7 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
     const candidate = entry.group;
     const unsupported = (builtin === 'reject' && format === 'sing-box')
       || (builtin !== undefined && format === 'loon' && group.type !== 'select');
+    if (unsupported && !added.has(key)) return [];
     let label = builtin ? BUILTIN_EXIT_NAMES[builtin] : candidate?.name ?? '';
     if (entry.node) label = entry.node.display_name;
     let searched = label;
@@ -70,7 +72,6 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
     if (added.has(key)) disabledReason = t('channels.alreadyAdded');
     else if (candidate && !candidate.enabled) disabledReason = t('channels.disabled');
     else if (candidate && createsGroupCycle(groups, group.id, candidate.id)) disabledReason = t('channels.cyclicGroupReference');
-    else if (unsupported) disabledReason = t('channels.unavailable');
     return [{
       id: key, label, node: entry.node, builtin, group: candidate, disabledReason,
       selected: added.has(key) || selected.includes(key),
