@@ -30,6 +30,7 @@ import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
 import { usePageVisible } from '@/hooks/use-page-visible';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
@@ -89,7 +90,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
-  const [formError, setFormError] = useState('');
+  const createProblem = useDialogProblem<'name'>(creating);
   const [deleting, setDeleting] = useState<Pick<SubscriptionChannel, 'id' | 'name'> | null>(null);
   // The key the last link used, offered first by every channel's link.
   const [linkKey, setLinkKey] = useState('');
@@ -187,11 +188,12 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   async function create() {
     if (busy) return;
     if (!name.trim()) {
-      setFormError(t('channels.nameRequired'));
+      createProblem.report(t('channels.nameRequired'), { field: 'name' });
+      document.getElementById('channel-name')?.focus();
       return;
     }
     setBusy(true);
-    setFormError('');
+    createProblem.clear();
     try {
       const value = await client.createSubscriptionChannel(
         { name: name.trim(), format, enabled: true, config: emptyChannelConfig() },
@@ -206,7 +208,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       await load(lifetimeRef.current?.signal);
       toast.add({ title: t('channels.saved'), type: 'success' });
     } catch (reason) {
-      setFormError(describeRequestError(reason));
+      createProblem.report(t('channels.createFailed'), { description: describeRequestError(reason) });
     } finally {
       setBusy(false);
     }
@@ -274,7 +276,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                         setCreating(true);
                         setName('');
                         setFormat('sing-box');
-                        setFormError('');
+                        createProblem.clear();
                       }}
                     />
                   </div>
@@ -379,12 +381,12 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
             <DialogFields>
               <label htmlFor='channel-name'>{t('channels.name')}</label>
               <Input
-                aria-invalid={formError ? true : undefined}
+                aria-invalid={createProblem.invalid('name')}
                 id='channel-name'
                 value={name}
                 onChange={(event) => {
                   setName(event.target.value);
-                  setFormError('');
+                  createProblem.clear();
                 }}
               />
               <label htmlFor='channel-format'>{t('channels.client')}</label>
@@ -399,7 +401,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                 ]}
               />
             </DialogFields>
-            <DialogFooter message={formError}>
+            <DialogFooter>
               <Button disabled={busy} type='button' variant='outline' onClick={() => setCreating(false)}>
                 {t('common.cancel')}
               </Button>

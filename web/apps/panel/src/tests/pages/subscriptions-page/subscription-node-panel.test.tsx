@@ -122,6 +122,7 @@ describe('subscription node pool', () => {
 
   it('renames a node at the version it was read and says when the name is taken', async () => {
     const user = userEvent.setup();
+    const notice = vi.spyOn(toast, 'add');
     const tokyo = inbound('tokyo');
     const client = mount({
       listSubscriptionNodes: vi.fn().mockResolvedValue(pool([tokyo])),
@@ -140,7 +141,8 @@ describe('subscription node pool', () => {
     await user.clear(name);
     await user.type(name, 'Tokyo 1');
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
-    expect(await within(dialog).findByText('Another node already uses this name')).toBeVisible();
+    await waitFor(() => expect(notice).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Another node already uses this name', type: 'error' })));
+    expect(name).toHaveAttribute('aria-invalid', 'true');
     expect(client.updateSubscriptionNode).toHaveBeenCalledWith('tokyo', { display_name: 'Tokyo 1' }, tokyo.updated_at);
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

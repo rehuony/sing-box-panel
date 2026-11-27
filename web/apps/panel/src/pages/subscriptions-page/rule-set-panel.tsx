@@ -17,12 +17,12 @@ import type { SubscriptionFormat, SubscriptionRuleSet } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
-import { messageLine } from '@/utils/message-line';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { RegionError } from '@/components/region-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { dropSlot, SortContext } from '@/components/sortable';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
@@ -49,7 +49,8 @@ function linkedClient(hash: string): SubscriptionFormat | undefined {
 /**
  * Names a new rule set and picks its icon from the menu at the start of the
  * name field. The name is checked here, unique among the client's sets, so
- * the dialog closes as it is submitted and the set is added in the background.
+ * the dialog closes as it is submitted and the set is added in the background;
+ * a name it refuses is marked and said in a toast.
  */
 function CreateDialog({ onClose, onSubmit, taken }: {
   /** Names the client's sets use, compared ignoring case. */
@@ -61,16 +62,18 @@ function CreateDialog({ onClose, onSubmit, taken }: {
   const id = useId();
   const [icon, setIcon] = useState<RuleSetIconKey>(DEFAULT_RULE_SET_ICON);
   const [name, setName] = useState('');
-  const [message, setMessage] = useState('');
+  const { clear: clearProblem, invalid, report } = useDialogProblem<'name'>();
   const nameRef = useRef<HTMLInputElement>(null);
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      setMessage(t('subscriptions.ruleSets.validation.setName'));
+      report(t('subscriptions.ruleSets.validation.setName'), { field: 'name' });
+      nameRef.current?.focus();
     } else if (taken.some(each => each.toLowerCase() === trimmed.toLowerCase())) {
-      setMessage(t('subscriptions.ruleSets.validation.setNameTaken', { name: trimmed }));
+      report(t('subscriptions.ruleSets.validation.setNameTaken', { name: trimmed }), { field: 'name' });
+      nameRef.current?.focus();
     } else {
       onSubmit({ icon, name: trimmed });
     }
@@ -93,12 +96,12 @@ function CreateDialog({ onClose, onSubmit, taken }: {
                 <span aria-hidden='true' className='h-5 w-px bg-border' />
               </InputGroupAddon>
               <InputGroupInput
-                aria-invalid={Boolean(message) || undefined}
+                aria-invalid={invalid('name')}
                 autoComplete='off'
                 id={id}
                 maxLength={128}
                 onChange={(event) => {
-                  setMessage('');
+                  clearProblem();
                   setName(event.target.value);
                 }}
                 ref={nameRef}
@@ -106,7 +109,7 @@ function CreateDialog({ onClose, onSubmit, taken }: {
               />
             </InputGroup>
           </DialogFields>
-          <DialogFooter className='flex-nowrap' message={messageLine(message)}>
+          <DialogFooter className='flex-nowrap'>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button type='submit'>{t('subscriptions.ruleSets.create')}</Button>
           </DialogFooter>

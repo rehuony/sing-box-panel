@@ -138,7 +138,7 @@ it('retains entered values after rejection without a false creation result', asy
   const form = screen.getByRole('dialog', { name: 'Create key' });
   await user.type(within(form).getByLabelText('Name'), 'Retained');
   await user.click(within(form).getByRole('button', { name: 'Create key' }));
-  expect(await within(form).findByRole('status')).toHaveTextContent('write failed');
+  await waitFor(() => expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'The key was not created', description: 'write failed', type: 'error' })));
   expect(within(form).getByLabelText('Name')).toHaveValue('Retained');
   expect(screen.queryByRole('dialog', { name: 'Key created' })).not.toBeInTheDocument();
 });

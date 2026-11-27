@@ -21,7 +21,7 @@ export const channels = {
   selectedNodes: '{{count}} selected', clearNodes: 'Clear selection', removeNodes: 'Remove selected nodes',
   nodeDragInstructions: 'Press Space or Enter to select. Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
   nodeDragEnd: 'Node order updated.',
-  link: 'Subscription link', linkKey: 'Key', linkURL: 'Link', copyLink: 'Copy link', copyFailed: 'Could not copy to the clipboard', openFailed: 'The channel did not open', duplicateFailed: 'The channel was not duplicated', removeFailed: 'The channel was not deleted', saveFailed: 'The channel was not saved', templateCheckFailed: 'The template check failed', linkCopied: 'Copied the subscription link of {{name}} (key: {{key}})',
+  link: 'Subscription link', linkKey: 'Key', linkURL: 'Link', copyLink: 'Copy link', copyFailed: 'Could not copy to the clipboard', openFailed: 'The channel did not open', duplicateFailed: 'The channel was not duplicated', removeFailed: 'The channel was not deleted', saveFailed: 'The channel was not saved', createFailed: 'The channel was not created', templateCheckFailed: 'The template check failed', linkCopied: 'Copied the subscription link of {{name}} (key: {{key}})',
   showQRCode: 'Show QR code', hideQRCode: 'Hide QR code', qrCode: 'Subscription link QR code',
   noActiveKeys: 'No active keys yet', newKey: 'New key', keyName: 'Name', keyNameRequired: 'Enter a key name', createKey: 'Create key', keyCreated: 'Created key {{label}}',
   keyUnlimited: 'No limit', keyRemaining_one: '{{count}} download left', keyRemaining_other: '{{count}} downloads left', keyExpires: 'Expires {{date}}',

@@ -19,6 +19,7 @@ import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { DateTimeField } from '@/components/date-time-field';
 import { ListPagination } from '@/components/list-pagination';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
@@ -50,8 +51,8 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   // The earliest time a chosen expiry may take, read when the choice opens.
   const [earliest, setEarliest] = useState(() => new Date());
   const [limit, setLimit] = useState('');
-  // A form problem names the field it focuses; a refused request names none.
-  const [issue, setIssue] = useState<{ field?: 'name' | 'expiry' | 'quota'; message: string } | null>(null);
+  // A form problem marks the field it focuses; a refused request marks none.
+  const formProblem = useDialogProblem<'name' | 'expiry' | 'quota'>(creating);
   const [issued, setIssued] = useState<{ key: CreatedSubscriptionToken; kind: 'created' | 'rotated' | 'viewed' } | null>(null);
   const [copied, setCopied] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -63,7 +64,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     setExpiry('never');
     setExpiresAt(null);
     setLimit('');
-    setIssue(null);
+    formProblem.clear();
   }
   useUnsavedChanges(creating && (label !== '' || expiry !== 'never' || limit !== ''), () => {
     setCreating(false);
@@ -112,8 +113,8 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     return t('subscriptions.keys.expiryDays', { count: Number(choice) });
   }
   /** Saying why the form cannot be saved focuses the field at fault. */
-  function refuse(field: 'name' | 'expiry' | 'quota', message: string) {
-    setIssue({ field, message });
+  function refuse(field: 'name' | 'expiry' | 'quota', message: string, description?: string) {
+    formProblem.report(message, { description, field });
     if (field === 'name') nameRef.current?.focus();
     else if (field === 'quota') quotaRef.current?.focus();
     else document.getElementById('key-expiry')?.focus();
@@ -132,10 +133,10 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     const quota = limit.trim();
     const downloadLimit = quota === '' ? undefined : Number(quota);
     if (downloadLimit !== undefined && (!/^\d+$/.test(quota) || downloadLimit < 1 || downloadLimit > 1_000_000_000)) {
-      return refuse('quota', t('subscriptions.keys.quotaInvalid'));
+      return refuse('quota', t('subscriptions.keys.quotaInvalid'), t('subscriptions.keys.quotaUnlimited'));
     }
     setBusy(true);
-    setIssue(null);
+    formProblem.clear();
     try {
       const result = await client.createSubscriptionToken({
         label: label.trim(), expiresAt: expires?.toISOString(), downloadLimit,
@@ -145,7 +146,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       refresh();
       resetForm();
     } catch (reason) {
-      setIssue({ message: describeRequestError(reason) });
+      formProblem.report(t('subscriptions.keys.failed.create'), { description: describeRequestError(reason) });
     } finally {
       setBusy(false);
     }
@@ -350,12 +351,12 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
             <DialogFields>
               <label htmlFor='key-name'>{t('subscriptions.common.name')}</label>
               <Input
-                aria-invalid={issue?.field === 'name' || undefined}
+                aria-invalid={formProblem.invalid('name')}
                 id='key-name'
                 maxLength={128}
                 onChange={event => {
                   setLabel(event.target.value);
-                  setIssue(null);
+                  formProblem.clear();
                 }}
                 ref={nameRef}
                 value={label}
@@ -367,16 +368,16 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                       clearLabel={t('subscriptions.keys.backToPresets')}
                       defaultOpen
                       id='key-expiry'
-                      invalid={issue?.field === 'expiry'}
+                      invalid={formProblem.invalid('expiry')}
                       min={earliest}
                       onChange={(value) => {
                         setExpiresAt(value);
-                        setIssue(null);
+                        formProblem.clear();
                       }}
                       onClear={() => {
                         setExpiry('never');
                         setExpiresAt(null);
-                        setIssue(null);
+                        formProblem.clear();
                       }}
                       value={expiresAt}
                     />
@@ -388,7 +389,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                         if (next === null) return;
                         if (next === 'custom') setEarliest(new Date());
                         setExpiry(next);
-                        setIssue(null);
+                        formProblem.clear();
                       }}
                       value={expiry}
                     >
@@ -414,12 +415,12 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
               <label htmlFor='key-quota'>{t('subscriptions.keys.quota')}</label>
               <InputGroup>
                 <InputGroupInput
-                  aria-invalid={issue?.field === 'quota' || undefined}
+                  aria-invalid={formProblem.invalid('quota')}
                   id='key-quota'
                   inputMode='numeric'
                   onChange={event => {
                     setLimit(event.target.value);
-                    setIssue(null);
+                    formProblem.clear();
                   }}
                   placeholder={t('subscriptions.keys.unlimited')}
                   ref={quotaRef}
@@ -430,7 +431,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                 </InputGroupAddon>
               </InputGroup>
             </DialogFields>
-            <DialogFooter message={issue?.message ?? ''}>
+            <DialogFooter>
               <Button type='button' variant='outline' disabled={busy} onClick={() => setCreating(false)}>{t('subscriptions.keys.cancel')}</Button>
               <Button aria-busy={busy || undefined} type='submit'>{t('subscriptions.keys.create')}</Button>
             </DialogFooter>

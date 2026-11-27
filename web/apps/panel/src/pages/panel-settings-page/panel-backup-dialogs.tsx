@@ -20,10 +20,11 @@ import { queries } from '@/api/queries';
 import { ApiRequestError } from '@/api/api-client';
 import { useApiClient } from '@/api/api-client-context';
 import { awaitRestart } from '@/components/status-line';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
+import { describeRequestError } from '@/components/error-notice';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { HeightTransition } from '@/components/height-transition';
 import { formatLogTimeCompact } from '@/utils/panel-log-presentation';
-import { describeRequestError, toastFailure } from '@/components/error-notice';
 
 import { BACKUP_CATEGORIES, categoryCount, categoryList, contentsLabel, DEFAULT_CATEGORIES, effectsLine } from './panel-backup';
 
@@ -115,7 +116,7 @@ export function CreateBackupDialog({ open, onOpenChange }: { open: boolean; onOp
   const [categories, setCategories] = useState<ReadonlySet<PanelBackupCategory>>(() => new Set(DEFAULT_CATEGORIES));
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  const [invalid, setInvalid] = useState<'passphrase' | 'confirmation' | null>(null);
+  const { clear: clearProblem, invalid, report } = useDialogProblem<'passphrase' | 'confirmation'>(open);
   const [pending, setPending] = useState(false);
   const passphraseRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
@@ -124,25 +125,23 @@ export function CreateBackupDialog({ open, onOpenChange }: { open: boolean; onOp
     setCategories(new Set(DEFAULT_CATEGORIES));
     setPassphrase('');
     setConfirmation('');
-    setInvalid(null);
+    clearProblem();
   }
 
   async function create() {
     if (pending) return;
     if (categories.size === 0) {
-      toast.add({ title: t('panelSettings.backupCategoriesNone'), type: 'error' });
+      report(t('panelSettings.backupCategoriesNone'));
       return;
     }
     if (passphrase !== '' && [...passphrase].length < 8) {
-      setInvalid('passphrase');
+      report(t('panelSettings.backupPassphraseShort'), { field: 'passphrase' });
       passphraseRef.current?.focus();
-      toast.add({ title: t('panelSettings.backupPassphraseShort'), type: 'error' });
       return;
     }
     if (passphrase !== confirmation) {
-      setInvalid('confirmation');
+      report(t('panelSettings.backupPassphraseMismatch'), { field: 'confirmation' });
       confirmationRef.current?.focus();
-      toast.add({ title: t('panelSettings.backupPassphraseMismatch'), type: 'error' });
       return;
     }
     setPending(true);
@@ -153,7 +152,7 @@ export function CreateBackupDialog({ open, onOpenChange }: { open: boolean; onOp
       void cache.invalidateQueries({ queryKey: ['panelBackups'] });
       toast.add({ title: t('panelSettings.backupCreated'), type: 'success' });
     } catch (cause) {
-      toastFailure(t('panelSettings.backupFailed'), cause);
+      report(t('panelSettings.backupFailed'), { description: describeRequestError(cause) });
     } finally {
       setPending(false);
     }
@@ -185,6 +184,7 @@ export function CreateBackupDialog({ open, onOpenChange }: { open: boolean; onOp
             <CategoryTiles
               labelledBy={contentsId}
               onToggle={(category) => {
+                clearProblem();
                 setCategories(current => toggled(current, category));
               }}
               selected={categories}
@@ -194,14 +194,14 @@ export function CreateBackupDialog({ open, onOpenChange }: { open: boolean; onOp
             <label className={sectionLabel} htmlFor='backup-passphrase'>{t('panelSettings.backupPassphrase')}</label>
             <div className='grid grid-cols-2 gap-2 max-[520px]:grid-cols-1'>
               <Input
-                aria-invalid={invalid === 'passphrase' || undefined}
+                aria-invalid={invalid('passphrase')}
                 autoComplete='new-password'
                 id='backup-passphrase'
                 maxLength={1024}
                 onChange={(event) => {
                   setPassphrase(event.target.value);
                   if (event.target.value === '') setConfirmation('');
-                  setInvalid(null);
+                  clearProblem();
                 }}
                 placeholder={t('panelSettings.backupPassphrasePlaceholder')}
                 ref={passphraseRef}
@@ -210,14 +210,14 @@ export function CreateBackupDialog({ open, onOpenChange }: { open: boolean; onOp
               />
               {/* Always there, hidden until a passphrase is typed, so the dialog keeps its size. */}
               <Input
-                aria-invalid={invalid === 'confirmation' || undefined}
+                aria-invalid={invalid('confirmation')}
                 aria-label={t('panelSettings.backupPassphraseConfirm')}
                 autoComplete='new-password'
                 className={passphrase === '' ? 'invisible' : undefined}
                 maxLength={1024}
                 onChange={(event) => {
                   setConfirmation(event.target.value);
-                  setInvalid(null);
+                  clearProblem();
                 }}
                 placeholder={t('panelSettings.backupPassphraseConfirm')}
                 ref={confirmationRef}
@@ -298,6 +298,8 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
   const [passphrase, setPassphrase] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<PanelBackupCategory>>(() => new Set(initial?.categories ?? []));
   const [planned, setPlanned] = useState<{ key: string; plan: PanelRestorePlan } | null>(null);
+  // The passphrase marks itself from the check; a problem names no field.
+  const { clear: clearProblem, report } = useDialogProblem(open);
   const [takeService, setTakeService] = useState(false);
   const [applying, setApplying] = useState(false);
 
@@ -318,10 +320,10 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
       const code = cause instanceof ApiRequestError ? cause.code : '';
       if (code === 'backup_passphrase_required' || code === 'backup_passphrase_incorrect') {
         setCheck({ step: 'locked', incorrect: secret !== '' });
-        if (secret !== '') toast.add({ title: describeRequestError(cause), type: 'error' });
+        if (secret !== '') report(describeRequestError(cause));
       } else {
         setCheck({ step: 'failed' });
-        toastFailure(t('panelSettings.backupCheckFailed'), cause);
+        report(t('panelSettings.backupCheckFailed'), { description: describeRequestError(cause) });
       }
     }
   }
@@ -340,6 +342,7 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
   function choose(next: Source) {
     controllerRef.current?.abort();
     discardStaged();
+    clearProblem();
     setSource(next);
     setPassphrase('');
     setTakeService(false);
@@ -371,11 +374,11 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
   async function apply() {
     if (applying) return;
     if (!staged) {
-      toast.add({ title: t(source ? 'panelSettings.backupPassphraseRequired' : 'panelSettings.backupPickFirst'), type: 'error' });
+      report(t(source ? 'panelSettings.backupPassphraseRequired' : 'panelSettings.backupPickFirst'));
       return;
     }
     if (selected.size === 0) {
-      toast.add({ title: t('panelSettings.backupCategoriesNone'), type: 'error' });
+      report(t('panelSettings.backupCategoriesNone'));
       return;
     }
     setApplying(true);
@@ -395,7 +398,7 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
       else if (outcome.kind === 'failed') toast.add({ title: outcome.reason, type: 'error' });
     } catch (cause) {
       setApplying(false);
-      toastFailure(t('panelSettings.backupRestoreFailed'), cause);
+      report(t('panelSettings.backupRestoreFailed'), { description: describeRequestError(cause) });
     }
   }
 
@@ -546,6 +549,7 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
                   onChange={(event) => {
                     setPassphrase(event.target.value);
                     setCheck({ step: 'locked' });
+                    clearProblem();
                   }}
                   placeholder={t('panelSettings.backupPassphrase')}
                   type='password'
@@ -563,6 +567,7 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
               inert={!staged}
               labelledBy={contentsId}
               onToggle={(category) => {
+                clearProblem();
                 setSelected(current => toggled(current, category));
               }}
               selected={selected}

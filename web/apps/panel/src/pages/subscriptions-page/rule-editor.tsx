@@ -10,15 +10,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 
 import type { ChannelRemoteRuleSet, SubscriptionFormat, SubscriptionRule } from '@/api/api-client';
 
-import { messageLine } from '@/utils/message-line';
 import { IconAction } from '@/components/icon-action';
 import { SelectField } from '@/components/select-field';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
 
 import { ruleType } from './rule-text';
 import { canAccelerateRuleURL, detectRuleFormat, directRuleURL, effectiveRuleURL, ruleFormats } from './channel-policy';
 
 type MatchKind = Exclude<SubscriptionRule['kind'], 'remote'>;
 type Behavior = NonNullable<ChannelRemoteRuleSet['behavior']>;
+type Field = 'value' | 'name' | 'url' | 'format' | 'behavior';
 
 const MATCH_KINDS: readonly MatchKind[] = ['domain', 'domain_suffix', 'domain_keyword', 'ip_cidr'];
 const FORMAT_LABELS: Record<ChannelRemoteRuleSet['format'], string> = {
@@ -50,7 +51,8 @@ function nameFromURL(raw: string): string {
  * Adds or edits one rule of a client: a match on a domain, part of one or an
  * IP range, or a remote rule set the client fetches, whose formats are the
  * client's. A remote rule set's name defaults to its link's file name and
- * must differ from the others in the same list.
+ * must differ from the others in the same list. What keeps it from applying
+ * goes to a toast, the field at fault marked and focused.
  */
 export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }: {
   client: SubscriptionFormat;
@@ -71,17 +73,23 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
   const [url, setURL] = useState(() => rule?.remote ? effectiveRuleURL(rule.remote.url, rule.remote.accelerated) : '');
   const [format, setFormat] = useState<ChannelRemoteRuleSet['format'] | ''>(rule?.remote?.format ?? '');
   const [behavior, setBehavior] = useState<Behavior>(rule?.remote?.behavior ?? 'domain');
-  const [message, setMessage] = useState('');
+  const { clear: clearProblem, invalid, report } = useDialogProblem<Field>();
   const direct = directRuleURL(url);
   const accelerated = direct !== url.trim();
   const titleKey = remote ? (rule ? 'editRemote' : 'addRemote') : (rule ? 'editRule' : 'addRule');
+
+  /** Says why the rule cannot be applied and focuses the field at fault. */
+  function refuse(field: Field, text: string) {
+    report(text, { field });
+    document.getElementById(`${id}-${field}`)?.focus();
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!remote) {
       const trimmed = value.trim();
       if (!trimmed || (kind !== 'ip_cidr' && /[\s/:@,]/.test(trimmed))) {
-        setMessage(t('subscriptions.ruleSets.validation.value'));
+        refuse('value', t('subscriptions.ruleSets.validation.value'));
         return;
       }
       onSave({ kind, value: trimmed });
@@ -89,15 +97,15 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
     }
     const trimmedName = name.trim() || nameFromURL(url);
     if (!URL.canParse(direct) || !['http:', 'https:'].includes(new URL(direct).protocol)) {
-      setMessage(t('subscriptions.ruleSets.validation.url'));
+      refuse('url', t('subscriptions.ruleSets.validation.url'));
     } else if (!trimmedName || trimmedName.includes(',')) {
-      setMessage(t('subscriptions.ruleSets.validation.name'));
+      refuse('name', t('subscriptions.ruleSets.validation.name'));
     } else if (takenNames.includes(trimmedName)) {
-      setMessage(t('subscriptions.ruleSets.validation.nameTaken', { name: trimmedName }));
+      refuse('name', t('subscriptions.ruleSets.validation.nameTaken', { name: trimmedName }));
     } else if (!format) {
-      setMessage(t('subscriptions.ruleSets.validation.format'));
+      refuse('format', t('subscriptions.ruleSets.validation.format'));
     } else if (format === 'mrs' && behavior === 'classical') {
-      setMessage(t('subscriptions.ruleSets.validation.mrsClassical'));
+      refuse('behavior', t('subscriptions.ruleSets.validation.mrsClassical'));
     } else {
       onSave({
         kind: 'remote',
@@ -121,12 +129,13 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                     {/* The name comes first; left empty, it takes the file name of the link below. */}
                     <Row htmlFor={`${id}-name`} label={t('subscriptions.ruleSets.field.name')}>
                       <Input
+                        aria-invalid={invalid('name')}
                         autoComplete='off'
                         className='font-[family-name:var(--font-data)]'
                         id={`${id}-name`}
                         maxLength={128}
                         onChange={(event) => {
-                          setMessage('');
+                          clearProblem();
                           setName(event.target.value);
                         }}
                         placeholder={nameFromURL(url)}
@@ -137,12 +146,13 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                     <Row htmlFor={`${id}-url`} label={t('subscriptions.ruleSets.field.url')}>
                       <div className='relative'>
                         <Input
+                          aria-invalid={invalid('url')}
                           autoComplete='off'
                           className='pe-11 font-[family-name:var(--font-data)]'
                           id={`${id}-url`}
                           onChange={(event) => {
                             const next = event.target.value;
-                            setMessage('');
+                            clearProblem();
                             // The format follows the link until it is chosen by hand.
                             const detected = detectRuleFormat(url, client);
                             if (!format || format === detected) setFormat(detectRuleFormat(next, client));
@@ -159,7 +169,7 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                             label={t('subscriptions.ruleSets.accelerate')}
                             onClick={() => {
                               if (!accelerated && !canAccelerateRuleURL(direct)) {
-                                setMessage(t('subscriptions.ruleSets.accelerateUnavailable'));
+                                report(t('subscriptions.ruleSets.accelerateUnavailable'), { field: 'url' });
                                 return;
                               }
                               setURL(effectiveRuleURL(direct, !accelerated));
@@ -173,13 +183,14 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                     </Row>
                     <Row htmlFor={`${id}-format`} label={t('subscriptions.ruleSets.field.format')}>
                       <SelectField<ChannelRemoteRuleSet['format'] | ''>
+                        aria-invalid={invalid('format')}
                         id={`${id}-format`}
                         items={[
                           { label: t('subscriptions.ruleSets.chooseFormat'), value: '' },
                           ...ruleFormats(client).map(value => ({ label: FORMAT_LABELS[value], value })),
                         ]}
                         onValueChange={(next) => {
-                          setMessage('');
+                          clearProblem();
                           setFormat(next);
                         }}
                         value={format}
@@ -189,13 +200,17 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                       ? (
                           <Row htmlFor={`${id}-behavior`} label={t('subscriptions.ruleSets.field.behavior')}>
                             <SelectField<Behavior>
+                              aria-invalid={invalid('behavior')}
                               id={`${id}-behavior`}
                               items={(['domain', 'ipcidr', 'classical'] as const).map(value => ({
                                 disabled: value === 'classical' && format === 'mrs',
                                 label: value,
                                 value,
                               }))}
-                              onValueChange={setBehavior}
+                              onValueChange={(next) => {
+                                clearProblem();
+                                setBehavior(next);
+                              }}
                               value={behavior}
                             />
                           </Row>
@@ -209,18 +224,22 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                       <SelectField<MatchKind>
                         id={`${id}-kind`}
                         items={MATCH_KINDS.map(value => ({ label: ruleType(value), value }))}
-                        onValueChange={setKind}
+                        onValueChange={(next) => {
+                          clearProblem();
+                          setKind(next);
+                        }}
                         value={kind}
                       />
                     </Row>
                     <Row htmlFor={`${id}-value`} label={t('subscriptions.ruleSets.field.value')}>
                       <Input
+                        aria-invalid={invalid('value')}
                         autoComplete='off'
                         className='font-[family-name:var(--font-data)]'
                         id={`${id}-value`}
                         maxLength={128}
                         onChange={(event) => {
-                          setMessage('');
+                          clearProblem();
                           setValue(event.target.value);
                         }}
                         placeholder={kind === 'ip_cidr' ? '192.168.0.0/16' : 'example.com'}
@@ -231,7 +250,7 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                   </>
                 )}
           </div>
-          <DialogFooter className='flex-nowrap' message={messageLine(message)}>
+          <DialogFooter className='flex-nowrap'>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button type='submit'>{t('subscriptions.ruleSets.apply')}</Button>
           </DialogFooter>
