@@ -26,7 +26,7 @@ services, their protocol and state ownership are in
 | `internal/` | Every package, and the only `internal` directory: the panel's packages in `internal/sing-box-panel/`, the node's in `internal/sing-box-node/` and shared packages beside them |
 | `api/` | Contracts only: the panel's management HTTP contract (`panel-openapi.yaml`), the node console's HTTP contract (`node-openapi.yaml`) and the panel–node protobuf module (`proto/`, with its `buf.yaml` and `buf.gen.yaml`; package `sbp.node.v1`) |
 | `web/` | The pnpm workspace of the Web applications: the panel's in `apps/panel` and the node console's in `apps/node`, each with the Go package that embeds its production build, and the code both share in `packages/shared` |
-| `tools/` | Maintainer commands run through `go tool`: sing-box support generation, release signing, third-party notices and OpenAPI verification |
+| `tools/` | Maintainer commands run through `go tool`: release signing, third-party notices and OpenAPI verification |
 | `scripts/` | Installer, isolated release build and native release tests |
 | `docs/` | One guide per topic, indexed in [the documentation index](README.md) |
 | `.github/` | Workflows, community and security policies, templates, code ownership and the release trust root |
@@ -118,17 +118,22 @@ implementation details.
 Production imports between the module's packages, as reported by
 `go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/... ./cmd/... ./tools/...`.
 `panel:` and `node:` abbreviate `internal/sing-box-panel/` and
-`internal/sing-box-node/`:
+`internal/sing-box-node/`; the `layout` test package and the panel's
+`testutil` fixtures, which only tests use, are left out:
 
 ```text
-atomicfile, buildinfo, console, coreartifact, database, jsonstrict, netguard,
-pathguard, procctl, release, singbox, webauth (no module imports)
+atomicfile, buildinfo, coreartifact, database, jsonstrict, netguard, pathguard,
+procctl, release, webauth (no module imports)
 
 configuration      -> jsonstrict
 logredact          -> jsonstrict
 nodeapi            -> jsonstrict
+singbox            -> coreartifact
 selfupdate         -> atomicfile, jsonstrict, release
+settingsfile       -> atomicfile, jsonstrict
 systemd            -> atomicfile, database, pathguard
+cliui              -> buildinfo, procctl, selfupdate, systemd
+
 node:host          -> netguard
 node:artifacts     -> atomicfile, coreartifact
 node:runtime       -> atomicfile, coreartifact, singbox
@@ -136,68 +141,75 @@ node:corelogs      -> logredact
 node:store         -> configuration, coreartifact, database
 node:service       -> configuration, coreartifact, database, jsonstrict,
                       node:artifacts, node:corelogs, node:host, node:runtime,
-                      node:store
-node:settings      -> atomicfile, jsonstrict, nodeapi, webauth
+                      node:store, singbox
+node:settings      -> atomicfile, jsonstrict, nodeapi, settingsfile, webauth
 node:agent         -> buildinfo, coreartifact, nodeapi, procctl, release,
-                      selfupdate, systemd, node:artifacts, node:corelogs,
-                      node:host, node:service, node:settings, node:store,
-                      node:systemd
+                      selfupdate, node:artifacts, node:corelogs, node:host,
+                      node:service, node:settings, node:store, node:systemd,
+                      systemd
 node:httpapi       -> buildinfo, jsonstrict, nodeapi, node:agent, node:host,
                       node:settings, webauth
-node:systemd       -> selfupdate, node:settings, systemd
-node:cli           -> buildinfo, nodeapi, procctl, selfupdate, node:agent,
-                      node:httpapi, node:settings, node:systemd, systemd,
-                      web/apps/node, webauth
+node:systemd       -> settingsfile, node:settings, systemd
+node:cli           -> buildinfo, cliui, nodeapi, pathguard, procctl,
+                      selfupdate, settingsfile, node:agent, node:httpapi,
+                      node:settings, node:systemd, systemd, webauth,
+                      web/apps/node
 
-panel:store        -> configuration, database, jsonstrict, logredact
+panel:store        -> configuration, database, logredact
 panel:auth         -> panel:store, webauth
-panel:settings     -> atomicfile, database, jsonstrict, nodeapi, panel:auth,
-                      panel:store, webauth
+panel:settings     -> atomicfile, database, jsonstrict, nodeapi, settingsfile,
+                      panel:auth, panel:store, webauth
 panel:telemetry    -> database, panel:settings, panel:store
-panel:schema       -> coreartifact, singbox
+panel:schema       -> nodeapi
 panel:corecache    -> atomicfile, coreartifact, jsonstrict, netguard,
                       panel:settings, panel:store, panel:telemetry
-panel:nodeconfig   -> configuration, panel:corecache, panel:schema, panel:store
-panel:subscription -> configuration, coreartifact, database, jsonstrict,
-                      netguard, panel:schema, panel:settings, panel:store,
-                      panel:telemetry, singbox
-panel:releases     -> buildinfo, release, selfupdate, systemd, panel:settings,
-                      panel:store, panel:telemetry
-panel:fleet        -> atomicfile, buildinfo, configuration, database, nodeapi,
+panel:nodeconfig   -> configuration, panel:corecache, panel:schema,
+                      panel:store, singbox
+panel:subscription -> configuration, database, jsonstrict, netguard,
+                      panel:settings, panel:store, panel:telemetry, singbox
+panel:releases     -> buildinfo, release, selfupdate, panel:settings,
+                      panel:store, panel:telemetry, systemd
+panel:fleet        -> buildinfo, configuration, database, nodeapi,
                       panel:corecache, panel:nodeconfig, panel:releases,
                       panel:settings, panel:store, panel:telemetry
-panel:app          -> buildinfo, systemd, panel:auth, panel:corecache,
-                      panel:fleet, panel:nodeconfig, panel:releases,
-                      panel:settings, panel:store, panel:subscription,
-                      panel:systemd, panel:telemetry
+panel:app          -> buildinfo, panel:auth, panel:corecache, panel:fleet,
+                      panel:nodeconfig, panel:releases, panel:settings,
+                      panel:store, panel:subscription, panel:systemd,
+                      panel:telemetry, systemd
 panel:httpapi      -> buildinfo, configuration, coreartifact, jsonstrict,
-                      selfupdate, panel:app, panel:auth, panel:corecache,
-                      panel:fleet, panel:nodeconfig, panel:releases,
-                      panel:schema, panel:settings, panel:store,
-                      panel:subscription, panel:telemetry, webauth
-panel:installation -> database, jsonstrict, pathguard, procctl, panel:fleet,
-                      panel:settings, panel:store
-panel:systemd      -> selfupdate, panel:installation, panel:settings, systemd
-panel:cli          -> buildinfo, console, pathguard, procctl, selfupdate,
-                      panel:app, panel:fleet, panel:installation,
+                      nodeapi, selfupdate, panel:app, panel:auth,
+                      panel:corecache, panel:fleet, panel:nodeconfig,
+                      panel:releases, panel:schema, panel:settings,
+                      panel:store, panel:subscription, panel:telemetry,
+                      webauth
+panel:installation -> database, jsonstrict, pathguard, procctl, selfupdate,
+                      settingsfile, panel:releases, panel:settings,
+                      panel:store
+panel:systemd      -> settingsfile, panel:installation, panel:settings,
+                      systemd
+panel:cli          -> buildinfo, cliui, nodeapi, pathguard, procctl,
+                      selfupdate, panel:app, panel:fleet, panel:installation,
                       panel:settings, panel:store, panel:systemd, systemd,
                       webauth
-panel:server       -> buildinfo, console, procctl, panel:app, panel:corecache,
+panel:server       -> buildinfo, cliui, procctl, panel:app, panel:corecache,
                       panel:fleet, panel:httpapi, panel:installation,
-                      panel:settings, panel:store, panel:subscription,
-                      panel:telemetry
+                      panel:releases, panel:settings, panel:store,
+                      panel:subscription, panel:telemetry, systemd
 
-cmd/sing-box-panel        -> buildinfo, panel:cli, panel:server, selfupdate, web/apps/panel
-cmd/sing-box-node         -> buildinfo, node:cli
-tools/third-party-notices -> atomicfile
+cmd/sing-box-panel        -> buildinfo, cliui, selfupdate, panel:cli,
+                             panel:server, web/apps/panel
+cmd/sing-box-node         -> buildinfo, cliui, node:cli
 tools/sign-release        -> release
+tools/third-party-notices -> atomicfile
+tools/verify-openapi      (no module imports)
 ```
 
 Settings sit below the services that read them: `telemetry` reads the traffic
 sample retention and `corecache` reads the catalog token and
 refresh interval from `settings` directly, and `settings` depends on no other
-service. The HTTP route that restores a panel backup records its operation
-outcome.
+service but `auth`, whose email rule and login sessions it uses for logins and
+credential changes. The HTTP route that restores a panel backup records its
+operation outcome.
 
 `internal/layout` enforces the layout over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, neither service
@@ -225,10 +237,10 @@ the package that owns the capability and is selected through the line.
 - Go unit, integration, fuzz, and package contract tests live beside their
   production package. Shared test helpers remain in that package's
   `test_helpers_test.go`.
-- sing-box behavior differences use catalog- or family-driven table tests in
-  `internal/singbox` and the panel `schema` and `subscription` packages. The
-  real-binary contract is `internal/sing-box-panel/schema/core_contract_test.go`
-  and runs in dedicated native Linux CI jobs.
+- Release-line differences use line- and family-driven table tests in
+  `internal/singbox` and the panel `schema` and `subscription` packages. No
+  test runs a real sing-box binary; the schema a node's core prints is tested
+  against a fake core.
 - React tests mirror each package's `src` ownership structure. API client tests are
   split by the same contract domains as the implementation.
 - External inputs must skip in ordinary local tests and fail when their

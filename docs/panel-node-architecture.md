@@ -18,7 +18,7 @@ lists each package's responsibility and the dependency direction.
 | Service | Runs on | Responsibilities | Never does |
 | --- | --- | --- | --- |
 | Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; the node release of its own version that nodes update from; the subscription node pool, sources, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts and its node release |
-| Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands; an optional loopback console for its enrollment | Accept connections from its panel or from other hosts, serve the panel's Web UI, hold subscription data or the panel's administrator credentials |
+| Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands; a password-protected console for its enrollment and read-only readings | Accept connections from its panel, serve the panel's Web UI, hold subscription data or the panel's administrator credentials |
 
 The panel host runs no sing-box. A panel host that should also carry proxy
 traffic runs a node that connects to the panel over loopback, so every host is
@@ -386,8 +386,8 @@ web/                     pnpm workspace: apps/panel, apps/node (each embedded by
 ```
 
 `internal/layout` enforces the rules over `go list`: `cmd/` holds only the two
-`main` packages, shared packages depend on neither service, each service
-imports the other only through `internal/nodeapi`, and `cmd/sing-box-node`
+`main` packages, shared packages depend on neither service, neither service
+imports the other's packages, and `cmd/sing-box-node`
 embeds neither the panel's Web UI nor its configuration schema, and `cmd/sing-box-panel`
 does not embed the node console's. Maintainer tools are programs that nothing
 imports and may use any package.
