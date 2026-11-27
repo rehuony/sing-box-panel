@@ -278,6 +278,13 @@ export const productLogs = {
     install_step_missing: '服务重新启动时没有安装暂存的版本，请用 systemd install 重写它的服务单元。',
     update_in_progress: '该节点的另一次升级仍在进行。',
     node_offline: '节点未连接。',
+    catalog_timeout: 'GitHub 未能在时限内完成版本目录刷新。',
+    catalog_request_failed: '面板无法连接 GitHub。',
+    catalog_rate_limited: 'GitHub 请求次数已达上限，请稍后重试或配置 GitHub token。',
+    catalog_authentication_failed: 'GitHub 拒绝了面板设置中的 GitHub token。',
+    download_timeout: '核心归档未能在时限内下载完成。',
+    download_request_failed: '面板无法连接 GitHub 下载核心归档。',
+    archive_digest_mismatch: '下载的归档与 GitHub 报告的摘要不一致。',
     operation_failed: '操作失败，未记录可安全展示的具体原因。',
   },
   sources: {

@@ -34,7 +34,9 @@ type Service struct {
 	now        func() time.Time
 	removeFile func(string) error
 	downloader Downloader
-	catalogMu  sync.Mutex
+	// refreshMu guards refreshing, the catalog refresh that is running.
+	refreshMu  sync.Mutex
+	refreshing *catalogRefresh
 	// cacheMu orders writes of the artifact cache against its sweep, so a
 	// sweep never removes the file of an archive being cached again.
 	cacheMu sync.Mutex

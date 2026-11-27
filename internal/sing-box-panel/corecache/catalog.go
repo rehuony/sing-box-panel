@@ -5,8 +5,10 @@
 package corecache
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -29,12 +31,18 @@ const (
 // Failure has a log-safe Error string. Cause remains available to trusted
 // callers through errors.Is/As without being interpolated into logs by default.
 type Failure struct {
-	Step  Step
-	Code  string
-	Cause error
+	Step Step
+	Code string
+	// Status is the HTTP status GitHub answered with, when it answered
+	// with one the catalog cannot use.
+	Status int
+	Cause  error
 }
 
 func (failure *Failure) Error() string {
+	if failure.Status != 0 {
+		return fmt.Sprintf("catalog %s failed (%s, HTTP %d)", failure.Step, failure.Code, failure.Status)
+	}
 	return fmt.Sprintf("catalog %s failed (%s)", failure.Step, failure.Code)
 }
 
@@ -42,6 +50,36 @@ func (failure *Failure) Unwrap() error { return failure.Cause }
 
 func fail(step Step, code string, cause error) error {
 	return &Failure{Step: step, Code: code, Cause: errors.Join(ErrCatalog, cause)}
+}
+
+// transportFailureCode names a failed request or body read by its kind: one
+// that was canceled, one that ran out of time, or code for any other.
+func transportFailureCode(code string, err error) string {
+	var network net.Error
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &network) && network.Timeout():
+		return "timeout"
+	}
+	return code
+}
+
+// ClassifyOperationFailure names a catalog or archive download failure for
+// the panel log. The texts it returns hold only stable codes and HTTP
+// statuses, never a URL, token or response body.
+func ClassifyOperationFailure(err error) (code, message string, ok bool) {
+	var failure *Failure
+	var download *DownloadError
+	switch {
+	case errors.As(err, &failure):
+		return "catalog_" + failure.Code, failure.Error(), true
+	case errors.As(err, &download):
+		return "download_" + download.Code, download.Error(), true
+	case errors.Is(err, ErrArchiveDigest):
+		return "archive_digest_mismatch", ErrArchiveDigest.Error(), true
+	}
+	return "", "", false
 }
 
 type DiagnosticSeverity string

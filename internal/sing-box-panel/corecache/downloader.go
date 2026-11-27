@@ -5,6 +5,7 @@ package corecache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -27,11 +28,19 @@ var (
 // stable code alone: the cause, such as a transport error, can quote the
 // signed download URL.
 type DownloadError struct {
-	Code  string
-	Cause error
+	Code string
+	// Status is the HTTP status the download was answered with, when it
+	// was not 200.
+	Status int
+	Cause  error
 }
 
-func (err *DownloadError) Error() string { return "download artifact: " + err.Code }
+func (err *DownloadError) Error() string {
+	if err.Status != 0 {
+		return fmt.Sprintf("download artifact: %s (HTTP %d)", err.Code, err.Status)
+	}
+	return "download artifact: " + err.Code
+}
 
 func (err *DownloadError) Unwrap() error { return err.Cause }
 
@@ -163,14 +172,20 @@ func (downloader *SafeDownloader) Download(
 	request.Header.Set("User-Agent", "sing-box-panel")
 	response, err := downloader.client.Do(request)
 	if err != nil {
-		return 0, downloadFailure("request_failed", err)
+		var refused *DownloadError
+		if errors.As(err, &refused) {
+			// A redirect the allowlist refused keeps its own code; the
+			// transport error around it quotes the URL.
+			return 0, refused
+		}
+		return 0, downloadFailure(transportFailureCode("request_failed", err), err)
 	}
 	if response == nil || response.Body == nil {
 		return 0, downloadFailure("invalid_response", nil)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return 0, downloadFailure("http_status", nil)
+		return 0, &DownloadError{Code: "http_status", Status: response.StatusCode}
 	}
 	if response.ContentLength > maximumBytes {
 		return 0, downloadFailure("body_too_large", ErrDownloadTooLarge)
@@ -181,8 +196,11 @@ func (downloader *SafeDownloader) Download(
 	if err == nil && written > maximumBytes {
 		err = ErrDownloadTooLarge
 	}
+	if errors.Is(err, ErrDownloadTooLarge) {
+		return written, downloadFailure("body_too_large", err)
+	}
 	if err != nil {
-		return written, downloadFailure("body_read", err)
+		return written, downloadFailure(transportFailureCode("body_read", err), err)
 	}
 	return written, nil
 }

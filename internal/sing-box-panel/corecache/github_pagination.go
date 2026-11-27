@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -34,7 +35,10 @@ func (client *GitHubClient) loadReleasePages(ctx context.Context, remainingBytes
 		}
 		rawReleases = append(rawReleases, releases...)
 		diagnostics = append(diagnostics, Diagnostic{Step: StepReleases, Severity: DiagnosticInfo, Code: "page_loaded", Message: fmt.Sprintf("loaded release page %d", page)})
-		if !hasNextLink(response.Header.Get("Link")) {
+		// GitHub lists releases newest first, so a page without a release of
+		// a supported line ends discovery: the pages after it hold only
+		// older releases, none of which enter the catalog.
+		if !hasNextLink(response.Header.Get("Link")) || !slices.ContainsFunc(releases, supportedRelease) {
 			return rawReleases, pageETags, diagnostics, nil
 		}
 		if page == client.maximumPages {
@@ -79,17 +83,10 @@ func (client *GitHubClient) releasePagesUnchanged(ctx context.Context, pageETags
 			return false, fail(StepReleases, "invalid_page_etag", nil)
 		}
 	}
-	// Probe the page after the previous end. This detects a newly appended
-	// historical page even when every existing page representation is stable.
-	response, body, err := client.requestJSON(ctx, StepReleases, releasePageURL(len(pageETags)+1), nil, false, remainingBytes)
-	if err != nil {
-		return false, err
-	}
-	var releases []githubRelease
-	if err := decodeGitHubJSON(body, &releases); err != nil {
-		return false, fail(StepReleases, "invalid_json", err)
-	}
-	return len(releases) == 0 && !hasNextLink(response.Header.Get("Link")), nil
+	// A new release would change the first page, so pages unchanged up to the
+	// one that ended discovery leave the catalog unchanged; the older pages
+	// after it never enter it.
+	return true, nil
 }
 
 func releasePageURL(page int) string {
@@ -127,8 +124,9 @@ func encodePageValidator(pageETags []string) (string, error) {
 }
 
 func (client *GitHubClient) decodePageValidator(value string) ([]string, error) {
-	// v1 validators used 20 releases per page and cannot validate 50-item pages.
-	if value == "" || strings.HasPrefix(value, "sbp-github-pages-v1.") {
+	// Earlier validators name other pages: v1 pages of 20 releases, v2 the
+	// whole release history. The next refresh loads the pages anew.
+	if value == "" || (strings.HasPrefix(value, "sbp-github-pages-v") && !strings.HasPrefix(value, pageValidatorPrefix)) {
 		return nil, nil
 	}
 	if len(value) > maximumValidatorSize || containsControl(value) || !strings.HasPrefix(value, pageValidatorPrefix) {

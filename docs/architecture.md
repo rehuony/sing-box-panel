@@ -162,7 +162,7 @@ panel:settings     -> atomicfile, database, jsonstrict, nodeapi, settingsfile,
 panel:telemetry    -> database, panel:settings, panel:store
 panel:schema       -> nodeapi
 panel:corecache    -> atomicfile, coreartifact, jsonstrict, netguard,
-                      panel:settings, panel:store, panel:telemetry
+                      panel:settings, panel:store, panel:telemetry, singbox
 panel:nodeconfig   -> configuration, panel:corecache, panel:schema,
                       panel:store, singbox
 panel:subscription -> configuration, database, jsonstrict, netguard,

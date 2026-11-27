@@ -21,7 +21,9 @@ Installation uses the stored catalog and never substitutes a newer or older
 release. Opening version management initializes the catalog if it is missing;
 use the explicit refresh action when a release is absent from an existing cache.
 The Web client stops waiting for a refresh after one minute and shows the timeout
-with Try again in place of the list, as it does for any list it cannot read.
+with Try again in place of the list, as it does for any list it cannot read. The
+refresh itself continues on the panel; Try again shows its result once it has
+finished.
 The selected release must have a complete `MAJOR.MINOR.PATCH` version.
 
 Official packages use the static musl variant for Linux amd64 or arm64.
@@ -48,21 +50,31 @@ it is retained for existing records and does not mean publisher authentication.
 
 ## Catalog cache
 
-Discovery reads stable releases from the fixed `SagerNet/sing-box` GitHub
-repository. Only `sing-box-VERSION-linux-{amd64,arm64}-musl.tar.gz` packages enter
-the catalog, with at most one per version and architecture. Drafts, prereleases,
-invalid names and unrelated assets are filtered. There is no plain/glibc fallback.
-Missing, malformed or conflicting digest metadata does not hide a package or
-prevent installation.
+Discovery reads the stable releases of the supported [release lines](#release-lines)
+from the fixed `SagerNet/sing-box` GitHub repository. Only
+`sing-box-VERSION-linux-{amd64,arm64}-musl.tar.gz` packages enter the catalog,
+with at most one per version and architecture. Drafts, prereleases, releases
+before the first line, invalid names and unrelated assets are filtered. There is
+no plain/glibc fallback. Missing, malformed or conflicting digest metadata does
+not hide a package or prevent installation.
 
-Discovery reads pages of 50, up to 100 pages, with a 32 MiB page limit, a 256 MiB
-aggregate limit and a three-minute deadline. JSON depth and duplicate keys are
-checked. A successful complete catalog and its HTTP validator remain in SQLite
-until another complete refresh succeeds. Failed refreshes retain the last usable
-cache. `github.catalog_refresh_interval_hours` controls refresh scheduling, not
-cache expiration. Scheduled refreshes honor the interval; the explicit Web
-refresh action bypasses it.
+GitHub lists releases newest first. Discovery reads pages of 50 and stops after
+the first page that holds no release of a supported line, since every later page
+holds only older releases. It reads at most 100 pages, with a 32 MiB page limit,
+a 256 MiB aggregate limit and a three-minute deadline. JSON depth and duplicate
+keys are checked. A successful complete catalog and its HTTP validator remain in
+SQLite until another complete refresh succeeds. Failed refreshes retain the last
+usable cache. `github.catalog_refresh_interval_hours` controls refresh
+scheduling, not cache expiration. Scheduled refreshes honor the interval; the
+explicit Web refresh action bypasses it.
 The running server checks in the background without delaying HTTP readiness.
+
+A refresh runs on the panel until it finishes or reaches its deadline, whether
+or not the browser that asked for it still waits, and a refresh asked for while
+one runs shares that one's outcome. A core download likewise finishes and stays
+cached when the browser stops waiting for the installation. The panel log
+records each refresh and download with its duration and, when it fails, its
+failure code and any HTTP status.
 
 Opening Web version management reads the cache and initializes it only if missing.
 “Check GitHub for updates” forces a refresh. Cached downloads and installed versions
@@ -158,7 +170,8 @@ version is not above it, so later patch and minor releases need no panel release
 
 A version below 1.13.19 has no line: it uses Advanced JSON editing, and its
 node's inbounds are not published to subscriptions. Raw checking and running do
-not depend on a line.
+not depend on a line. The catalog does not offer such a version; install it by
+[importing its archive](#import-a-local-archive).
 
 For the 1.14 line the panel asks the node for the schema its installed core
 prints, once per archive SHA-256, and keeps up to 16 of them in memory. The node

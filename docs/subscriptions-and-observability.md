@@ -745,6 +745,8 @@ and core-log clear/delete actions also record bounded target identifiers and
 known error categories; arbitrary wrapped errors and request bodies are not
 persisted. Core configuration checks, health checks, version mismatches and
 termination failures have distinct error codes and localized descriptions.
+Core catalog refreshes and downloads record their failure code, such as
+`catalog_timeout` or `download_http_status`, with any HTTP status.
 Start/restart operation logs retain the activation bundle selected during the
 check phase, including when execution subsequently fails. All operation context
 still passes through the durable log sanitizer.

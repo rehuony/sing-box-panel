@@ -278,6 +278,13 @@ export const productLogs = {
     install_step_missing: 'The service started again without installing the staged release; rewrite its unit with systemd install.',
     update_in_progress: 'Another update of the node is in progress.',
     node_offline: 'The node is not connected.',
+    catalog_timeout: 'GitHub did not answer the catalog refresh in time.',
+    catalog_request_failed: 'The panel could not reach GitHub.',
+    catalog_rate_limited: 'GitHub’s request limit was reached; try again later or set a GitHub token.',
+    catalog_authentication_failed: 'GitHub rejected the GitHub token in the panel settings.',
+    download_timeout: 'The core archive download did not finish in time.',
+    download_request_failed: 'The panel could not reach GitHub to download the core archive.',
+    archive_digest_mismatch: 'The downloaded archive does not match the digest GitHub reports.',
     operation_failed: 'The operation failed; no safe diagnostic is available.',
   },
   sources: {

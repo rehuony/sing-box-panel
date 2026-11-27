@@ -90,6 +90,52 @@ func TestRefreshCatalogHonorsConfiguredRefreshInterval(t *testing.T) {
 	}
 }
 
+func TestCatalogRefreshOutlivesACallerThatStopsWaiting(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	application := New(database, nil, nil, Options{})
+	asset := validCatalogAsset(t)
+	value := Catalog{RepositoryID: OfficialRepositoryID, Releases: []Release{{
+		ID: asset.ReleaseID, Tag: "v1.13.19", Version: asset.Version, Assets: []Asset{asset},
+	}}}
+	started, release := make(chan struct{}), make(chan struct{})
+	refresh := func(ctx context.Context) (CatalogSnapshot, error) {
+		close(started)
+		<-release
+		if ctx.Err() != nil {
+			return CatalogSnapshot{}, ctx.Err()
+		}
+		return application.refreshCatalogWith(ctx, fakeCatalogRefresher{result: RefreshResult{Catalog: value, ETag: "detached"}})
+	}
+	caller, stopWaiting := context.WithCancel(ctx)
+	waited := make(chan error, 1)
+	go func() {
+		_, err := application.joinRefresh(caller, refresh)
+		waited <- err
+	}()
+	<-started
+	application.refreshMu.Lock()
+	running := application.refreshing
+	application.refreshMu.Unlock()
+	stopWaiting()
+	if err := <-waited; !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller error = %v, want context.Canceled", err)
+	}
+	close(release)
+	<-running.done
+	if running.err != nil {
+		t.Fatalf("refresh after its caller left: %v", running.err)
+	}
+	stored, err := application.Catalog(ctx)
+	if err != nil || stored.Validator != "detached" || len(stored.Catalog.Assets()) != 1 {
+		t.Fatalf("stored catalog = %+v, %v", stored, err)
+	}
+}
+
 func (refresher fakeCatalogRefresher) Refresh(context.Context, string) (RefreshResult, error) {
 	return refresher.result, refresher.err
 }

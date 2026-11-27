@@ -20,7 +20,7 @@ const (
 	defaultMaximumPage         = 32 << 20
 	defaultMaximumTotal        = 256 << 20
 	defaultTimeout             = 3 * time.Minute
-	pageValidatorPrefix        = "sbp-github-pages-v2."
+	pageValidatorPrefix        = "sbp-github-pages-v3."
 	maximumValidatorSize       = 16 << 10
 )
 
