@@ -52,8 +52,10 @@ function NodeLayout({ node }: { node: FleetNode }) {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [location.pathname]);
+  // Size containment keeps the view's content out of the workspace's height, so
+  // the strip stays in place and a long view scrolls in its own region below it.
   return (
-    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
+    <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)] [contain:size]'>
       <NodeStrip node={node} />
       {/*
         The bleed keeps a focus ring at the view's edge from being clipped. It

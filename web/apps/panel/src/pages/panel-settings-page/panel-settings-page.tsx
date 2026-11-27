@@ -305,8 +305,10 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
 export function PanelSettingsPage() {
   const { t } = useTranslation();
   const { view, error, reload } = usePanelSettings();
+  // Size containment keeps the cards out of the workspace's height, so the
+  // title strip stays in place and the cards scroll in their own region.
   return (
-    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-3 [contain:size]'>
       {error
         ? (
             <>
