@@ -10,7 +10,6 @@ import { ThemeProvider, useTheme } from '@/theme';
 import '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
-import { backupSettings } from '@/tests/api/backup-settings';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
 import { PanelSettingsProvider } from '@/stores/panel-settings-provider';
@@ -139,33 +138,92 @@ describe('panel settings', () => {
     expect(client.savePanelSettings).not.toHaveBeenCalled();
   });
 
-  it('previews a backup, requires confirmation and submits the destination revision', async () => {
+  it('lists the backups here and backs up the categories chosen with a passphrase typed twice', async () => {
     const user = userEvent.setup();
-    const client = setup();
-    const view = await client.getPanelSettings();
-    const native = backupSettings(view, { github: '', passwordHash: 'backup-secret' });
-    native.data_dir = '/srv/other-machine';
-    const backup = {
-      format: 'sing-box-panel-backup', version: 3, exported_at: '2026-09-23T01:00:00Z',
-      panel_settings: native,
-    };
-    vi.mocked(client.restorePanelBackup).mockResolvedValue({
-      settings: { ...view, revision: view.revision + 1 }, reauthentication_required: false,
+    const client = createMockApiClient();
+    const counts = { nodes: 3, sources: 2, channels: 4, rule_sets: 5, keys: 12, history_days: 30, log_entries: 0 };
+    vi.mocked(client.listPanelBackups).mockResolvedValue({ items: [
+      { name: 'sing-box-panel-20261127-030000-scheduled.tar.gz', kind: 'scheduled', created_at: '2026-11-27T03:00:00Z', size: 2048, encrypted: false,
+        categories: ['settings', 'nodes', 'subscriptions', 'rule_sets', 'keys', 'history'], counts },
+      { name: 'sing-box-panel-20261126-211400-manual.tar.gz', kind: 'manual', created_at: '2026-11-26T21:14:00Z', size: 4096, encrypted: true,
+        categories: ['rule_sets', 'keys'], counts },
+    ] });
+    vi.mocked(client.createPanelBackup).mockResolvedValue({
+      name: 'sing-box-panel-20261127-100000-manual.tar.gz', kind: 'manual', created_at: '2026-11-27T10:00:00Z', size: 4096, encrypted: true,
+      categories: ['settings', 'nodes', 'subscriptions', 'rule_sets', 'keys', 'logs'], counts,
     });
-    await screen.findByRole('button', { name: 'Export' });
-    const file = new File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' });
-    Object.defineProperty(file, 'text', { value: async () => JSON.stringify(backup) });
-    await user.upload(screen.getByLabelText('Restore…', { selector: 'input' }), file);
-    const dialog = await screen.findByRole('alertdialog');
-    expect(dialog).toHaveTextContent('/srv/other-machine');
-    expect(dialog).not.toHaveTextContent('backup-secret');
-    expect(client.restorePanelBackup).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByRole('button', { name: 'Restore configuration' }));
-    await waitFor(() => expect(client.restorePanelBackup).toHaveBeenCalledWith({
-      backup, settings_revision: view.revision,
+    setup(client);
+    expect(await screen.findByText('2 backups')).toBeVisible();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByRole('img', { name: 'Encrypted' })).toBeVisible();
+    expect(screen.getByText('Manual · Rule sets, Keys and users')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Back up now' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('checkbox', { name: 'Logs' })).not.toBeChecked();
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Logs' }));
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Traffic and runtime records' }));
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Partial backup: Panel settings, Nodes, Sources and channels, Rule sets, Keys and users, Logs');
+    await user.type(within(dialog).getByLabelText('Passphrase'), 'correct horse');
+    await user.type(within(dialog).getByLabelText('Confirm'), 'correct hors');
+    await user.click(within(dialog).getByRole('button', { name: 'Back up' }));
+    // A problem goes to a toast and marks the field at fault.
+    expect(await screen.findByText('The passphrases do not match')).toBeVisible();
+    expect(within(dialog).getByLabelText('Confirm')).toHaveAttribute('aria-invalid', 'true');
+    expect(client.createPanelBackup).not.toHaveBeenCalled();
+    await user.type(within(dialog).getByLabelText('Confirm'), 'e');
+    await user.click(within(dialog).getByRole('button', { name: 'Back up' }));
+    await waitFor(() => expect(client.createPanelBackup).toHaveBeenCalledWith({
+      categories: ['settings', 'nodes', 'subscriptions', 'rule_sets', 'keys', 'logs'], passphrase: 'correct horse',
     }));
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    // The dialog's submit never reaches the settings form behind it.
+    expect(client.savePanelSettings).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Back up now' })).not.toBeInTheDocument());
+  });
+
+  it('restores the categories chosen of a checked backup, saying what that changes beyond them', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    const counts = { nodes: 3, sources: 2, channels: 4, rule_sets: 5, keys: 12, history_days: 30, log_entries: 0 };
+    const categories = ['settings', 'nodes', 'subscriptions', 'rule_sets', 'keys', 'history'] as const;
+    const backup = {
+      name: 'sing-box-panel-20261127-030000-scheduled.tar.gz', kind: 'scheduled' as const, created_at: '2026-11-27T03:00:00Z', size: 2048,
+      encrypted: false, categories: [...categories], counts,
+    };
+    vi.mocked(client.listPanelBackups).mockResolvedValue({ items: [backup] });
+    vi.mocked(client.stagePanelBackup).mockResolvedValue({
+      id: '42', same_panel: false, staged_at: '2026-11-27T10:00:00Z',
+      manifest: {
+        format: 'sing-box-panel-backup', version: 5, created_at: backup.created_at, kind: 'scheduled', panel_version: 'v0.5.5',
+        encrypted: false, categories: [...categories], snapshot: { panel_id: 'panel-a', schema_version: 3, counts }, files: [],
+      },
+    });
+    vi.mocked(client.planPanelRestore).mockImplementation(async (_id, input) => ({
+      signs_out: input.categories.includes('settings'),
+      effects: {
+        pool_nodes: 0, rejected_exits: 0, direct_exits: 0, grants: 0, history_nodes: 0,
+        exit_rules: input.categories.includes('rule_sets') && !input.categories.includes('subscriptions') ? 2 : 0,
+      },
+    }));
+    vi.mocked(client.applyPanelRestore).mockResolvedValue({ started_at: '2026-11-27T09:00:00Z', before: { ...backup, kind: 'pre_restore' }, restarting: false });
+    setup(client);
+    await user.click(await screen.findByRole('button', { name: /^More actions for the / }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Restore…' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(within(dialog).getByRole('checkbox', { name: /^Rule sets/ })).toBeChecked());
+    expect(client.stagePanelBackup).toHaveBeenCalledWith(backup.name, {}, expect.any(AbortSignal));
+    expect(within(dialog).getByRole('checkbox', { name: /^Logs/ })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Restoring the settings signs everyone out, From another panel; its nodes must enroll again');
+    const keptHere = [
+      /^Panel settings/, /^Nodes/, /^Sources and channels/, /^Keys and users/, /^Traffic and runtime records/,
+    ];
+    for (const name of keptHere) {
+      await user.click(within(dialog).getByRole('checkbox', { name }));
+    }
+    await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent(/^2 exit rules removed$/));
+    expect(client.applyPanelRestore).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Restore and restart' }));
+    await waitFor(() => expect(client.applyPanelRestore).toHaveBeenCalledWith('42', { take_service: false, categories: ['rule_sets'] }));
+    expect(await screen.findByText('The restore applies when the panel next starts')).toBeVisible();
   });
 
   it('confirms leaving unsaved settings and retains a saved appearance', async () => {

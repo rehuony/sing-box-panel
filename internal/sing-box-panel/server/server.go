@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/app"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/backup"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/httpapi"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/installation"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
@@ -101,7 +102,13 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 	stopMarking := context.AfterFunc(ctx, control.Stopping)
 	defer stopMarking()
 
-	database, err := store.Open(ctx, filepath.Join(configuration.DataDir, "panel.db"))
+	// A restore the panel staged before it restarted replaces the databases
+	// and settings while nothing has them open.
+	restored, err := backup.ApplyPending(ctx, settingsPath, configuration.DataDir)
+	if err != nil {
+		return startupError(ctx, "apply the requested restore", err)
+	}
+	database, err := store.Open(ctx, filepath.Join(configuration.DataDir, store.PanelFile))
 	if err != nil {
 		return startupError(ctx, "open panel database", err)
 	}
@@ -141,6 +148,7 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 	})
 	records := services.Telemetry
 	restart.bind(services.Releases, records, build.Version)
+	recordRestore(records, restored)
 	defer func() {
 		level, code, message := store.LogLevelInfo, "panel.stopped", "Panel server stopped"
 		if runErr != nil {
@@ -176,6 +184,15 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 	defer func() {
 		stopRetention()
 		<-retentionDone
+	}()
+	if err := services.Backups.Clean(); err != nil {
+		return startupError(ctx, "remove interrupted backups", err)
+	}
+	backupContext, stopBackups := context.WithCancel(ctx)
+	backupsDone := startBackupSchedule(backupContext, services)
+	defer func() {
+		stopBackups()
+		<-backupsDone
 	}()
 	handlerOptions := httpapi.HandlerOptions{
 		Settings:  configuration,

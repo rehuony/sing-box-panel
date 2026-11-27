@@ -156,38 +156,192 @@ paths:
           $ref: "#/components/responses/Problem"
         default:
           $ref: "#/components/responses/Problem"
-  /panel/backup:
+  /panel/backups:
     get:
-      operationId: exportPanelBackup
+      operationId: listPanelBackups
       responses:
         "200":
-          description: Plaintext backup of the saved panel settings, including credentials. Never cached.
+          description: The backups in the panel's data directory, newest first.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/PanelBackup'}
-        "500":
-          $ref: '#/components/responses/Problem'
+              schema: {$ref: '#/components/schemas/PanelBackupList'}
         default:
           $ref: '#/components/responses/Problem'
-  /panel/restore:
     post:
-      operationId: restorePanelBackup
+      operationId: createPanelBackup
       parameters:
         - $ref: '#/components/parameters/CSRFToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/PanelRestoreRequest'}
+            schema: {$ref: '#/components/schemas/PanelBackupCreate'}
       responses:
-        "200":
-          description: The saved panel settings restored atomically. Node configurations are not part of a backup.
+        "201":
+          description: >-
+            A manual backup of the saved settings and the panel database, and
+            the log database when asked, in the backups directory; encrypted
+            with age when a passphrase is given.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/PanelRestoreResult'}
-        "412":
+              schema: {$ref: '#/components/schemas/PanelBackupInfo'}
+        "409":
           $ref: '#/components/responses/Problem'
         "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/backups/{name}:
+    parameters:
+      - $ref: '#/components/parameters/BackupName'
+    get:
+      operationId: downloadPanelBackup
+      responses:
+        "200":
+          description: The backup archive, including credentials unless it is encrypted. Never cached.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deletePanelBackup
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "204":
+          description: The backup is removed.
+        "404":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/backups/{name}/restore:
+    parameters:
+      - $ref: '#/components/parameters/BackupName'
+    post:
+      operationId: stagePanelBackup
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PanelRestoreStage'}
+      responses:
+        "200":
+          description: The backup verified and staged to restore, as its preview shows it.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelRestoreStaged'}
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/restores:
+    post:
+      operationId: uploadPanelRestore
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [archive]
+              properties:
+                passphrase:
+                  type: string
+                  description: The passphrase of an encrypted backup, sent before the archive.
+                archive:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: The uploaded backup verified and staged to restore, as its preview shows it.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelRestoreStaged'}
+        "409":
+          $ref: '#/components/responses/Problem'
+        "415":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/restores/{restoreId}:
+    parameters:
+      - $ref: '#/components/parameters/RestoreID'
+    delete:
+      operationId: discardPanelRestore
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        "204":
+          description: The staged restore is discarded.
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/restores/{restoreId}/plan:
+    parameters:
+      - $ref: '#/components/parameters/RestoreID'
+    post:
+      operationId: planPanelRestore
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PanelRestorePlanRequest'}
+      responses:
+        "200":
+          description: >-
+            What restoring the categories would change in the categories the
+            panel keeps, and whether it signs everyone out. Nothing changes.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelRestorePlan'}
+        "404":
+          $ref: '#/components/responses/Problem'
+        "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /panel/restores/{restoreId}/apply:
+    parameters:
+      - $ref: '#/components/parameters/RestoreID'
+    post:
+      operationId: applyPanelRestore
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PanelRestoreApply'}
+      responses:
+        "202":
+          description: >-
+            The panel backed up its current state and applies the chosen
+            categories before it next opens its databases, restarting now
+            where it can. Restoring the settings ends every session.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PanelRestoreRequested'}
+        "404":
+          $ref: '#/components/responses/Problem'
+        "409":
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
@@ -2263,6 +2417,17 @@ components:
       required: true
       schema:
         type: string
+    BackupName:
+      name: name
+      in: path
+      required: true
+      description: A backup's file name in the backups directory.
+      schema: {type: string, pattern: '^sing-box-panel-[0-9]{8}-[0-9]{6}(-[0-9]{1,3})?-(manual|scheduled|pre_restore)\.tar\.gz(\.age)?$'}
+    RestoreID:
+      name: restoreId
+      in: path
+      required: true
+      schema: {type: string, pattern: '^[0-9]{1,20}$'}
     NodeID:
       name: nodeId
       in: path
@@ -2858,32 +3023,186 @@ components:
           type: string
           description: The command that enrolls the node with this code.
         expires_at: {type: string, format: date-time}
-    PanelBackup:
+    PanelBackupInfo:
       type: object
       additionalProperties: false
-      required: [format, version, exported_at, panel_settings]
+      required: [name, kind, created_at, size, encrypted, categories, counts]
+      properties:
+        name: {type: string}
+        kind: {$ref: '#/components/schemas/PanelBackupKind'}
+        created_at: {type: string, format: date-time}
+        size: {type: integer, format: int64, minimum: 0}
+        encrypted: {type: boolean}
+        categories:
+          type: array
+          description: What the backup holds, read from its manifest without a passphrase; empty when the manifest cannot be read.
+          items: {$ref: '#/components/schemas/PanelBackupCategory'}
+        counts: {$ref: '#/components/schemas/PanelBackupCounts'}
+    PanelBackupCategory:
+      type: string
+      description: >-
+        A part of the panel a backup holds and a restore replaces on its own:
+        the settings file; the fleet with the panel identity; subscription
+        sources, the node pool and channels; rule sets; keys with their users
+        and grants; nodes' traffic and runtime records; the panel log.
+      enum: [settings, nodes, subscriptions, rule_sets, keys, history, logs]
+    PanelBackupCounts:
+      type: object
+      additionalProperties: false
+      required: [nodes, sources, channels, rule_sets, keys, history_days, log_entries]
+      description: Records a backup holds, 0 for a category it does not hold.
+      properties:
+        nodes: {type: integer, minimum: 0}
+        sources: {type: integer, minimum: 0}
+        channels: {type: integer, minimum: 0}
+        rule_sets: {type: integer, minimum: 0}
+        keys: {type: integer, minimum: 0}
+        history_days: {type: integer, minimum: 0, description: Days with a node's traffic recorded.}
+        log_entries: {type: integer, minimum: 0}
+    PanelBackupKind:
+      type: string
+      enum: [manual, scheduled, pre_restore]
+    PanelBackupList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/PanelBackupInfo'}
+    PanelBackupCreate:
+      type: object
+      additionalProperties: false
+      required: [categories]
+      properties:
+        categories:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/PanelBackupCategory'}
+        passphrase:
+          type: string
+          minLength: 8
+          maxLength: 1024
+          description: Encrypts the backup with age when given.
+    PanelRestoreStage:
+      type: object
+      additionalProperties: false
+      properties:
+        passphrase: {type: string, maxLength: 1024}
+    PanelRestorePlanRequest:
+      type: object
+      additionalProperties: false
+      required: [categories]
+      properties:
+        categories:
+          type: array
+          minItems: 1
+          description: Categories the backup holds.
+          items: {$ref: '#/components/schemas/PanelBackupCategory'}
+    PanelRestorePlan:
+      type: object
+      additionalProperties: false
+      required: [effects, signs_out]
+      properties:
+        effects:
+          type: object
+          additionalProperties: false
+          description: >-
+            Records the restore changes in the categories it keeps, following
+            the schema's rules: what refers to a removed record goes with it,
+            and an exit that named a removed pool node falls back.
+          required: [pool_nodes, exit_rules, rejected_exits, direct_exits, grants, history_nodes]
+          properties:
+            pool_nodes: {type: integer, minimum: 0, description: Pool nodes published from fleet nodes that are gone.}
+            exit_rules: {type: integer, minimum: 0, description: Exit rules whose rule set is gone.}
+            rejected_exits: {type: integer, minimum: 0, description: Exit rules whose exit node is gone; they reject.}
+            direct_exits: {type: integer, minimum: 0, description: Channels whose final exit node is gone; they go direct.}
+            grants: {type: integer, minimum: 0, description: Users' grants of pool nodes that are gone.}
+            history_nodes: {type: integer, minimum: 0, description: Nodes that are gone whose records go with them.}
+        signs_out:
+          type: boolean
+          description: Whether the restore ends every session, as restoring the settings does.
+    PanelRestoreApply:
+      type: object
+      additionalProperties: false
+      required: [take_service, categories]
+      properties:
+        take_service:
+          type: boolean
+          description: Also take the listener, base path and external origin of the backup's settings; the data directory always stays.
+        categories:
+          type: array
+          minItems: 1
+          description: Categories the backup holds.
+          items: {$ref: '#/components/schemas/PanelBackupCategory'}
+    PanelRestoreRequested:
+      type: object
+      additionalProperties: false
+      required: [started_at, before, restarting]
+      properties:
+        started_at:
+          type: string
+          format: date-time
+          description: When the panel that answered started; the restarted panel reports another time.
+        before: {$ref: '#/components/schemas/PanelBackupInfo'}
+        restarting:
+          type: boolean
+          description: Whether the panel restarts now to apply the restore; otherwise it applies when the panel next starts.
+    PanelRestoreStaged:
+      type: object
+      additionalProperties: false
+      required: [id, manifest, same_panel, staged_at]
+      properties:
+        id: {type: string}
+        manifest: {$ref: '#/components/schemas/PanelBackupManifest'}
+        server:
+          type: object
+          additionalProperties: false
+          description: The listener, base path and external origin of the backup's settings; absent when it holds no settings.
+          required: [host, port, base_path, external_origin]
+          properties:
+            host: {type: string}
+            port: {type: integer, minimum: 1, maximum: 65535}
+            base_path: {type: string}
+            external_origin: {type: string}
+        same_panel:
+          type: boolean
+          description: Whether the backup is of the panel that runs here, so its nodes reconnect without enrolling again.
+        staged_at: {type: string, format: date-time}
+    PanelBackupManifest:
+      type: object
+      additionalProperties: false
+      required: [format, version, created_at, kind, panel_version, encrypted, categories, snapshot, files]
       properties:
         format: {type: string, enum: [sing-box-panel-backup]}
-        version: {type: integer, enum: [3]}
-        exported_at: {type: string, format: date-time}
-        panel_settings:
+        version: {type: integer, enum: [5]}
+        created_at: {type: string, format: date-time}
+        kind: {$ref: '#/components/schemas/PanelBackupKind'}
+        panel_version: {type: string}
+        encrypted: {type: boolean}
+        categories:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/PanelBackupCategory'}
+        snapshot:
           type: object
-          additionalProperties: true
-          description: Complete native setting.json, including credentials. Validated using the settings-file contract; at most 1 MiB.
-    PanelRestoreRequest:
-      type: object
-      additionalProperties: false
-      required: [backup, settings_revision]
-      properties:
-        backup: {$ref: '#/components/schemas/PanelBackup'}
-        settings_revision: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
-    PanelRestoreResult:
-      type: object
-      additionalProperties: false
-      required: [settings, reauthentication_required]
-      properties:
-        settings: {$ref: '#/components/schemas/PanelSettingsView'}
-        reauthentication_required: {type: boolean}
+          additionalProperties: false
+          required: [panel_id, counts]
+          properties:
+            panel_id: {type: string}
+            schema_version: {type: integer, minimum: 1}
+            logs_schema_version: {type: integer, minimum: 1}
+            counts: {$ref: '#/components/schemas/PanelBackupCounts'}
+        files:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, size, sha256]
+            properties:
+              name: {type: string, enum: [setting.json, panel.db, logs.db]}
+              size: {type: integer, format: int64, minimum: 0}
+              sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
     PanelServiceSettings:
       type: object
       additionalProperties: false
@@ -2932,6 +3251,18 @@ components:
             deletes older transitions, keeping each node instance's newest.
             The panel log is kept until it is cleared. Omitted writes preserve
             the saved policy.
+        backup_interval_hours:
+          type: integer
+          minimum: 0
+          maximum: 720
+          default: 24
+          description: Hours between scheduled backups; 0 turns them off. Omitted writes preserve the saved policy.
+        backup_keep:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 7
+          description: Scheduled backups kept; older ones are removed. Manual backups and those made before a restore stay. Omitted writes preserve the saved policy.
     PanelSettingsView:
       type: object
       additionalProperties: false

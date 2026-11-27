@@ -17,7 +17,7 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [initial, setInitial] = useState(incoming);
   const [observedIncoming, setObservedIncoming] = useState(incoming);
   const { t } = useTranslation();
-  const { preview, save, accept } = usePanelSettings();
+  const { preview, save } = usePanelSettings();
   const { appearance: activeAppearance } = useTheme();
   const { appearance: initialAppearance, ...initialPreferences } = initial.preferences;
   const [preferencesDraft, setPreferencesDraft] = useState(initialPreferences);
@@ -30,19 +30,6 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
   const [password, setPassword] = useState('');
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [email, setEmail] = useState(initial.admin_email);
-  async function restored(view: PanelSettingsView) {
-    setInitial(view);
-    setEmail(view.admin_email);
-    const { appearance: _appearance, ...restoredPreferences } = view.preferences;
-    setPreferencesDraft(restoredPreferences);
-    setService(view.service);
-    setGithub('');
-    setClearGithub(false);
-    setPassword('');
-    setPasswordOpen(false);
-    setInvalidField(null);
-    await accept(view);
-  }
   const newPasswordError = passwordError(password);
   const passwordValid = newPasswordError === undefined;
   const colorValid = /^#[\dA-F]{6}$/i.test(preferences.appearance.color);
@@ -66,6 +53,8 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     'core-log-size': service.core_log_max_file_size_mib !== is.core_log_max_file_size_mib,
     'github-token': github !== '' || clearGithub,
     'catalog-refresh-interval': service.catalog_refresh_interval_hours !== is.catalog_refresh_interval_hours,
+    'backup-interval': service.backup_interval_hours !== is.backup_interval_hours,
+    'backup-keep': service.backup_keep !== is.backup_keep,
   }).filter(([, differs]) => differs).map(([field]) => field));
   const dirty = JSON.stringify(preferencesDraft) !== JSON.stringify(initialPreferences)
     || JSON.stringify(activeAppearance) !== JSON.stringify(initialAppearance)
@@ -166,7 +155,6 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     passwordValid,
     colorValid,
     dirty,
-    setSaving,
     setPassword,
     passwordOpen,
     openPassword: () => setPasswordOpen(true),
@@ -177,7 +165,6 @@ export function usePanelSettingsDraft(incoming: PanelSettingsView) {
     revert,
     setGithub,
     setClearGithub,
-    restored,
     update,
     updateService,
     appearance,

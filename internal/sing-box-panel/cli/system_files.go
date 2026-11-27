@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/cliui"
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
@@ -20,9 +21,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newSystemCommand(state *options, service systemdService) *cobra.Command {
-	root := cliui.Group("system", "Inspect or prune the selected instance's files and data")
-	root.AddCommand(newSystemDFCommand(state, service), newSystemPruneCommand(state, service))
+func newSystemCommand(state *options, service systemdService, build buildinfo.Info) *cobra.Command {
+	root := cliui.Group("system", "Inspect, back up, restore or prune the selected instance's files and data")
+	root.AddCommand(newSystemDFCommand(state, service), newSystemPruneCommand(state, service),
+		newSystemBackupCommand(state, build), newSystemRestoreCommand(state, build))
 	return root
 }
 

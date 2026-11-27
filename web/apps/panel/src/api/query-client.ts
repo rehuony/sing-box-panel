@@ -29,7 +29,7 @@ export function retryableRead(error: unknown): boolean {
 
 type QueryRoot
   = | 'catalog' | 'channels' | 'coreLogFiles' | 'fleetNodes' | 'fleetStatus' | 'installed' | 'nodes' | 'nodeSettings'
-    | 'ruleSets' | 'runtime' | 'schema' | 'settings' | 'sources' | 'systemUpdate' | 'tokens';
+    | 'panelBackups' | 'ruleSets' | 'runtime' | 'schema' | 'settings' | 'sources' | 'systemUpdate' | 'tokens';
 
 const runtimeChange: readonly QueryRoot[] = ['runtime', 'nodes', 'installed'];
 const coreArtifactChange: readonly QueryRoot[] = ['installed', 'schema'];
@@ -73,6 +73,9 @@ const invalidations: Partial<Record<keyof ApiClient, readonly QueryRoot[]>> = {
   renameNode: fleetChange,
   deleteNode: fleetChange,
   saveNodeSettings: ['nodeSettings', 'fleetStatus', 'nodes'],
+  createPanelBackup: ['panelBackups'],
+  deletePanelBackup: ['panelBackups'],
+  applyPanelRestore: ['panelBackups'],
   checkSystemUpdate: ['systemUpdate'],
   startSystemUpdate: ['systemUpdate'],
   updateNode: releaseChange,
@@ -112,7 +115,7 @@ export function withQueryInvalidation(client: ApiClient, cache: QueryClient): Ap
       if (typeof method !== 'function' || typeof property !== 'string') return method;
       if (methods.has(property)) return methods.get(property);
       const keys = affectedQueries(property);
-      const session = ['login', 'logout', 'restorePanelBackup'].includes(property);
+      const session = ['login', 'logout'].includes(property);
       if (!keys.length && !session) return method;
       const wrapped = async (...args: unknown[]) => {
         if (session) resetQuerySession(cache);

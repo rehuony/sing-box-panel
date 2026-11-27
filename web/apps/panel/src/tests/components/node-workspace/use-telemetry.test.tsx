@@ -258,7 +258,7 @@ describe('useTelemetry', () => {
         <ApiClientProvider client={client}>
           <PanelSettingsContext value={{
             view: { ...view, revision }, error: null, reload: vi.fn(), preview: vi.fn(),
-            accept: vi.fn(), save: client.savePanelSettings,
+            save: client.savePanelSettings,
           }}>
             {children}
           </PanelSettingsContext>

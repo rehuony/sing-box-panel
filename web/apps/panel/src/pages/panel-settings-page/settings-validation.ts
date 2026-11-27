@@ -45,5 +45,7 @@ export function invalidSettingsField(
   if (!integer(s.core_log_max_file_size_mib ?? 32, 1, 1024)) return 'core-log-size';
   if (new TextEncoder().encode(github).length > 8192 || /[\0\r\n]/.test(github)) return 'github-token';
   if (!integer(s.catalog_refresh_interval_hours, 1, 720)) return 'catalog-refresh-interval';
+  if (!integer(s.backup_interval_hours ?? 24, 0, 720)) return 'backup-interval';
+  if (!integer(s.backup_keep ?? 7, 1, 100)) return 'backup-keep';
   return null;
 }

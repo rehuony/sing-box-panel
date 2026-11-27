@@ -119,7 +119,7 @@ an external origin, they use the request's actual TLS state; forwarded headers
 are not trusted. The origin contains no path—continue to use `server.base_path`
 for a public path prefix. Origin changes take effect after a server restart.
 The removed `auth.secure_cookie` field is rejected: delete it from existing
-settings files and backups before using them with this version.
+settings files before using them with this version.
 
 Login allows five attempts per minute per direct peer and, when available,
 per browser fingerprint, with a process-wide budget of 30 and two concurrent

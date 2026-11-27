@@ -282,8 +282,8 @@ revision, so its next save returns a conflict instead of overwriting the edit.
 See [the field mapping and effect timing](configuration-and-runtime.md#shared-settings-file).
 
 Writers coordinate through a private `setting.json.lock` beside the selected
-file. A temporary `setting.json.pending` journal protects Web settings saves
-and atomic restoration of settings and sing-box configuration backups. While recovery is pending, file commands
+file. A temporary `setting.json.pending` journal protects Web settings saves.
+While recovery is pending, file commands, backups and restores
 fail closed; start the panel to finish recovery before editing. A private
 `setting.json.location` also records the established data directory and any
 pending move. These sidecars appear in `system df`; cleanup removes idle metadata
@@ -502,6 +502,39 @@ A restart is refused while an update of the panel runs or is staged, since the
 update restarts the panel itself. If running the program again fails, the panel
 exits with an error for its supervisor to act on. `GET /api/v1/system/status`
 reports `started_at`, which changes with every restart.
+
+## Backups and restore
+
+```sh
+sing-box-panel system backup -c ./setting.json
+sing-box-panel system backup --categories all --passphrase-file ./passphrase --output ./panel.tar.gz
+sing-box-panel system backup --categories rule_sets,keys
+sing-box-panel system restore ./panel.tar.gz --passphrase-file ./passphrase   # check only
+sing-box-panel system restore ./panel.tar.gz --passphrase-file ./passphrase --categories rule_sets --yes
+```
+
+`backup` writes a manual backup of the selected instance into
+`<data_dir>/backups`. `--categories` names what it holds, from `settings`,
+`nodes`, `subscriptions`, `rule_sets`, `keys`, `history` and `logs`, or `all`;
+without it the backup holds every category but `logs`. The categories are
+described in [Backup and restore](configuration-and-runtime.md#backup-and-restore).
+It runs whether the panel runs or not; while the panel is stopped the command
+holds its lease, so the panel cannot start meanwhile. `--passphrase-file`
+encrypts the archive with age using the first line of the file, at least 8
+bytes, and `-` reads it from standard input; `--output` also copies the archive
+to a new file. Copy backups off the host: `system prune` removes the data
+directory with them.
+
+`restore` reads a backup and verifies it whole: its manifest and every file's
+digest, that its databases are intact, of a panel and no newer than this
+binary, and that its settings, if any, are valid here. Without `--yes` it shows
+what the backup holds and changes nothing. With `--yes` it backs up the current
+state into `<data_dir>/backups` first, then replaces the categories named by
+`--categories`, or all the backup holds, and prints what it repaired in the
+categories it kept. The data directory always stays, and with the settings the
+listener, base path and external origin stay unless `--take-service` takes the
+backup's. The panel must be stopped; restore a running panel from its Web
+interface, which applies the restore when the panel restarts.
 
 ## Instance files and cleanup
 

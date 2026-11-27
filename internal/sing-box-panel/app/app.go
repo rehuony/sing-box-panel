@@ -11,6 +11,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/backup"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
@@ -33,6 +34,7 @@ type Services struct {
 	Telemetry     *telemetry.Service
 	Fleet         *fleet.Service
 	Releases      *releases.Service
+	Backups       *backup.Service
 }
 
 // Options adjusts the composition.
@@ -78,13 +80,21 @@ func New(database *store.Store, configuration settings.Settings, options Options
 		Telemetry:     records,
 		Fleet:         nodes,
 		Releases:      panelReleases,
+		Backups: backup.New(backup.Options{
+			DataDir: configuration.DataDir, SettingsPath: configuration.Path(), PanelVersion: options.Build.Version,
+			Document: panelSettings.SavedDocument, PanelID: database.CurrentPanelID,
+		}),
 	}
 }
 
 // classifyOperationFailure names the failures the panel log may describe:
-// node commands and updates, then catalog refreshes and archive downloads.
+// node commands and updates, backups and restores, then catalog refreshes
+// and archive downloads.
 func classifyOperationFailure(err error) (string, string, bool) {
 	if code, message, ok := fleet.ClassifyOperationFailure(err); ok {
+		return code, message, true
+	}
+	if code, message, ok := backup.ClassifyOperationFailure(err); ok {
 		return code, message, true
 	}
 	return corecache.ClassifyOperationFailure(err)

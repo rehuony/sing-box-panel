@@ -38,9 +38,15 @@ import type {
   LoginInputWritable as LoginInput,
   NodeEnrollment,
   NodeUpdate,
-  PanelBackup,
-  PanelRestoreRequest,
-  PanelRestoreResult,
+  PanelBackupCreate,
+  PanelBackupInfo,
+  PanelBackupList,
+  PanelRestoreApply,
+  PanelRestorePlan,
+  PanelRestorePlanRequest,
+  PanelRestoreRequested,
+  PanelRestoreStage,
+  PanelRestoreStaged,
   PanelSettingsSaveResult,
   PanelSettingsView,
   PanelSettingsWriteWritable as PanelSettingsWrite,
@@ -90,10 +96,19 @@ export type {
   LoginInputWritable as LoginInput,
   NodeEnrollment,
   NodeUpdate,
-  PanelBackup,
+  PanelBackupCategory,
+  PanelBackupCounts,
+  PanelBackupCreate,
+  PanelBackupInfo,
+  PanelBackupKind,
+  PanelBackupList,
   PanelPreferences,
-  PanelRestoreRequest,
-  PanelRestoreResult,
+  PanelRestoreApply,
+  PanelRestorePlan,
+  PanelRestorePlanRequest,
+  PanelRestoreRequested,
+  PanelRestoreStage,
+  PanelRestoreStaged,
   PanelServiceSettings,
   PanelSettingsSaveResult,
   PanelSettingsView,
@@ -121,6 +136,8 @@ export interface ApiClient {
   /** Returns a client that addresses the resources of nodeID. */
   forNode: (nodeID: string) => ApiClient;
   logout: (signal?: AbortSignal) => Promise<void>;
+  /** Where the browser downloads a backup with the session's cookie. */
+  panelBackupDownloadUrl: (name: string) => string;
   /** Asks this client's node to update itself to the panel's release. */
   updateNode: (signal?: AbortSignal) => Promise<NodeUpdate>;
   getSession: (signal?: AbortSignal) => Promise<Session | null>;
@@ -131,29 +148,32 @@ export interface ApiClient {
   /** Asks the panel to restart; it answers with the start of the process that stops. */
   restartPanel: (signal?: AbortSignal) => Promise<SystemRestart>;
   startRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  getNodeSettings: (signal?: AbortSignal) => Promise<NodeSettings>;
 
+  getNodeSettings: (signal?: AbortSignal) => Promise<NodeSettings>;
   /** The panel's build and platform, and when its process started. */
   getSystemStatus: (signal?: AbortSignal) => Promise<SystemStatus>;
   /** The panel's version, the newest release it knows and the state of its update. */
   getSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
   restartRuntime: (signal?: AbortSignal) => Promise<RuntimeStatus>;
-  exportPanelBackup: (signal?: AbortSignal) => Promise<PanelBackup>;
   subscribeSessionInvalidated: (listener: () => void) => () => void;
   /** Asks GitHub for the newest stable release now. */
   checkSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
   /** The node's stored samples of the last two minutes, oldest first, which the live chart opens with. */
   getRecentMetrics: (signal?: AbortSignal) => Promise<RecentMetrics>;
-
   getRuntimeStatus: (signal?: AbortSignal) => Promise<RuntimeStatus>;
   /** Starts updating the panel in the background; the panel then restarts. */
   startSystemUpdate: (signal?: AbortSignal) => Promise<SystemUpdate>;
   clearCoreLog: (file: string, signal?: AbortSignal) => Promise<void>;
   /** Removes the node and its key and ends its session. */
   deleteNode: (nodeID: string, signal?: AbortSignal) => Promise<void>;
+  /** The backups in the panel's data directory, newest first. */
+  listPanelBackups: (signal?: AbortSignal) => Promise<PanelBackupList>;
   login: (input: LoginInput, signal?: AbortSignal) => Promise<Session>;
   getPanelSettings: (signal?: AbortSignal) => Promise<PanelSettingsView>;
+
   deleteCoreLogFile: (file: string, signal?: AbortSignal) => Promise<void>;
+  deletePanelBackup: (name: string, signal?: AbortSignal) => Promise<void>;
+  discardPanelRestore: (id: string, signal?: AbortSignal) => Promise<void>;
   /** The entries in scope and the size of the whole log's files on disk. */
   getLogUsage: (scope: LogScope, signal?: AbortSignal) => Promise<LogUsage>;
   listFleetNodes: (signal?: AbortSignal) => Promise<{ items: FleetNode[] }>;
@@ -173,12 +193,12 @@ export interface ApiClient {
   listSubscriptionNodes: (signal?: AbortSignal) => Promise<SubscriptionNodeList>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
-
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
   disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   /** Deletes the log entries in scope and shrinks the log's files; runtime states stay. */
   clearPanelLogs: (scope: LogScope, signal?: AbortSignal) => Promise<LogClearResult>;
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
+
   renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;
   /** Issues a new one-time enrollment code; the node's current key stays valid until it is redeemed. */
@@ -192,6 +212,7 @@ export interface ApiClient {
   importCoreArchive: (input: CoreImportUpload, signal?: AbortSignal) => Promise<CoreArtifact>;
   rollbackRuntime: (activationBundleID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
   getSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSource>;
+  createPanelBackup: (input: PanelBackupCreate, signal?: AbortSignal) => Promise<PanelBackupInfo>;
   getSubscriptionChannel: (channelID: string, signal?: AbortSignal) => Promise<SubscriptionChannel>;
   getSubscriptionTokenSecret: (tokenID: string, signal?: AbortSignal) => Promise<{ token: string }>;
   listFilesystemEntries: (query?: FilesystemQuery, signal?: AbortSignal) => Promise<FilesystemPage>;
@@ -199,7 +220,6 @@ export interface ApiClient {
   refreshSubscriptionSource: (sourceID: string, signal?: AbortSignal) => Promise<SubscriptionSource>;
   /** Runs one action on several nodes: each node's result as it finishes, then the summary. */
   runFleetCommand: (command: FleetCommand, signal?: AbortSignal) => AsyncIterable<FleetCommandEvent>;
-  restorePanelBackup: (input: PanelRestoreRequest, signal?: AbortSignal) => Promise<PanelRestoreResult>;
   /** Deletes a rule set and the exit rules that use it. */
   deleteSubscriptionRuleSet: (ruleSetID: string, updatedAt: string, signal?: AbortSignal) => Promise<void>;
   resolveFilesystemPath: (input: FilesystemResolveInput, signal?: AbortSignal) => Promise<FilesystemSelection>;
@@ -208,6 +228,8 @@ export interface ApiClient {
     ids: string[],
     signal?: AbortSignal,
   ) => Promise<SubscriptionNodeList>;
+  /** Verifies a stored backup and stages it to restore. */
+  stagePanelBackup: (name: string, input: PanelRestoreStage, signal?: AbortSignal) => Promise<PanelRestoreStaged>;
   listCatalogAssets: (
     filter?: CatalogAssetFilter,
     signal?: AbortSignal,
@@ -217,12 +239,16 @@ export interface ApiClient {
     signal?: AbortSignal,
   ) => Promise<CoreArtifactPage>;
   readCoreLog: (file: string, offset?: number, generation?: string, signal?: AbortSignal) => Promise<CoreLogChunk>;
+  applyPanelRestore: (id: string, input: PanelRestoreApply, signal?: AbortSignal) => Promise<PanelRestoreRequested>;
+  /** Backs up the current state and applies the staged restore as the panel restarts. */
+  /** Counts what restoring categories of a staged restore changes beyond them; changes nothing. */
+  planPanelRestore: (id: string, input: PanelRestorePlanRequest, signal?: AbortSignal) => Promise<PanelRestorePlan>;
   createSubscriptionRuleSet: (input: SubscriptionRuleSetCreate, signal?: AbortSignal) => Promise<SubscriptionRuleSet>;
-
   savePanelSettings: (
     input: PanelSettingsWrite,
     signal?: AbortSignal,
   ) => Promise<PanelSettingsSaveResult>;
+
   streamMetrics: (
     signal?: AbortSignal,
   ) => AsyncIterable<{ metrics: MetricsSnapshot; runtime: RuntimeStatus }>;
@@ -231,11 +257,11 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<void>;
-
   getConfigurationSchema: (
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSchemaContract>;
+
   saveConfigurationFile: (
     input: ConfigurationFileWrite,
     signal?: AbortSignal,
@@ -247,11 +273,11 @@ export interface ApiClient {
   ) => Promise<void>;
   /** Every rule set, or one client's, each client's in their saved order. */
   listSubscriptionRuleSets: (client?: SubscriptionRuleSet['client'], signal?: AbortSignal) => Promise<SubscriptionRuleSetList>;
-
   compileConfiguration: (
     input: { coreArtifactID: string },
     signal?: AbortSignal,
   ) => Promise<ConfigurationCompile>;
+
   createSubscriptionSource: (
     input: SubscriptionSourceCreate,
     signal?: AbortSignal,
@@ -336,6 +362,13 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionRuleSet>;
+  /** Uploads a backup, reporting the bytes sent, then verifies it and stages it to restore. */
+  uploadPanelRestore: (
+    file: File,
+    passphrase: string,
+    onProgress: (sent: number, total: number) => void,
+    signal?: AbortSignal,
+  ) => Promise<PanelRestoreStaged>;
   createSubscriptionToken: (
     input: { userID?: string; label: string; expiresAt?: string; downloadLimit?: number },
     signal?: AbortSignal,

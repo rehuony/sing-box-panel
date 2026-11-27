@@ -47,8 +47,8 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
     return result;
   }, [api, accept]);
   const value = useMemo(
-    () => ({ view, error, reload, preview, save, accept }),
-    [view, error, reload, preview, save, accept],
+    () => ({ view, error, reload, preview, save }),
+    [view, error, reload, preview, save],
   );
   return <PanelSettingsContext value={value}>{children}</PanelSettingsContext>;
 }

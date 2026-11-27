@@ -144,10 +144,6 @@ func TestCookiePersistenceRotationAndRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			app := newTestServices(t, db, cfg)
-			backup, err := app.Settings.ExportPanelBackup(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
 			view, err := app.Settings.PanelSettings(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -173,24 +169,6 @@ func TestCookiePersistenceRotationAndRestart(t *testing.T) {
 			current = login(nil)
 			if err := json.Unmarshal(current.Body.Bytes(), &payload); err != nil {
 				t.Fatal(err)
-			}
-			view, err = app.Settings.PanelSettings(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			body, _ = json.Marshal(settings.PanelRestoreRequest{Backup: backup, SettingsRevision: view.Revision})
-			request = newRequest("POST", "/api/v1/panel/restore", body)
-			request.AddCookie(current.Result().Cookies()[0])
-			request.Header.Set("Content-Type", "application/json")
-			request.Header.Set("X-CSRF-Token", payload.CSRFToken)
-			restore := httptest.NewRecorder()
-			handler.ServeHTTP(restore, request)
-			if restore.Code != 200 {
-				t.Fatal("identity restore failed", restore.Body.String())
-			}
-			assertCleared(restore)
-			if got := send("GET", current.Result().Cookies()[0]); got.Code != 401 {
-				t.Fatal("restore did not revoke session", got.Code)
 			}
 			if err := db.Close(); err != nil {
 				t.Fatal(err)

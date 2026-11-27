@@ -43,6 +43,7 @@ type Settings struct {
 	Traffic         Traffic      `json:"traffic"`
 	Subscription    Subscription `json:"subscription"`
 	Logs            Logs         `json:"logs"`
+	Backup          Backup       `json:"backup"`
 }
 
 type Server struct {
@@ -106,6 +107,21 @@ type Logs struct {
 	CoreMaxFileSizeMiB int `json:"core_max_file_size_mib"`
 }
 
+// Backup is how often the panel backs itself up into its data directory and
+// how many of those scheduled backups it keeps.
+type Backup struct {
+	// IntervalHours is the time between scheduled backups; 0 turns them off.
+	IntervalHours int `json:"interval_hours"`
+	// Keep is how many scheduled backups remain; older ones are removed.
+	Keep int `json:"keep"`
+}
+
+// defaultBackup is the backup schedule of a new settings file and of a file
+// that omits a backup setting.
+func defaultBackup() Backup {
+	return Backup{IntervalHours: 24, Keep: 7}
+}
+
 // defaultLogs is the log retention of a new settings file and of a file
 // that omits a log setting.
 func defaultLogs() Logs {
@@ -125,7 +141,8 @@ func Defaults() Settings {
 		Subscription: Subscription{
 			PrivateSourceCIDRs: []string{},
 		},
-		Logs: defaultLogs(),
+		Logs:   defaultLogs(),
+		Backup: defaultBackup(),
 	}
 }
 
@@ -174,7 +191,7 @@ func parse(path string, data []byte) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Nodes: defaultNodes(), Logs: defaultLogs()}
+	value := Settings{sourcePath: absolutePath, Panel: DefaultPanel(), Nodes: defaultNodes(), Logs: defaultLogs(), Backup: defaultBackup()}
 	if err := settingsfile.Decode(path, upgradeDocument(data), &value); err != nil {
 		return Settings{}, err
 	}
@@ -265,6 +282,9 @@ func (value Settings) Validate() error {
 	}
 	if value.Logs.CoreRetentionDays < 1 || value.Logs.CoreRetentionDays > 3650 || value.Logs.CoreMaxFiles < 0 || value.Logs.CoreMaxFiles > 1024 || value.Logs.CoreMaxFileSizeMiB < 1 || value.Logs.CoreMaxFileSizeMiB > 1024 {
 		return errors.New("core log retention must be 1–3650 days, 0–1024 files and 1–1024 MiB per file")
+	}
+	if value.Backup.IntervalHours < 0 || value.Backup.IntervalHours > 24*30 || value.Backup.Keep < 1 || value.Backup.Keep > 100 {
+		return errors.New("backup.interval_hours must be 0–720 and backup.keep 1–100")
 	}
 	if runtime.GOOS == "windows" {
 		return errors.New("Windows is not supported")

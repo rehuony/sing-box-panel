@@ -433,6 +433,8 @@ changes take effect after restart.
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
 | `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
+| `backup.interval_hours` | Backup interval (0 turns scheduled backups off) | `24` |
+| `backup.keep` | Scheduled backups kept | `7` |
 | `panel.language` | Language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `system` |
 | `panel.appearance.color` | Color | `#6D4ED1` |
@@ -462,8 +464,8 @@ HTTP only to a loopback address.
 
 Nodes keep the URL from their enrollment. Changing the external origin, base
 path or listener address therefore requires enrolling nodes again with new
-codes. Settings files and backups that still name the removed `nodes.endpoint`
-or `nodes.trust` are rejected: delete those fields.
+codes. Settings files that still name the removed `nodes.endpoint` or
+`nodes.trust` are rejected: delete those fields.
 
 #### Behind Nginx
 
@@ -543,9 +545,8 @@ does not interrupt the service or change the running sing-box process.
 
 Writers use a private persistent `.lock` sidecar and atomic file replacement.
 Web saves use a temporary private `.pending` recovery journal and a SQLite commit
-marker so settings saves and backup restores recover to a known outcome after
-interruption. Backup restoration coordinates the settings file and saved sing-box text. The marker contains transaction identity, not a
-second copy of settings. Startup recovers before serving requests. Incomplete
+marker so settings saves recover to a known outcome after interruption. The
+marker contains transaction identity, not a second copy of settings. Startup recovers before serving requests. Incomplete
 updates block file commands; a conflicting external edit is never overwritten
 by automatic recovery. Keep the selected file and its directory writable by the
 service account; see [systemd permissions](systemd.md#system-service).
@@ -565,8 +566,8 @@ The former shared credential fields `panel.identity_name` and `panel.identity_ke
 the API fields `identity_name`, `identity_key`, `clear_identity_key` and
 `identity_key_configured`, and `POST /api/v1/nodes/{nodeId}/config/inbound-defaults` have been
 removed. This development-stage change has no compatibility fallback: settings
-files, API writes and backups containing the removed fields are rejected. Remove
-those panel fields before loading an existing file or backup. Existing native
+files and API writes containing the removed fields are rejected. Remove those
+panel fields before loading an existing file. Existing native
 inbound usernames, passwords and UUIDs are preserved.
 
 Appearance offers five presets and a custom HEX picker, with radius 0–32px (default 12).
@@ -586,25 +587,75 @@ continue to follow panel settings and their previews.
 
 ### Backup and restore
 
-Panel settings → Backup and restore exports the **saved** panel settings;
-unsaved drafts are excluded. `GET /api/v1/panel/backup` returns authenticated,
-no-store plaintext JSON with `format`, `version` (3), `exported_at` and
-`panel_settings`. The file includes credentials, listener settings and data
-directory paths. Node configurations, external referenced files, binaries,
-logs, metrics, login sessions and subscription business records are not
-included. Earlier versions and old token-based authentication settings are
-rejected without conversion.
+A backup holds the categories chosen for it, and a restore replaces the
+categories chosen of what a backup holds:
 
-Selecting a file previews overwritten settings and source/destination service
-addresses and directories before confirmation. `POST /api/v1/panel/restore`
-requires this backup plus the target `settings_revision`. Unsupported formats,
-invalid settings, oversized content (1 MiB) or a revision conflict leave the
-settings unchanged. The settings journal and SQLite commit marker make
-restoration atomic and recover interrupted writes.
+| Category | Holds |
+| --- | --- |
+| `settings` | The saved settings file |
+| `nodes` | The panel identity nodes trust, the nodes, their enrollments and configurations |
+| `subscriptions` | Subscription sources, the node pool, and channels with their groups and exit rules |
+| `rule_sets` | Rule sets |
+| `keys` | Subscription keys with their users and grants |
+| `history` | Nodes' traffic and runtime records |
+| `logs` | The panel log |
 
-Restore refreshes settings. A changed administrator email or password hash
-requires signing in again; listener/path changes require a panel restart.
-Relative panel data paths resolve beside the target settings file.
+Back up now and `system backup` take every category but `logs` unless told
+otherwise, as scheduled backups do. Unsaved drafts, login sessions, the release
+catalog, core binaries and anything on node hosts are never included. A backup
+can hold the administrator's password hash, the GitHub token and the
+subscription keys; keep it as private as the settings file.
+
+Backups live in `<data_dir>/backups`, each readable by the service account
+alone, named `sing-box-panel-<date>-<time>-<kind>.tar.gz`: `manual` for Back up
+now and `system backup`, `scheduled` for the schedule, and `pre_restore` for the
+state a restore replaced. Every archive starts with a readable manifest of its
+categories, record counts, time and panel version, which names no setting or
+secret, so the list shows what each backup holds. A backup made with a
+passphrase of at least 8 characters keeps the rest in `payload.tar.gz.age`,
+encrypted with [age](https://age-encryption.org). The passphrase is stored
+nowhere, so a lost passphrase loses that backup. Scheduled and pre-restore
+backups are not encrypted. `system prune` removes the data directory with its
+backups: copy the ones to keep off the host.
+
+The schedule makes a backup when the newest scheduled one is older than
+`backup.interval_hours` (default 24; 0 turns it off), then keeps the newest
+`backup.keep` scheduled backups (default 7). It looks a minute after the panel
+starts and every 10 minutes after, so a changed setting needs no restart.
+Manual and pre-restore backups stay until deleted.
+
+Panel settings → Backup and restore sets the schedule and lists the backups
+here, newest first, each with download, restore and delete. Back up now chooses
+the categories and an optional passphrase. Restore picks one of these backups or
+a file from the browser's computer.
+
+A restore checks the whole backup before anything changes: its manifest and
+every file's digest, an encrypted payload's copy of the manifest, that its
+databases are intact, are a panel's and are no newer than this release, and
+that its settings, if any, are valid here. The categories it holds are then
+offered with their counts. The panel keeps the categories left out, so it
+repairs what in them referred to records that are gone, by the schema's own
+rules: pool nodes published from fleet nodes that are gone leave with their
+group places and grants; exit rules whose rule set is gone are removed; exits
+that named a removed pool node fall back, an exit rule's to reject and a
+channel's final exit to direct; and the records of nodes that are gone are
+removed. The dialog says what the restore will change this way before it
+starts. Restoring nodes from another panel means each node must enroll again.
+
+The data directory always stays this host's; with the settings, the listener,
+base path and external origin stay too unless the restore takes the backup's.
+Restore and restart backs up the current state first, all of it but the log
+unless the log is restored too, and restarts the panel, which replaces the
+chosen categories before it opens its databases. Restoring the settings ends
+every login session: sign in with the backup's administrator. Where the panel
+cannot restart itself, the restore applies when it next starts. A restore
+interrupted midway completes at the next start; one whose staged files are gone,
+whose settings are no longer valid, or whose records do not fit this panel's
+database is dropped with nothing changed, and the panel log says why.
+
+The Web interface uses `/api/v1/panel/backups` and `/api/v1/panel/restores`; the
+[CLI](cli.md#backups-and-restore) backs up and restores a stopped panel.
+Backups from earlier releases are rejected.
 
 ### Data directory changes
 

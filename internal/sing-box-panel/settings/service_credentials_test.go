@@ -64,28 +64,4 @@ func TestCredentialChangesSerializeWithLoginsAndRevokeAllSessions(t *testing.T) 
 	if _, err := authSessions.CurrentSession(t.Context(), fresh.Token); err != nil {
 		t.Fatal(err)
 	}
-	backup, err := app.ExportPanelBackup(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if backup.Version != PanelBackupVersion {
-		t.Fatal("backup version")
-	}
-	// Returning to another account through restore must revoke the newer session.
-	raw, err := Load(app.settingsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw.Auth.Email = testutil.AdminEmail
-	backup.PanelSettings, err = encodeSettings(raw, backup.PanelSettings, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := app.RestorePanelBackup(t.Context(), PanelRestoreRequest{Backup: backup, SettingsRevision: same.Settings.Revision})
-	if err != nil || !result.ReauthenticationRequired {
-		t.Fatal("restore credentials", err)
-	}
-	if _, err := authSessions.CurrentSession(t.Context(), fresh.Token); !errors.Is(err, store.ErrAuthSessionMissing) {
-		t.Fatal("restore did not revoke", err)
-	}
 }

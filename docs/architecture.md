@@ -88,7 +88,8 @@ Tools under `tools/` are maintainer programs that nothing imports.
 | | `host` | Host-wide metrics, the bounded public IP hint and read-only, non-recursive filesystem selection |
 | Panel (`internal/sing-box-panel/`) | `store` | Panel SQLite: its migrations, each node's configuration and revisions, the cached core archives, subscription state and operational records |
 | | `auth` | The administrator's email and login sessions |
-| | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification, backup export and restore |
+| | `settings` | The panel settings file and its service: validation, defaults, atomic saves and recovery, change notification |
+| | `backup` | Backups of the settings file and the databases in the data directory, whole or by category, on demand, on a schedule and before each restore, and restores of chosen categories staged while the panel runs and applied before it next opens its databases |
 | | `telemetry` | The panel log and operation outcomes, metrics and runtime history, each node's traffic periods and quota, the dashboard projection |
 | | `corecache` | Upstream catalog discovery, staged core uploads and the verified archive cache that nodes install from |
 | | `schema` | Configuration schema preparation for the editor and the panel's checks: the embedded reviewed 1.13 schema and the schemas nodes' cores print, with the presentation overlay |
@@ -208,8 +209,8 @@ Settings sit below the services that read them: `telemetry` reads the traffic
 sample retention and `corecache` reads the catalog token and
 refresh interval from `settings` directly, and `settings` depends on no other
 service but `auth`, whose email rule and login sessions it uses for logins and
-credential changes. The HTTP route that restores a panel backup records its
-operation outcome.
+credential changes. The panel's backup and restore routes record their
+operation outcomes.
 
 `internal/layout` enforces the layout over `go list`: `cmd/` holds only the two
 `main` packages, shared packages depend on neither service, neither service
@@ -311,7 +312,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | RULE-04 | A rule set's rules switch between entries and Clash classic text; a pasted Clash rule list converts, in the text or on the entries' prompt line, leaving out policy names and `no-resolve` with a note and refusing duplicates on the prompt line; problems are listed by line and block saving while the text stays | Rule set validation for its client | Unchanged round trip; per-line errors; refused save keeps the text | implemented |
 | CHAN-03 | Distribution: name/client/template/new-node policy; direct node editing and card order; one ordered list of exit rules, each by a rule set of the channel's client or by an own rule, and a final exit | Channel data separation; rule sets of one client shared by its channels, deletion cascading to their exit rules | Preview and delivery share defaults; card and exit-rule order preserved; rule set order and exits in output; client mismatch refused; a deleted rule set advances its channels' versions | implemented |
 | TPL-01 | Per-channel native JSON/YAML template; true edit/dirty/validate/location/preview/save/cancel; generated nodes/auth/groups/rules/fallback reserved | New template storage/API/merge/validation; no shared library or DSL | Reject conflicts and invalid save; preserve other channel; preview equals delivery | implemented |
-| SET-01 | One page of settings cards; shared draft, changed-row count, revert and save, validation that focuses the invalid field, backup preview and atomic restore | Panel settings API/storage/bootstrap separation | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted | implemented |
+| SET-01 | One page of settings cards; shared draft, changed-row count, revert and save, validation that focuses the invalid field; backups by category on demand and on a schedule, listed with what they hold, download and delete; restores picked from them or a file, checked whole, of the categories chosen, with the repairs to the rest shown first, applied before the panel next opens its databases | Panel settings API/storage/bootstrap separation; backup archive version 5 with a readable manifest, `/panel/backups` and `/panel/restores` | Authenticated update, optimistic concurrency, invalid inputs, secrets redacted; tampered, newer and foreign backups and altered manifests refused; every table in one category; plan equals the applied repair; sessions never restored | implemented |
 | SET-02 | Listen/address/domain, administrator credentials and optional GitHub token; independent email/new-password drafts, shared save; server-only secrets | Bootstrap/security settings and catalog client | Restart semantics, session invalidation, no token in response/log/browser persistence | implemented |
 | SET-03 | Each node's public host override, else the public IP it reports; hidden subscription source access values preserved; inbound credentials edited natively; protocol obfuscation stays protocol-specific | Node settings and native configuration | IPv4/IPv6/domain, a node without a host publishes nothing, loopback never exported, imported credentials unchanged | implemented |
 | SET-04 | Language, theme, five presets/custom color picker with HEX and explicit apply/cancel after closing; default #6D4ED1, radius 0–32 default12 | Persisted preferences and preview transaction | Save/reload; unsaved category/route changes require confirmation; cancellation retains draft, confirmed departure restores saved; reset only color/radius | implemented |
@@ -331,7 +332,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | SUB-01, NODE-01–04 | `subscription/source_parse.go`, `source_filter.go`, `pool.go`, `inbound_convert.go`, `store/subscription_pool.go`, pool and source panels | `source_parse_test.go`, `pool_test.go`, `service_sources_test.go`, `httpapi/subscription_nodes_test.go`, 1.14 inbound/TLS tests; `subscription-node-panel.test.tsx`, `subscription-source-panel.test.tsx`; browser pool order, display-name edit and source preview |
 | KEY-01 | Store key accounting, public delivery and key panel; [subscription guide](subscriptions-and-observability.md) | 24-request concurrency tests, cross-channel quota HTTP tests, expiry/revocation/304/failure accounting, explicit secret-read authorization, persistence and UI tests |
 | CHAN-01–03, RULE-01–04, TPL-01 | `subscription/channel_*`, `subscription/service_rule_sets.go`, `store/subscription_channels.go`, `store/subscription_rule_sets.go`, channel and rule set API, channel list, link popover, workspace and nested editors, `pages/subscriptions-page/rule-text.ts` | Native renderer, exit-rule, group match and URL tests in `subscription/channel_policy_test.go`; list summary counts in `subscription/service_test.go`; channel list and link tests; `httpapi/subscription_channel_policy_test.go`; rule set CRUD, icons and order in `httpapi/subscription_routes_test.go`; rule text, picker and workspace tests; browser persisted group/reference reload, nested return and preview/copy |
-| SET-01–05 | `settings/service_panel.go`, `service_backup.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation/atomic backup tests; appearance contrast/bounds tests; browser preview, draft retention, save/reload, leaving restores saved appearance |
+| SET-01–05 | `settings/service_panel.go`, `service_backup.go`, `backup`, `store/backup_snapshot.go`, `store/backup_merge.go`, `store/panel_settings.go`, `pages/panel-settings-page`, `theme/appearance.ts` | CAS/redaction/validation tests; backup round trip, partial restore repair, altered manifest, table category, prune, HTTP and CLI tests; appearance contrast/bounds tests; browser preview, draft retention, save/reload, leaving restores saved appearance |
 | LOG-01/02 | `internal/sing-box-node/corelogs`, runtime output observer, `store/logs.go`, `store/panel_logs.go`, `store/runtime_history.go`, product log API, `components/panel-log`, `pages/node-logs-page` and `pages/panel-logs-page` | File/rotation/custom-output tests; operation logs/cursors and authenticated file API tests; frontend pause/filter and log rendering tests |
 
 Go paths in this table are relative to `internal/sing-box-panel/` unless they
@@ -376,14 +377,15 @@ caching them; the node verifies the archive it fetches against the identity in
 the command and checks that the binary reports the exact version. Core enable
 checks the node's platform before selection; runtime preflight checks the
 selected file before replacing the current process. Settings and configuration
-writes use optimistic concurrency. A backup holds the panel settings only.
+writes use optimistic concurrency. A backup holds the categories chosen of the
+saved settings file, the panel database and the log database.
 Panel settings saves do not modify native inbound credentials.
 
 The obsolete Web user, deployment and history components have been removed.
 The CLI is limited to panel settings, panel and systemd service control, installation
-maintenance, and binary version/update commands. Core versions and runtime,
+maintenance and backups, and binary version/update commands. Core versions and runtime,
 subscriptions, logs, and metrics use the Web UI and authenticated HTTP API.
-Configuration history, revision, diff and restore commands remain absent.
+Configuration history, revision, diff and per-configuration restore commands remain absent.
 Rollback to the previous bundle is available only through the authenticated API.
 Internal immutable evidence remains for checked startup and runtime recovery. Unknown native configuration fields and numeric
 lexemes survive editing. Neither hide nor delete-publication actions delete an
@@ -542,7 +544,8 @@ command output. Initialization, CLI changes, and Web settings changes share the
 Argon2id implementation; initialization also generates a random password.
 
 Settings reads and session operations share the settings lock. Credential edits
-through settings/restore revoke every session in the settings commit transaction.
+through settings revoke every session in the settings commit transaction, and
+an applied restore starts with none.
 Both responses clear the current Cookie immediately when credentials change.
 Manual changes invalidate old credential fingerprints at the next authentication
 boundary. Backups exclude sessions. Browser reload restores identity and CSRF
@@ -564,10 +567,9 @@ sessions or CSRF tokens, accept connections only from loopback peers, and refuse
 a browser's WebSocket from another origin.
 
 The removed `auth.secure_cookie` setting and `service.secure_cookie` API field are
-rejected, including inside backup settings. Existing files and backups require
-manual removal of the obsolete field; new API clients must omit it. There is no
-compatibility decoder or automatic migration. Backups are version 3 and hold
-the panel settings only.
+rejected. Existing files require manual removal of the obsolete field; new API
+clients must omit it. There is no compatibility decoder or automatic migration.
+Backups are version 5; earlier versions are rejected.
 
 ### Request and download protections
 

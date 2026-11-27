@@ -40,6 +40,8 @@ type PanelServiceSettings struct {
 	CoreLogMaxFiles             *int     `json:"core_log_max_files,omitempty"`
 	CoreLogMaxFileSizeMiB       *int     `json:"core_log_max_file_size_mib,omitempty"`
 	RuntimeHistoryRetentionDays *int     `json:"runtime_history_retention_days,omitempty"`
+	BackupIntervalHours         *int     `json:"backup_interval_hours,omitempty"`
+	BackupKeep                  *int     `json:"backup_keep,omitempty"`
 }
 
 func serviceSettings(value Settings) PanelServiceSettings {
@@ -49,6 +51,7 @@ func serviceSettings(value Settings) PanelServiceSettings {
 		SampleRetentionDays:         value.Traffic.SampleRetentionDays, PrivateSourceCIDRs: append([]string{}, value.Subscription.PrivateSourceCIDRs...),
 		CoreLogRetentionDays: &value.Logs.CoreRetentionDays, CoreLogMaxFiles: &value.Logs.CoreMaxFiles, CoreLogMaxFileSizeMiB: &value.Logs.CoreMaxFileSizeMiB,
 		RuntimeHistoryRetentionDays: &value.Nodes.RuntimeHistoryRetentionDays,
+		BackupIntervalHours:         &value.Backup.IntervalHours, BackupKeep: &value.Backup.Keep,
 	}
 }
 
@@ -68,6 +71,12 @@ func (service PanelServiceSettings) apply(value *Settings) {
 	}
 	if service.RuntimeHistoryRetentionDays != nil {
 		value.Nodes.RuntimeHistoryRetentionDays = *service.RuntimeHistoryRetentionDays
+	}
+	if service.BackupIntervalHours != nil {
+		value.Backup.IntervalHours = *service.BackupIntervalHours
+	}
+	if service.BackupKeep != nil {
+		value.Backup.Keep = *service.BackupKeep
 	}
 }
 

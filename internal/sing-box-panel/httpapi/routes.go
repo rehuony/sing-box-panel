@@ -52,8 +52,15 @@ var routes = []route{
 
 	{http.MethodGet, "/panel/settings", "getPanelSettings", accessSession, (*Handler).getPanelSettings},
 	{http.MethodPut, "/panel/settings", "savePanelSettings", accessSession, (*Handler).savePanelSettings},
-	{http.MethodGet, "/panel/backup", "exportPanelBackup", accessSession, (*Handler).exportPanelBackup},
-	{http.MethodPost, "/panel/restore", "restorePanelBackup", accessSession, (*Handler).restorePanelBackup},
+	{http.MethodGet, "/panel/backups", "listPanelBackups", accessSession, (*Handler).listPanelBackups},
+	{http.MethodPost, "/panel/backups", "createPanelBackup", accessSession, (*Handler).createPanelBackup},
+	{http.MethodGet, "/panel/backups/{name}", "downloadPanelBackup", accessSession, withPathValue("name", (*Handler).downloadPanelBackup)},
+	{http.MethodDelete, "/panel/backups/{name}", "deletePanelBackup", accessSession, withPathValue("name", (*Handler).deletePanelBackup)},
+	{http.MethodPost, "/panel/backups/{name}/restore", "stagePanelBackup", accessSession, withPathValue("name", (*Handler).stagePanelBackup)},
+	{http.MethodPost, "/panel/restores", "uploadPanelRestore", accessSession, (*Handler).uploadPanelRestore},
+	{http.MethodPost, "/panel/restores/{restoreId}/plan", "planPanelRestore", accessSession, withPathValue("restoreId", (*Handler).planPanelRestore)},
+	{http.MethodDelete, "/panel/restores/{restoreId}", "discardPanelRestore", accessSession, withPathValue("restoreId", (*Handler).discardPanelRestore)},
+	{http.MethodPost, "/panel/restores/{restoreId}/apply", "applyPanelRestore", accessSession, withPathValue("restoreId", (*Handler).applyPanelRestore)},
 
 	{http.MethodGet, "/core/catalog/assets", "listCoreCatalogAssets", accessSession, (*Handler).listCatalogAssets},
 	{http.MethodPost, "/core/catalog/refresh", "refreshCoreCatalog", accessSession, (*Handler).refreshCatalog},

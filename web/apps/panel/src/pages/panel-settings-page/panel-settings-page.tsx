@@ -42,6 +42,12 @@ function UnitInput({ id, unit, value, min, max, invalid, className, onChange }: 
   );
 }
 
+/** The backup intervals offered, with a saved one that is none of them. */
+function scheduleChoices(current: number): number[] {
+  const choices = [0, 6, 12, 24, 168];
+  return choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+}
+
 function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const { t } = useTranslation();
   const {
@@ -58,7 +64,6 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     passwordValid,
     colorValid,
     dirty,
-    setSaving,
     setPassword,
     passwordOpen,
     openPassword,
@@ -66,7 +71,6 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
     revert,
     setGithub,
     setClearGithub,
-    restored,
     update,
     updateService,
     appearance,
@@ -75,6 +79,12 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
   const input = (id: string) => ({ id, invalid: invalidField === id });
   const field = (id: string) => ({ ...input(id), changed: changed.has(id) });
   const days = t('panelSettings.days');
+  const scheduleLabel = (hours: number) => {
+    if (hours === 0) return t('panelSettings.backupScheduleOff');
+    if (hours === 24) return t('panelSettings.backupScheduleDaily');
+    if (hours === 168) return t('panelSettings.backupScheduleWeekly');
+    return t('panelSettings.backupScheduleHours', { count: hours });
+  };
   return (
     <form className='flex min-h-0 flex-1 flex-col gap-[var(--workspace-content-gap)]' noValidate onSubmit={submit}>
       <TitleStrip>
@@ -93,8 +103,9 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
           onClick={() => void submit()}
         />
       </TitleStrip>
-      <ScrollArea className='min-h-0 min-w-0 flex-1'>
-        <div className='grid items-start gap-3 @5xl:grid-cols-2'>
+      <ScrollArea className='@container/settings min-h-0 min-w-0 flex-1'>
+        {/* Configuration on the left and administration on the right, so both columns end together. */}
+        <div className='grid gap-3 @5xl/settings:grid-cols-2'>
           <div className='flex min-w-0 flex-col gap-3'>
             <SettingsCard
               mark={(
@@ -123,28 +134,6 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               <SettingsField {...field('data-dir')} help={t('panelSettings.dataDirHelp')} label={t('panelSettings.dataDir')}>
                 {/* The panel host has no browse API; the Browse control picks paths on a node. */}
                 <Input aria-invalid={invalidField === 'data-dir' || undefined} autoComplete='off' id='data-dir' required spellCheck={false} value={service.data_dir} onChange={e => updateService('data_dir', e.target.value)} />
-              </SettingsField>
-            </SettingsCard>
-
-            <SettingsCard title={t('panelSettings.account')}>
-              <SettingsField {...field('admin-email')} label={t('panelSettings.adminEmail')}>
-                <Input aria-invalid={invalidField === 'admin-email' || undefined} autoComplete='username' id='admin-email' inputMode='email' type='text' value={email} onChange={e => setEmail(e.target.value)} />
-              </SettingsField>
-              <SettingsField {...field('new-password')} help={t('panelSettings.passwordHelp')} invalid={!passwordValid} label={t('panelSettings.password')}>
-                {passwordOpen
-                  ? (
-                      <div className='flex items-center gap-2'>
-                        <Input aria-describedby={!passwordValid ? 'password-error' : undefined} aria-invalid={!passwordValid || undefined} autoComplete='new-password' autoFocus className='min-w-0 flex-1' id='new-password' type='password' value={password} onChange={e => setPassword(e.target.value)} />
-                        <Button onClick={closePassword} size='sm' type='button' variant='ghost'>{t('common.cancel')}</Button>
-                      </div>
-                    )
-                  : (
-                      <div className='flex items-center gap-2'>
-                        <span aria-hidden='true' className='min-w-0 flex-1 truncate font-[family-name:var(--font-data)] text-[var(--color-text-faint)]'>••••••••••••</span>
-                        <Button onClick={openPassword} size='sm' type='button' variant='outline'>{t('panelSettings.changePassword')}</Button>
-                      </div>
-                    )}
-                {newPasswordError && <span className='sr-only' id='password-error'>{t(newPasswordError)}</span>}
               </SettingsField>
             </SettingsCard>
 
@@ -207,9 +196,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 </Select>
               </SettingsField>
             </SettingsCard>
-          </div>
 
-          <div className='flex min-w-0 flex-col gap-3'>
             <SettingsCard title={t('panelSettings.retention')}>
               <SettingsField {...field('sample-retention')} label={t('panelSettings.sampleRetention')}>
                 <UnitInput {...input('sample-retention')} max={366} min={1} unit={days} value={service.sample_retention_days} onChange={value => updateService('sample_retention_days', value)} />
@@ -225,6 +212,30 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               </SettingsField>
               <SettingsField {...field('core-log-size')} label={t('panelSettings.coreLogSize')}>
                 <UnitInput {...input('core-log-size')} max={1024} min={1} unit='MiB' value={service.core_log_max_file_size_mib ?? 32} onChange={value => updateService('core_log_max_file_size_mib', value)} />
+              </SettingsField>
+            </SettingsCard>
+          </div>
+
+          <div className='flex min-w-0 flex-col gap-3'>
+            <SettingsCard title={t('panelSettings.account')}>
+              <SettingsField {...field('admin-email')} label={t('panelSettings.adminEmail')}>
+                <Input aria-invalid={invalidField === 'admin-email' || undefined} autoComplete='username' id='admin-email' inputMode='email' type='text' value={email} onChange={e => setEmail(e.target.value)} />
+              </SettingsField>
+              <SettingsField {...field('new-password')} help={t('panelSettings.passwordHelp')} invalid={!passwordValid} label={t('panelSettings.password')}>
+                {passwordOpen
+                  ? (
+                      <div className='flex items-center gap-2'>
+                        <Input aria-describedby={!passwordValid ? 'password-error' : undefined} aria-invalid={!passwordValid || undefined} autoComplete='new-password' autoFocus className='min-w-0 flex-1' id='new-password' type='password' value={password} onChange={e => setPassword(e.target.value)} />
+                        <Button onClick={closePassword} size='sm' type='button' variant='ghost'>{t('common.cancel')}</Button>
+                      </div>
+                    )
+                  : (
+                      <div className='flex items-center gap-2'>
+                        <span aria-hidden='true' className='min-w-0 flex-1 truncate font-[family-name:var(--font-data)] text-[var(--color-text-faint)]'>••••••••••••</span>
+                        <Button onClick={openPassword} size='sm' type='button' variant='outline'>{t('panelSettings.changePassword')}</Button>
+                      </div>
+                    )}
+                {newPasswordError && <span className='sr-only' id='password-error'>{t(newPasswordError)}</span>}
               </SettingsField>
             </SettingsCard>
 
@@ -265,7 +276,25 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
               </SettingsField>
             </PanelUpdateSettings>
 
-            <PanelBackupSettings busy={saving} onBusyChange={setSaving} onRestored={restored} />
+            <PanelBackupSettings>
+              <SettingsField {...field('backup-interval')} label={t('panelSettings.backupSchedule')}>
+                <Select value={String(service.backup_interval_hours ?? 24)} onValueChange={(value) => {
+                  if (value !== null) updateService('backup_interval_hours', Number(value));
+                }}>
+                  <SelectTrigger id='backup-interval'><SelectValue>{scheduleLabel(service.backup_interval_hours ?? 24)}</SelectValue></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {scheduleChoices(service.backup_interval_hours ?? 24).map(hours => (
+                        <SelectItem key={hours} value={String(hours)}>{scheduleLabel(hours)}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </SettingsField>
+              <SettingsField {...field('backup-keep')} label={t('panelSettings.backupKeep')}>
+                <UnitInput {...input('backup-keep')} max={100} min={1} unit={t('panelSettings.backupKeepUnit')} value={service.backup_keep ?? 7} onChange={value => updateService('backup_keep', value)} />
+              </SettingsField>
+            </PanelBackupSettings>
           </div>
         </div>
       </ScrollArea>
