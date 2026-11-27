@@ -8,13 +8,22 @@ const variants = {
   offline: 'destructive',
 } as const satisfies Record<FleetNode['state'], string>;
 
-/** The node's connection with the panel: online or offline. */
-export function NodeStateBadge({ state }: { state: FleetNode['state'] }) {
+/**
+ * The node's connection with the panel: online or offline. Where room runs
+ * short its word can leave the dot alone, still naming the state to a reader
+ * and on hover.
+ */
+export function NodeStateBadge({ className, labelClassName, state }: {
+  state: FleetNode['state'];
+  className?: string;
+  labelClassName?: string;
+}) {
   const { t } = useTranslation();
+  const label = t(`nodes.state.${state}`);
   return (
-    <Badge variant={variants[state]}>
-      <span aria-hidden='true' className='size-1.5 rounded-full bg-current' />
-      {t(`nodes.state.${state}`)}
+    <Badge className={className} title={label} variant={variants[state]}>
+      <span aria-hidden='true' className='size-1.5 flex-none rounded-full bg-current' />
+      <span className={labelClassName}>{label}</span>
     </Badge>
   );
 }

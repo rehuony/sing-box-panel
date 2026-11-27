@@ -43,6 +43,15 @@ function useNow(interval: number): number {
   return now;
 }
 
+// The strip gives up words in tiers as its own width runs short, so it keeps
+// one line above a phone: below 62rem the readings' labels, the state's word
+// and the actions' labels; below 50rem the uptime; below 42rem the version;
+// below 37rem the readings take a second line. What leaves stays for readers.
+const withoutLabels = '@max-[62rem]/node-strip:sr-only';
+const withoutUptime = '@max-[50rem]/node-strip:sr-only';
+const withoutVersion = '@max-[42rem]/node-strip:sr-only';
+const squareAction = '@max-[62rem]/node-strip:w-(--control-height-sm) @max-[62rem]/node-strip:px-0';
+
 function versionLabel(version: string): string {
   return `v${version.replace(/^v/i, '')}`;
 }
@@ -90,7 +99,7 @@ function sampledTraffic(metrics: MetricsSnapshot | undefined): Traffic | null {
 function Reading({ children, label, stale = false }: { children: ReactNode[]; label: string; stale?: boolean }) {
   return (
     <dl className='flex shrink-0 items-center gap-2 px-1'>
-      <dt className='text-muted-foreground'>{label}</dt>
+      <dt className={cn('text-muted-foreground', withoutLabels)}>{label}</dt>
       <dd className={cn('whitespace-nowrap tabular-nums', stale && 'text-muted-foreground')}><ReadoutParts>{children}</ReadoutParts></dd>
     </dl>
   );
@@ -119,7 +128,14 @@ function RuntimeButton({ action, disabled, onClick }: {
   const { t } = useTranslation();
   const Icon = action === 'start' ? Play : action === 'stop' ? Square : RotateCw;
   return (
-    <StripAction disabled={disabled} icon={<Icon aria-hidden='true' data-icon='inline-start' />} label={t(`telemetry.control.${action}`)} onClick={onClick} />
+    <StripAction
+      className={squareAction}
+      disabled={disabled}
+      icon={<Icon aria-hidden='true' data-icon='inline-start' />}
+      label={t(`telemetry.control.${action}`)}
+      labelClassName={withoutLabels}
+      onClick={onClick}
+    />
   );
 }
 
@@ -188,23 +204,28 @@ interface StripLayoutProps {
  * The node scope's title strip: the node's name and state, its labelled
  * readings in the data face, and actions on this node only at the end, with
  * dividers between the groups. The status line leads back to the fleet and to
- * the neighbouring nodes. Below 1024px the readings take a second line that
+ * the neighbouring nodes. It keeps one line by giving up words in tiers as
+ * its width runs short; below 37rem the readings take a second line that
  * scrolls sideways.
  */
 function StripLayout({ actions, context, node }: StripLayoutProps) {
   const { t } = useTranslation();
   return (
-    <TitleStrip className='[view-transition-name:node-window]' label={t('node.objectRow', { name: node.name })}>
-      <div className='flex min-w-0 flex-1 items-center gap-2 lg:flex-none'>
+    <TitleStrip className='@container/node-strip [view-transition-name:node-window]' label={t('node.objectRow', { name: node.name })}>
+      <div className='flex min-w-0 items-center gap-2 @max-[37rem]/node-strip:flex-1'>
         <span className='truncate font-[family-name:var(--font-display)] text-xl font-semibold' title={node.name}>{node.name}</span>
-        <NodeStateBadge state={node.state} />
+        <NodeStateBadge
+          className='@max-[62rem]/node-strip:size-5 @max-[62rem]/node-strip:px-0'
+          labelClassName={withoutLabels}
+          state={node.state}
+        />
       </div>
       {context === null
         ? null
         : (
             <>
-              <StripDivider className='max-lg:hidden' />
-              <div className='flex min-w-0 items-center gap-2 overflow-x-auto font-[family-name:var(--font-data)] text-compact whitespace-nowrap [scrollbar-width:none] max-lg:order-last max-lg:basis-full lg:flex-1'>
+              <StripDivider className='@max-[37rem]/node-strip:hidden' />
+              <div className='flex min-w-0 flex-1 items-center gap-2 overflow-x-auto font-[family-name:var(--font-data)] text-compact whitespace-nowrap [scrollbar-width:none] @max-[37rem]/node-strip:order-last @max-[37rem]/node-strip:basis-full'>
                 {context}
               </div>
             </>
@@ -271,6 +292,7 @@ function LiveStrip({ node }: { node: FleetNode }) {
       ? 'destructive'
       : runtimeControl.state.phase === 'verification_timeout' ? 'warning' : 'info';
   const units = { day: t('telemetry.unit.day'), hour: t('telemetry.unit.hour'), minute: t('telemetry.unit.minute'), second: t('telemetry.unit.second') };
+  const uptime = startedAt ? t('fleet.pane.uptime', { value: formatUptime(startedAt, now, units) }) : '';
   let runtimeTone = 'text-[var(--color-warning-text)]';
   if (verifiedRunning) runtimeTone = '';
   else if (verifiedStopped) runtimeTone = 'text-[var(--color-text-secondary)]';
@@ -282,17 +304,30 @@ function LiveStrip({ node }: { node: FleetNode }) {
   // Readings the node has not given are left out rather than marked; traffic leaves with its group.
   const context = (
     <>
+      {/* Each later part carries the dot before it, so a part the strip gives up takes its dot along. */}
       <Reading label={t('fleet.pane.core')}>
         {[
-          <span className={runtimeTone} key='state' title={runtimeDetail}>{runtimeLabel}</span>,
-          coreVersion ? <span key='version' title={t('telemetry.metric.version')}>{versionLabel(coreVersion)}</span> : null,
-          startedAt
-            ? (
-                <span key='uptime' title={t('telemetry.startedAt', { value: formatDateTime(startedAt, locale) })}>
-                  {t('fleet.pane.uptime', { value: formatUptime(startedAt, now, units) })}
-                </span>
-              )
-            : null,
+          <span key='core'>
+            <span className={runtimeTone} title={[[runtimeLabel, coreVersion && versionLabel(coreVersion), uptime].filter(Boolean).join(' · '), runtimeDetail].join('\n')}>
+              {runtimeLabel}
+            </span>
+            {coreVersion
+              ? (
+                  <span className={withoutVersion}>
+                    <span aria-hidden='true' className='text-muted-foreground'>{' · '}</span>
+                    <span title={t('telemetry.metric.version')}>{versionLabel(coreVersion)}</span>
+                  </span>
+                )
+              : null}
+            {uptime && startedAt
+              ? (
+                  <span className={withoutUptime}>
+                    <span aria-hidden='true' className='text-muted-foreground'>{' · '}</span>
+                    <span title={t('telemetry.startedAt', { value: formatDateTime(startedAt, locale) })}>{uptime}</span>
+                  </span>
+                )
+              : null}
+          </span>,
         ]}
       </Reading>
       {traffic === null

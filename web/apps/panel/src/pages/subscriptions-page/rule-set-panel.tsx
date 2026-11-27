@@ -116,11 +116,10 @@ function CreateDialog({ onClose, onSubmit, taken }: {
   );
 }
 
-/** What a rule set's rail item shows, as its draft stands while it is edited. */
+/** What a rule set's rail item shows on its one line, as its draft stands while it is edited. */
 interface RailFace {
   name: string;
   end: ReactNode;
-  sub: ReactNode;
   icon: ReactNode;
   marker?: ReactNode;
 }
@@ -319,7 +318,6 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
         ? <span aria-label={t('subscriptions.ruleSets.unsavedMark')} className='size-1.5 flex-none rounded-full bg-primary' role='img' />
         : undefined,
       name: editing?.name ?? set.name,
-      sub: set.channels.length > 0 ? t('subscriptions.ruleSets.usedBy', { count: set.channels.length }) : t('subscriptions.ruleSets.unused'),
     };
   }
 

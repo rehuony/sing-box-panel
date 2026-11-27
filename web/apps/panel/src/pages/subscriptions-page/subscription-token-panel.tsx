@@ -220,12 +220,13 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         <Table className='sm:min-w-236'>
           <TableHeader>
             <TableRow>
-              <TableHead className='sm:w-64'>{t('subscriptions.common.name')}</TableHead>
+              <TableHead className='sm:w-56'>{t('subscriptions.common.name')}</TableHead>
               <TableHead className='w-24 sm:w-28'>{t('subscriptions.common.state')}</TableHead>
               <TableHead className='w-48 max-sm:hidden'>{t('subscriptions.keys.lastUsed')}</TableHead>
               <TableHead className='w-48 max-sm:hidden'>{t('subscriptions.keys.expiry')}</TableHead>
               <TableHead className='w-28 text-end max-sm:hidden'>{t('subscriptions.keys.downloads')}</TableHead>
-              <TableHead className='max-sm:w-24'><span className='sr-only'>{t('subscriptions.common.actions')}</span></TableHead>
+              {/* As wide as the cores list's actions, so the icons keep apart from the downloads. */}
+              <TableHead className='w-28 max-sm:w-24'><span className='sr-only'>{t('subscriptions.common.actions')}</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
