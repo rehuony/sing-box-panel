@@ -562,7 +562,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
                   // The name edits itself; a narrow editor keeps only it.
                   <button
                     aria-description={t('subscriptions.ruleSets.rename')}
-                    className={cn(nameFace, 'block max-w-full cursor-text truncate rounded-[var(--radius-control)] outline-none focus-visible:ring-1 focus-visible:ring-primary')}
+                    className={cn(nameFace, 'block max-w-full cursor-text truncate rounded-[var(--radius-control)] outline-none focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]')}
                     onClick={() => setNaming(true)}
                     type='button'
                   >

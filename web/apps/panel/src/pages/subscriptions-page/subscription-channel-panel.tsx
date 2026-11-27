@@ -268,7 +268,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                     {filtered.map((value) => (
                       <tr
                         className={cn(
-                          'h-11 cursor-pointer border-b transition-colors duration-[var(--dur-short)] ease-out *:px-4 hover:bg-[var(--color-hover)]',
+                          'h-11 cursor-pointer border-b transition-colors duration-[var(--dur-short)] ease-out *:px-4 hover:bg-[var(--color-hover)] has-[[data-row-title]:focus-visible]:bg-[var(--color-hover)]',
                           flash === value.id && 'bg-accent hover:bg-accent',
                         )}
                         data-channel-id={value.id}
@@ -282,7 +282,8 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                       >
                         <td>
                           <button
-                            className='block w-full cursor-pointer truncate rounded-[var(--radius-control)] text-start font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary'
+                            className='block w-full cursor-pointer truncate text-start font-medium outline-none'
+                            data-row-title=''
                             onClick={() => void open(value.id)}
                             type='button'
                           >

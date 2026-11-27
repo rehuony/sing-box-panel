@@ -254,11 +254,11 @@ describe('dashboard evidence', () => {
 
     const timeline = within(card).getByRole('group', { name: 'Observed runtime state across the selected range' });
     const acrossMidnight = within(timeline).getByRole('button', { name: /10\/15.*23:36.*10\/16.*00:06.*running/ });
-    act(() => within(timeline).getByRole('button', { name: /10\/15.*23:06.*23:36.*running/ }).focus());
-    await userEvent.tab();
-    expect(acrossMidnight).toHaveFocus();
+    // The cells name themselves but take no Tab stop; the pointer shows each one's interval.
+    expect(acrossMidnight).toHaveAttribute('tabindex', '-1');
+    await userEvent.hover(acrossMidnight);
     expect(await screen.findByRole('tooltip')).toHaveTextContent(acrossMidnight.getAttribute('aria-label')!);
-    act(() => acrossMidnight.blur());
+    await userEvent.unhover(acrossMidnight);
 
     vi.setSystemTime(new Date(2026, 9, 18, 12));
     act(() => store.setState({ dashboardSnapshot: { ...dashboard } }));

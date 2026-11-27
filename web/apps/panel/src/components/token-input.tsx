@@ -95,8 +95,8 @@ export function TokenInput({
     <div
       className={cn(
         'flex max-h-28 min-h-(--control-height) w-full min-w-0 cursor-text flex-wrap items-center gap-1 overflow-y-auto rounded-lg border border-input bg-[var(--color-field)] px-1.5 py-1',
-        'focus-within:outline-1 focus-within:outline-input-focus focus-within:-outline-offset-1 focus-within:outline-solid',
-        invalid && 'border-destructive focus-within:outline-destructive',
+        'focus-within:border-[var(--input-focus)]',
+        invalid && 'border-destructive focus-within:border-destructive',
       )}
       onMouseDown={(event) => {
         // A press on the field's free space puts the caret in its input.
@@ -118,7 +118,7 @@ export function TokenInput({
           </span>
           <button
             aria-label={removeLabel(token)}
-            className='inline-flex size-4 flex-none cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+            className='inline-flex size-4 flex-none cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]'
             onClick={() => {
               onRemove(index);
               inputRef.current?.focus();

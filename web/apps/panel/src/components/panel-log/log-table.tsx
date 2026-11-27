@@ -47,16 +47,21 @@ interface LogRowTitleProps {
   title: string;
   detail?: string;
   onOpen: OpenLog;
+  /** 0 for the one line of the table that the Tab key reaches, else -1. */
+  tabIndex: number;
+  onFocus: () => void;
 }
 
 /** A log line's title, the button that opens its details, with what failed after it in muted data text. */
-export function LogRowTitle({ detail, onOpen, title }: LogRowTitleProps) {
+export function LogRowTitle({ detail, onFocus, onOpen, tabIndex, title }: LogRowTitleProps) {
   return (
     <button
       aria-haspopup='dialog'
       className='block min-w-0 cursor-pointer truncate text-start outline-none'
       data-log-title=''
+      tabIndex={tabIndex}
       type='button'
+      onFocus={onFocus}
       // A click the keyboard made has no press count; only that one returns focus here.
       onClick={event => onOpen(event.detail === 0 ? event.currentTarget : null)}
     >

@@ -26,7 +26,7 @@ export function NodeLogsPage() {
     </Tabs>
   );
   return (
-    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)] [contain:size]'>
       <h1 className='sr-only'>{t('node.tabs.logs')}</h1>
       {view === 'core'
         ? <CoreLogView lead={tabs} />

@@ -223,7 +223,7 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
               <button
                 {...attributes}
                 aria-label={t('channels.moveRoute', { position })}
-                className='flex size-7 cursor-grab touch-none items-center justify-center rounded-[var(--radius-control)] text-[var(--color-text-faint)] outline-none group-hover/route:text-[var(--color-text-secondary)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-default'
+                className='flex size-7 cursor-grab touch-none items-center justify-center rounded-[var(--radius-control)] text-[var(--color-text-faint)] outline-none group-hover/route:text-[var(--color-text-secondary)] hover:text-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--ring)] disabled:cursor-default'
                 data-route-grip=''
                 disabled={busy}
                 onKeyDown={listeners?.onKeyDown as ((event: SyntheticEvent) => void) | undefined}

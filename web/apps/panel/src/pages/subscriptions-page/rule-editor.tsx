@@ -118,6 +118,22 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
             {remote
               ? (
                   <>
+                    {/* The name comes first; left empty, it takes the file name of the link below. */}
+                    <Row htmlFor={`${id}-name`} label={t('subscriptions.ruleSets.field.name')}>
+                      <Input
+                        autoComplete='off'
+                        className='font-[family-name:var(--font-data)]'
+                        id={`${id}-name`}
+                        maxLength={128}
+                        onChange={(event) => {
+                          setMessage('');
+                          setName(event.target.value);
+                        }}
+                        placeholder={nameFromURL(url)}
+                        spellCheck={false}
+                        value={name}
+                      />
+                    </Row>
                     <Row htmlFor={`${id}-url`} label={t('subscriptions.ruleSets.field.url')}>
                       <div className='relative'>
                         <Input
@@ -154,21 +170,6 @@ export function RuleEditor({ client, onClose, onSave, remote, rule, takenNames }
                           </IconAction>
                         </span>
                       </div>
-                    </Row>
-                    <Row htmlFor={`${id}-name`} label={t('subscriptions.ruleSets.field.name')}>
-                      <Input
-                        autoComplete='off'
-                        className='font-[family-name:var(--font-data)]'
-                        id={`${id}-name`}
-                        maxLength={128}
-                        onChange={(event) => {
-                          setMessage('');
-                          setName(event.target.value);
-                        }}
-                        placeholder={nameFromURL(url)}
-                        spellCheck={false}
-                        value={name}
-                      />
                     </Row>
                     <Row htmlFor={`${id}-format`} label={t('subscriptions.ruleSets.field.format')}>
                       <SelectField<ChannelRemoteRuleSet['format'] | ''>

@@ -27,6 +27,7 @@ import {
   matchingEventCodes,
   PanelLogDetails,
   RuntimeStateBadge,
+  useLogRowFocus,
 } from '@/components/panel-log';
 
 const states = ['running', 'stopped', 'failed', 'unknown'] as const satisfies readonly RuntimeTransitionState[];
@@ -62,6 +63,7 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
   const loading = history.isPending || history.isPlaceholderData;
   const pages = Math.max(1, Math.ceil(result.total / limit));
   if (!history.isPlaceholderData && history.data && page > pages) setPage(pages);
+  const rowFocus = useLogRowFocus(result.items.map(item => String(item.id)));
   const columns = [
     { key: 'time', className: logTimeColumnClass(result.items.map(item => item.occurred_at)) },
     { key: 'state', className: 'w-25 max-sm:w-22' },
@@ -114,14 +116,21 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody onKeyDown={rowFocus.onKeyDown}>
               {result.items.map((item) => {
                 const title = logTitle({ code: item.reason }, t);
                 return (
                   <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
                     <td className='truncate'><LogTime language={language} value={item.occurred_at} /></td>
                     <td><RuntimeStateBadge state={item.state} /></td>
-                    <td><LogRowTitle title={title} onOpen={trigger => open(item, trigger)} /></td>
+                    <td>
+                      <LogRowTitle
+                        tabIndex={rowFocus.tabIndex(String(item.id))}
+                        title={title}
+                        onFocus={() => rowFocus.onFocus(String(item.id))}
+                        onOpen={trigger => open(item, trigger)}
+                      />
+                    </td>
                   </LogRow>
                 );
               })}

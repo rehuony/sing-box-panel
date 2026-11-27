@@ -327,8 +327,11 @@ function DashboardHistory() {
                 return (
                   <Tooltip key={slot.id}>
                     <TooltipTrigger
-                      className={cn('min-w-0 rounded-[2px] border-0 p-0 outline-offset-2 hover:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)] focus-visible:outline-2 focus-visible:outline-ring', stateSwatch[slot.state])}
+                      className={cn('min-w-0 rounded-[2px] border-0 p-0 hover:shadow-[inset_0_0_0_1px_var(--foreground)]', stateSwatch[slot.state])}
                       data-state={slot.state}
+                      // Forty-eight cells are no Tab stops: the legend gives the day's
+                      // totals, and each cell names itself to assistive technology.
+                      tabIndex={-1}
                       aria-label={label}
                       disabled={current === null}
                     />
@@ -381,7 +384,7 @@ function DashboardHistory() {
               return (
                 <li className='col-span-3 grid grid-cols-subgrid' key={entry.id}>
                   <Tooltip>
-                    <TooltipTrigger render={<Link className='col-span-3 grid min-h-7 grid-cols-subgrid items-baseline gap-x-3 rounded-[var(--radius-control)] px-2 py-1 transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none' to={logs} />}>
+                    <TooltipTrigger render={<Link className='col-span-3 grid min-h-7 grid-cols-subgrid items-baseline gap-x-3 rounded-[var(--radius-control)] px-2 py-1 transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] motion-reduce:transition-none' to={logs} />}>
                       <time className='whitespace-nowrap text-[var(--color-text-faint)] tabular-nums' dateTime={entry.time} aria-label={fullTime}>
                         {formatActivityTime(entry.time, locale, today)}
                       </time>

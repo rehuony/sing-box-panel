@@ -147,7 +147,6 @@ export function CoreLogView({ lead }: { lead: ReactNode }) {
                   data-state={state}
                   role='status'
                   aria-label={t(`productLogs.${state}`)}
-                  tabIndex={0}
                 />
               )}>
                 <i aria-hidden='true' className='size-2 rounded-full bg-current' />

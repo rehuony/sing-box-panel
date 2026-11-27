@@ -67,7 +67,7 @@ function MultiChoice({ allLabel, id, items, labelId, onChange, value }: {
         id={id}
         render={(
           <button
-            className='group/choice flex h-(--control-height) w-full min-w-0 cursor-pointer items-center justify-between gap-1.5 rounded-lg border border-input bg-[var(--color-field)] px-3 text-sm outline-hidden transition-colors hover:border-[var(--color-border-strong)] focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-input-focus focus-visible:outline-solid'
+            className='group/choice flex h-(--control-height) w-full min-w-0 cursor-pointer items-center justify-between gap-1.5 rounded-lg border border-input bg-[var(--color-field)] px-3 text-sm outline-hidden transition-colors hover:border-[var(--color-border-strong)] focus-visible:border-primary'
             type='button'
           />
         )}

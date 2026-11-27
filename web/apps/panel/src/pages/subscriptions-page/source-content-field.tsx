@@ -134,9 +134,9 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
       aria-labelledby={labelId}
       className={cn(
         'flex h-(--control-height) min-w-0 items-center gap-2 rounded-lg border border-input bg-[var(--color-field)] ps-3 pe-1 text-sm outline-none',
-        'focus-visible:outline-1 focus-visible:outline-input-focus focus-visible:-outline-offset-1 focus-visible:outline-solid',
+        'focus-visible:border-[var(--input-focus)]',
         dropping && 'outline-1 -outline-offset-1 outline-input-focus outline-dashed',
-        invalid && 'border-destructive focus-visible:outline-destructive',
+        invalid && 'border-destructive focus-visible:border-destructive',
       )}
       data-slot='source-content'
       onDragLeave={() => setDropping(false)}

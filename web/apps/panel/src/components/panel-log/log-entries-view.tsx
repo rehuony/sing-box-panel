@@ -22,6 +22,7 @@ import { CardToolbar, StripDivider, StripSearch, TitleStrip } from '@/components
 
 import type { PanelLogRecord } from './panel-log-details';
 
+import { useLogRowFocus } from './use-log-row-focus';
 import { ClearLogsAction } from './clear-logs-action';
 import { PanelLogDetails } from './panel-log-details';
 import { LogRow, LogRowTitle, LogTime } from './log-table';
@@ -59,6 +60,7 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
   const loading = logs.isPending || logs.isPlaceholderData;
   const pages = Math.max(1, Math.ceil(result.total / limit));
   if (!logs.isPlaceholderData && logs.data && page > pages) setPage(pages);
+  const rowFocus = useLogRowFocus(result.items.map(item => item.id));
   const columns = [
     { key: 'time', className: logTimeColumnClass(result.items.map(item => item.time)) },
     { key: 'level', className: 'w-19 max-sm:w-16' },
@@ -118,7 +120,7 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody onKeyDown={rowFocus.onKeyDown}>
               {result.items.map((item) => {
                 const title = logTitle(item, t);
                 const failure = typeof item.metadata.error_code === 'string' ? item.metadata.error_code : undefined;
@@ -129,7 +131,13 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
                     <td>
                       <div className='flex min-w-0 items-center gap-2'>
                         {item.source === 'security' && <Badge variant='secondary'>{t('productLogs.sources.security')}</Badge>}
-                        <LogRowTitle detail={failure} title={title} onOpen={trigger => open(item, trigger)} />
+                        <LogRowTitle
+                          detail={failure}
+                          tabIndex={rowFocus.tabIndex(item.id)}
+                          title={title}
+                          onFocus={() => rowFocus.onFocus(item.id)}
+                          onOpen={trigger => open(item, trigger)}
+                        />
                       </div>
                     </td>
                   </LogRow>

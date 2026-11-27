@@ -51,6 +51,26 @@ describe('panel logs', () => {
       expect.objectContaining({ limit: 10, offset: 0 }), expect.any(AbortSignal),
     ));
   });
+  it('keeps the list one Tab stop that the arrow keys move through and Enter opens', async () => {
+    const user = userEvent.setup();
+    const entry = (id: string, message: string): LogEntry => ({
+      id, time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info', code: id, message, metadata: {},
+    });
+    show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({
+      items: [entry('first', 'First event'), entry('second', 'Second event')], total: 2,
+    }) }));
+    const first = await screen.findByRole('button', { name: 'First event' });
+    const second = screen.getByRole('button', { name: 'Second event' });
+    expect([first.tabIndex, second.tabIndex]).toEqual([0, -1]);
+    first.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(second).toHaveFocus();
+    expect([first.tabIndex, second.tabIndex]).toEqual([-1, 0]);
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('dialog', { name: 'Log details' })).toBeVisible();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(second).toHaveFocus());
+  });
   it('returns to the last valid log page when records disappear during a jump', async () => {
     const item: LogEntry = {
       id: 'retained', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info',

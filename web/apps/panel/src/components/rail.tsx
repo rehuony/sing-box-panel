@@ -73,7 +73,7 @@ export function RailItem({ actions, current, details, end, icon, marker, name, s
       {...props}
       aria-current={current || undefined}
       className={cn(
-        'w-full min-w-0 cursor-pointer rounded-[var(--radius-control)] pe-1.5 text-left text-sm outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset aria-[current=true]:bg-accent',
+        'w-full min-w-0 cursor-pointer rounded-[var(--radius-control)] pe-1.5 text-left text-sm outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] aria-[current=true]:bg-accent',
         sub ? cn('grid h-13 items-center gap-x-2.5 ps-2', icon ? 'grid-cols-[2rem_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]') : 'flex h-10 items-center gap-2 ps-2.5',
       )}
       type='button'
