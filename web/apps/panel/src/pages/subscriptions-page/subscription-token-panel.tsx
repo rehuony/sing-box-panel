@@ -5,9 +5,9 @@ import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, CirclePlus, Copy, MoreHorizontal, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@shared/components/ui/input-group';
+import { Check, CirclePlus, Copy, KeyRound, MoreHorizontal, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import {
@@ -33,6 +33,8 @@ import type { useSubscriptionTokenPage } from './use-subscription-token-page';
 import { SubscriptionContentState } from './subscription-content-state';
 
 type KeyAction = 'rotate' | 'delete';
+/** What a key action failed to do. */
+type KeyFailure = KeyAction | 'enable' | 'disable' | 'reveal' | 'copy';
 
 /** How long a new key lasts: never, a number of days from now, or a chosen time. */
 type Expiry = 'never' | '1' | '7' | '30' | '90' | '365' | 'custom';
@@ -82,7 +84,8 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     operationRef.current++;
   }, []);
 
-  const report = useCallback((reason: unknown) => toastFailure(t('subscriptions.keys.actionFailed'), reason), [t]);
+  /** A failed key action, titled by the action. */
+  const report = useCallback((failure: KeyFailure, reason: unknown) => toastFailure(t(`subscriptions.keys.failed.${failure}`), reason), [t]);
 
   /** A key's state and the colour its dot takes: usable, used up or expired, paused, or revoked. */
   function keyState(key: SubscriptionToken): { label: string; tone: string } {
@@ -154,6 +157,8 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
   }
   async function run(action: KeyAction | 'toggle', key: SubscriptionToken) {
     if (busy) return;
+    // What the action does to this key, which its toasts name.
+    const outcome = action === 'toggle' ? (key.enabled ? 'disable' : 'enable') : action;
     setBusy(true);
     try {
       if (action === 'rotate') {
@@ -166,9 +171,10 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       }
       setConfirmation(null);
       refresh();
-      if (action !== 'rotate') toast.add({ title: t('subscriptions.keys.updated'), type: 'success' });
+      // A rotated key shows its new secret instead.
+      if (outcome !== 'rotate') toast.add({ title: t(`subscriptions.keys.changed.${outcome}`, { name: key.label }), type: 'success' });
     } catch (reason) {
-      report(reason);
+      report(outcome, reason);
     } finally {
       setBusy(false);
     }
@@ -181,7 +187,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       const secret = await client.getSubscriptionTokenSecret(key.id);
       if (generation === operationRef.current) setIssued({ key: { metadata: key, token: secret.token }, kind: 'viewed' });
     } catch (reason) {
-      if (generation === operationRef.current) report(reason);
+      if (generation === operationRef.current) report('reveal', reason);
     } finally {
       if (generation === operationRef.current) setBusy(false);
     }
@@ -194,7 +200,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       setCopied(true);
       toast.add({ title: t('subscriptions.token.secret.copied'), type: 'success' });
     } catch (reason) {
-      if (generation === operationRef.current) report(reason);
+      if (generation === operationRef.current) report('copy', reason);
     }
   }
 
@@ -446,49 +452,21 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         }
       }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {t(issued?.kind === 'created' ? 'subscriptions.keys.created' : issued?.kind === 'rotated' ? 'subscriptions.keys.rotated' : 'subscriptions.keys.details')}
-            </DialogTitle>
-            <DialogDescription className={issued?.kind === 'created' ? undefined : 'sr-only'}>
-              {t(issued?.kind === 'created' ? 'subscriptions.keys.createdNote' : 'subscriptions.keys.key')}
-            </DialogDescription>
-          </DialogHeader>
           {issued
             ? (
-                <>
-                  <DialogFields className='[&>span]:min-w-0 [&>span]:truncate [&>span]:leading-10'>
-                    <span>{t('subscriptions.common.name')}</span>
-                    <span>{issued.key.metadata.label}</span>
-                    <span>{t('subscriptions.keys.expiry')}</span>
-                    <span>{formatDate(issued.key.metadata.expires_at)}</span>
-                    <span>{t('subscriptions.keys.quota')}</span>
-                    <span className='tabular-nums'>
-                      {issued.key.metadata.download_limit === undefined
-                        ? t('subscriptions.keys.unlimited')
-                        : `${issued.key.metadata.download_limit.toLocaleString(i18n.resolvedLanguage)} ${t('subscriptions.keys.quotaUnit')}`}
-                    </span>
-                    <span>{t('subscriptions.keys.key')}</span>
-                    <div className='flex h-(--control-height) min-w-0 items-center gap-1 rounded-lg bg-[var(--color-surface-raised)] ps-3 pe-1'>
-                      <code className='min-w-0 flex-1 truncate font-[family-name:var(--font-data)] text-compact' title={issued.key.token}>{issued.key.token}</code>
-                      <IconAction
-                        className={copied ? 'text-[var(--color-success-text)] hover:text-[var(--color-success-text)]' : undefined}
-                        label={t(copied ? 'subscriptions.token.secret.copied' : 'subscriptions.token.secret.copy')}
-                        onClick={() => void copy(issued.key.token)}
-                      >
-                        {copied ? <Check aria-hidden='true' /> : <Copy aria-hidden='true' />}
-                      </IconAction>
-                    </div>
-                  </DialogFields>
-                  <DialogFooter>
-                    <Button onClick={() => {
-                      setIssued(null);
-                      operationRef.current++;
-                    }}>
-                      {t('subscriptions.keys.done')}
-                    </Button>
-                  </DialogFooter>
-                </>
+                <IssuedKey
+                  copied={copied}
+                  formatDate={formatDate}
+                  formatTime={formatTime}
+                  issued={issued}
+                  onCopy={() => void copy(issued.key.token)}
+                  onDone={() => {
+                    setIssued(null);
+                    operationRef.current++;
+                  }}
+                  state={keyState(issued.key.metadata)}
+                  usage={usage}
+                />
               )
             : null}
         </DialogContent>
@@ -515,5 +493,97 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+
+/** A fact of the key: its label above its value, the value in the data face when it is data. */
+function KeyFact({ label, value, data = false }: { label: string; value: string; data?: boolean }) {
+  return (
+    <div className='min-w-0'>
+      <dt className='text-xs text-[var(--color-text-faint)]'>{label}</dt>
+      <dd className={cn('truncate text-compact text-[var(--color-text-secondary)]', data && 'font-[family-name:var(--font-data)] tabular-nums')} title={value}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * A key's secret and what governs it. Viewed, the key's name heads it with its
+ * state, the secret follows on one line with its copy action, then when it was
+ * made and last used, its expiry and downloads. Created or rotated, a mark and
+ * the outcome head it over the key's name, the secret follows, and Done
+ * acknowledges it.
+ */
+function IssuedKey({ issued, state, copied, onCopy, onDone, formatDate, formatTime, usage }: {
+  issued: { key: CreatedSubscriptionToken; kind: 'created' | 'rotated' | 'viewed' };
+  state: { label: string; tone: string };
+  copied: boolean;
+  onCopy: () => void;
+  onDone: () => void;
+  formatDate: (value?: string) => string;
+  formatTime: (value: string) => string;
+  usage: (key: SubscriptionToken) => string;
+}) {
+  const { t } = useTranslation();
+  const key = issued.key.metadata;
+  const secret = (
+    // One line, cut at its end; the full key reads on hover and Copy takes all of it. Without
+    // min-w-0 the dialog's grid would widen to the whole key instead.
+    <div className='flex h-11 min-w-0 items-center gap-3 rounded-lg border bg-[var(--color-surface-raised)] ps-3.5 pe-1.5'>
+      <code className='min-w-0 flex-1 truncate font-[family-name:var(--font-data)] text-compact' title={issued.key.token}>{issued.key.token}</code>
+      <Button
+        className={cn('flex-none', copied && 'text-[var(--color-success-text)] hover:text-[var(--color-success-text)]')}
+        onClick={onCopy}
+        size='sm'
+        type='button'
+        variant='outline'
+      >
+        {copied ? <Check aria-hidden='true' data-icon='inline-start' /> : <Copy aria-hidden='true' data-icon='inline-start' />}
+        {t(copied ? 'subscriptions.token.secret.copied' : 'subscriptions.token.secret.copy')}
+      </Button>
+    </div>
+  );
+  if (issued.kind === 'viewed') {
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle className='flex min-w-0 items-center gap-2.5'>
+            <span className='min-w-0 truncate'>{key.label}</span>
+            <span className={cn('inline-flex flex-none items-center gap-1.5 text-xs font-medium whitespace-nowrap', state.tone)}>
+              <span aria-hidden='true' className='size-1.5 rounded-full bg-current' />
+              {state.label}
+            </span>
+          </DialogTitle>
+          <DialogDescription className='sr-only'>{t('subscriptions.keys.key')}</DialogDescription>
+        </DialogHeader>
+        {secret}
+        <dl className='grid grid-cols-2 gap-x-4 gap-y-3.5 max-[520px]:grid-cols-1'>
+          <KeyFact data label={t('subscriptions.keys.createdAt')} value={formatTime(key.created_at)} />
+          <KeyFact data label={t('subscriptions.keys.lastUsed')} value={key.last_used_at ? formatTime(key.last_used_at) : EM_DASH} />
+          <KeyFact data={Boolean(key.expires_at)} label={t('subscriptions.keys.expiry')} value={formatDate(key.expires_at)} />
+          <KeyFact data label={t('subscriptions.keys.downloads')} value={usage(key)} />
+        </dl>
+      </>
+    );
+  }
+  return (
+    <>
+      <DialogHeader className='flex-row items-center gap-3.5 pe-9'>
+        <span aria-hidden='true' className='flex size-10 flex-none items-center justify-center rounded-lg border border-[var(--color-success-border)] bg-[var(--color-success-soft)] text-[var(--color-success-text)]'>
+          <KeyRound className='size-5' />
+        </span>
+        <div className='grid min-w-0 gap-0.5'>
+          <DialogTitle className='pr-0'>{t(issued.kind === 'created' ? 'subscriptions.keys.created' : 'subscriptions.keys.rotated')}</DialogTitle>
+          <DialogDescription className='truncate text-compact'>
+            {issued.kind === 'created' ? key.label : `${key.label} · ${t('subscriptions.keys.rotatedNote')}`}
+          </DialogDescription>
+        </div>
+      </DialogHeader>
+      {secret}
+      <DialogFooter>
+        <Button onClick={onDone}>{t('subscriptions.keys.done')}</Button>
+      </DialogFooter>
+    </>
   );
 }

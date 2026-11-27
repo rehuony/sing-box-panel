@@ -121,6 +121,8 @@ it('creates a key without a user, with an independent shared quota, then clears 
   }));
   const issued = await screen.findByRole('dialog', { name: 'Key created' });
   expect(within(issued).getByText('one-time-public-token')).toBeVisible();
+  // The new key's name and secret, with nothing else to read.
+  expect(within(issued).queryByText('Download limit')).not.toBeInTheDocument();
   expect(within(issued).queryByLabelText('Delivery channel')).not.toBeInTheDocument();
   expect(within(issued).queryByRole('button', { name: 'Copy subscription URL' })).not.toBeInTheDocument();
   expect(client.listSubscriptionChannels).not.toHaveBeenCalled();
@@ -208,13 +210,17 @@ it('disables and enables the selected key directly from its row', async () => {
     }),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
+  const label = key.label;
   await user.click(await screen.findByRole('button', { name: 'Disable' }));
   expect(client.setSubscriptionTokenEnabled).toHaveBeenCalledWith(key.id, false);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  // Each toast names what happened to which key.
+  await waitFor(() => expect(feedback).toHaveBeenLastCalledWith({ title: `Key “${label}” disabled`, type: 'success' }));
   const enable = await screen.findByRole('button', { name: 'Enable' });
   await waitFor(() => expect(enable).toBeEnabled());
   await user.click(enable);
   expect(client.setSubscriptionTokenEnabled).toHaveBeenLastCalledWith(key.id, true);
+  await waitFor(() => expect(feedback).toHaveBeenLastCalledWith({ title: `Key “${label}” enabled`, type: 'success' }));
 });
 
 it.each([true, false])('rotates an enabled=%s key after confirmation and shows the new secret once', async (enabled) => {
@@ -263,12 +269,13 @@ it('deletes the selected revoked key, with cancellation and retry after failure'
   const confirmation = screen.getByRole('dialog', { name: 'Delete key' });
   expect(confirmation).toHaveTextContent('Unused');
   await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
-  await waitFor(() => expect(feedback).toHaveBeenCalledWith(expect.objectContaining({ title: 'The key action failed', description: 'delete failed', type: 'error' })));
+  await waitFor(() => expect(feedback).toHaveBeenCalledWith({ title: 'The key was not deleted', description: 'delete failed', type: 'error' }));
   expect(confirmation).toBeVisible();
   await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
   expect(client.deleteSubscriptionToken).toHaveBeenNthCalledWith(1, key.id);
   expect(client.deleteSubscriptionToken).toHaveBeenNthCalledWith(2, key.id);
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(feedback).toHaveBeenLastCalledWith({ title: 'Key “Unused” deleted', type: 'success' });
 });
 
 it('does not report a stale copy after the one-time secret is closed', async () => {
@@ -284,7 +291,7 @@ it('does not report a stale copy after the one-time secret is closed', async () 
   await user.type(within(form).getByLabelText('Name'), 'Copy');
   await user.click(within(form).getByRole('button', { name: 'Create key' }));
   const issued = await screen.findByRole('dialog', { name: 'Key created' });
-  await user.click(within(issued).getByRole('button', { name: 'Copy token' }));
+  await user.click(within(issued).getByRole('button', { name: 'Copy' }));
   await user.click(within(issued).getByRole('button', { name: 'Done' }));
   await act(async () => resolve());
   expect(feedback).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'success' }));
@@ -299,9 +306,12 @@ it('reveals stored key contents only on request and clears them when closed', as
   await waitFor(() => expect(view).toBeEnabled());
   expect(client.getSubscriptionTokenSecret).not.toHaveBeenCalled();
   await user.click(view);
-  const dialog = await screen.findByRole('dialog', { name: 'Key details' });
+  // Titled by the key's name and state, with no Done to acknowledge.
+  const dialog = await screen.findByRole('dialog', { name: new RegExp(`^${testSubscriptionTokens[0].label}`) });
   expect(client.getSubscriptionTokenSecret).toHaveBeenCalledWith(testSubscriptionTokens[0].id);
   expect(within(dialog).getByText('sample-subscription-token')).toBeVisible();
-  await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+  expect(within(dialog).getByText('Created')).toBeVisible();
+  expect(within(dialog).queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
+  await user.click(within(dialog).getByRole('button', { name: 'Close' }));
   expect(screen.queryByText('sample-subscription-token')).not.toBeInTheDocument();
 });

@@ -192,7 +192,7 @@ export const subscriptions = {
   },
   keys: {
     secretUnavailable: 'This older key has no stored secret. Rotate it and bind the replacement key to the channel.',
-    details: 'Key details', actionFailed: 'The key action failed', more: 'More for {{name}}',
+    details: 'Key details', more: 'More for {{name}}',
     create: 'Create key',
     key: 'Key',
     quota: 'Download limit',
@@ -208,8 +208,10 @@ export const subscriptions = {
     quotaInvalid: 'The download limit is a whole number from 1 to 1,000,000,000; leave it empty for no limit',
     expiryNever: 'Never', expiryDays_one: '{{count}} day', expiryDays_other: '{{count}} days', expiryYear: '1 year', expiryCustom: 'Choose a time…',
     expiresOn: 'Expires {{date}}', backToPresets: 'Back to presets', expiryMissing: 'Choose when it expires', expiryPast: 'Choose a time after now',
-    created: 'Key created', createdNote: 'It works for every channel, and key management can show it again at any time.', rotated: 'Key rotated', done: 'Done',
-    updated: 'Key updated',
+    createdAt: 'Created',
+    created: 'Key created', rotatedNote: 'The old key no longer works', rotated: 'Key rotated', done: 'Done',
+    changed: { delete: 'Key “{{name}}” deleted', enable: 'Key “{{name}}” enabled', disable: 'Key “{{name}}” disabled' },
+    failed: { rotate: 'The key was not rotated', delete: 'The key was not deleted', enable: 'The key was not enabled', disable: 'The key was not disabled', reveal: 'The key could not be read', copy: 'The key was not copied' },
     empty: 'No keys yet',
     cancel: 'Cancel',
   },
@@ -358,7 +360,7 @@ export const subscriptions = {
     loadFailed: 'Could not load tokens',
     secret: {
       copied: 'Copied',
-      copy: 'Copy token',
+      copy: 'Copy',
     },
     state: {
       active: 'Active',

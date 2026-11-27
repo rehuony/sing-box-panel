@@ -192,7 +192,7 @@ export const subscriptions = {
   },
   keys: {
     secretUnavailable: '此旧密钥未保存原文，请轮换后重新绑定渠道。',
-    details: '密钥详情', actionFailed: '密钥操作失败', more: '{{name}} 的更多操作',
+    details: '密钥详情', more: '{{name}} 的更多操作',
     create: '新增密钥',
     key: '密钥',
     quota: '下载上限',
@@ -207,8 +207,10 @@ export const subscriptions = {
     quotaInvalid: '下载上限是 1 到 10 亿之间的整数，留空为不限',
     expiryNever: '永不过期', expiryDays_one: '{{count}} 天', expiryDays_other: '{{count}} 天', expiryYear: '1 年', expiryCustom: '指定时间…',
     expiresOn: '{{date}} 到期', backToPresets: '改回预设', expiryMissing: '选择到期的日期和时间', expiryPast: '到期时间需要晚于现在',
-    created: '密钥已创建', createdNote: '它对所有渠道生效，原文随时可以在密钥管理中再次查看。', rotated: '密钥已轮换', done: '完成',
-    updated: '密钥已更新',
+    createdAt: '创建于',
+    created: '密钥已创建', rotatedNote: '旧密钥已失效', rotated: '密钥已轮换', done: '完成',
+    changed: { delete: '密钥“{{name}}”已删除', enable: '密钥“{{name}}”已启用', disable: '密钥“{{name}}”已停用' },
+    failed: { rotate: '密钥未轮换', delete: '密钥未删除', enable: '密钥未启用', disable: '密钥未停用', reveal: '无法读取密钥', copy: '密钥未复制' },
     empty: '暂无密钥',
     cancel: '取消',
   },
@@ -357,7 +359,7 @@ export const subscriptions = {
     loadFailed: '无法载入令牌',
     secret: {
       copied: '已复制',
-      copy: '复制令牌',
+      copy: '复制',
     },
     state: {
       active: '有效',
