@@ -13,14 +13,15 @@ import { queries } from '@/api/queries';
 import { nodePath } from '@/utils/node-path';
 import { ApiRequestError } from '@/api/api-client';
 import { compareText } from '@/utils/compare-text';
+import { SortContext } from '@/components/sortable';
 import { useApiClient } from '@/api/api-client-context';
 import { RegionError } from '@/components/region-state';
 import { SelectField } from '@/components/select-field';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError } from '@/components/error-notice';
-import { StripDivider, StripSearch } from '@/components/title-strip';
 import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
+import { StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 
 import type { IssueItem } from './issue-list';
 import type { SourceDialogMode } from './subscription-source-dialog';
@@ -32,7 +33,6 @@ import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionNodeDialog } from './subscription-node-dialog';
 import { SubscriptionContentState } from './subscription-content-state';
 import { PoolNodeCard, PoolNodeCardOverlay } from './subscription-node-card';
-import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { ALL_ORIGINS, ALL_PROTOCOLS, FLEET_ORIGIN, matchesNode, originFilter } from './subscription-node-pool';
 
 const orderMutationKey = ['subscription-node-order'];
@@ -192,7 +192,8 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
   } else {
     content = (
       <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>
-        <SubscriptionNodeSortContext
+        <SortContext
+          ended={t('channels.nodeDragEnd')}
           instructions={t('subscriptions.pool.dragInstructions')}
           items={shown.map(node => ({ id: node.id, label: node.display_name }))}
           onDraggingChange={(dragging) => {
@@ -226,7 +227,7 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
               <PoolNodeCard index={index} key={node.id} node={node} onOpen={setOpened} sortable={!saving} />
             ))}
           </ul>
-        </SubscriptionNodeSortContext>
+        </SortContext>
       </ScrollArea>
     );
   }
@@ -256,16 +257,11 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
               )
             : null}
           <StripDivider />
-          <Button
-            aria-label={t('subscriptions.sources.add')}
-            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+          <StripAction
+            icon={<CirclePlus aria-hidden='true' data-icon='inline-start' />}
+            label={t('subscriptions.sources.add')}
             onClick={() => setSourceDialog({ kind: 'create' })}
-            size='sm'
-            variant='flat'
-          >
-            <CirclePlus aria-hidden='true' data-icon='inline-start' />
-            <span className='max-sm:sr-only'>{t('subscriptions.sources.add')}</span>
-          </Button>
+          />
         </div>
       </ToolbarActions>
       {/* On a phone the rail takes a capped band above the grid. */}

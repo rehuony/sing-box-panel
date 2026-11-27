@@ -1,22 +1,36 @@
-import type { ArrayFieldItemTemplateProps, ArrayFieldTemplateProps, FieldProps, RJSFSchema } from '@rjsf/utils';
+import type { ReactNode } from 'react';
+import type { TFunction } from 'i18next';
+import type { ArrayFieldItemButtonsTemplateProps, ArrayFieldItemTemplateProps, ArrayFieldTemplateProps, FieldProps, RJSFSchema } from '@rjsf/utils';
 
+import { cn } from '@shared/lib/utils';
+import { CSS } from '@dnd-kit/utilities';
 import { createPortal } from 'react-dom';
+import { getUiOptions } from '@rjsf/utils';
 import { useTranslation } from 'react-i18next';
 // @rjsf/core's entry also loads its test registry, which imports the Ajv validator.
 import Form from '@rjsf/core/lib/components/Form.js';
 import { createContext, use, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
+import { Copy, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import getDefaultRegistry from '@rjsf/core/lib/getDefaultRegistry.js';
-import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from 'lucide-react';
+import { arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
+
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { dropSlot, SortContext, SortGrip, SortOverlay } from '@/components/sortable';
 
 import { SchemaDialogLayout } from './schema-dialog-layout';
 import { resolvedSchema, schemaDiscriminatorValues, selfContainedSchema, uiSchemaFromPanel } from '../schema-ui';
-import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListRow, ConfigurationListText } from '../configuration-list';
+import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListRow, ConfigurationListText, SortableConfigurationListRow } from '../configuration-list';
 
 const DefaultArrayField = getDefaultRegistry().fields.ArrayField;
-const ArrayFieldActionsContext = createContext<{ create: () => void; edit: (index: number) => void } | null>(null);
+const ArrayFieldActionsContext = createContext<{
+  create: () => void;
+  edit: (index: number) => void;
+  /** Moves an entry to another's place, as a drag drops it. */
+  reorder: (from: number, to: number) => void;
+} | null>(null);
 
 /** Stage additions and edits locally, including entries in nested collections. */
 export function PanelArrayField(props: FieldProps) {
@@ -42,6 +56,12 @@ export function PanelArrayField(props: FieldProps) {
       edit: (index) => {
         setPending({ value: formData[index], index });
         setOpen(true);
+      },
+      reorder: (from, to) => {
+        const list: unknown[] = Array.isArray(formData) ? formData : [];
+        const outside = (index: number) => index < 0 || index >= list.length;
+        if (disabled || readonly || from === to || outside(from) || outside(to)) return;
+        onChange(arrayMove(list, from, to), fieldPathId.path);
       },
     }}>
       <DefaultArrayField {...props} />
@@ -100,6 +120,9 @@ export function PanelArrayField(props: FieldProps) {
 }
 
 interface ArrayEditorState {
+  locked: boolean;
+  /** Whether entries drag into their order by a grip, and whether that grip is off. */
+  sortable: boolean;
   standalone?: boolean;
   edit: (index: number) => void;
   userCredentials?: typeof userCredentials;
@@ -158,6 +181,33 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
   const credentials = userList
     ? userCredentials.filter(({ keys }) => keys.some((key) => userFields?.[key] !== undefined))
     : undefined;
+  // An orderable array's entries drag into their order by a grip, which a locked form turns off.
+  const sortable = actions !== null && getUiOptions(uiSchema).orderable !== false;
+  const locked = Boolean(disabled || readonly);
+  const entryName = (index: number) => {
+    const record = records?.[index];
+    if (record === undefined) return String(data[index] ?? index + 1);
+    return userList ? userName(record, index, t) : itemLabel(record, index);
+  };
+  const sortableItems = (content: ReactNode) => sortable
+    ? (
+        <SortContext
+          ended={t('common.orderUpdated')}
+          instructions={t('common.reorderInstructions')}
+          items={items.map((_, index) => ({ id: String(index), label: entryName(index) }))}
+          onMove={(active, over) => actions?.reorder(Number(active), Number(over))}
+          renderOverlay={(id) => {
+            const index = Number(id);
+            const record = records?.[index];
+            const type = record?.type ?? record?.action;
+            return <SortOverlay detail={typeof type === 'string' ? type : undefined} name={entryName(index)} />;
+          }}
+          strategy={verticalListSortingStrategy}
+        >
+          {content}
+        </SortContext>
+      )
+    : content;
   const addButton = canAdd
     ? (
         standalone
@@ -181,9 +231,9 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
   if (standalone) {
     return (
       <fieldset className='min-w-0 p-0' id={`${fieldPathId.$id}-group`}>
-        <ArrayEditorContext value={{ records, standalone, edit: (index) => actions?.edit(index) }}>
-          <ConfigurationList labels={[t('configuration.fields.tag'), t('configuration.fields.type'), t('configuration.general.summary'), t('common.actions')]}>
-            {items}
+        <ArrayEditorContext value={{ records, standalone, sortable, locked, edit: (index) => actions?.edit(index) }}>
+          <ConfigurationList labels={[t('configuration.fields.tag'), t('configuration.fields.type'), t('configuration.general.summary'), t('common.actions')]} sortable={sortable}>
+            {sortableItems(items)}
             {addButton && <ConfigurationListAddRow>{addButton}</ConfigurationListAddRow>}
           </ConfigurationList>
         </ArrayEditorContext>
@@ -191,14 +241,16 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
     );
   }
   return (
-    <fieldset className={`schema-form__array${records === null ? ' schema-form__array--values' : ''}${userList ? ' schema-form__array--users' : ''}`} data-credentials={credentials !== undefined && credentials.length > 0} id={`${fieldPathId.$id}-group`}>
+    <fieldset className={`schema-form__array${records === null ? ' schema-form__array--values' : ''}${userList ? ' schema-form__array--users' : ''}${sortable ? ' schema-form__array--sortable' : ''}`} data-credentials={credentials !== undefined && credentials.length > 0} id={`${fieldPathId.$id}-group`}>
       <div className='schema-form__array-toolbar' hidden={!!actionContainer}>
         <div className='schema-form__array-heading'>
           <ArrayFieldTitleTemplate {...props} title={uiSchema?.['ui:title'] === '' ? '' : title} />
         </div>
         {actionContainer ? createPortal(addButton, actionContainer) : addButton}
       </div>
-      <ArrayEditorContext value={{ records, userCredentials: credentials, edit: (index) => actions?.edit(index) }}>
+      <ArrayEditorContext
+        value={{ records, sortable, locked, userCredentials: credentials, edit: (index) => actions?.edit(index) }}
+      >
         {records !== null && items.length > 0
           ? (
               <div aria-hidden className='schema-form__list-header'>
@@ -220,23 +272,136 @@ export function PanelArrayFieldTemplate(props: ArrayFieldTemplateProps) {
               </div>
             )
           : null}
-        <div className='schema-form__array-items'>{items}</div>
+        <div className='schema-form__array-items'>{sortableItems(items)}</div>
         {items.length === 0 && records !== null ? <p className='schema-form__empty'>{t('configuration.general.empty')}</p> : null}
       </ArrayEditorContext>
     </fieldset>
   );
 }
 
+/** A user's name in a user list, or a numbered placeholder for an unnamed one. */
+function userName(record: Record<string, unknown>, index: number, t: TFunction): string {
+  const username = [record.username, record.Username, record.name].find((value) => typeof value === 'string' && value.trim() !== '');
+  return typeof username === 'string' ? username : t('configuration.userList.unnamed', { number: index + 1 });
+}
+
+/** A sortable entry's place and style while it drags, and the grip that drags it. */
+function useSortableEntry(index: number, name: string, state: ArrayEditorState | null) {
+  const { t } = useTranslation();
+  const reducedMotion = usePrefersReducedMotion();
+  const sortable = state?.sortable === true;
+  const { attributes, isDragging, listeners, setActivatorNodeRef, setNodeRef, transform, transition }
+    = useSortable({ id: String(index), disabled: !sortable || state.locked });
+  return {
+    className: isDragging ? dropSlot : undefined,
+    grip: (className: string) => sortable
+      ? <SortGrip activatorRef={setActivatorNodeRef} attributes={attributes} className={className} disabled={state.locked} label={t('common.reorderItem', { name })} listeners={listeners} />
+      : null,
+    ref: sortable ? setNodeRef : undefined,
+    style: sortable
+      ? { transform: CSS.Translate.toString(transform), transition: reducedMotion ? undefined : transition }
+      : undefined,
+  };
+}
+
+/** An object entry's line: its name, its type and summary or its credentials, then edit and its buttons. */
+function RecordRow({ buttons, credentials, index, name, record, state }: {
+  index: number;
+  name: string;
+  buttons: ReactNode;
+  credentials?: string;
+  record: Record<string, unknown>;
+  state: ArrayEditorState | null;
+}) {
+  const { t } = useTranslation();
+  const entry = useSortableEntry(index, name, state);
+  return (
+    <div className={cn('schema-form__list-row', entry.className)} ref={entry.ref} style={entry.style}>
+      {entry.grip('schema-form__item-grip')}
+      <span className='schema-form__item-name' title={name}>{name}</span>
+      {credentials !== undefined
+        ? (
+            credentials !== '' && <span className='schema-form__item-summary schema-form__item-credentials'>{credentials}</span>
+          )
+        : (
+            <>
+              <span className='schema-form__item-type'>{String(record.type ?? record.action ?? '—')}</span>
+              <span className='schema-form__item-summary'>{itemSummary(record) || '—'}</span>
+            </>
+          )}
+      <div className='schema-form__item-actions'>
+        <Button disabled={state?.locked} onClick={() => state?.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
+        {buttons}
+      </div>
+    </div>
+  );
+}
+
+/** A plain value's line: its field, then a menu to copy or remove it. */
+function ValueRow({ buttonsProps, children, index, name, state }: {
+  index: number;
+  name: string;
+  children: ReactNode;
+  state: ArrayEditorState | null;
+  buttonsProps: ArrayFieldItemButtonsTemplateProps;
+}) {
+  const { t } = useTranslation();
+  const entry = useSortableEntry(index, name, state);
+  return (
+    <div className={cn('schema-form__value-row', entry.className)} ref={entry.ref} style={entry.style}>
+      {entry.grip('')}
+      <div className='schema-form__value-field'>{children}</div>
+      {buttonsProps.hasCopy || buttonsProps.hasRemove
+        ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button aria-label={t('common.actions')} disabled={buttonsProps.disabled || buttonsProps.readonly} size='icon-sm' type='button' variant='ghost' />}>
+                <MoreHorizontal aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-auto min-w-40'>
+                {buttonsProps.hasCopy
+                  ? (
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem onClick={buttonsProps.onCopyItem}>
+                          <Copy aria-hidden='true' />
+                          {t('common.copy')}
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    )
+                  : null}
+                {buttonsProps.hasCopy && buttonsProps.hasRemove ? <DropdownMenuSeparator /> : null}
+                {buttonsProps.hasRemove
+                  ? (
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem onClick={buttonsProps.onRemoveItem} variant='destructive'>
+                          <Trash2 aria-hidden='true' />
+                          {t('common.remove')}
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    )
+                  : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        : null}
+    </div>
+  );
+}
+
+/**
+ * An array entry: a row of a standalone collection, an object's line or a
+ * plain value's line. In an orderable array each starts with the grip that
+ * drags it into its order, so none carries move up or down.
+ */
 export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, registry }: ArrayFieldItemTemplateProps) {
   const { t } = useTranslation();
   const state = use(ArrayEditorContext);
   const { ArrayFieldItemButtonsTemplate } = registry.templates;
-  const buttons = <div className='schema-form__item-actions'><ArrayFieldItemButtonsTemplate {...buttonsProps} /></div>;
+  const buttons = <ArrayFieldItemButtonsTemplate {...buttonsProps} hasMoveDown={false} hasMoveUp={false} />;
   const record = state?.records?.[index];
   if (record !== undefined && state?.standalone) {
     const name = itemLabel(record, index);
-    return (
-      <ConfigurationListRow>
+    const cells = (
+      <>
         <ConfigurationListCell>
           <ConfigurationListText title={name}>{name}</ConfigurationListText>
         </ConfigurationListCell>
@@ -245,19 +410,21 @@ export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, reg
         <ConfigurationListCell>
           <ConfigurationListActions>
             <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
-            <Button aria-label={t('configuration.general.moveUp', { name })} title={t('common.moveUp')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveUp} onClick={buttonsProps.onMoveUpItem} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
-            <Button aria-label={t('configuration.general.moveDown', { name })} title={t('common.moveDown')} disabled={buttonsProps.disabled || buttonsProps.readonly || !buttonsProps.hasMoveDown} onClick={buttonsProps.onMoveDownItem} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
-            <ArrayFieldItemButtonsTemplate {...buttonsProps} hasMoveUp={false} hasMoveDown={false} />
+            {buttons}
           </ConfigurationListActions>
         </ConfigurationListCell>
-      </ConfigurationListRow>
+      </>
     );
+    return state.sortable
+      ? (
+          <SortableConfigurationListRow disabled={state.locked} id={String(index)} name={name}>
+            {cells}
+          </SortableConfigurationListRow>
+        )
+      : <ConfigurationListRow>{cells}</ConfigurationListRow>;
   }
   if (record !== undefined) {
-    const username = [record.username, record.Username, record.name].find((value) => typeof value === 'string' && value.trim() !== '');
-    const name = state?.userCredentials !== undefined
-      ? (typeof username === 'string' ? username : t('configuration.userList.unnamed', { number: index + 1 }))
-      : itemLabel(record, index);
+    const name = state?.userCredentials !== undefined ? userName(record, index, t) : itemLabel(record, index);
     const credentials = state?.userCredentials?.map(({ keys, label }) => {
       const values = keys.flatMap((key) => {
         const value = record[key];
@@ -271,47 +438,12 @@ export function PanelArrayFieldItemTemplate({ buttonsProps, children, index, reg
         : t('configuration.userList.credentialMissing', { credential: t(label) });
     }).join('\n');
     return (
-      <div className='schema-form__list-row'>
-        <span className='schema-form__item-name' title={name}>{name}</span>
-        {credentials !== undefined
-          ? (
-              credentials !== '' && <span className='schema-form__item-summary schema-form__item-credentials'>{credentials}</span>
-            )
-          : (
-              <>
-                <span className='schema-form__item-type'>{String(record.type ?? record.action ?? '—')}</span>
-                <span className='schema-form__item-summary'>{itemSummary(record) || '—'}</span>
-              </>
-            )}
-        <div className='schema-form__item-actions'>
-          <Button disabled={buttonsProps.disabled || buttonsProps.readonly} onClick={() => state?.edit(index)} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
-          {buttons}
-        </div>
-      </div>
+      <RecordRow buttons={buttons} credentials={credentials} index={index} name={name} record={record} state={state} />
     );
   }
   return (
-    <div className='schema-form__value-row'>
-      <div>{children}</div>
-      <DropdownMenu>
-        <DropdownMenuTrigger render={<Button aria-label={t('common.actions')} disabled={buttonsProps.disabled || buttonsProps.readonly} size='icon-sm' type='button' variant='ghost' />}>
-          <MoreHorizontal aria-hidden />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end'>
-          <DropdownMenuGroup>
-            {(buttonsProps.hasMoveUp || buttonsProps.hasMoveDown)
-              ? (
-                  <>
-                    <DropdownMenuItem disabled={!buttonsProps.hasMoveUp} onClick={buttonsProps.onMoveUpItem}>{t('common.moveUp')}</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!buttonsProps.hasMoveDown} onClick={buttonsProps.onMoveDownItem}>{t('common.moveDown')}</DropdownMenuItem>
-                  </>
-                )
-              : null}
-            {buttonsProps.hasCopy ? <DropdownMenuItem onClick={buttonsProps.onCopyItem}>{t('common.copy')}</DropdownMenuItem> : null}
-            {buttonsProps.hasRemove ? <DropdownMenuItem onClick={buttonsProps.onRemoveItem} variant='destructive'>{t('common.remove')}</DropdownMenuItem> : null}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <ValueRow buttonsProps={buttonsProps} index={index} name={t('configuration.general.entry', { number: index + 1 })} state={state}>
+      {children}
+    </ValueRow>
   );
 }

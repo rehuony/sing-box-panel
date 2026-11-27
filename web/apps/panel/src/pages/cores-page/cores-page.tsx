@@ -297,7 +297,7 @@ export function CoresPage() {
                               >
                                 <MoreHorizontal aria-hidden='true' />
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align='end' className='w-auto min-w-36'>
+                              <DropdownMenuContent align='end' className='w-auto min-w-40'>
                                 <DropdownMenuGroup>
                                   <DropdownMenuItem
                                     disabled={Boolean(pending) || enabled || runtimeUncertain}

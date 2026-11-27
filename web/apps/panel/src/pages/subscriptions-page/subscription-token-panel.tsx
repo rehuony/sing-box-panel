@@ -10,17 +10,12 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@s
 import { Check, CirclePlus, Copy, KeyRound, MoreHorizontal, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFields, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@shared/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import type { CreatedSubscriptionToken, SubscriptionToken } from '@/api/api-client';
 
 import { IconAction } from '@/components/icon-action';
+import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { DateTimeField } from '@/components/date-time-field';
 import { ListPagination } from '@/components/list-pagination';
@@ -208,18 +203,12 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     <section className='min-h-full min-w-0 flex h-full min-h-0 flex-col' aria-label={t('subscriptions.tabs.tokens')}>
       <ToolbarActions active={active} target={toolbarTarget}>
         <div className='flex min-w-0 flex-1 items-center justify-end gap-2'>
-          {/* Like every tab's add action: its label beside the icon, the icon alone on a phone. */}
-          <Button
-            aria-label={t('subscriptions.keys.create')}
-            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+          <StripAction
             disabled={busy}
+            icon={<CirclePlus aria-hidden='true' data-icon='inline-start' />}
+            label={t('subscriptions.keys.create')}
             onClick={() => setCreating(true)}
-            size='sm'
-            variant='flat'
-          >
-            <CirclePlus aria-hidden='true' data-icon='inline-start' />
-            <span className='max-sm:sr-only'>{t('subscriptions.keys.create')}</span>
-          </Button>
+          />
         </div>
       </ToolbarActions>
       {error ? <ErrorNotice error={error} title={t('subscriptions.token.loadFailed')} /> : null}
@@ -306,7 +295,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                       >
                         <MoreHorizontal aria-hidden='true' />
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end' className='w-auto min-w-36'>
+                      <DropdownMenuContent align='end' className='w-auto min-w-40'>
                         <DropdownMenuGroup>
                           {revoked
                             ? null
@@ -316,6 +305,9 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
                                   {t('subscriptions.token.action.rotate.name')}
                                 </DropdownMenuItem>
                               )}
+                        </DropdownMenuGroup>
+                        {revoked ? null : <DropdownMenuSeparator />}
+                        <DropdownMenuGroup>
                           <DropdownMenuItem onClick={() => setConfirmation({ action: 'delete', key })} variant='destructive'>
                             <Trash2 aria-hidden='true' />
                             {t('subscriptions.token.action.delete.name')}

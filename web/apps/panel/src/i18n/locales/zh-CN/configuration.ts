@@ -159,6 +159,7 @@ export const configuration = {
     store: '证书存储',
     timeout: '超时时间',
   },
+  units: { days: '天' },
   valueTypes: {
     value: '单值',
     string: '文本',
@@ -185,8 +186,8 @@ export const configuration = {
   },
 
   general: {
+    entry: '第 {{number}} 项',
     fieldHelp: '{{field}}的说明',
-    moveUp: '上移 {{name}}', moveDown: '下移 {{name}}',
     editEntry: '编辑条目',
     editDescription: '保存修改后，将更新当前草稿中的对应条目。',
     saveChanges: '保存修改',

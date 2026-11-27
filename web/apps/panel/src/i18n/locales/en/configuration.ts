@@ -159,6 +159,7 @@ export const configuration = {
     store: 'Certificate store',
     timeout: 'Timeout',
   },
+  units: { days: 'days' },
   valueTypes: {
     value: 'Single value',
     string: 'Text',
@@ -185,8 +186,8 @@ export const configuration = {
   },
 
   general: {
+    entry: 'Entry {{number}}',
     fieldHelp: 'Help for {{field}}',
-    moveUp: 'Move {{name}} up', moveDown: 'Move {{name}} down',
     editEntry: 'Edit entry',
     editDescription: 'Save changes to update this entry in the current draft.',
     saveChanges: 'Save changes',

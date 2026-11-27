@@ -22,23 +22,22 @@ import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { RegionError } from '@/components/region-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
+import { dropSlot, SortContext } from '@/components/sortable';
 import { ToolbarActions } from '@/components/workspace-toolbar';
-import { StripDivider, StripSearch } from '@/components/title-strip';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 import { describeRequestError, toastFailure } from '@/components/error-notice';
 import { Rail, RailCount, RailItem, RailItemOverlay } from '@/components/rail';
+import { StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 
 import type { RuleSetDraft } from './rule-set-editor';
 import type { RuleSetIconKey } from './rule-set-icons';
 
-import { dropSlot } from './drag-slot';
 import { ruleLine } from './rule-text';
 import { RuleSetEditor } from './rule-set-editor';
 import { RuleSetIconMenu } from './rule-set-icon-menu';
 import { DEFAULT_RULE_SET_ICON, ruleSetIcon } from './rule-set-icons';
 import { SubscriptionContentState } from './subscription-content-state';
-import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 
 const CLIENTS: readonly SubscriptionFormat[] = ['sing-box', 'mihomo', 'loon'];
 
@@ -386,16 +385,11 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
         <div className='flex w-full min-w-0 flex-1 items-center gap-2'>
           <StripSearch label={t('subscriptions.ruleSets.search')} onValueChange={setSearch} value={search} />
           <StripDivider />
-          <Button
-            aria-label={t('subscriptions.ruleSets.add')}
-            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+          <StripAction
+            icon={<CirclePlus aria-hidden='true' data-icon='inline-start' />}
+            label={t('subscriptions.ruleSets.add')}
             onClick={() => setNaming(true)}
-            size='sm'
-            variant='flat'
-          >
-            <CirclePlus aria-hidden='true' data-icon='inline-start' />
-            <span className='max-sm:sr-only'>{t('subscriptions.ruleSets.add')}</span>
-          </Button>
+          />
         </div>
       </ToolbarActions>
       <div className='grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)] gap-3 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,13rem)_minmax(0,1fr)]'>
@@ -414,7 +408,7 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
           }}
         >
           <Rail label={t('subscriptions.ruleSets.list', { client: picked })} top={picker}>
-            <SubscriptionNodeSortContext
+            <SortContext
               ended={t('subscriptions.ruleSets.dragEnd')}
               instructions={t('subscriptions.ruleSets.dragInstructions')}
               items={shown.map(set => ({ id: set.id, label: faceOf(set).name }))}
@@ -447,7 +441,7 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
                   sortable={sortable}
                 />
               ))}
-            </SubscriptionNodeSortContext>
+            </SortContext>
           </Rail>
         </div>
         {/* Loading, empty and failed states take the editor's card, so the region keeps its frame. */}

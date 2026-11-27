@@ -9,13 +9,6 @@ import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'reac
 import { ArrowUpRight, CirclePlus, CopyPlus, Link2, MoreHorizontal, Trash2 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@shared/components/ui/dropdown-menu';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@shared/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import type {
   SubscriptionChannel,
@@ -38,8 +32,8 @@ import { SelectField } from '@/components/select-field';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
-import { StripDivider, StripSearch } from '@/components/title-strip';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
+import { StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
@@ -273,21 +267,16 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                       onValueChange={setSearch}
                     />
                     <StripDivider />
-                    <Button
-                      aria-label={t('channels.add')}
-                      className='max-sm:w-(--control-height-sm) max-sm:px-0'
-                      size='sm'
-                      variant='flat'
+                    <StripAction
+                      icon={<CirclePlus aria-hidden='true' data-icon='inline-start' />}
+                      label={t('channels.add')}
                       onClick={() => {
                         setCreating(true);
                         setName('');
                         setFormat('sing-box');
                         setFormError('');
                       }}
-                    >
-                      <CirclePlus aria-hidden='true' data-icon='inline-start' />
-                      <span className='max-sm:sr-only'>{t('channels.add')}</span>
-                    </Button>
+                    />
                   </div>
                 </ToolbarActions>
                 {/* The list scrolls inside the card under its header; a narrow card scrolls it sideways. */}
@@ -356,6 +345,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                                     <CopyPlus aria-hidden='true' />
                                     {t('channels.duplicate')}
                                   </DropdownMenuItem>
+                                </DropdownMenuGroup>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuGroup>
                                   <DropdownMenuItem onClick={() => setDeleting(value)} variant='destructive'>
                                     <Trash2 aria-hidden='true' />
                                     {t('channels.remove')}

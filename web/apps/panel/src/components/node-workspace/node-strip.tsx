@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useId, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Badge } from '@shared/components/ui/badge';
-import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { ReadoutParts } from '@shared/components/terminal';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -28,7 +27,7 @@ import type { FleetNode, MetricsSnapshot } from '@/api/api-client';
 
 import { useShellScope } from '@/components/status-line';
 import { NodeStateBadge } from '@/components/node-state-badge';
-import { StripDivider, TitleStrip } from '@/components/title-strip';
+import { StripAction, StripDivider, TitleStrip } from '@/components/title-strip';
 
 import type { RuntimeAction } from './use-runtime-control';
 
@@ -120,10 +119,7 @@ function RuntimeButton({ action, disabled, onClick }: {
   const { t } = useTranslation();
   const Icon = action === 'start' ? Play : action === 'stop' ? Square : RotateCw;
   return (
-    <Button className='max-sm:w-(--control-height-sm) max-sm:px-0' disabled={disabled} onClick={onClick} size='sm' variant='flat'>
-      <Icon aria-hidden='true' data-icon='inline-start' />
-      <span className='max-sm:sr-only'>{t(`telemetry.control.${action}`)}</span>
-    </Button>
+    <StripAction disabled={disabled} icon={<Icon aria-hidden='true' data-icon='inline-start' />} label={t(`telemetry.control.${action}`)} onClick={onClick} />
   );
 }
 

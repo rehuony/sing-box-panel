@@ -10,6 +10,7 @@ import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-co
 import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import i18n from '@/i18n';
+import { keyboardReorder } from '@/tests/keyboard-reorder';
 import { uiSchemaFromPanel } from '@/pages/configuration-page/schema-ui';
 import { SchemaSectionForm } from '@/pages/configuration-page/schema-section-form';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -229,10 +230,9 @@ describe('schemaSectionForm', () => {
   });
 
   it('keeps nested unknown fields attached when same-length array members are reordered', async () => {
-    const user = userEvent.setup();
     render(<Harness />);
 
-    await user.click(screen.getAllByRole('button', { name: 'Move down' })[0]);
+    await keyboardReorder(screen.getByRole('button', { name: 'Reorder A' }), { position: 2, row: '.schema-form__list-row', steps: 1 });
 
     const encoded = screen.getByLabelText('Canonical draft').textContent ?? '';
     const draft = JSON.parse(encoded) as CanonicalDraft;

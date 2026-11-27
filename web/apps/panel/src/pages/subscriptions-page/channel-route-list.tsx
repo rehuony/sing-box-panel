@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { CirclePlus, GripVertical, PencilLine, Trash2 } from 'lucide-react';
+import { CirclePlus, GripVertical, Link2, ListFilter, PencilLine, Trash2 } from 'lucide-react';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
@@ -26,11 +26,11 @@ import type {
 
 import { IconAction } from '@/components/icon-action';
 import { SelectField } from '@/components/select-field';
+import { dropSlot, showGrabbing } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
 import { ruleType } from './rule-text';
 import { RuleEditor } from './rule-editor';
-import { dropSlot, showGrabbing } from './drag-slot';
 import { exitValue, parseExit, useExits } from './channel-exits';
 import { ChannelRuleSetPicker } from './channel-rule-set-picker';
 import { SubscriptionContentState } from './subscription-content-state';
@@ -107,8 +107,14 @@ export function ChannelRouteAdd({ busy, exit, exitName, format, onAdd, routes, r
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-auto min-w-40'>
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => setAdding({ remote: false })}>{t('channels.matchRule')}</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setAdding({ remote: true })}>{t('channels.remoteRule')}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAdding({ remote: false })}>
+              <ListFilter aria-hidden='true' />
+              {t('channels.matchRule')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAdding({ remote: true })}>
+              <Link2 aria-hidden='true' />
+              {t('channels.remoteRule')}
+            </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -316,12 +322,15 @@ export function ChannelRouteList({
             <ScrollArea className='min-h-0 flex-1'>
               <DndContext
                 accessibility={{
+                  // The live region sits in the body, so a dialog around the list still hides behind a nested one,
+                  // and no announcement lands inside a table's markup.
+                  container: document.body,
                   screenReaderInstructions: { draggable: t('channels.routeDragInstructions') },
                   announcements: {
                     onDragStart: ({ active }) => t('channels.routeDragStart', { position: position(active.id) }),
-                    onDragOver: ({ over }) => over ? t('channels.nodeDragPosition', { position: position(over.id), count: routes.length }) : undefined,
+                    onDragOver: ({ over }) => over ? t('common.dragPosition', { position: position(over.id), count: routes.length }) : undefined,
                     onDragEnd: () => t('channels.routeDragEnd'),
-                    onDragCancel: () => t('channels.nodeDragCancel'),
+                    onDragCancel: () => t('common.dragCancel'),
                   },
                 }}
                 collisionDetection={closestCenter}

@@ -36,7 +36,7 @@ function UnitInput({ id, unit, value, min, max, invalid, className, onChange }: 
 }) {
   return (
     <InputGroup className={className}>
-      <InputGroupInput aria-invalid={invalid || undefined} className='tabular-nums' id={id} inputMode='numeric' max={max} min={min} onChange={event => onChange(Number(event.target.value))} required type='number' value={value} />
+      <InputGroupInput aria-invalid={invalid || undefined} id={id} inputMode='numeric' max={max} min={min} onChange={event => onChange(Number(event.target.value))} required type='number' value={value} />
       <InputGroupAddon align='inline-end'>{unit}</InputGroupAddon>
     </InputGroup>
   );
@@ -122,7 +122,7 @@ function SettingsEditor({ initial }: { initial: PanelSettingsView }) {
                 <div className='flex items-center gap-2'>
                   <Input aria-invalid={invalidField === 'listen-host' || undefined} className='min-w-0 flex-1' id='listen-host' required spellCheck={false} value={preferences.listen_host} onChange={e => update('listen_host', e.target.value)} />
                   <span aria-hidden='true' className='text-[var(--color-text-faint)]'>:</span>
-                  <Input aria-invalid={invalidField === 'listen-port' || undefined} aria-label={t('panelSettings.listenPort')} className='w-22 flex-none tabular-nums' id='listen-port' max={65535} min={1} required type='number' value={preferences.listen_port} onChange={e => update('listen_port', Number(e.target.value))} />
+                  <Input aria-invalid={invalidField === 'listen-port' || undefined} aria-label={t('panelSettings.listenPort')} className='w-22 flex-none' id='listen-port' max={65535} min={1} required type='number' value={preferences.listen_port} onChange={e => update('listen_port', Number(e.target.value))} />
                 </div>
               </SettingsField>
               <SettingsField {...field('origin')} help={t('panelSettings.originHelp')} label={t('panelSettings.origin')}>

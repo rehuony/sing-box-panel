@@ -137,8 +137,9 @@ export function ChannelOptions({
         </div>
         <DialogFooter>
           {/* Shaped as Cancel, only its text in danger, so it stays apart without standing out. */}
+          {/* Below 520px it keeps its icon alone, so the footer stays on one line. */}
           <Button
-            className='me-auto text-[var(--color-danger-text)] hover:border-[var(--color-danger-border)] hover:text-[var(--color-danger-text)]'
+            className='me-auto text-[var(--color-danger-text)] hover:border-[var(--color-danger-border)] hover:text-[var(--color-danger-text)] max-[520px]:w-(--control-height) max-[520px]:px-0'
             onClick={() => {
               onClose();
               onDelete();
@@ -147,7 +148,7 @@ export function ChannelOptions({
             variant='outline'
           >
             <Trash2 aria-hidden='true' data-icon='inline-start' />
-            {t('channels.remove')}
+            <span className='max-[520px]:sr-only'>{t('channels.remove')}</span>
           </Button>
           <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
           <Button onClick={apply} type='button'>{t('channels.apply')}</Button>

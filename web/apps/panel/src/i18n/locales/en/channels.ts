@@ -20,7 +20,7 @@ export const channels = {
 
   selectedNodes: '{{count}} selected', clearNodes: 'Clear selection', removeNodes: 'Remove selected nodes',
   nodeDragInstructions: 'Press Space or Enter to select. Press F2 to start reordering, arrow keys to move, F2 to finish, or Escape to cancel.',
-  nodeDragStart: 'Moving {{name}}.', nodeDragPosition: 'Position {{position}} of {{count}}.', nodeDragEnd: 'Node order updated.', nodeDragCancel: 'Reordering canceled.',
+  nodeDragEnd: 'Node order updated.',
   link: 'Subscription link', linkKey: 'Key', linkURL: 'Link', copyLink: 'Copy link', copyFailed: 'Could not copy to the clipboard', openFailed: 'The channel did not open', duplicateFailed: 'The channel was not duplicated', removeFailed: 'The channel was not deleted', saveFailed: 'The channel was not saved', templateCheckFailed: 'The template check failed', linkCopied: 'Copied the subscription link of {{name}} (key: {{key}})',
   showQRCode: 'Show QR code', hideQRCode: 'Hide QR code', qrCode: 'Subscription link QR code',
   noActiveKeys: 'No active keys yet', newKey: 'New key', keyName: 'Name', keyNameRequired: 'Enter a key name', createKey: 'Create key', keyCreated: 'Created key {{label}}',
@@ -31,7 +31,7 @@ export const channels = {
   emptyCandidates: 'No candidate nodes yet',
 
   groupType: 'Group type',
-  testURL: 'Test link', testInterval: 'Interval (s)', testTolerance: 'Tolerance (ms)',
+  testURL: 'Test link', testInterval: 'Interval', testTolerance: 'Tolerance', unitSeconds: 's',
   addBuiltin: 'Add built-in node', builtinNode: 'Built-in node', mihomoOnly: 'mihomo only',
   rejectSupport: 'REJECT candidates are supported by mihomo and loon select groups.',
   singBoxGroupSupport: 'sing-box supports selector and urltest groups.',
@@ -71,6 +71,8 @@ export const channels = {
   routeDragInstructions: 'Press Space, Enter or F2 to pick up the rule, the arrow keys to move it, the same key to drop it, or Escape to cancel.',
   routeDragStart: 'Moving rule {{position}}.', routeDragEnd: 'Rule order updated.',
   noRoutes: 'No exit rules yet', noGroupRoutes: 'No exit rules use this group',
+  matchHits_one: 'Matches {{count}} node',
+  matchHits_other: 'Matches {{count}} nodes',
   autoMatch: 'Automatic match', autoMatched: 'Automatic match · {{count}}',
   matchInclude: 'Include', matchExclude: 'Exclude', matchOrigins: 'Origins', matchProtocols: 'Protocols', matchAll: 'All',
   draftRestored: 'Restored the changes left unsaved before the reload', draftOutdated: 'The channel changed elsewhere, so the changes left unsaved before the reload were not restored',

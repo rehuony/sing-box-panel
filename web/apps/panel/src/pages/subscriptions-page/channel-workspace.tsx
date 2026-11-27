@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { TooltipTrigger } from '@shared/components/ui/tooltip';
 import { useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import {
   Dialog,
@@ -14,20 +15,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@shared/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 import {
   ArrowLeft,
   CirclePlus,
   Eye,
-  Gauge,
+  Flag,
+  FlagOff,
   Link2,
   MoreHorizontal,
-  MousePointer2,
   Route,
   Save,
   Settings2,
-  Shuffle,
+  Trash2,
 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import type {
   ChannelNativeTemplate,
@@ -40,17 +41,18 @@ import type {
 
 import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
+import { dropSlot, SortContext } from '@/components/sortable';
 import { ToolbarActions } from '@/components/workspace-toolbar';
-import { StripAction, StripDivider } from '@/components/title-strip';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { StripAction, StripDivider, StripTooltip } from '@/components/title-strip';
 import { Rail, RailCount, RailHeading, RailItem, RailItemOverlay } from '@/components/rail';
 
 import type { ChannelGroupTab } from './channel-group-editor';
 
-import { dropSlot } from './drag-slot';
 import { useExits } from './channel-exits';
 import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
+import { GROUP_ICONS } from './channel-group-icons';
 import { useChannelDraft } from './use-channel-draft';
 import { ChannelClientTag } from './channel-client-tag';
 import { ChannelGroupEditor } from './channel-group-editor';
@@ -58,10 +60,14 @@ import { ChannelLinkPopover } from './channel-link-popover';
 import { ChannelGroupSettings } from './channel-group-settings';
 import { ChannelTemplateEditor } from './channel-template-editor';
 import { ChannelRouteAdd, ChannelRouteList } from './channel-route-list';
-import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { defaultGroupHealthCheck, emptyMatch, exitsThrough, groupTypeName, matchedNodes } from './channel-policy';
 
-const groupIcons = { 'select': MousePointer2, 'url-test': Gauge, 'fallback': Shuffle };
+/**
+ * Below 40rem, where the channel's name and its labelled actions no longer
+ * share a line, the actions keep their icons alone, square.
+ */
+const squareAction = '@max-[40rem]/channel-bar:w-(--control-height-sm) @max-[40rem]/channel-bar:px-0';
+const hiddenLabel = '@max-[40rem]/channel-bar:sr-only';
 
 type RailFace = Pick<ComponentProps<typeof RailItemOverlay>, 'end' | 'icon' | 'marker' | 'name' | 'sub'>;
 
@@ -78,7 +84,7 @@ function groupFace(t: TFunction, group: ChannelRuleGroup, format: SubscriptionFo
   /** The exit rules that leave through it. */
   routes: number;
 }): RailFace {
-  const Icon = groupIcons[group.type];
+  const Icon = GROUP_ICONS[group.type];
   return {
     end: <RailCount>{members}</RailCount>,
     icon: <Icon />,
@@ -132,13 +138,21 @@ function GroupRailItem({ busy, current, face, final, group, onDelete, onFinal, o
             <DropdownMenuTrigger render={<IconAction className='data-popup-open:visible' disabled={busy} label={t('channels.groupMore', { name: face.name })} size='icon-xs' />}>
               <MoreHorizontal aria-hidden='true' />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end' className='w-auto min-w-32'>
+            {/* The items run from the shortest label to the longest. */}
+            <DropdownMenuContent align='end' className='w-auto min-w-40'>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={onDelete} variant='destructive'>
+                  <Trash2 aria-hidden='true' />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 {/* A disabled group cannot become an exit; clearing stays available. */}
                 <DropdownMenuItem disabled={!final && !group.enabled} onClick={onFinal}>
+                  {final ? <FlagOff aria-hidden='true' /> : <Flag aria-hidden='true' />}
                   {t(final ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={onDelete} variant='destructive'>{t('common.delete')}</DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -238,9 +252,9 @@ export function ChannelWorkspace({
   return (
     <div className='flex h-full min-h-0 min-w-0 flex-col'>
       <ToolbarActions active={active} target={toolbarTarget}>
-        {/* The channel keeps room for its name and client; when narrow, the actions take the next line. */}
-        <div className='flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
-          <div className='flex min-w-[min(100%,12rem)] flex-1 items-center gap-2'>
+        {/* The channel keeps room for its name and client; short of room its actions keep their icons alone. */}
+        <div className='@container/channel-bar flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
+          <div className='flex min-w-[min(100%,8rem)] flex-1 items-center gap-2'>
             <IconAction disabled={busy} label={t('channels.back')} onClick={onBack} variant='flat'>
               <ArrowLeft aria-hidden='true' />
             </IconAction>
@@ -249,19 +263,21 @@ export function ChannelWorkspace({
           </div>
           {/* Actions from looking to changing; saving stands apart after a divider. */}
           <div className='ms-auto flex flex-none items-center gap-2'>
-            <ChannelLinkPopover
-              channel={channel}
-              keyID={linkKey}
-              onKeyChange={onLinkKeyChange}
-              trigger={<Button className='max-sm:w-(--control-height-sm) max-sm:px-0 data-popup-open:bg-[var(--color-hover)]' size='sm' type='button' variant='flat' />}
-            >
-              <Link2 aria-hidden='true' data-icon='inline-start' />
-              <span className='max-sm:sr-only'>{t('channels.link')}</span>
-            </ChannelLinkPopover>
-            <StripAction disabled={busy} icon={<Eye aria-hidden='true' data-icon='inline-start' />} label={t('channels.preview')} onClick={() => void showPreview()} />
-            <StripAction disabled={busy} icon={<Settings2 aria-hidden='true' data-icon='inline-start' />} label={t('channels.distribution')} onClick={() => setOptionsOpen(true)} />
+            <StripTooltip label={t('channels.link')}>
+              <ChannelLinkPopover
+                channel={channel}
+                keyID={linkKey}
+                onKeyChange={onLinkKeyChange}
+                trigger={<TooltipTrigger render={<Button className={`max-sm:w-(--control-height-sm) max-sm:px-0 data-popup-open:bg-[var(--color-hover)] ${squareAction}`} size='sm' type='button' variant='flat' />} />}
+              >
+                <Link2 aria-hidden='true' data-icon='inline-start' />
+                <span className={`max-sm:sr-only ${hiddenLabel}`} data-slot='strip-label'>{t('channels.link')}</span>
+              </ChannelLinkPopover>
+            </StripTooltip>
+            <StripAction className={squareAction} disabled={busy} icon={<Eye aria-hidden='true' data-icon='inline-start' />} label={t('channels.preview')} labelClassName={hiddenLabel} onClick={() => void showPreview()} />
+            <StripAction className={squareAction} disabled={busy} icon={<Settings2 aria-hidden='true' data-icon='inline-start' />} label={t('channels.distribution')} labelClassName={hiddenLabel} onClick={() => setOptionsOpen(true)} />
             <StripDivider />
-            <StripAction disabled={busy || conflict || !dirty} icon={<Save aria-hidden='true' data-icon='inline-start' />} label={t('channels.save')} onClick={() => void save()} />
+            <StripAction className={squareAction} disabled={busy || conflict || !dirty} icon={<Save aria-hidden='true' data-icon='inline-start' />} label={t('channels.save')} labelClassName={hiddenLabel} onClick={() => void save()} />
           </div>
         </div>
       </ToolbarActions>
@@ -300,7 +316,7 @@ export function ChannelWorkspace({
             )}>
               {t('channels.groups')}
             </RailHeading>
-            <SubscriptionNodeSortContext
+            <SortContext
               ended={t('channels.groupDragEnd')}
               instructions={t('channels.groupDragInstructions')}
               items={groupFaces.map(({ face, group: value }) => ({ id: value.id, label: face.name }))}
@@ -329,7 +345,7 @@ export function ChannelWorkspace({
                   onSettings={() => setGroupSettings(structuredClone(value))}
                 />
               ))}
-            </SubscriptionNodeSortContext>
+            </SortContext>
           </Rail>
         </div>
         <div className='flex min-h-0 min-w-0 flex-col'>
@@ -398,6 +414,10 @@ export function ChannelWorkspace({
           }}
           onChange={setGroupSettings}
           onClose={() => setGroupSettings(null)}
+          onDelete={() => {
+            // A group an exit rule uses is refused with why, its edits kept open.
+            if (requestRemoveGroup(groupSettings.id)) setGroupSettings(null);
+          }}
           value={groupSettings}
         />
       )}

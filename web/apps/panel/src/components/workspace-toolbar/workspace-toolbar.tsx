@@ -12,7 +12,11 @@ export function WorkspaceToolbar({ children }: { children: ReactNode }) {
   );
 }
 
-/** The end of a toolbar row, where the active tab renders its actions. */
+/**
+ * The end of a toolbar row, where the active tab renders its actions: a
+ * container whose bar actions keep their icons alone below 24rem, so the row
+ * keeps one line beside the tabs down to a phone.
+ */
 export function WorkspaceToolbarActions({ children, className, ref }: {
   children?: ReactNode;
   className?: string;
@@ -20,7 +24,7 @@ export function WorkspaceToolbarActions({ children, className, ref }: {
 }) {
   return (
     <div
-      className={cn('flex min-w-[min(100%,20rem)] flex-1 items-center justify-end gap-2', className)}
+      className={cn('@container/strip-actions flex min-w-[min(100%,16rem)] flex-1 items-center justify-end gap-2', className)}
       ref={ref}
     >
       {children}

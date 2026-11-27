@@ -9,7 +9,7 @@ import { toast } from '@shared/components/ui/toast-manager';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, DatabaseBackup, Download, History, Lock, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -122,12 +122,15 @@ export function PanelBackupSettings({ children }: { children: ReactNode }) {
                     >
                       <MoreHorizontal aria-hidden='true' />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end' className='w-auto min-w-36'>
+                    <DropdownMenuContent align='end' className='w-auto min-w-40'>
                       <DropdownMenuGroup>
                         <DropdownMenuItem onClick={() => setRestoring({ backup })}>
                           <RotateCcw aria-hidden='true' />
                           {t('panelSettings.backupRestoreAction')}
                         </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
                         <DropdownMenuItem onClick={() => setDeleting(backup)} variant='destructive'>
                           <Trash2 aria-hidden='true' />
                           {t('panelSettings.backupDelete')}

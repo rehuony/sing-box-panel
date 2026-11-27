@@ -193,8 +193,11 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
     }));
   }
   /** Asks to delete a group, unless an exit rule uses it. */
-  function requestRemoveGroup(id: string) {
-    if (!refuseInUse(id)) setRemoveGroup(id);
+  /** Asks to delete a group, which an exit rule that uses it refuses; true when it asks. */
+  function requestRemoveGroup(id: string): boolean {
+    if (refuseInUse(id)) return false;
+    setRemoveGroup(id);
+    return true;
   }
   function confirmRemoveGroup() {
     if (removeGroup === null) return;

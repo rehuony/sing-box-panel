@@ -10,8 +10,8 @@ import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, To
 import { showGrabbing } from './drag-slot';
 
 interface Props {
-  /** What a drop announces; by default that the node order changed. */
-  ended?: string;
+  /** What a drop announces, such as that the order changed. */
+  ended: string;
   children: ReactNode;
   instructions: string;
   /** How the items make room while one drags; by default a grid. */
@@ -22,7 +22,13 @@ interface Props {
   onMove: (active: string, over: string) => void;
 }
 
-export function SubscriptionNodeSortContext({
+/**
+ * Sorts a list or grid by dragging with the mouse, a touch or the keyboard:
+ * F2 picks an item up and drops it, the arrow keys move it and Escape cancels;
+ * a copy follows the pointer above everything while the item leaves its drop
+ * slot, and the page shows the grabbing hand until the drag ends.
+ */
+export function SortContext({
   items, children, ended, instructions, renderOverlay, onMove, onDraggingChange, strategy = rectSortingStrategy,
 }: Props) {
   const { t } = useTranslation();
@@ -48,12 +54,15 @@ export function SubscriptionNodeSortContext({
       sensors={sensors}
       collisionDetection={closestCenter}
       accessibility={{
+        // The live region sits in the body, so a dialog around the list still hides behind a nested one,
+        // and no announcement lands inside a table's markup.
+        container: document.body,
         screenReaderInstructions: { draggable: instructions },
         announcements: {
-          onDragStart: ({ active }) => t('channels.nodeDragStart', { name: name(active.id) }),
-          onDragOver: ({ over }) => over ? t('channels.nodeDragPosition', { position: items.findIndex((item) => item.id === over.id) + 1, count: items.length }) : undefined,
-          onDragEnd: () => ended ?? t('channels.nodeDragEnd'),
-          onDragCancel: () => t('channels.nodeDragCancel'),
+          onDragStart: ({ active }) => t('common.dragStart', { name: name(active.id) }),
+          onDragOver: ({ over }) => over ? t('common.dragPosition', { position: items.findIndex((item) => item.id === over.id) + 1, count: items.length }) : undefined,
+          onDragEnd: () => ended,
+          onDragCancel: () => t('common.dragCancel'),
         },
       }}
       onDragStart={({ active }) => {

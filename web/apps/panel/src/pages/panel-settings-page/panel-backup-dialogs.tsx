@@ -21,6 +21,7 @@ import { ApiRequestError } from '@/api/api-client';
 import { useApiClient } from '@/api/api-client-context';
 import { awaitRestart } from '@/components/status-line';
 import { usePanelSettings } from '@/stores/panel-settings.store';
+import { HeightTransition } from '@/components/height-transition';
 import { formatLogTimeCompact } from '@/utils/panel-log-presentation';
 import { describeRequestError, toastFailure } from '@/components/error-notice';
 
@@ -448,142 +449,145 @@ function RestoreDialog({ open, initial, onClose }: RestoreDialogProps) {
     <Dialog open={open} onOpenChange={(next) => {
       if (!next && !applying) close();
     }}>
-      <DialogContent size='wide'>
+      {/* Its top stays where its tallest form centres it, so a passphrase or listener row grows it downward. */}
+      <DialogContent className='top-[max(1rem,calc(50dvh-19rem))] translate-y-0' size='wide'>
         <DialogHeader>
           <DialogTitle>{t('panelSettings.backupRestoreTitle')}</DialogTitle>
           <DialogDescription>{t('panelSettings.backupRestoreDescription')}</DialogDescription>
         </DialogHeader>
-        <section className='grid gap-2'>
-          <h3 className={sectionLabel} id={pickId}>{t('panelSettings.backupPick')}</h3>
-          <div className='overflow-hidden rounded-[var(--radius-control)] border'>
-            <ScrollArea className='max-h-[calc(4*2.25rem+3px)]'>
-              <div aria-labelledby={pickId} className='divide-y' role='radiogroup'>
-                {rows.length === 0 && (
-                  <p className='flex h-9 items-center justify-center text-compact text-muted-foreground' role='status'>
-                    {t(backups.isPending ? 'panelSettings.backupLoading' : 'panelSettings.backupNone')}
-                  </p>
-                )}
-                {rows.map((row, index) => {
-                  const chosen = isChosen(row);
-                  return (
-                    <button
-                      aria-checked={chosen}
-                      aria-label={[row.time, row.detail, row.encrypted ? t('panelSettings.backupEncrypted') : ''].filter(Boolean).join(' · ')}
-                      className={cn(
-                        'grid h-9 w-full grid-cols-[0.75rem_auto_minmax(0,1fr)_1rem_4rem] items-center gap-2.5 px-3 text-start text-compact outline-none',
-                        'focus-visible:bg-[var(--color-hover)] max-sm:grid-cols-[0.75rem_auto_minmax(0,1fr)_1rem]',
-                        chosen ? 'bg-accent' : 'hover:bg-[var(--color-hover)]',
-                      )}
-                      key={row.key}
-                      onClick={() => {
-                        if (!chosen && !applying) choose(row.source);
-                      }}
-                      onKeyDown={(event) => {
-                        const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-                        if (!step) return;
-                        event.preventDefault();
-                        const target = (index + step + rows.length) % rows.length;
-                        const group = event.currentTarget.parentElement;
-                        if (!applying) choose(rows[target].source);
-                        (group?.children[target] as HTMLElement | undefined)?.focus();
-                      }}
-                      role='radio'
-                      tabIndex={index === focusable ? 0 : -1}
-                      type='button'
-                    >
-                      <span aria-hidden='true' className={cn('size-3 rounded-full border', chosen ? 'border-[4px] border-primary' : 'border-[var(--color-border-strong)]')} />
-                      {row.source.kind === 'file'
-                        ? <Upload aria-hidden='true' className='size-3.5 text-[var(--color-text-faint)]' />
-                        : <span className={dataFace}>{row.time}</span>}
-                      <span className='truncate text-[var(--color-text-faint)]' title={row.detail}>{row.detail}</span>
-                      <span className='flex justify-center text-[var(--color-text-faint)]'>
-                        {row.encrypted && <Lock aria-label={t('panelSettings.backupEncrypted')} className='size-3.5' role='img' />}
-                      </span>
-                      <span className={`text-end text-[var(--color-text-secondary)] max-sm:hidden ${dataFace}`}>{formatBytes(row.size, locale)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-            <button
-              className='flex h-9 w-full items-center gap-2 border-t border-dashed px-3 text-compact text-[var(--color-text-secondary)] outline-none hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)]'
-              onClick={() => fileRef.current?.click()}
-              type='button'
-            >
-              <Upload aria-hidden='true' className='size-3.5' />
-              {t('panelSettings.backupChooseFile')}
-            </button>
-            <input
-              accept='.gz,application/gzip,application/octet-stream'
-              aria-label={t('panelSettings.backupChooseFile')}
-              className='sr-only'
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) choose({ kind: 'file', file });
-                event.target.value = '';
-              }}
-              ref={fileRef}
-              tabIndex={-1}
-              type='file'
-            />
-          </div>
-          {check.step === 'locked' && source && (
-            <form className='flex items-center gap-2' noValidate onSubmit={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void stage(source, passphrase);
-            }}>
-              <Input
-                aria-invalid={check.incorrect || undefined}
-                aria-label={t('panelSettings.backupPassphrase')}
-                autoComplete='off'
-                autoFocus
-                className='min-w-0 flex-1'
-                maxLength={1024}
-                onChange={(event) => {
-                  setPassphrase(event.target.value);
-                  setCheck({ step: 'locked' });
-                }}
-                placeholder={t('panelSettings.backupPassphrase')}
-                type='password'
-                value={passphrase}
-              />
-              <Button type='submit' variant='outline'>{t('panelSettings.backupUnlock')}</Button>
-            </form>
-          )}
-        </section>
-        <section className='grid gap-2'>
-          <h3 className={sectionLabel} id={contentsId}>{t('panelSettings.backupRestoreContents')}</h3>
-          <CategoryTiles
-            counts={counts}
-            held={held}
-            inert={!staged}
-            labelledBy={contentsId}
-            onToggle={(category) => {
-              setSelected(current => toggled(current, category));
-            }}
-            selected={selected}
-          />
-          {listenerDiffers && staged?.server && here && (
-            <DialogFields>
-              <label htmlFor='restore-listener'>{t('panelSettings.backupListener')}</label>
-              <Select<string> onValueChange={value => setTakeService(value === 'take')} value={takeService ? 'take' : 'keep'}
-                items={[
-                  { value: 'keep', label: `${t('panelSettings.backupKeepListener')} · ${address(here)}` },
-                  { value: 'take', label: `${t('panelSettings.backupTakeListener')} · ${address(staged.server)}` },
-                ]}
+        <HeightTransition className='grid gap-5'>
+          <section className='grid gap-2'>
+            <h3 className={sectionLabel} id={pickId}>{t('panelSettings.backupPick')}</h3>
+            <div className='overflow-hidden rounded-[var(--radius-control)] border'>
+              <ScrollArea className='max-h-[calc(4*2.25rem+3px)]'>
+                <div aria-labelledby={pickId} className='divide-y' role='radiogroup'>
+                  {rows.length === 0 && (
+                    <p className='flex h-9 items-center justify-center text-compact text-muted-foreground' role='status'>
+                      {t(backups.isPending ? 'panelSettings.backupLoading' : 'panelSettings.backupNone')}
+                    </p>
+                  )}
+                  {rows.map((row, index) => {
+                    const chosen = isChosen(row);
+                    return (
+                      <button
+                        aria-checked={chosen}
+                        aria-label={[row.time, row.detail, row.encrypted ? t('panelSettings.backupEncrypted') : ''].filter(Boolean).join(' · ')}
+                        className={cn(
+                          'grid h-9 w-full grid-cols-[0.75rem_auto_minmax(0,1fr)_1rem_4rem] items-center gap-2.5 px-3 text-start text-compact outline-none',
+                          'focus-visible:bg-[var(--color-hover)] max-sm:grid-cols-[0.75rem_auto_minmax(0,1fr)_1rem]',
+                          chosen ? 'bg-accent' : 'hover:bg-[var(--color-hover)]',
+                        )}
+                        key={row.key}
+                        onClick={() => {
+                          if (!chosen && !applying) choose(row.source);
+                        }}
+                        onKeyDown={(event) => {
+                          const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+                          if (!step) return;
+                          event.preventDefault();
+                          const target = (index + step + rows.length) % rows.length;
+                          const group = event.currentTarget.parentElement;
+                          if (!applying) choose(rows[target].source);
+                          (group?.children[target] as HTMLElement | undefined)?.focus();
+                        }}
+                        role='radio'
+                        tabIndex={index === focusable ? 0 : -1}
+                        type='button'
+                      >
+                        <span aria-hidden='true' className={cn('size-3 rounded-full border', chosen ? 'border-[4px] border-primary' : 'border-[var(--color-border-strong)]')} />
+                        {row.source.kind === 'file'
+                          ? <Upload aria-hidden='true' className='size-3.5 text-[var(--color-text-faint)]' />
+                          : <span className={dataFace}>{row.time}</span>}
+                        <span className='truncate text-[var(--color-text-faint)]' title={row.detail}>{row.detail}</span>
+                        <span className='flex justify-center text-[var(--color-text-faint)]'>
+                          {row.encrypted && <Lock aria-label={t('panelSettings.backupEncrypted')} className='size-3.5' role='img' />}
+                        </span>
+                        <span className={`text-end text-[var(--color-text-secondary)] max-sm:hidden ${dataFace}`}>{formatBytes(row.size, locale)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+              <button
+                className='flex h-9 w-full items-center gap-2 border-t border-dashed px-3 text-compact text-[var(--color-text-secondary)] outline-none hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)]'
+                onClick={() => fileRef.current?.click()}
+                type='button'
               >
-                <SelectTrigger id='restore-listener'><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value='keep'>{`${t('panelSettings.backupKeepListener')} · ${address(here)}`}</SelectItem>
-                    <SelectItem value='take'>{`${t('panelSettings.backupTakeListener')} · ${address(staged.server)}`}</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </DialogFields>
-          )}
-        </section>
+                <Upload aria-hidden='true' className='size-3.5' />
+                {t('panelSettings.backupChooseFile')}
+              </button>
+              <input
+                accept='.gz,application/gzip,application/octet-stream'
+                aria-label={t('panelSettings.backupChooseFile')}
+                className='sr-only'
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) choose({ kind: 'file', file });
+                  event.target.value = '';
+                }}
+                ref={fileRef}
+                tabIndex={-1}
+                type='file'
+              />
+            </div>
+            {check.step === 'locked' && source && (
+              <form className='flex items-center gap-2' noValidate onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void stage(source, passphrase);
+              }}>
+                <Input
+                  aria-invalid={check.incorrect || undefined}
+                  aria-label={t('panelSettings.backupPassphrase')}
+                  autoComplete='off'
+                  autoFocus
+                  className='min-w-0 flex-1'
+                  maxLength={1024}
+                  onChange={(event) => {
+                    setPassphrase(event.target.value);
+                    setCheck({ step: 'locked' });
+                  }}
+                  placeholder={t('panelSettings.backupPassphrase')}
+                  type='password'
+                  value={passphrase}
+                />
+                <Button type='submit' variant='outline'>{t('panelSettings.backupUnlock')}</Button>
+              </form>
+            )}
+          </section>
+          <section className='grid gap-2'>
+            <h3 className={sectionLabel} id={contentsId}>{t('panelSettings.backupRestoreContents')}</h3>
+            <CategoryTiles
+              counts={counts}
+              held={held}
+              inert={!staged}
+              labelledBy={contentsId}
+              onToggle={(category) => {
+                setSelected(current => toggled(current, category));
+              }}
+              selected={selected}
+            />
+            {listenerDiffers && staged?.server && here && (
+              <DialogFields>
+                <label htmlFor='restore-listener'>{t('panelSettings.backupListener')}</label>
+                <Select<string> onValueChange={value => setTakeService(value === 'take')} value={takeService ? 'take' : 'keep'}
+                  items={[
+                    { value: 'keep', label: `${t('panelSettings.backupKeepListener')} · ${address(here)}` },
+                    { value: 'take', label: `${t('panelSettings.backupTakeListener')} · ${address(staged.server)}` },
+                  ]}
+                >
+                  <SelectTrigger id='restore-listener'><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value='keep'>{`${t('panelSettings.backupKeepListener')} · ${address(here)}`}</SelectItem>
+                      <SelectItem value='take'>{`${t('panelSettings.backupTakeListener')} · ${address(staged.server)}`}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </DialogFields>
+            )}
+          </section>
+        </HeightTransition>
         <DialogFooter className={footerOnPhones} message={message}>
           <Button onClick={() => !applying && close()} type='button' variant='outline'>{t('common.cancel')}</Button>
           <Button onClick={() => void apply()} type='button' variant='destructive'>

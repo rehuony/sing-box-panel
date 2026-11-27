@@ -2,7 +2,6 @@ import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useShallow } from 'zustand/react/shallow';
-import { Button } from '@shared/components/ui/button';
 import { ListChecks, SearchX, Server } from 'lucide-react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
@@ -24,7 +23,7 @@ import { AddNodeAction } from '@/components/enrollment-dialog';
 import { useCommandSession } from '@/stores/command-session.store';
 import { RegionError, RegionState } from '@/components/region-state';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
-import { StripDivider, StripSearch, TitleStrip } from '@/components/title-strip';
+import { StripAction, StripDivider, StripSearch, TitleStrip } from '@/components/title-strip';
 
 import { NodePane } from './node-pane';
 import { FleetFigures } from './fleet-figures';
@@ -215,16 +214,12 @@ export function FleetPage() {
             : null}
           <StripSearch label={t('fleet.search')} onValueChange={value => setFilter({ search: value })} value={search} />
           <StripDivider />
-          <Button
+          <StripAction
             aria-pressed={selecting}
-            className='max-sm:w-(--control-height-sm) max-sm:px-0'
+            icon={<ListChecks aria-hidden='true' data-icon='inline-start' />}
+            label={t('fleet.selectMode')}
             onClick={() => setSelecting(!selecting)}
-            size='sm'
-            variant='flat'
-          >
-            <ListChecks aria-hidden='true' data-icon='inline-start' />
-            <span className='max-sm:sr-only'>{t('fleet.selectMode')}</span>
-          </Button>
+          />
           <AddNodeAction strip />
         </div>
       </TitleStrip>

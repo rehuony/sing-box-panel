@@ -6,12 +6,11 @@ import { useSortable } from '@dnd-kit/sortable';
 
 import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNode } from '@/api/api-client';
 
+import { dropSlotCard, SortContext } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
-import { dropSlotCard } from './drag-slot';
 import { groupTypeName } from './channel-policy';
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
-import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 import { nodeAddress, nodeOrigin, nodeSecurity } from './subscription-node-pool';
 
 export interface ChannelNodeCard {
@@ -151,7 +150,8 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
   const draggingRef = useRef(false);
   if (!items.length) return null;
   return (
-    <SubscriptionNodeSortContext
+    <SortContext
+      ended={t('channels.nodeDragEnd')}
       items={items}
       instructions={t('channels.nodeDragInstructions')}
       onMove={onMove}
@@ -184,7 +184,7 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
         }}>
         {items.map((item) => <SortableCard format={format} key={item.id} item={item} onToggle={onToggle} />)}
       </div>
-    </SubscriptionNodeSortContext>
+    </SortContext>
   );
 }
 

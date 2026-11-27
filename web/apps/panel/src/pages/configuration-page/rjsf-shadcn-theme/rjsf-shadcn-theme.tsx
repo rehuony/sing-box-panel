@@ -69,8 +69,8 @@ import { SchemaFieldHelp } from './schema-field-help';
 import { SchemaDialogContext } from './schema-dialog-context';
 import { readConfigurationPathMode } from '../configuration-path-fields';
 import { credentialGenerator, generateCredential } from '../configuration-credentials';
-import { readConfigurationFieldHelp, withConfigurationFieldHelp } from '../configuration-field-help';
 import { PanelArrayField, PanelArrayFieldItemTemplate, PanelArrayFieldTemplate } from './array-field-templates';
+import { configurationFieldUnit, readConfigurationFieldHelp, withConfigurationFieldHelp } from '../configuration-field-help';
 import './rjsf-shadcn-theme.css';
 
 const SchemaChoiceContext = createContext<{ id: string; label?: string } | null>(null);
@@ -414,7 +414,9 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
     );
   }
   const generator = credentialGenerator(schema, method);
-  const InputComponent = generator ? InputGroupInput : Input;
+  // A number with a unit shows it inside the field, its label naming the value alone.
+  const unit = inputProps.type === 'number' ? configurationFieldUnit(schema) : undefined;
+  const InputComponent = generator || unit ? InputGroupInput : Input;
   const input = (
     <InputComponent
       {...inputProps}
@@ -435,6 +437,14 @@ function PanelBaseInputTemplate(props: BaseInputTemplateProps) {
       spellCheck={generator ? false : undefined}
     />
   );
+  if (unit) {
+    return (
+      <InputGroup>
+        {input}
+        <InputGroupAddon align='inline-end' className='text-[var(--color-text-faint)]'>{unit === 'days' ? t('configuration.units.days') : unit}</InputGroupAddon>
+      </InputGroup>
+    );
+  }
   if (!generator) return input;
   return (
     <InputGroup>

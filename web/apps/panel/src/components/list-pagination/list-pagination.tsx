@@ -68,7 +68,7 @@ export function ListPagination({ className, page, pages, pageSize, onPageChange,
           <Input
             aria-label={t('pagination.currentPage')}
             aria-describedby={totalId}
-            className='h-full min-h-0 w-[4ch] min-w-9 [appearance:textfield] rounded-[inherit] border-0 bg-transparent px-1 text-center font-medium shadow-none outline-none focus-visible:outline-none dark:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+            className='h-full min-h-0 w-[4ch] min-w-9 rounded-[inherit] border-0 bg-transparent px-1 text-center font-medium shadow-none outline-none focus-visible:outline-none dark:bg-transparent'
             type='number'
             inputMode='numeric'
             min={1}

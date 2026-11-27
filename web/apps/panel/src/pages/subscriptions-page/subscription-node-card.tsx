@@ -10,9 +10,9 @@ import { ReadoutRow } from '@shared/components/terminal';
 
 import type { SubscriptionNode } from '@/api/api-client';
 
+import { dropSlotCard } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
-import { dropSlotCard } from './drag-slot';
 import { nodeAddress, nodeOrigin, nodeSecurity } from './subscription-node-pool';
 
 /** Cards that always paint: more than a large window shows at once. */
