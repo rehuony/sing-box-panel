@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { unifiedMergeView } from '@codemirror/merge';
 import { EditorView, lineNumbers } from '@codemirror/view';
 
-import { editorTheme } from './advanced-configuration-editor/editor-theme';
+import { editorTheme } from '@/components/code-editor';
 
 /** Removed and added lines in the state colours, so a difference reads the same in both themes. */
 const diffTheme = EditorView.theme({

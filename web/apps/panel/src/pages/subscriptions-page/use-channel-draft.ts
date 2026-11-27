@@ -1,3 +1,4 @@
+import { arrayMove } from '@dnd-kit/sortable';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -169,10 +170,13 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
       if (!lifeRef.current?.signal.aborted) setBusy(false);
     }
   }
-  function reorder(index: number, delta: number) {
-    const groups = [...config.groups];
-    [groups[index], groups[index + delta]] = [groups[index + delta], groups[index]];
-    setConfig({ ...config, groups });
+  /** Moves a group to the place of another, as a drag drops it. */
+  function moveGroup(active: string, over: string) {
+    const ids = config.groups.map(group => group.id);
+    const from = ids.indexOf(active);
+    const to = ids.indexOf(over);
+    if (from < 0 || to < 0 || from === to) return;
+    setConfig({ ...config, groups: arrayMove(config.groups, from, to) });
   }
   /** Says why a group an exit rule uses can be neither deleted nor disabled; true when it is in use. */
   function refuseInUse(id: string): boolean {
@@ -261,7 +265,7 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
     render,
     save,
     showPreview,
-    reorder,
+    moveGroup,
     updateGroup,
     setRoutes,
     setDefaultExit,

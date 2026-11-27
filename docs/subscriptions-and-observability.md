@@ -417,6 +417,26 @@ with `rule_set_not_found`, and one naming a rule set of another client with
 `rule_set_client_mismatch`, at `routes[i].rule_set_id`. Loon's native category
 precedence still applies.
 
+Generation puts a few rules before a channel's own so a subscription does not
+leak what it carries. A sing-box channel first sniffs each connection, so one to
+an address still matches by its domain, answers DNS from its DNS module, rejects
+STUN so WebRTC cannot learn the device's own address, and keeps private
+addresses direct. A mihomo channel first rejects UDP to the STUN ports 3478 and
+19302–19309, since it cannot recognize STUN; Loon's default template turns STUN
+off with `disable-stun`. Every IP rule mihomo and Loon receive, and each mihomo
+remote rule set that is not domain-only, carries `no-resolve`: it matches the
+connection's own address, and the client never resolves a domain locally only to
+test it.
+
+A channel without its own template uses its client's default, which the
+template editor starts from and can restore. Each answers proxied domains with
+fake IPs, so the proxy server resolves them, and reaches the device through a
+TUN that also captures DNS: sing-box resolves the rest through AliDNS over
+HTTPS; mihomo sends its remaining lookups along the rules to Cloudflare and
+Google DNS over HTTPS and resolves node and direct domains through AliDNS and
+DNSPod over HTTPS; Loon prefers AliDNS and DNSPod over HTTPS. The local mixed or
+HTTP proxy listens on 127.0.0.1 only, and no client control API is enabled.
+
 A node that leaves the pool drops out of every group; an exit rule that names
 it as its exit rejects traffic, and a final exit that names it becomes direct.
 A channel's groups, members and exit rules are stored in their own tables and
@@ -450,7 +470,7 @@ set of IDs means the sets changed since they were read and is refused with 409
 `subscription_rule_sets_changed`. Saving an order changes no set's
 `updated_at`. The rule sets tab shows a dropped set in its new place at once
 and saves the order behind it, outside a search, and the channel exit-rule
-picker lists a client's sets in it.
+picker lists a client's sets in it and adds the checked ones in that order.
 
 A rule list can be edited as Clash classic lines, one per rule in order:
 `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `IP-CIDR` or `IP-CIDR6`, and

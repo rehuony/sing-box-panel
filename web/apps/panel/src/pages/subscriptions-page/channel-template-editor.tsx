@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
+import { CircleCheck, Eye, RotateCcw } from 'lucide-react';
 import { toast } from '@shared/components/ui/toast-manager';
 import {
   Dialog,
@@ -11,8 +12,10 @@ import {
   DialogTitle,
 } from '@shared/components/ui/dialog';
 
+import type { CodeEditorLanguage } from '@/components/code-editor';
 import type { ChannelNativeTemplate, SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
+import { CodeEditor } from '@/components/code-editor';
 import { toastFailure } from '@/components/error-notice';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
@@ -28,9 +31,21 @@ interface Props {
   onApply: (template: ChannelNativeTemplate) => void;
   onPreview: (template: ChannelNativeTemplate, signal: AbortSignal) => Promise<SubscriptionPreview>;
 }
+
+const editorLanguage: Record<ChannelNativeTemplate['format'], CodeEditorLanguage> = { 'sing-box': 'json', 'mihomo': 'yaml', 'loon': 'plain' };
+const languageName: Record<ChannelNativeTemplate['format'], string> = { 'sing-box': 'JSON', 'mihomo': 'YAML', 'loon': 'Loon' };
+const formatLabels = { 'sing-box': 'singBox', 'mihomo': 'mihomo', 'loon': 'loon' } as const;
+
+/**
+ * A channel's native template in a code editor, its client and whether it is
+ * the default beside the title. The editor's bar names the language and its
+ * lines and holds the tools: restoring the default, validating and previewing
+ * the subscription; the footer only cancels or applies.
+ */
 export function ChannelTemplateEditor({ template, format, nodes, onClose, onPreview, onApply }: Props) {
   const { t } = useTranslation();
-  const baseline = template?.content ?? channelTemplateDefaults[format];
+  const fallback = channelTemplateDefaults[format];
+  const baseline = template?.content ?? fallback;
   const [content, setContent] = useState(baseline);
   const [busy, setBusy] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
@@ -38,6 +53,8 @@ export function ChannelTemplateEditor({ template, format, nodes, onClose, onPrev
   const requestRef = useRef<AbortController | null>(null);
   useEffect(() => () => requestRef.current?.abort(), []);
   useUnsavedChanges(content !== baseline, onClose, busy);
+  const lines = content.replace(/\n$/, '').split('\n').length;
+
   async function act(kind: 'validate' | 'preview') {
     if (requestRef.current) return;
     const controller = new AbortController();
@@ -67,6 +84,7 @@ export function ChannelTemplateEditor({ template, format, nodes, onClose, onPrev
       if (!controller.signal.aborted) setBusy(false);
     }
   }
+
   return (
     <Dialog open onOpenChange={(open, details) => {
       if (busy) details.cancel();
@@ -74,36 +92,43 @@ export function ChannelTemplateEditor({ template, format, nodes, onClose, onPrev
     }}>
       <DialogContent className='flex h-[min(640px,calc(100dvh-32px))] flex-col overflow-hidden' size='workspace'>
         <DialogHeader>
-          <DialogTitle>{t('channels.editTemplate')}</DialogTitle>
+          <DialogTitle className='flex min-w-0 items-center gap-2'>
+            {t('channels.editTemplate')}
+            <span className='rounded-[var(--radius-pill)] border px-2 text-xs leading-5 font-normal whitespace-nowrap text-[var(--color-text-secondary)]'>
+              {`${t(`subscriptions.channel.format.${formatLabels[format]}`)} · ${t(content === fallback ? 'channels.defaultTemplate' : 'channels.customTemplate')}`}
+            </span>
+          </DialogTitle>
           <DialogDescription>{t('channels.templateDraftHint')}</DialogDescription>
         </DialogHeader>
-        <textarea
-          aria-label={t('channels.templateCode')}
-          className='block w-full max-w-full overflow-auto rounded-[var(--radius-control)] border-none bg-[var(--color-surface-raised)] p-4 font-mono text-xs leading-[1.7] whitespace-pre text-foreground min-h-25 flex-1 resize-none'
-          value={content}
-          disabled={busy}
-          autoComplete='off'
-          spellCheck={false}
-          onChange={(event) => setContent(event.target.value)}
-        />
+        <div className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-[var(--color-surface-raised)]'>
+          <div className='flex h-10 flex-none items-center gap-1 border-b ps-3 pe-1.5 text-xs text-muted-foreground'>
+            <span className='font-[family-name:var(--font-data)] text-[var(--color-text-secondary)]'>{languageName[format]}</span>
+            <span className='me-auto tabular-nums'>{`· ${t('channels.templateLines', { count: lines })}`}</span>
+            <Button onClick={() => setContent(fallback)} size='xs' type='button' variant='flat'>
+              <RotateCcw aria-hidden='true' data-icon='inline-start' />
+              {t('channels.restoreDefault')}
+            </Button>
+            <span aria-hidden='true' className='mx-1 h-4 w-px bg-border' />
+            <Button onClick={() => void act('validate')} size='xs' type='button' variant='flat'>
+              <CircleCheck aria-hidden='true' data-icon='inline-start' />
+              {t('channels.validate')}
+            </Button>
+            <Button onClick={() => void act('preview')} size='xs' type='button' variant='flat'>
+              <Eye aria-hidden='true' data-icon='inline-start' />
+              {t('channels.preview')}
+            </Button>
+          </div>
+          <div className='min-h-0 flex-1'>
+            <CodeEditor disabled={busy} label={t('channels.templateCode')} language={editorLanguage[format]} onChange={setContent} value={content} />
+          </div>
+        </div>
         <DialogFooter>
-          <Button variant='outline' disabled={busy} onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant='outline'
-            disabled={busy}
-            onClick={() => void act('validate')}
-          >
-            {t('channels.validate')}
-          </Button>
-          <Button variant='outline' disabled={busy} onClick={() => void act('preview')}>
-            {t('channels.preview')}
-          </Button>
-          <Button variant='default' disabled={busy} onClick={() => {
+          <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
+          <Button onClick={() => {
+            if (busy) return;
             onApply({ format, content });
             onClose();
-          }}>
+          }} type='button'>
             {t('channels.applyTemplate')}
           </Button>
         </DialogFooter>

@@ -128,6 +128,7 @@ func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config Channel
 			builder.addRule(rule, target)
 		}
 	}
+	builder.rules = append(leadingRules(channel.Format), builder.rules...)
 	final := builder.exitName(config.DefaultExit)
 	generated := map[string]any{}
 	if channel.Format == RenderFormatSingBox {
@@ -529,11 +530,41 @@ func (b *channelRuleBuilder) addRule(rule SubscriptionRule, target string) {
 		b.rules = append(b.rules, entry)
 	} else {
 		prefix := map[string]string{"domain": "DOMAIN", "domain_suffix": "DOMAIN-SUFFIX", "domain_keyword": "DOMAIN-KEYWORD", "ip_cidr": "IP-CIDR", "remote": "RULE-SET"}[kind]
+		line := prefix + "," + value + "," + target
 		if kind == "ip_cidr" {
 			if cidr, err := netip.ParsePrefix(value); err == nil && cidr.Addr().Is6() {
-				prefix = "IP-CIDR6"
+				line = "IP-CIDR6," + value + "," + target
 			}
+			// Matched by the connection's own address: the client never
+			// resolves a domain locally only to test this rule.
+			line += ",no-resolve"
+		} else if kind == "remote" && rule.Remote.Behavior != "domain" {
+			line += ",no-resolve"
 		}
-		b.rules = append(b.rules, prefix+","+value+","+target)
+		b.rules = append(b.rules, line)
 	}
+}
+
+// stunPorts are the UDP ports WebRTC reaches STUN servers on: the standard
+// port and Google's range.
+const stunPorts = "3478/19302-19309"
+
+// leadingRules come before a channel's exit rules. sing-box sniffs each
+// connection so one to an address still matches by its domain, answers DNS
+// from its DNS module, rejects STUN so WebRTC cannot learn the device's own
+// address, and keeps private addresses direct. mihomo cannot recognize STUN
+// and rejects it by its UDP ports. Loon refuses STUN by its own setting.
+func leadingRules(format RenderFormat) []any {
+	switch format {
+	case RenderFormatSingBox:
+		return []any{
+			map[string]any{"action": "sniff"},
+			map[string]any{"protocol": []string{"dns"}, "action": "hijack-dns"},
+			map[string]any{"protocol": []string{"stun"}, "action": "reject"},
+			map[string]any{"ip_is_private": true, "action": "route", "outbound": "direct"},
+		}
+	case RenderFormatMihomo:
+		return []any{"AND,((NETWORK,UDP),(DST-PORT," + stunPorts + ")),REJECT"}
+	}
+	return []any{}
 }

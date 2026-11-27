@@ -2,16 +2,17 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { toast } from '@shared/components/ui/toast-manager';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import type { SubscriptionChannel, SubscriptionNode } from '@/api/api-client';
 
 import { ApiClientProvider } from '@/api/api-client-context';
 import { TestRouter as MemoryRouter } from '@/tests/test-router';
+import { channelTemplateDefaults } from '@/constants/channel-templates';
 import { ChannelWorkspace } from '@/pages/subscriptions-page/channel-workspace';
-import { createMockApiClient, testSubscriptionChannels } from '@/tests/api/mock-api-client';
 import { emptyChannelConfig, newRuleGroup } from '@/pages/subscriptions-page/channel-policy';
+import { createMockApiClient, testSubscriptionChannels, testSubscriptionRuleSets } from '@/tests/api/mock-api-client';
 
 const node: SubscriptionNode = {
   id: 'node-one',
@@ -31,8 +32,10 @@ const channel: SubscriptionChannel = {
 function mount(
   value = channel,
   nodes = [node],
+  ruleSets = testSubscriptionRuleSets,
 ) {
   const client = createMockApiClient({
+    listSubscriptionRuleSets: vi.fn().mockResolvedValue({ items: ruleSets }),
     updateSubscriptionChannel: vi
       .fn()
       .mockImplementation(async (_id, input) => ({
@@ -163,16 +166,33 @@ describe('channel workspace', () => {
     expect(within(rail()).getByRole('button', { name: /^Proxy/ })).toHaveTextContent('select · 1 rule');
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();
   });
-  it('adds a rule set once, leaving through the first group', async () => {
+  it('adds checked rule sets in the tab\'s order through the first group, each once', async () => {
     const user = userEvent.setup();
     const proxy = { ...newRuleGroup([{ kind: 'node', id: node.id }]), name: 'Proxy' };
-    const client = mount({ ...channel, config: { ...channel.config, groups: [proxy] } });
+    const direct = testSubscriptionRuleSets[1];
+    const client = mount({ ...channel, config: { ...channel.config, groups: [proxy] } }, [node], [
+      ...testSubscriptionRuleSets,
+      { ...direct, id: 'rule_set_apple', icon: 'apple', name: 'Apple' },
+      { ...direct, id: 'rule_set_google', icon: 'google', name: 'Google' },
+    ]);
     expect(screen.getByText('No exit rules yet')).toBeVisible();
+    // The search takes focus, and Enter adds its first match.
     await user.click(screen.getByRole('button', { name: 'Add rule set' }));
-    await user.click(await screen.findByRole('menuitem', { name: /^Direct/ }));
-    expect(screen.getByRole('list', { name: 'Exit rules' })).toHaveTextContent('Rule set · 1 rule');
+    const picker = await screen.findByRole('dialog');
+    expect(picker).toHaveTextContent('New rules exit through Proxy');
+    await waitFor(() => expect(within(picker).getByRole('textbox', { name: 'Search rule sets' })).toHaveFocus());
+    await user.keyboard('goo{Enter}');
+    expect(picker).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add rule set' }));
-    expect(await screen.findByRole('menuitem', { name: /^Direct/ })).toHaveAttribute('aria-disabled', 'true');
+    const again = await screen.findByRole('dialog');
+    await user.click(within(again).getByRole('checkbox', { name: /^Apple/ }));
+    await user.click(within(again).getByRole('checkbox', { name: /^Direct/ }));
+    await user.click(within(again).getByRole('button', { name: 'Add 2' }));
+    // What the channel routes is listed apart, with nothing left to check.
+    await user.click(screen.getByRole('button', { name: 'Add rule set' }));
+    const done = await screen.findByRole('dialog');
+    expect(within(done).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(done).getByText('Added · 3')).toBeVisible();
     await user.keyboard('{Escape}');
     // The final exit is set on the group itself, which the rail then marks.
     await finalExitAction(user, 'Proxy', 'Set as final exit');
@@ -181,8 +201,43 @@ describe('channel workspace', () => {
     await user.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     const saved = vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config;
-    expect(saved?.routes).toEqual([{ id: expect.any(String), enabled: true, rule_set_id: 'rule_set_direct', exit: { kind: 'group', id: proxy.id } }]);
+    const through = (id: string) => ({ id: expect.any(String), enabled: true, rule_set_id: id, exit: { kind: 'group', id: proxy.id } });
+    expect(saved?.routes).toEqual([through('rule_set_google'), through(direct.id), through('rule_set_apple')]);
     expect(saved?.default_exit).toEqual({ kind: 'group', id: proxy.id });
+  });
+  it('drags a strategy group into its place from the keyboard', async () => {
+    const user = userEvent.setup();
+    const first = { ...newRuleGroup([]), name: 'First' };
+    const second = { ...newRuleGroup([]), name: 'Second' };
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    // Groups stack 52px apart; the copy that follows the pointer starts over the first.
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.matches('li') && this.querySelector(':scope > [aria-roledescription="Sortable strategy group"]')) {
+        const index = Array.from(this.parentElement!.children).indexOf(this);
+        return DOMRect.fromRect({ x: 0, y: index * 52, width: 256, height: 52 });
+      }
+      if (this.classList.contains('cursor-grabbing')) return DOMRect.fromRect({ x: 0, y: 0, width: 256, height: 52 });
+      return originalRect.call(this);
+    });
+    const client = mount({ ...channel, config: { ...channel.config, groups: [first, second] } });
+    const groups = () => within(rail()).getAllByRole('button', { description: /F2/ });
+    const names = () => groups().map(item => item.querySelector('.font-medium')?.textContent);
+    expect(names()).toEqual(['First', 'Second']);
+
+    const item = groups()[0]!;
+    item.focus();
+    fireEvent.keyDown(item, { key: 'F2', code: 'F2' });
+    await user.keyboard('[ArrowDown]');
+    await waitFor(() => expect(screen.getByText('Position 2 of 2.')).toBeInTheDocument());
+    fireEvent.keyDown(item, { key: 'F2', code: 'F2' });
+    rect.mockRestore();
+
+    expect(names()).toEqual(['Second', 'First']);
+    // Dropping opens neither group.
+    expect(within(rail()).getByRole('button', { name: /^Exit rules/ })).toHaveAttribute('aria-current', 'true');
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
+    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.groups).toEqual([second, first]);
   });
   it('renames directly from an unselected group and discards cancelled edits', async () => {
     const user = userEvent.setup();
@@ -354,6 +409,44 @@ describe('channel workspace', () => {
     expect(saved?.groups).toEqual([{ ...parent, members: [] }]);
     expect(saved?.default_exit).toEqual({ kind: 'direct' });
     addToast.mockRestore();
+  });
+  it('switches the client at once over the default template and asks before replacing its own', async () => {
+    const user = userEvent.setup();
+    mount({ ...channel, config: { ...channel.config, template: { format: 'sing-box', content: '{}' } } });
+    await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+    const settings = screen.getByRole('dialog', { name: 'Channel settings' });
+    await user.click(within(settings).getByRole('combobox', { name: 'Client' }));
+    await user.click(await screen.findByRole('option', { name: 'mihomo' }));
+    // The template's field says what applying does; the dialog shows no warning of its own.
+    expect(within(settings).getByText('Applying switches to the mihomo default')).toBeVisible();
+    expect(within(settings).queryByRole('status')).not.toBeInTheDocument();
+    await user.click(within(settings).getByRole('button', { name: 'Apply' }));
+    const confirmation = await screen.findByRole('alertdialog', { name: 'Switch to mihomo?' });
+    await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('dialog', { name: 'Channel settings' })).toBeVisible();
+    await user.click(within(settings).getByRole('button', { name: 'Apply' }));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Switch and replace' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Channel settings' })).not.toBeInTheDocument());
+  });
+  it('restores the client default in the template editor, whose footer only cancels or applies', async () => {
+    const user = userEvent.setup();
+    const client = mount({ ...channel, format: 'mihomo', config: { ...channel.config, template: { format: 'mihomo', content: 'mode: rule\n' } } });
+    await user.click(screen.getByRole('button', { name: 'Channel settings' }));
+    await user.click(screen.getByRole('button', { name: 'Edit template' }));
+    const editor = await screen.findByRole('dialog', { name: /^Edit template/ });
+    expect(editor).toHaveTextContent('mihomo · Custom configuration');
+    await user.click(within(editor).getByRole('button', { name: 'Restore default' }));
+    expect(editor).toHaveTextContent('mihomo · Default configuration');
+    expect(within(editor).getAllByRole('button').map(button => button.textContent)).toEqual(
+      expect.arrayContaining(['Restore default', 'Validate', 'Subscription preview', 'Cancel', 'Apply']),
+    );
+    await user.click(within(editor).getByRole('button', { name: 'Apply' }));
+    // The channel's settings stay open beneath the editor.
+    await user.click(within(screen.getByRole('dialog', { name: 'Channel settings' })).getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
+    expect(vi.mocked(client.updateSubscriptionChannel).mock.calls[0][1].config?.template)
+      .toEqual({ format: 'mihomo', content: channelTemplateDefaults.mihomo });
   });
   it('keeps channel settings local and exposes no secondary node organization', async () => {
     const user = userEvent.setup();

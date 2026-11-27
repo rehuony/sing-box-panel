@@ -131,8 +131,9 @@ export function ChannelGroupEditor({
                 <ChannelRouteAdd
                   busy={busy}
                   exit={{ kind: 'group', id: group.id }}
+                  exitName={group.name || t('channels.groupName')}
                   format={format}
-                  onAdd={route => onRoutesChange([...config.routes, route])}
+                  onAdd={added => onRoutesChange([...config.routes, ...added])}
                   routes={config.routes}
                   ruleSets={ruleSets}
                 />

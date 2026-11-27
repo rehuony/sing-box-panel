@@ -1,8 +1,49 @@
 {
   "log": {
-    "level": "info"
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-direct",
+        "server": "223.5.5.5"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": ["msftconnecttest.com", "msftncsi.com"],
+        "action": "route",
+        "server": "dns-direct"
+      },
+      {
+        "query_type": ["HTTPS", "SVCB"],
+        "action": "predefined"
+      },
+      {
+        "query_type": ["A", "AAAA"],
+        "action": "route",
+        "server": "dns-fakeip"
+      }
+    ],
+    "final": "dns-direct",
+    "strategy": "ipv4_only"
   },
   "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      "auto_route": true,
+      "strict_route": true
+    },
     {
       "type": "mixed",
       "tag": "mixed-in",
@@ -10,22 +51,14 @@
       "listen_port": 7893
     }
   ],
-  "dns": {
-    "servers": [
-      {
-        "type": "https",
-        "tag": "dns-default",
-        "server": "223.5.5.5",
-        "path": "/dns-query"
-      }
-    ],
-    "final": "dns-default",
-    "strategy": "ipv4_only"
-  },
   "route": {
-    "default_domain_resolver": {
-      "server": "dns-default",
-      "strategy": "ipv4_only"
+    "default_domain_resolver": "dns-direct",
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
     }
   }
 }

@@ -139,7 +139,7 @@ describe('channel draft', () => {
     expect(result.current.config.default_exit).toEqual({ kind: 'direct' });
     act(() => result.current.requestRemoveGroup(second.id));
     expect(result.current.removeGroup).toBeNull();
-    act(() => result.current.reorder(0, 1));
+    act(() => result.current.moveGroup(first.id, second.id));
     expect(result.current.config.groups).toEqual([second, { ...first, enabled: false }]);
   });
   it('points exit rules at the new client’s rule set of the same name when the client changes', async () => {

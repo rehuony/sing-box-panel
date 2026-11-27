@@ -16,8 +16,12 @@ const railNames = () => screen.getAllByRole('button', { description: /F2/ }).map
 beforeEach(() => window.history.replaceState(null, '', '/subscriptions'));
 afterEach(() => vi.restoreAllMocks());
 
-function renderRuleSets(client = createMockApiClient()) {
-  render(<TestRouter initialEntries={['/subscriptions#subscription-rules']}><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>);
+function renderRuleSets(client = createMockApiClient(), entry = '/subscriptions#subscription-rules') {
+  render(
+    <TestRouter initialEntries={[entry]}>
+      <ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider>
+    </TestRouter>,
+  );
   return client;
 }
 
@@ -53,6 +57,11 @@ describe('rule sets', () => {
     // The picker above the rail switches the list to another client's sets.
     await user.click(screen.getByRole('combobox', { name: 'Client' }));
     await user.click(await screen.findByRole('option', { name: /sing-box/ }));
+    expect(await screen.findByRole('region', { name: testSubscriptionRuleSets[1].name })).toBeVisible();
+  });
+
+  it('opens on the client a link to the tab names', async () => {
+    renderRuleSets(createMockApiClient(), '/subscriptions#subscription-rules/sing-box');
     expect(await screen.findByRole('region', { name: testSubscriptionRuleSets[1].name })).toBeVisible();
   });
 
@@ -97,8 +106,10 @@ describe('rule sets', () => {
     await screen.findByRole('region', { name: testSubscriptionRuleSets[0].name });
     await user.click(screen.getByRole('button', { name: 'New rule set' }));
     const dialog = await screen.findByRole('dialog', { name: 'New rule set' });
+    // The icon menu opens on its search, whose first match Enter picks.
     await user.click(within(dialog).getByRole('button', { name: 'Icon: Rules' }));
-    await user.click(await screen.findByRole('radio', { name: 'Games' }));
+    expect(await screen.findByRole('textbox', { name: 'Search icons' })).toHaveFocus();
+    await user.keyboard('gam{Enter}');
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Games{Enter}');
 
     // The dialog closes as it is submitted and the set joins the end of the rail without reading the list again.

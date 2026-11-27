@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { Check, CirclePlus, GripVertical, Layers3, PencilLine, Trash2 } from 'lucide-react';
+import { CirclePlus, GripVertical, PencilLine, Trash2 } from 'lucide-react';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
@@ -32,6 +32,7 @@ import { ruleType } from './rule-text';
 import { RuleEditor } from './rule-editor';
 import { dropSlot, showGrabbing } from './drag-slot';
 import { exitValue, parseExit, useExits } from './channel-exits';
+import { ChannelRuleSetPicker } from './channel-rule-set-picker';
 import { SubscriptionContentState } from './subscription-content-state';
 import { exitsThrough, routeRuleSet, unusableRemote } from './channel-policy';
 
@@ -70,53 +71,35 @@ function ownRemoteNames(routes: readonly ChannelRoute[], except?: string): strin
 }
 
 /**
- * Adds exit rules: one of the client's rule sets, each once a channel, or a
- * rule of the channel's own. New rules are enabled and take the given exit.
+ * Adds exit rules: the client's rule sets, each once a channel, or a rule of
+ * the channel's own. New rules are enabled and take the given exit.
  */
-export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }: {
+export function ChannelRouteAdd({ busy, exit, exitName, format, onAdd, routes, ruleSets }: {
   busy: boolean;
-  /** The exit new rules take. */
+  /** The exit new rules take, and its name. */
   exit: ChannelRouteExit;
+  exitName: string;
   format: SubscriptionFormat;
   routes: readonly ChannelRoute[];
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
-  onAdd: (route: ChannelRoute) => void;
+  onAdd: (routes: ChannelRoute[]) => void;
 }) {
   const { t } = useTranslation();
   const [adding, setAdding] = useState<{ remote: boolean } | null>(null);
-  // The client's sets in the order the rule sets tab keeps.
-  const sets = (ruleSets ?? []).filter(set => set.client === format);
   const used = new Set(routes.flatMap(route => route.rule_set_id === undefined ? [] : [route.rule_set_id]));
-  function add(match: { rule_set_id: string } | { rule: SubscriptionRule }) {
-    onAdd({ id: crypto.randomUUID(), enabled: true, ...match, exit });
-  }
-  let setItems;
-  if (ruleSets === undefined) {
-    setItems = <DropdownMenuItem disabled>{t('common.loading')}</DropdownMenuItem>;
-  } else if (!sets.length) {
-    setItems = <DropdownMenuItem disabled>{t('channels.noClientRuleSets', { client: format })}</DropdownMenuItem>;
-  } else {
-    setItems = sets.map(set => (
-      // A set the channel already routes stays listed, disabled, its check in place of its rule count.
-      <DropdownMenuItem disabled={used.has(set.id)} key={set.id} onClick={() => add({ rule_set_id: set.id })}>
-        <span className='min-w-0 flex-1 break-words'>{set.name}</span>
-        {used.has(set.id)
-          ? <Check aria-label={t('channels.alreadyAdded')} />
-          : <span className='flex-none font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums'>{set.rules.length}</span>}
-      </DropdownMenuItem>
-    ));
+  function route(match: { rule_set_id: string } | { rule: SubscriptionRule }): ChannelRoute {
+    return { id: crypto.randomUUID(), enabled: true, ...match, exit };
   }
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger render={<Button aria-label={t('channels.addRuleSetRoute')} className='max-sm:w-(--control-height-sm) max-sm:px-0' disabled={busy} size='sm' variant='flat' />}>
-          <Layers3 aria-hidden='true' data-icon='inline-start' />
-          <span className='max-sm:sr-only'>{t('channels.addRuleSetRoute')}</span>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end' className='w-auto max-w-80 min-w-40'>
-          <DropdownMenuGroup>{setItems}</DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ChannelRuleSetPicker
+        busy={busy}
+        exitName={exitName}
+        format={format}
+        onAdd={ids => onAdd(ids.map(id => route({ rule_set_id: id })))}
+        ruleSets={ruleSets}
+        used={used}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button aria-label={t('channels.addCustomRule')} className='max-sm:w-(--control-height-sm) max-sm:px-0' disabled={busy} size='sm' variant='flat' />}>
           <CirclePlus aria-hidden='true' data-icon='inline-start' />
@@ -135,7 +118,7 @@ export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }:
               client={format}
               onClose={() => setAdding(null)}
               onSave={(rule) => {
-                add({ rule });
+                onAdd([route({ rule })]);
                 setAdding(null);
               }}
               remote={adding.remote}

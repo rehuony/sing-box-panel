@@ -1,29 +1,18 @@
-log-level: info
-mode: rule
 mixed-port: 7893
 allow-lan: false
-ipv6: false
+mode: rule
+log-level: warning
+ipv6: true
+find-process-mode: off
 unified-delay: true
 tcp-concurrent: true
-dns:
-  enable: true
-  ipv6: false
-  listen: 127.0.0.1:7874
-  cache-algorithm: arc
-  enhanced-mode: redir-host
-  default-nameserver:
-    - https://223.5.5.5/dns-query
-    - https://120.53.53.53/dns-query
-  nameserver:
-    - https://223.5.5.5/dns-query
-    - https://120.53.53.53/dns-query
-  proxy-server-nameserver:
-    - https://223.5.5.5/dns-query
-    - https://120.53.53.53/dns-query
-tun:
-  enable: false
+profile:
+  store-selected: true
+  store-fake-ip: true
 sniffer:
   enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
   override-destination: false
   sniff:
     HTTP:
@@ -32,3 +21,36 @@ sniffer:
       ports: [443, 8443]
     QUIC:
       ports: [443, 8443]
+tun:
+  enable: true
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: true
+  dns-mode: hijack
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - '*.lan'
+    - '+.local'
+    - '+.msftconnecttest.com'
+    - '+.msftncsi.com'
+  respect-rules: true
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  proxy-server-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://120.53.53.53/dns-query
+  direct-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://120.53.53.53/dns-query
+  nameserver:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query

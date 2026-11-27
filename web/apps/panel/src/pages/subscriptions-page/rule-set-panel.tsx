@@ -2,6 +2,7 @@ import type { FormEvent, ReactNode } from 'react';
 
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
+import { useLocation } from 'react-router-dom';
 import { CirclePlus, Trash2 } from 'lucide-react';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -40,6 +41,11 @@ import { SubscriptionContentState } from './subscription-content-state';
 import { SubscriptionNodeSortContext } from './subscription-node-sort-context';
 
 const CLIENTS: readonly SubscriptionFormat[] = ['sing-box', 'mihomo', 'loon'];
+
+/** The client a link to the tab names, as in `#subscription-rules/loon`. */
+function linkedClient(hash: string): SubscriptionFormat | undefined {
+  return hash.startsWith('#subscription-rules/') ? CLIENTS.find(client => hash.endsWith(`/${client}`)) : undefined;
+}
 
 /**
  * Names a new rule set and picks its icon from the menu at the start of the
@@ -193,7 +199,8 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
   const { confirmNavigation } = useUnsavedChangesContext();
   const enabled = active && visible;
   const list = useQuery({ ...queries.ruleSets(client), enabled });
-  const [picked, setPicked] = useState<SubscriptionFormat>('mihomo');
+  const location = useLocation();
+  const [picked, setPicked] = useState<SubscriptionFormat>(() => linkedClient(location.hash) ?? 'mihomo');
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search.trim().toLowerCase());
