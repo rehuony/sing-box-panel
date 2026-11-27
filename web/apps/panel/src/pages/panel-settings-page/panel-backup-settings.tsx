@@ -8,10 +8,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import type { PanelBackup, PanelSettingsView } from '@/api/api-client';
 
 import { useApiClient } from '@/api/api-client-context';
-import { describeRequestError } from '@/components/error-notice';
 import { AuthSessionContext } from '@/stores/auth-session.store';
 import { usePanelSettings } from '@/stores/panel-settings.store';
 import { SettingsCard, SettingsField } from '@/components/settings-field';
+import { describeRequestError, toastFailure } from '@/components/error-notice';
 
 import { backupFile } from './panel-backup';
 
@@ -39,7 +39,7 @@ export function PanelBackupSettings({ busy, onBusyChange, onRestored }: {
   const locked = working || busy;
 
   function failed(cause: unknown) {
-    toast.add({ title: describeRequestError(cause), type: 'error' });
+    toastFailure(t('panelSettings.backupFailed'), cause);
   }
 
   async function exportBackup() {

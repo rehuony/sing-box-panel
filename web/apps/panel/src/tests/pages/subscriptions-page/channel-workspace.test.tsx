@@ -101,7 +101,7 @@ describe('channel workspace', () => {
     expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'success' }));
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('Clipboard denied'));
     await user.click(within(dialog).getByRole('button', { name: 'Copy' }));
-    expect(feedback).toHaveBeenLastCalledWith({ title: 'Clipboard denied', type: 'error' });
+    expect(feedback).toHaveBeenLastCalledWith({ title: 'Could not copy to the clipboard', description: 'Clipboard denied', type: 'error' });
   });
 
   it('groups skipped nodes by cause, naming them from the pool, with one group open at a time', async () => {

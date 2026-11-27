@@ -39,6 +39,7 @@ export const panelSettings = {
   backupExport: '导出',
   backupImport: '恢复…',
   backupInvalid: '备份格式不支持或文件内容超出限制。',
+  backupFailed: '备份操作失败',
   backupConfirm: '恢复配置备份',
   backupOverwrite: '恢复将覆盖已保存的面板配置，包括登录凭据。节点配置不在备份中。',
   backupDate: '导出时间',

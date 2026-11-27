@@ -16,7 +16,7 @@ export const channels = {
   selectedNodes: '已选 {{count}} 项', clearNodes: '清除选择', removeNodes: '删除选中节点',
   nodeDragInstructions: '空格或回车选择卡片。按 F2 开始排序，方向键移动，再按 F2 完成，Escape 取消。',
   nodeDragStart: '正在移动 {{name}}。', nodeDragPosition: '第 {{position}} 项，共 {{count}} 项。', nodeDragEnd: '节点顺序已更新。', nodeDragCancel: '已取消排序。',
-  link: '订阅链接', linkKey: '密钥', linkURL: '链接', copyLink: '复制链接', copyFailed: '无法复制到剪贴板', linkCopied: '已复制 {{name}} 的订阅链接（密钥：{{key}}）',
+  link: '订阅链接', linkKey: '密钥', linkURL: '链接', copyLink: '复制链接', copyFailed: '无法复制到剪贴板', openFailed: '渠道未能打开', duplicateFailed: '渠道未能创建副本', removeFailed: '渠道未能删除', saveFailed: '渠道未能保存', templateCheckFailed: '模板校验失败', linkCopied: '已复制 {{name}} 的订阅链接（密钥：{{key}}）',
   showQRCode: '显示二维码', hideQRCode: '收起二维码', qrCode: '订阅链接二维码',
   noActiveKeys: '还没有可用的密钥', newKey: '新建密钥', keyName: '名称', keyNameRequired: '输入密钥名称', createKey: '创建密钥', keyCreated: '已创建密钥 {{label}}',
   keyUnlimited: '不限次数', keyRemaining_one: '剩余 {{count}} 次', keyRemaining_other: '剩余 {{count}} 次', keyExpires: '{{date}} 到期',

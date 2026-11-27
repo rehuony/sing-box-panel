@@ -25,6 +25,7 @@ export const common = {
   providerRequired: '{{hook}} must be used within {{provider}}.',
   remove: 'Remove',
   requestFailed: 'The request failed before the panel returned a response.',
+  requestFailedTitle: 'Request failed',
   unsaved: {
     title: 'Discard unsaved changes?',
     description: 'Your changes will be lost if you leave this page.',

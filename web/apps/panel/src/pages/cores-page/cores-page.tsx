@@ -27,7 +27,7 @@ import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { ListPagination } from '@/components/list-pagination';
 import { RegionError, RegionState } from '@/components/region-state';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 import { CardToolbar, StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 
 import { CoreImportDialog } from './core-import-dialog';
@@ -100,7 +100,8 @@ export function CoresPage() {
     } catch (reason) {
       if (!signal.aborted) {
         toast.add({
-          title: describeRequestError(reason),
+          title: t('cores.library.actionFailed'),
+          description: describeRequestError(reason),
           type: 'error',
           ...(reason instanceof ApiRequestError && reason.code === 'configuration_not_saved'
             ? {
@@ -130,7 +131,7 @@ export function CoresPage() {
         toast.add({ title: t('cores.artifact.changed'), type: 'success' });
       }
     } catch (reason) {
-      if (!signal.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!signal.aborted) toastFailure(t('cores.library.removeFailed'), reason);
     } finally {
       if (!signal.aborted) setPending(null);
     }

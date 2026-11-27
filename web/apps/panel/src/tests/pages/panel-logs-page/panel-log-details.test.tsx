@@ -7,9 +7,9 @@ import type { LogEntry } from '@/api/api-client';
 
 import i18n from '@/i18n';
 import { TestRouter } from '@/tests/test-router';
-import { matchingEventCodes } from '@/components/panel-log';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
+import { logContext, matchingEventCodes } from '@/components/panel-log';
 import { PanelLogsPage } from '@/pages/panel-logs-page/panel-logs-page';
 
 const item: LogEntry = {
@@ -52,7 +52,8 @@ describe('panel log presentation and details', () => {
     show(createMockApiClient({
       listPanelLogs: vi.fn().mockResolvedValue({ items: [record], total: 1 }),
     }));
-    const trigger = await screen.findByRole('button', { name: 'Core start operation completed' });
+    // The line names the event and adds what its context records, here its duration.
+    const trigger = await screen.findByRole('button', { name: 'Core start operation completed · 0 ms' });
     // Details the keyboard opened return focus to their line.
     trigger.focus();
     await user.keyboard('{Enter}');
@@ -130,7 +131,8 @@ describe('panel log presentation and details', () => {
       ...item, code: 'runtime.start.failed', message: 'Core start failed', level: 'error',
       metadata: { error_code: 'core_not_enabled', error: 'core is not enabled', file: 'not-the-reason' },
     }], total: 1 }) }));
-    const trigger = await screen.findByRole('button', { name: '核心启动操作失败 · core_not_enabled' });
+    // The line gives the failure's reason in the interface's language; the details keep the code.
+    const trigger = await screen.findByRole('button', { name: '核心启动操作失败 · 请先启用核心版本 · not-the-reason' });
     expect(screen.queryByText('请先启用核心版本。')).not.toBeInTheDocument();
     expect(screen.queryByText('not-the-reason')).not.toBeInTheDocument();
     await userEvent.click(trigger);
@@ -139,6 +141,17 @@ describe('panel log presentation and details', () => {
     expect(within(dialog).queryByRole('region', { name: '原始消息' })).not.toBeInTheDocument();
     expect(dialog.querySelector('pre')).toHaveTextContent('Core start failed');
     expect(within(dialog).getByText('core_not_enabled')).toBeVisible();
+  });
+
+  it('names a line\'s node, a development build and an attempt in its context line', () => {
+    const t = i18n.getFixedT('en');
+    const names = new Map([['node_edge', 'edge']]);
+    const nodeName = (id: string) => names.get(id);
+    expect(logContext({ node_id: 'node_edge', version: 'v0.5.5-0.20261127081723-5bbdd30786c1+dirty' }, t, { nodeName }))
+      .toBe('edge · v0.5.5 · 5bbdd30+dirty');
+    // A node the fleet no longer lists reads by the start of its ID; a node's own log names none.
+    expect(logContext({ node_id: 'node_03f56f02342f2b19' }, t, { nodeName })).toBe('03f56f02');
+    expect(logContext({ node_id: 'node_edge', attempt: 2, maximum_attempts: 5, duration_ms: 16_960 }, t, {})).toBe('attempt 2 of 5 · 17.0 s');
   });
 
   it('searches translated names on the server and resets numbered pagination', async () => {

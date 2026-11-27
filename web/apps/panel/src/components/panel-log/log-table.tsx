@@ -53,6 +53,8 @@ export function LogRowTitle({ detail, onFocus, onOpen, tabIndex, title }: LogRow
       type='button'
       onFocus={onFocus}
       // A click the keyboard made has no press count; only that one returns focus here.
+      // The line holds what fits; the hover shows the event with all of its context.
+      title={detail ? `${title} · ${detail}` : title}
       onClick={event => onOpen(event.detail === 0 ? event.currentTarget : null)}
     >
       {title}

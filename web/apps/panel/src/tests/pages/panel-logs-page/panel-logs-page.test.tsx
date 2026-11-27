@@ -31,7 +31,7 @@ describe('panel logs', () => {
     const listPanelLogs = vi.fn().mockResolvedValue({ items: [item], total: 120 });
     const client = show(createMockApiClient({ listPanelLogs }));
     const level = await screen.findByRole('cell', { name: 'ERROR' });
-    expect(screen.getByRole('button', { name: 'Refresh failed · catalog_timeout' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Refresh failed · GitHub did not answer the catalog refresh in time' })).toBeVisible();
     expect(listPanelLogs).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 50, offset: 0 }), expect.any(AbortSignal),
     );
@@ -150,6 +150,6 @@ describe('panel logs', () => {
     expect(client.clearPanelLogs).toHaveBeenCalledExactlyOnceWith({ panel: true });
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Cleared 3 log entries, freed 12 KB', type: 'success' }));
-    expect(await screen.findByRole('cell', { name: 'Logs cleared' })).toBeVisible();
+    expect(await screen.findByRole('cell', { name: 'Logs cleared · 3 deleted · 12 KB freed' })).toBeVisible();
   });
 });

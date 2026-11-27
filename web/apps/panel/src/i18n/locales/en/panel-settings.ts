@@ -39,6 +39,7 @@ export const panelSettings = {
   backupExport: 'Export',
   backupImport: 'Restore…',
   backupInvalid: 'The backup format is unsupported or its content exceeds the size limit.',
+  backupFailed: 'The backup action failed',
   backupConfirm: 'Restore configuration backup',
   backupOverwrite: 'Restoring replaces the saved panel settings, including credentials. Node configurations are not part of the backup.',
   backupDate: 'Exported at',

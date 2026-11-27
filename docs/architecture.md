@@ -645,7 +645,9 @@ HTML responses generate a unique style nonce, place it in the page metadata and
 include it in `style-src`. CodeMirror uses that nonce for its generated styles.
 HTML is served with `Cache-Control: no-store`; script policy remains self-only,
 without unsafe-inline or unsafe-eval. Ordinary notifications dismiss after three
-seconds (hover/focus pauses the accessible toast timer).
+seconds (hover/focus pauses the accessible toast timer). A notification holds a
+one-line title and at most two lines of reason, cut with an ellipsis and shown in
+full on hover; a failure is titled by the action that failed.
 
 The React application contains its own trusted structured controls. It does
 not load Schema-provided scripts, components, templates, or remote resources.

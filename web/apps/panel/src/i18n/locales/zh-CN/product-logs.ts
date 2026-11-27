@@ -218,6 +218,14 @@ export const productLogs = {
     'node.disconnected': '节点已断开',
     'node.configuration_seeded': '已采用节点当前运行的配置',
   },
+  contextLine: {
+    attempt: '第 {{attempt}} 次',
+    attemptOf: '第 {{attempt}}/{{maximum}} 次',
+    deleted: '删除 {{count}}',
+    retained: '保留 {{count}}',
+    assets: '{{count}} 个产物',
+    freed: '释放 {{size}}',
+  },
   metadata: {
     error: '失败原因',
     error_code: '错误代码',
@@ -283,6 +291,11 @@ export const productLogs = {
     download_request_failed: '面板无法连接 GitHub 下载核心归档。',
     archive_digest_mismatch: '下载的归档与 GitHub 报告的摘要不一致。',
     operation_failed: '操作失败，未记录可安全展示的具体原因。',
+    subscription_resource_not_found: '订阅资源不存在或已被删除。',
+    subscription_invalid: '请求内容不完整或无效。',
+    subscription_version_conflict: '资源已被修改，请重新载入后再试。',
+    subscription_resource_exists: '已存在同名资源。',
+    subscription_limit_exceeded: '超出订阅的数量或大小上限。',
   },
   sources: {
     panel: '面板',

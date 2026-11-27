@@ -40,7 +40,7 @@ import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { StripDivider, StripSearch } from '@/components/title-strip';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
 import { emptyChannelConfig } from './channel-policy';
@@ -130,11 +130,11 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     const controller = new AbortController();
     client.getSubscriptionChannel(openID, controller.signal).then(setChannel, (reason) => {
       if (controller.signal.aborted) return;
-      toast.add({ title: describeRequestError(reason), type: 'error' });
+      toastFailure(t('channels.openFailed'), reason);
       void show('', true);
     });
     return () => controller.abort();
-  }, [channelID, client, openID, show]);
+  }, [channelID, client, openID, show, t]);
   // Leaving a channel reads the list again, which its edits may have changed.
   useEffect(() => {
     if (openID === '' && wasOpenRef.current) void load(lifetimeRef.current?.signal);
@@ -154,7 +154,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     try {
       await action(signal);
     } catch (reason) {
-      if (!signal?.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!signal?.aborted) toastFailure(t('channels.duplicateFailed'), reason);
     } finally {
       pendingRef.current.delete(key);
     }
@@ -234,7 +234,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       await load(lifetimeRef.current?.signal);
       toast.add({ title: t('channels.removed'), type: 'success' });
     } catch (reason) {
-      toast.add({ title: describeRequestError(reason), type: 'error' });
+      toastFailure(t('channels.removeFailed'), reason);
     } finally {
       setBusy(false);
     }

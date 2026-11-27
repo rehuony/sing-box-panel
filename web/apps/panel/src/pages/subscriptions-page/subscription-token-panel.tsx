@@ -26,7 +26,7 @@ import { DateTimeField } from '@/components/date-time-field';
 import { ListPagination } from '@/components/list-pagination';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 
 import type { useSubscriptionTokenPage } from './use-subscription-token-page';
 
@@ -82,9 +82,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
     operationRef.current++;
   }, []);
 
-  const report = useCallback((reason: unknown) => {
-    toast.add({ title: describeRequestError(reason), type: 'error' });
-  }, []);
+  const report = useCallback((reason: unknown) => toastFailure(t('subscriptions.keys.actionFailed'), reason), [t]);
 
   /** A key's state and the colour its dot takes: usable, used up or expired, paused, or revoked. */
   function keyState(key: SubscriptionToken): { label: string; tone: string } {

@@ -7,8 +7,8 @@ import type { ChannelRoute, ChannelRouteExit, ChannelRuleGroup, SubscriptionChan
 
 import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
+import { toastFailure } from '@/components/error-notice';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
-import { describeRequestError } from '@/components/error-notice';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
 
 import { groupInUse, incompatibleConfig, newRuleGroup, releaseFinalExit, remapRuleSets, removeGroupReferences } from './channel-policy';
@@ -149,7 +149,7 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
     try {
       await persist();
     } catch (reason) {
-      if (!lifeRef.current?.signal.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!lifeRef.current?.signal.aborted) toastFailure(t('channels.saveFailed'), reason);
     } finally {
       if (!lifeRef.current?.signal.aborted) setBusy(false);
     }

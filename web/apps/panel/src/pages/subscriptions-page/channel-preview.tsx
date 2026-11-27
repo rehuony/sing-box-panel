@@ -15,7 +15,7 @@ import {
 import type { SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
 import { nodePath } from '@/utils/node-path';
-import { describeRequestError } from '@/components/error-notice';
+import { describeRequestError, toastFailure } from '@/components/error-notice';
 
 import type { IssueGroup, IssueItem } from './issue-list';
 
@@ -43,7 +43,7 @@ export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
       await navigator.clipboard.writeText(preview.result.content);
       toast.add({ title: t('channels.copied'), type: 'success' });
     } catch (reason) {
-      toast.add({ title: describeRequestError(reason), type: 'error' });
+      toastFailure(t('channels.copyFailed'), reason);
     }
   }
   return (

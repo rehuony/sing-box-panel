@@ -13,8 +13,8 @@ import {
 
 import type { ChannelNativeTemplate, SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
+import { toastFailure } from '@/components/error-notice';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
-import { describeRequestError } from '@/components/error-notice';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
 
 import { ChannelPreview } from './channel-preview';
@@ -59,7 +59,7 @@ export function ChannelTemplateEditor({ template, format, nodes, onClose, onPrev
           setPreview(null);
           setPreviewError(reason);
         } else {
-          toast.add({ title: describeRequestError(reason), type: 'error' });
+          toastFailure(t('channels.templateCheckFailed'), reason);
         }
       }
     } finally {

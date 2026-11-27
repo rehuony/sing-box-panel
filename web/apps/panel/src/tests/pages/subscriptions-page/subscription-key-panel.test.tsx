@@ -263,7 +263,7 @@ it('deletes the selected revoked key, with cancellation and retry after failure'
   const confirmation = screen.getByRole('dialog', { name: 'Delete key' });
   expect(confirmation).toHaveTextContent('Unused');
   await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
-  await waitFor(() => expect(feedback).toHaveBeenCalledWith(expect.objectContaining({ title: 'delete failed', type: 'error' })));
+  await waitFor(() => expect(feedback).toHaveBeenCalledWith(expect.objectContaining({ title: 'The key action failed', description: 'delete failed', type: 'error' })));
   expect(confirmation).toBeVisible();
   await user.click(within(confirmation).getByRole('button', { name: 'Delete' }));
   expect(client.deleteSubscriptionToken).toHaveBeenNthCalledWith(1, key.id);

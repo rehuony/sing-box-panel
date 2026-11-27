@@ -786,7 +786,10 @@ check phase, including when execution subsequently fails. All operation context
 still passes through the durable log sanitizer.
 Historical events without additional context remain readable and explicitly show
 that no extra context was recorded; current runtime state is not used to fill
-historical gaps.
+historical gaps. The log list follows each event with what its context records,
+as far as one line holds: the failure's localized reason (its code where none is
+known), the node by its current name, the version, file, address, attempt,
+counts, freed size and duration; the details keep every field as recorded.
 
 ## Durable logs
 

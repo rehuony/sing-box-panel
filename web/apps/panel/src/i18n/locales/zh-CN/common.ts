@@ -25,6 +25,7 @@ export const common = {
   providerRequired: '{{hook}} 必须在 {{provider}} 中使用。',
   remove: '移除',
   requestFailed: '面板返回响应前，请求已失败。',
+  requestFailedTitle: '请求失败',
   unsaved: {
     title: '放弃未保存的更改？',
     description: '离开后，当前的更改将不会保存。',

@@ -22,10 +22,10 @@ import { useApiClient } from '@/api/api-client-context';
 import { RegionError } from '@/components/region-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
-import { describeRequestError } from '@/components/error-notice';
 import { StripDivider, StripSearch } from '@/components/title-strip';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { describeRequestError, toastFailure } from '@/components/error-notice';
 import { Rail, RailCount, RailItem, RailItemOverlay } from '@/components/rail';
 
 import type { RuleSetDraft } from './rule-set-editor';
@@ -265,7 +265,8 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
     },
     onError: (error) => {
       const stale = error instanceof ApiRequestError && error.status === 412;
-      toast.add({ title: stale ? t('subscriptions.ruleSets.stale') : describeRequestError(error), type: stale ? 'warning' : 'error' });
+      if (stale) toast.add({ title: t('subscriptions.ruleSets.stale'), type: 'warning' });
+      else toastFailure(t('subscriptions.ruleSets.deleteFailed'), error);
       if (stale) setDeleting(null);
     },
     onSettled: () => cache.invalidateQueries({ queryKey: ['ruleSets'] }),
@@ -281,7 +282,8 @@ export function RuleSetPanel({ active = true, toolbarTarget }: {
     },
     onError: (error) => {
       const stale = error instanceof ApiRequestError && error.status === 409;
-      toast.add({ title: stale ? t('subscriptions.ruleSets.orderStale') : describeRequestError(error), type: stale ? 'warning' : 'error' });
+      if (stale) toast.add({ title: t('subscriptions.ruleSets.orderStale'), type: 'warning' });
+      else toastFailure(t('subscriptions.ruleSets.orderSaveFailed'), error);
       void cache.invalidateQueries({ queryKey: ['ruleSets'] });
     },
     onSettled: (_saved, _error, next) => setOrder(current => current === next ? null : current),

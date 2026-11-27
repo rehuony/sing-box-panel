@@ -218,6 +218,14 @@ export const productLogs = {
     'node.disconnected': 'Node disconnected',
     'node.configuration_seeded': 'Node configuration taken from the configuration it runs',
   },
+  contextLine: {
+    attempt: 'attempt {{attempt}}',
+    attemptOf: 'attempt {{attempt}} of {{maximum}}',
+    deleted: '{{count}} deleted',
+    retained: '{{count}} kept',
+    assets: '{{count}} assets',
+    freed: '{{size}} freed',
+  },
   metadata: {
     error: 'Failure reason',
     error_code: 'Error code',
@@ -283,6 +291,11 @@ export const productLogs = {
     download_request_failed: 'The panel could not reach GitHub to download the core archive.',
     archive_digest_mismatch: 'The downloaded archive does not match the digest GitHub reports.',
     operation_failed: 'The operation failed; no safe diagnostic is available.',
+    subscription_resource_not_found: 'The subscription resource does not exist or was deleted.',
+    subscription_invalid: 'The request is incomplete or invalid.',
+    subscription_version_conflict: 'The resource changed; reload it and try again.',
+    subscription_resource_exists: 'A resource with that name already exists.',
+    subscription_limit_exceeded: 'The subscription count or size limit was exceeded.',
   },
   sources: {
     panel: 'Panel',

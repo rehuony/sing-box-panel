@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 import type { LogEntry, LogLevel, LogScope } from '@/api/api-client';
 
+import { queries } from '@/api/queries';
 import { useApiClient } from '@/api/api-client-context';
 import { ErrorNotice } from '@/components/error-notice';
 import { RegionState } from '@/components/region-state';
@@ -27,7 +28,7 @@ import { useLogRowFocus } from './use-log-row-focus';
 import { ClearLogsAction } from './clear-logs-action';
 import { PanelLogDetails } from './panel-log-details';
 import { LogRow, LogRowTitle, LogTime } from './log-table';
-import { logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
+import { logContext, logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
 
 /**
  * The panel's log in one scope, filtered by level: the panel's own entries
@@ -57,6 +58,10 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
       offset: (page - 1) * limit }, signal),
     enabled, staleTime: 5000, refetchInterval: enabled ? 5000 : false, placeholderData: keepPreviousData,
   });
+  // The panel's log names nodes by their current names; a node's own log needs none.
+  const fleet = useQuery({ ...queries.fleetNodes(client), enabled: enabled && node === undefined });
+  const nodeNames = new Map((fleet.data?.items ?? []).map(item => [item.id, item.name]));
+  const nodeName = node === undefined ? (id: string) => nodeNames.get(id) : undefined;
   const result = logs.data ?? { items: [], total: 0 };
   const loading = logs.isPending || logs.isPlaceholderData;
   const pages = Math.max(1, Math.ceil(result.total / limit));
@@ -125,7 +130,7 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
             <TableBody onKeyDown={rowFocus.onKeyDown}>
               {result.items.map((item) => {
                 const title = logTitle(item, t);
-                const failure = typeof item.metadata.error_code === 'string' ? item.metadata.error_code : undefined;
+                const context = logContext(item.metadata, t, { language, nodeName });
                 return (
                   <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
                     <TableCell><LogTime language={language} value={item.time} /></TableCell>
@@ -134,7 +139,7 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
                       <div className='flex min-w-0 items-center gap-2'>
                         {item.source === 'security' && <Badge variant='secondary'>{t('productLogs.sources.security')}</Badge>}
                         <LogRowTitle
-                          detail={failure}
+                          detail={context || undefined}
                           tabIndex={rowFocus.tabIndex(item.id)}
                           title={title}
                           onFocus={() => rowFocus.onFocus(item.id)}
