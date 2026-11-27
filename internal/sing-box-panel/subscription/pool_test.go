@@ -148,6 +148,33 @@ func TestPoolSynchronizationKeepsIdentityAndAppendsNewNodes(t *testing.T) {
 	}
 }
 
+func TestPoolFollowsRenamedNodesAndNormalizesNames(t *testing.T) {
+	ctx := t.Context()
+	_, app := newPoolTestApplication(t)
+	source := createFileSource(t, app, "provider", "socks5://a.example:1080#Left,%201x\n"+
+		"socks5://b.example:1080#Twin\nsocks5://c.example:1080#Twin\nsocks5://d.example:1080#Kept\n")
+	names, before := poolSummary(t, app)
+	// A comma, which no channel can publish, gives way to a space.
+	if want := []string{"Left 1x", "Twin", "Twin 2", "Kept"}; !slices.Equal(names, want) {
+		t.Fatalf("pool = %v, want %v", names, want)
+	}
+	if _, err := app.UpdateSubscriptionNode(ctx, before["Kept"].ID, "Mine", before["Kept"].UpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	// The provider renames two nodes and drops the first twin: each node
+	// keeps its ID by its outbound, a default name follows the new one and a
+	// chosen name stays.
+	replaceContent(t, app, source.ID, "socks5://a.example:1080#Left%202x\nsocks5://c.example:1080#Twin\nsocks5://d.example:1080#Kept%20now\n")
+	names, after := poolSummary(t, app)
+	if want := []string{"Left 2x", "Twin 2", "Mine"}; !slices.Equal(names, want) {
+		t.Fatalf("pool = %v, want %v", names, want)
+	}
+	if after["Left 2x"].ID != before["Left 1x"].ID || after["Twin 2"].ID != before["Twin 2"].ID || after["Mine"].ID != before["Kept"].ID ||
+		after["Twin 2"].Server != "c.example" {
+		t.Fatalf("identities moved: before %+v, after %+v", before, after)
+	}
+}
+
 func TestPoolRemovalLeavesChannelsAndGrants(t *testing.T) {
 	ctx := t.Context()
 	_, app := newPoolTestApplication(t)
@@ -244,7 +271,8 @@ func TestPoolKeepsNodesOfContentThatNoLongerReads(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.SyncPool(ctx); err != nil {
+	// The release that cannot read it starts with the panel.
+	if err := newSubscriptionTestApplication(db).SyncPool(ctx); err != nil {
 		t.Fatal(err)
 	}
 	names, _ := poolSummary(t, app)
@@ -258,6 +286,21 @@ func TestPoolKeepsNodesOfContentThatNoLongerReads(t *testing.T) {
 	}
 	if names, _ := poolSummary(t, app); !slices.Equal(names, []string{"A", "B"}) {
 		t.Fatalf("pool = %v", names)
+	}
+	// Under a release that reads the content again, the synchronization
+	// applies the filter and clears the error it recorded.
+	if err := db.WithTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE subscription_sources SET content = CAST('socks5://a.example:1080#A' AS BLOB) WHERE id = ?`, broken.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := newSubscriptionTestApplication(db).SyncPool(ctx); err != nil {
+		t.Fatal(err)
+	}
+	names, _ = poolSummary(t, app)
+	if source, err = app.SubscriptionSource(ctx, broken.ID); err != nil || !slices.Equal(names, []string{"B"}) || source.LastError != "" {
+		t.Fatalf("pool = %v, source = %+v, %v", names, source, err)
 	}
 }
 

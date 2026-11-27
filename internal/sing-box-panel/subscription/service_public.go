@@ -125,7 +125,16 @@ func (application *Service) publicSubscriptionTraffic(ctx context.Context, at ti
 // renderSubscriptionState renders the channel of state, or config in its
 // place, from the pool nodes state allows and the rule sets config routes
 // by, and returns the fleet nodes whose inbounds the output delivers.
+// renderSubscriptionState renders a channel and lists the fleet nodes it
+// carries, from the render cache when nothing it reads changed.
 func (application *Service) renderSubscriptionState(state store.PublicSubscriptionState, format store.SubscriptionFormat, config ChannelConfig, ruleSets map[string]ChannelRuleSet) (RenderResult, []string, error) {
+	key, err := renderDigest(state.Pool, format, config, ruleSets)
+	if err != nil {
+		return RenderResult{}, nil, err
+	}
+	if cached, found := application.renders.get(key); found {
+		return cached.result, cached.nodeIDs, nil
+	}
 	rendered, err := RenderChannelNodes(channelNodes(state.Pool), RenderFormat(format), config, ruleSets)
 	if err != nil {
 		return RenderResult{}, nil, err
@@ -138,6 +147,7 @@ func (application *Service) renderSubscriptionState(state store.PublicSubscripti
 			fleetNodes = append(fleetNodes, node.NodeID)
 		}
 	}
+	application.renders.put(key, cachedRender{result: rendered, nodeIDs: fleetNodes})
 	return rendered, fleetNodes, nil
 }
 

@@ -25,6 +25,7 @@ import type {
 } from '@/api/api-client';
 
 import { IconAction } from '@/components/icon-action';
+import { InfoTooltip } from '@/components/info-tooltip';
 import { SelectField } from '@/components/select-field';
 import { dropSlot, showGrabbing } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
@@ -34,7 +35,7 @@ import { RuleEditor } from './rule-editor';
 import { exitValue, parseExit, useExits } from './channel-exits';
 import { ChannelRuleSetPicker } from './channel-rule-set-picker';
 import { SubscriptionContentState } from './subscription-content-state';
-import { exitsThrough, routeRuleSet, unusableRemote } from './channel-policy';
+import { exitsThrough, loonAheadOf, routeRuleSet, unusableRemote } from './channel-policy';
 
 /**
  * A row's cells: grip, position, what it matches, its actions and its exit,
@@ -137,14 +138,24 @@ export function ChannelRouteAdd({ busy, exit, exitName, format, onAdd, routes, r
   );
 }
 
-/** What a route matches: a rule set's name over its rule count, or an own rule's value over its kind. */
-function RouteMatch({ format, route, ruleSets }: {
+/**
+ * What a route matches: a rule set's name over its rule count, or an own
+ * rule's value over its kind. A rule the client matches ahead of earlier ones
+ * ends its name in a warning sign that names them.
+ */
+function RouteMatch({ aheadOf, format, route, ruleSets }: {
   route: ChannelRoute;
   format: SubscriptionFormat;
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
+  /** The positions of the earlier rules the client matches this one ahead of. */
+  aheadOf?: readonly number[];
 }) {
   const { t } = useTranslation();
   const off = route.enabled ? '' : ` · ${t('channels.disabled')}`;
+  const ahead = aheadOf?.length
+    ? t('channels.loonAheadOf', { count: aheadOf.length, positions: aheadOf.join(t('channels.positionSeparator')) })
+    : '';
+  const mark = ahead ? <InfoTooltip className='-my-1 flex-none' label={ahead} tone='warning'>{ahead}</InfoTooltip> : null;
   if (route.rule_set_id !== undefined) {
     const set = routeRuleSet(route, ruleSets, format);
     const known = ruleSets?.find(value => value.id === route.rule_set_id);
@@ -153,7 +164,10 @@ function RouteMatch({ format, route, ruleSets }: {
     else if (ruleSets) detail = <p className={danger}>{t('channels.routeRuleSetMissing', { client: format })}</p>;
     return (
       <div className='min-w-0 max-sm:col-span-2'>
-        <p className='text-sm break-words'>{known?.name ?? (ruleSets ? route.rule_set_id : EM_DASH)}</p>
+        <p className='flex min-w-0 items-center gap-1 text-sm'>
+          <span className='min-w-0 break-words'>{known?.name ?? (ruleSets ? route.rule_set_id : EM_DASH)}</span>
+          {mark}
+        </p>
         {detail}
       </div>
     );
@@ -163,7 +177,10 @@ function RouteMatch({ format, route, ruleSets }: {
   const unusable = unusableRemote(rule, format);
   return (
     <div className='min-w-0 max-sm:col-span-2' title={rule?.remote?.url}>
-      <p className='font-[family-name:var(--font-data)] text-compact break-all'>{(rule?.kind === 'remote' ? rule.remote?.name : rule?.value) ?? EM_DASH}</p>
+      <p className='flex min-w-0 items-center gap-1'>
+        <span className='min-w-0 font-[family-name:var(--font-data)] text-compact break-all'>{(rule?.kind === 'remote' ? rule.remote?.name : rule?.value) ?? EM_DASH}</span>
+        {mark}
+      </p>
       <p className={unusable ? danger : secondary}>
         {t('channels.routeCustom', { kind })}
         {unusable ? ` · ${t('channels.routeFormatUnusable', { client: format, format: rule!.remote!.format })}` : off}
@@ -172,8 +189,9 @@ function RouteMatch({ format, route, ruleSets }: {
   );
 }
 
-function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, route, ruleSets, sortable }: {
+function RouteRow({ aheadOf, busy, choices, format, index, onEdit, onExit, onRemove, route, ruleSets, sortable }: {
   route: ChannelRoute;
+  aheadOf?: readonly number[];
   /** Its position among all the channel's routes. */
   index: number;
   sortable: boolean;
@@ -224,7 +242,7 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
           : null}
       </span>
       <span className={positionCell}>{position}</span>
-      <RouteMatch format={format} route={route} ruleSets={ruleSets} />
+      <RouteMatch aheadOf={aheadOf} format={format} route={route} ruleSets={ruleSets} />
       <SelectField
         aria-label={t('channels.routeExit', { position })}
         className={exitCell}
@@ -250,8 +268,9 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
 }
 
 /** The copy of a row the pointer carries: lifted with the panel shadow, inert. */
-function RouteRowOverlay({ choices, format, index, route, ruleSets }: {
+function RouteRowOverlay({ aheadOf, choices, format, index, route, ruleSets }: {
   route: ChannelRoute;
+  aheadOf?: readonly number[];
   index: number;
   format: SubscriptionFormat;
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
@@ -267,7 +286,7 @@ function RouteRowOverlay({ choices, format, index, route, ruleSets }: {
         <span className='flex size-7 items-center justify-center text-foreground'><GripVertical className='size-4' /></span>
       </span>
       <span className={positionCell}>{index + 1}</span>
-      <RouteMatch format={format} route={route} ruleSets={ruleSets} />
+      <RouteMatch aheadOf={aheadOf} format={format} route={route} ruleSets={ruleSets} />
       <SelectField className={exitCell} items={choices} onValueChange={() => undefined} value={exitValue(route.exit)} />
       <span className={cn(actionsCell, 'max-sm:hidden')} />
     </div>
@@ -312,6 +331,7 @@ export function ChannelRouteList({
     groupID === undefined || exitsThrough(route.exit, groupID) ? [{ index, route }] : []);
   const position = (id: string | number) => routes.findIndex(route => route.id === id) + 1;
   const draggedRow = dragged === null ? undefined : shown.find(({ route }) => route.id === dragged);
+  const ahead = loonAheadOf(routes, ruleSets, format);
   const replace = (id: string, next: Partial<ChannelRoute>) =>
     onRoutesChange(routes.map(route => route.id === id ? { ...route, ...next } : route));
 
@@ -355,6 +375,7 @@ export function ChannelRouteList({
                   <ol aria-label={t('channels.routes')}>
                     {shown.map(({ index, route }) => (
                       <RouteRow
+                        aheadOf={ahead.get(route.id)}
                         busy={busy}
                         choices={exits.choices(route.exit)}
                         format={format}
@@ -375,6 +396,7 @@ export function ChannelRouteList({
                     {draggedRow
                       ? (
                           <RouteRowOverlay
+                            aheadOf={ahead.get(draggedRow.route.id)}
                             choices={exits.choices(draggedRow.route.exit)}
                             format={format}
                             index={draggedRow.index}

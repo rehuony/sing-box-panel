@@ -28,14 +28,23 @@ type Service struct {
 	refreshSlots chan struct{}
 	now          func() time.Time
 	random       func([]byte) (int, error)
-	// poolMu runs pool synchronizations one at a time.
+	// poolMu runs pool synchronizations one at a time and guards
+	// syncedFingerprint.
 	poolMu sync.Mutex
+	// syncedFingerprint identifies the inputs the pool last synchronized
+	// from; while they stay the same, a synchronization has nothing to do.
+	syncedFingerprint string
+	// poolRequests holds the one pending RequestPoolSync, which the refresh
+	// loop serves.
+	poolRequests chan struct{}
+	// renders keeps recent channel renderings.
+	renders renderCache
 }
 
 func New(database *store.Store, panelSettings *settings.Service, records *telemetry.Service, options Options) *Service {
 	service := &Service{
 		database: database, settings: panelSettings, telemetry: records,
-		refreshSlots: make(chan struct{}, 3), now: time.Now, random: rand.Read,
+		refreshSlots: make(chan struct{}, 3), poolRequests: make(chan struct{}, 1), now: time.Now, random: rand.Read,
 	}
 	if options.Now != nil {
 		service.now = options.Now

@@ -104,7 +104,9 @@ Configuration read or traffic storage failures return `503` instead of fabricate
 do not consume download quota or expose the traffic header; final authorization
 is rechecked before either a `200` or `304` response is committed.
 
-Traffic changes leave the subscription body and its ETag unchanged. Conditional
+The panel keeps recent renderings by a digest of everything they are rendered
+from, so an unchanged channel renders once however many clients fetch it, and
+any change renders anew. Traffic changes leave the subscription body and its ETag unchanged. Conditional
 requests still receive refreshed traffic metadata. The response adds no expiry
 or refresh-interval field: a period boundary is not a subscription expiration.
 Clients display the new usage on their next successful subscription refresh,
@@ -119,12 +121,17 @@ each channel's groups choose what that channel delivers. The Web UI shows the
 pool as cards in its saved order, without pagination; dragging a card saves the
 new order.
 
-Each node has an ID derived by one rule from its origin: `sn_` and a digest of
-the origin kind, the origin's ID and the node's key within the origin. An inbound's key is its type and tag with the identity of its credential, so a
+A new node's ID derives by one rule from its origin: `sn_` and a digest of
+the origin kind, the origin's ID and the node's key within the origin, followed
+by `-2`, `-3` and so on while another node holds it. An inbound's key is its type and tag with the identity of its credential, so a
 multi-user inbound yields one node per user, named `tag (user)`; a source node's key is its name in the
-source, with `#2`, `#3` and so on for later nodes of the same name. The ID holds
-while the origin keeps that key: renaming a node at its provider, or changing an inbound's type, tag or user,
-makes a new node. Order, display name, channel membership
+source, with `#2`, `#3` and so on for later nodes of the same name.
+Synchronization pairs each node its inputs yield with the existing node of the
+same origin it continues: the node with the same key and outbound, then one with
+the same outbound, then one with the same key. A node therefore keeps its ID
+when its provider renames it, when one of two nodes with the same name goes, and
+when its address or credential changes; only a node whose key and outbound both
+change at once is new. Order, display name, channel membership
 and user grants all refer to the ID.
 
 A node's display name is the name every channel publishes it under and the only
@@ -132,7 +139,11 @@ field an administrator edits. It is unique in the pool, ignoring case, has at
 most 256 bytes and no surrounding spaces, control characters or commas; a taken
 name answers 409. A new
 node takes its origin name, prefixed with its fleet node's name for an inbound
-(`tokyo · vless-in`), and appends ` 2`, ` 3` and so on while the name is taken.
+(`tokyo · vless-in`), with each comma turned into a space and surrounding spaces
+removed, and appends ` 2`, ` 3` and so on while the name is taken. A display name
+that still follows its origin name, with or without that number, follows the
+origin when it renames the node; one an administrator chose stays.
+Synchronization also normalizes an existing display name that holds a comma.
 Its content is the sing-box outbound its origin yields, stored with the node and
 replaced on each synchronization.
 
@@ -140,22 +151,27 @@ replaced on each synchronization.
 
 The pool is synchronized in one transaction whenever its inputs change: a fleet node applies a configuration (rollback included), changes its public
 host or reported public IP, or is deleted; a source is created, refreshed, given
-new content, has its filter changed, or is deleted; and once when the panel starts. Synchronization
+new content, has its filter changed, or is deleted; and once when the panel starts.
+A fleet node's change queues a synchronization that runs apart from the node's
+session, the sources due for refresh synchronize once after all of them, and a
+synchronization whose inputs are those of the last one returns without reading
+any source. Synchronization
 
-1. computes every node the inputs yield, with its ID;
-2. deletes the nodes whose ID is gone together with everything that names them:
+1. computes every node the inputs yield and pairs it with the node it continues;
+2. deletes the nodes no input continues together with everything that names them:
    their group memberships and user grants are removed by cascade, an exit
    rule's exit that named one falls back to `reject`, and a channel's final
    exit that named one falls back to `direct`;
-3. replaces the content of the nodes that remain, keeping their display names
-   and positions;
+3. replaces the key and content of the nodes that remain, keeping their
+   display names, as above, and positions;
 4. appends the new nodes to the end of the order in origin order: fleet nodes by
    name, each node's inbounds in configuration order, then sources by creation
    time, each source's nodes in content order.
 
 Nothing about a removed node is kept, so a node that returns later is new: it
 joins the end of the order and no channel. A source whose stored content no
-longer reads keeps its nodes and records the failure in `last_error`, and a
+longer reads keeps its nodes and records the failure in `last_error`, which a
+later synchronization that reads it clears unless a refresh failed since; a
 fleet node whose public host is not known keeps its nodes the same way, as
 [Fleet inbounds](#fleet-inbounds) describes.
 
@@ -418,6 +434,13 @@ with `rule_set_not_found`, and one naming a rule set of another client with
 `rule_set_client_mismatch`, at `routes[i].rule_set_id`. Loon's native category
 precedence still applies.
 
+A rule that repeats an earlier one, or a remote rule set already emitted, is left
+out, since the earlier one takes all its traffic. A sing-box channel joins rules
+in a row with the same exit into one route rule, which matches when any of its
+domains, suffixes, keywords or IP ranges does, so a large rule set is one rule
+rather than thousands the client tries in turn; a remote rule set stays a rule of
+its own. Mihomo and Loon receive one line per rule.
+
 Generation puts a few rules before a channel's own so a subscription does not
 leak what it carries. A sing-box channel first sniffs each connection, so one to
 an address still matches by its domain, answers DNS from its DNS module, rejects
@@ -519,7 +542,9 @@ Switching a channel's client retains its own rules and flags incompatible
 formats for explicit source review; exit rules that route by a rule set of the
 former client are refused until replaced. No format conversion is implied. Loon evaluates local rules
 before remote rules, domain matches before IP matches, and FINAL last; ordering
-within each category is retained.
+within each category is retained. In a Loon channel the editor ends the name of
+an exit rule Loon matches ahead of earlier ones in a warning sign whose tooltip
+names their positions.
 The client fetches the final URL; the panel never fetches, counts, uploads or
 converts rule content. GitHub acceleration unwraps known proxies and prefixes
 eligible original URLs with `https://gh-proxy.com/`, without a GitHub credential.
@@ -617,7 +642,9 @@ The cross-format renderers convert only their explicit current contracts:
 | Loon | `shadowsocks`, `socks`, `http`, `vmess`, `vless`, `trojan`, `hysteria2`, `anytls` |
 
 Unsupported types, transports, TLS shapes, networks, dependencies, or options
-are omitted with stable positional diagnostics. Loon TLS output preserves the
+are omitted with stable positional diagnostics, as is a node whose display name
+the client cannot publish, such as one Loon cannot take as a policy name, with
+`invalid_metadata`; one node never fails the whole channel. Loon TLS output preserves the
 ordered ALPN list using a quoted comma-separated value, including AnyTLS. A single
 identifier containing a comma, line break, NUL or surrounding whitespace is
 rejected rather than changed during conversion. Renderers never infer a field

@@ -66,6 +66,7 @@ export const channels = {
   addRuleSetsCount_other: 'Add {{count}}',
   chooseRuleSets: 'Choose the rule sets to add',
   routeRuleSet_one: 'Rule set · {{count}} rule', routeRuleSet_other: 'Rule set · {{count}} rules',
+  loonAheadOf_one: 'Loon matches it before rule {{positions}}', loonAheadOf_other: 'Loon matches it before rules {{positions}}', positionSeparator: ', ',
   routeRuleSetMissing: 'No matching {{client}} rule set', routeCustom: 'Custom · {{kind}}', routeFormatUnusable: '{{client}} cannot use the {{format}} format',
   routeExit: 'Exit of rule {{position}}', moveRoute: 'Move rule {{position}}',
   routeDragInstructions: 'Press Space, Enter or F2 to pick up the rule, the arrow keys to move it, the same key to drop it, or Escape to cancel.',

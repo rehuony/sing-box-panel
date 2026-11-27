@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChannelGroupMember, ChannelRoute, ChannelRuleGroup, SubscriptionNode, SubscriptionRuleSet } from '@/api/api-client';
 
-import { canAccelerateRuleURL, createsGroupCycle, detectRuleFormat, directRuleURL, effectiveRuleURL, emptyChannelConfig, groupTypeName, incompatibleConfig, matchedNodes, newRuleGroup, removeGroupReferences } from '@/pages/subscriptions-page/channel-policy';
+import { canAccelerateRuleURL, createsGroupCycle, detectRuleFormat, directRuleURL, effectiveRuleURL, emptyChannelConfig, groupTypeName, incompatibleConfig, loonAheadOf, matchedNodes, newRuleGroup, removeGroupReferences } from '@/pages/subscriptions-page/channel-policy';
 
 const node = (id: string): ChannelGroupMember => ({ kind: 'node', id });
 const group = (id: string): ChannelGroupMember => ({ kind: 'group', id });
@@ -79,6 +79,22 @@ describe('channel editing policy', () => {
     expect(incompatibleConfig(config, 'loon', [])).toBe(false);
   });
 
+  it('names the earlier exit rules Loon matches a rule ahead of', () => {
+    const direct = { kind: 'direct' } as const;
+    const custom = (id: string, rule: ChannelRoute['rule'], enabled = true): ChannelRoute => ({ id, enabled, rule, exit: direct });
+    const mixed = { ...ruleSet('mixed', 'loon', 'Mixed'), rules: [{ kind: 'domain', value: 'a.example' }, { kind: 'ip_cidr', value: '10.0.0.0/8' }] } satisfies SubscriptionRuleSet;
+    const routes: ChannelRoute[] = [
+      custom('remote', { kind: 'remote', remote: { name: 'Ads', url: 'https://rules.example/ads.list', format: 'loon', accelerated: false } }),
+      custom('domain', { kind: 'domain_suffix', value: 'google.com' }),
+      custom('ip', { kind: 'ip_cidr', value: '1.2.3.0/24' }),
+      custom('off', { kind: 'domain', value: 'off.example' }, false),
+      { id: 'set', enabled: true, rule_set_id: 'mixed', exit: direct },
+    ];
+    // A local domain goes ahead of the remote set, and the set's domain also ahead of the earlier IP range;
+    // a disabled rule counts for nothing.
+    expect([...loonAheadOf(routes, [mixed], 'loon')]).toEqual([['domain', [1]], ['ip', [1]], ['set', [1, 3]]]);
+    expect(loonAheadOf(routes, [mixed], 'mihomo').size).toBe(0);
+  });
   it('names group types as each client\'s configuration writes them', () => {
     expect(['select', 'url-test', 'fallback'].map(type => groupTypeName(type as ChannelRuleGroup['type'], 'sing-box'))).toEqual(['selector', 'urltest', 'fallback']);
     expect(['select', 'url-test', 'fallback'].map(type => groupTypeName(type as ChannelRuleGroup['type'], 'loon'))).toEqual(['select', 'url-test', 'fallback']);

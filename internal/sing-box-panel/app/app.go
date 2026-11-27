@@ -69,7 +69,7 @@ func New(database *store.Store, configuration settings.Settings, options Options
 	panelReleases := releases.New(options.Build, configuration.DataDir, panelSettings, records, releaseOptions)
 	subscriptions := subscription.New(database, panelSettings, records, subscription.Options{})
 	nodes = fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
-		Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.PoolInputsChanged,
+		Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.RequestPoolSync,
 	})
 	return Services{
 		Sessions:      auth.NewSessions(database, panelSettings),

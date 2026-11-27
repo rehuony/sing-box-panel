@@ -66,6 +66,7 @@ export const channels = {
   addRuleSetsCount_other: '添加 {{count}} 个',
   chooseRuleSets: '先勾选要添加的规则集',
   routeRuleSet_one: '规则集 · {{count}} 条规则', routeRuleSet_other: '规则集 · {{count}} 条规则',
+  loonAheadOf_one: 'Loon 先于第 {{positions}} 条匹配', loonAheadOf_other: 'Loon 先于第 {{positions}} 条匹配', positionSeparator: '、',
   routeRuleSetMissing: '没有对应的 {{client}} 规则集', routeCustom: '自定义 · {{kind}}', routeFormatUnusable: '{{client}} 不能使用 {{format}} 格式',
   routeExit: '第 {{position}} 条规则的出口', moveRoute: '移动第 {{position}} 条规则',
   routeDragInstructions: '按空格、回车或 F2 拿起规则，方向键移动，再按一次放下，Escape 取消。',

@@ -82,6 +82,41 @@ export function routeRuleSet(
   return set?.client === format ? set : undefined;
 }
 
+/** The place Loon gives a rule: local domain rules first, then local IP rules, then remote rule sets. */
+function loonRank(rule: SubscriptionRule): number {
+  if (rule.kind === 'remote') return 2;
+  return rule.kind === 'ip_cidr' ? 1 : 0;
+}
+
+/**
+ * For a Loon channel, the positions of the earlier enabled exit rules each
+ * enabled exit rule comes ahead of. Loon matches local rules before remote
+ * rule sets and domains before IP ranges whatever their order, so a rule
+ * with a match of an earlier place than one of an earlier rule's is matched
+ * first. Rule sets not read yet count for nothing; other clients keep the
+ * order as it is.
+ */
+export function loonAheadOf(
+  routes: readonly ChannelRoute[],
+  ruleSets: readonly SubscriptionRuleSet[] | undefined,
+  format: SubscriptionFormat,
+): Map<string, number[]> {
+  const ahead = new Map<string, number[]>();
+  if (format !== 'loon') return ahead;
+  const earlier: { position: number; latest: number }[] = [];
+  routes.forEach((route, index) => {
+    if (!route.enabled) return;
+    const rules = route.rule ? [route.rule] : routeRuleSet(route, ruleSets, format)?.rules ?? [];
+    if (!rules.length) return;
+    const ranks = rules.map(loonRank);
+    const first = Math.min(...ranks);
+    const positions = earlier.filter(rule => rule.latest > first).map(rule => rule.position);
+    if (positions.length) ahead.set(route.id, positions);
+    earlier.push({ position: index + 1, latest: Math.max(...ranks) });
+  });
+  return ahead;
+}
+
 /**
  * Whether the configuration holds something the client cannot publish, which
  * blocks saving: another client's template, a strategy or built-in the

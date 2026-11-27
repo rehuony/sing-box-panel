@@ -261,6 +261,22 @@ func TestChannelUnavailableNodesNeverLeakOrFallbackDirect(t *testing.T) {
 	}
 }
 
+func TestChannelSkipsANodeItCannotNameAndRendersTheRest(t *testing.T) {
+	nodes := testChannelNodes(t, "src", `{"outbounds":[
+		{"type":"shadowsocks","tag":"HK, 01","server":"1.2.3.4","server_port":8388,"method":"aes-128-gcm","password":"secret-pass"},
+		{"type":"shadowsocks","tag":"JP 01","server":"1.2.3.5","server_port":8388,"method":"aes-128-gcm","password":"secret-pass"}]}`)
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		result, err := RenderChannelNodes(nodes, format, publishAll(nodes, "skip"), nil)
+		if err != nil || result.NodeCount != 1 || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != DiagnosticInvalidMetadata ||
+			result.PreviewDiagnostics[0].NodeName != "HK, 01" {
+			t.Fatalf("%s: %+v, %v", format, result.PreviewDiagnostics, err)
+		}
+		if _, err := RenderChannelNodes(nodes, format, publishAll(nodes, "error"), nil); err == nil {
+			t.Fatalf("%s: a skipped node passed incompatible_nodes=error", format)
+		}
+	}
+}
+
 func TestChannelPublishesOnlyNodesItsGroupsName(t *testing.T) {
 	nodes, p := policyFixture(t, RenderFormatSingBox)
 	more := testChannelNodes(t, "new-source", `{"outbounds":[{"type":"socks","tag":"Amsterdam","server":"ams.example.com","server_port":1080},{"type":"socks","tag":"Berlin","server":"ber.example.com","server_port":1080},{"type":"socks","tag":"Paris","server":"par.example.com","server_port":1080}]}`)
@@ -640,9 +656,10 @@ func renderedRules(t *testing.T, format RenderFormat, content []byte) ([]string,
 			if rule["action"] == "reject" {
 				target = "REJECT"
 			}
-			for _, kind := range []string{"domain", "domain_suffix", "ip_cidr", "rule_set"} {
-				if values, ok := rule[kind].([]any); ok {
-					rules = append(rules, kind+","+values[0].(string)+","+target)
+			for _, kind := range []string{"domain", "domain_suffix", "domain_keyword", "ip_cidr", "rule_set"} {
+				values, _ := rule[kind].([]any)
+				for _, value := range values {
+					rules = append(rules, kind+","+value.(string)+","+target)
 				}
 			}
 		}
@@ -693,7 +710,8 @@ func TestChannelRoutesEmitRuleSetsInOrderWithTheirExits(t *testing.T) {
 				"streaming": {Client: format, Rules: []SubscriptionRule{
 					{Kind: "domain", Value: "a.example"}, {Kind: "domain_suffix", Value: "b.example"}, *remote(shared), {Kind: "ip_cidr", Value: "10.0.0.0/8"},
 				}},
-				// The same remote in another set merges with the first.
+				// The same remote in another set merges with the first, and it and
+				// the repeated domain, which the first rules already take, go.
 				"other": {Client: format, Rules: []SubscriptionRule{*remote(shared), {Kind: "domain", Value: "a.example"}}},
 			}
 			p.Routes = []ChannelRoute{
@@ -711,11 +729,11 @@ func TestChannelRoutesEmitRuleSetsInOrderWithTheirExits(t *testing.T) {
 			rules, remotes := renderedRules(t, format, result.Content)
 			want := map[RenderFormat][]string{
 				RenderFormatSingBox: {"domain,first.example,direct", "domain,a.example,Selected", "domain_suffix,b.example,Selected", "rule_set,Shared,Selected",
-					"ip_cidr,10.0.0.0/8,Selected", "rule_set,Shared,REJECT", "domain,a.example,REJECT", "rule_set,Shared-2,direct"},
+					"ip_cidr,10.0.0.0/8,Selected", "rule_set,Shared-2,direct"},
 				RenderFormatMihomo: {"DOMAIN,first.example,DIRECT", "DOMAIN,a.example,Selected", "DOMAIN-SUFFIX,b.example,Selected", "RULE-SET,Shared,Selected",
-					"IP-CIDR,10.0.0.0/8,Selected,no-resolve", "RULE-SET,Shared,REJECT", "DOMAIN,a.example,REJECT", "RULE-SET,Shared-2,DIRECT", "MATCH,Selected"},
+					"IP-CIDR,10.0.0.0/8,Selected,no-resolve", "RULE-SET,Shared-2,DIRECT", "MATCH,Selected"},
 				RenderFormatLoon: {"DOMAIN,first.example,DIRECT", "DOMAIN,a.example,Selected", "DOMAIN-SUFFIX,b.example,Selected",
-					"IP-CIDR,10.0.0.0/8,Selected,no-resolve", "DOMAIN,a.example,REJECT", "FINAL,Selected"},
+					"IP-CIDR,10.0.0.0/8,Selected,no-resolve", "FINAL,Selected"},
 			}[format]
 			wantRemotes := []string{"Shared-2=" + other, "Shared=" + shared}
 			if format == RenderFormatSingBox {
@@ -726,6 +744,14 @@ func TestChannelRoutesEmitRuleSetsInOrderWithTheirExits(t *testing.T) {
 			}
 			if !slices.Equal(rules, want) || !slices.Equal(remotes, wantRemotes) {
 				t.Fatalf("rules %q\nremotes %q", rules, remotes)
+			}
+			if format == RenderFormatSingBox {
+				// The two matches in a row with one exit are one rule; a rule set
+				// stays apart.
+				root, _ := DecodeDocumentObject(result.Content)
+				if exit := exitRules(format, root["route"].(map[string]any)["rules"].([]any)); len(exit) != 5 {
+					t.Fatalf("sing-box exit rules = %v", exit)
+				}
 			}
 		})
 	}

@@ -43,12 +43,15 @@ func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config Channel
 		return RenderResult{}, err
 	}
 	config = expandGroupMatches(config, nodes)
-	values, ids, err := prepareChannelNodes(nodes, format, config)
+	values, ids, skipped, err := prepareChannelNodes(nodes, format, config)
 	if err != nil {
 		return RenderResult{}, err
 	}
 	channel := RenderChannel{Format: format}
 	diagnostics := []RenderDiagnostic{}
+	for _, value := range skipped {
+		diagnostics = append(diagnostics, diagnostic(format, value.collection, value.index, DiagnosticInvalidMetadata))
+	}
 	native := []map[string]any{}
 	loonNodes := []loonNode{}
 	available := map[string]string{}
@@ -112,7 +115,7 @@ func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config Channel
 	}
 	builder := channelRuleBuilder{
 		format: channel.Format, names: available, groups: map[string]RuleGroup{}, candidates: map[string][]string{},
-		rules: []any{}, providers: map[string]any{}, sets: []any{}, remotes: map[string]remoteSource{},
+		rules: []any{}, providers: map[string]any{}, sets: []any{}, remotes: map[string]remoteSource{}, seen: map[string]bool{},
 	}
 	groupNodes := builder.renderGroups(config.Groups)
 	for _, route := range config.Routes {
@@ -170,7 +173,7 @@ func RenderChannelNodes(nodes []ChannelNode, format RenderFormat, config Channel
 	for id := range available {
 		carried[id] = true
 	}
-	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(endpoints) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, values), carried: carried}, nil
+	return RenderResult{Format: channel.Format, MediaType: media, Content: content, NodeCount: len(native) + len(endpoints) + len(loonNodes), Diagnostics: diagnostics, PreviewDiagnostics: previewDiagnostics(diagnostics, append(append([]outbound{}, values...), skipped...)), carried: carried}, nil
 }
 
 // publishedNodeIDs returns the pool nodes a channel publishes: those its
@@ -255,9 +258,13 @@ func (match GroupMatch) nodes(pool []ChannelNode) []string {
 	return ids
 }
 
-func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig) ([]outbound, map[string]string, error) {
+// prepareChannelNodes returns the outbounds of the nodes the channel
+// publishes, the names they publish under, and the nodes it leaves out
+// because the client cannot take their names, such as one holding a comma, so
+// one such node never takes the whole channel down.
+func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config ChannelConfig) ([]outbound, map[string]string, []outbound, error) {
 	if len(nodes) > MaximumNodes {
-		return nil, nil, policyError("groups", "too_many_nodes")
+		return nil, nil, nil, policyError("groups", "too_many_nodes")
 	}
 	published := publishedNodeIDs(config)
 	used := map[string]bool{"direct": true, "DIRECT": true, "REJECT": true, "GLOBAL": true}
@@ -270,6 +277,7 @@ func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config Channe
 	names := map[string]string{}
 	originNames := map[string]string{}
 	values := []outbound{}
+	skipped := []outbound{}
 	chosen := []ChannelNode{}
 	for _, node := range nodes {
 		if !published[node.ID] {
@@ -277,18 +285,22 @@ func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config Channe
 		}
 		value, err := DecodeDocumentObject(node.Outbound)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if !publishableOutbound(node.Protocol) {
 			continue
 		}
 		delete(value, "tag")
 		name := node.Name
-		if strings.ContainsAny(name, "\r\n,\x00") || len(name) > 512 {
-			return nil, nil, policyError("nodes", "invalid_node_name")
+		collection := CollectionOutbounds
+		if node.Protocol == "wireguard" && publishableEndpoint(node.Protocol) && value["peers"] != nil {
+			collection = CollectionEndpoints
 		}
-		if format == RenderFormatLoon && !validLoonPolicyName(name) {
-			return nil, nil, policyError("nodes", "invalid_node_name")
+		// Skipped nodes take positions too, so a diagnostic names the node it is about.
+		index := len(values) + len(skipped)
+		if strings.ContainsAny(name, "\r\n,\x00") || len(name) > 512 || format == RenderFormatLoon && !validLoonPolicyName(name) {
+			skipped = append(skipped, outbound{collection: collection, index: index, nodeID: node.ID, tag: name, typeID: node.Protocol, value: value})
+			continue
 		}
 		if used[name] {
 			sum := sha256.Sum256([]byte(node.ID))
@@ -306,11 +318,7 @@ func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config Channe
 			}
 		}
 		value["tag"] = name
-		collection := CollectionOutbounds
-		if node.Protocol == "wireguard" && publishableEndpoint(node.Protocol) && value["peers"] != nil {
-			collection = CollectionEndpoints
-		}
-		values = append(values, outbound{collection: collection, index: len(values), nodeID: node.ID, tag: name, typeID: node.Protocol, value: value})
+		values = append(values, outbound{collection: collection, index: index, nodeID: node.ID, tag: name, typeID: node.Protocol, value: value})
 		chosen = append(chosen, node)
 	}
 	for i, value := range values {
@@ -322,7 +330,7 @@ func prepareChannelNodes(nodes []ChannelNode, format RenderFormat, config Channe
 			}
 		}
 	}
-	return values, names, nil
+	return values, names, skipped, nil
 }
 
 type channelRuleBuilder struct {
@@ -336,6 +344,12 @@ type channelRuleBuilder struct {
 	loonRemote []string
 	// remotes holds the source of each remote rule set tag emitted so far.
 	remotes map[string]remoteSource
+	// seen holds each match emitted so far: a later identical one never
+	// matches, since the earlier one takes all its traffic.
+	seen map[string]bool
+	// merging is the last sing-box rule while later matches with its exit
+	// can join it.
+	merging map[string]any
 }
 
 // remoteSource is what a client fetches for a remote rule set.
@@ -502,30 +516,53 @@ func (b *channelRuleBuilder) addRule(rule SubscriptionRule, target string) {
 	if kind == "remote" {
 		remote := rule.Remote
 		name, added := b.remoteTag(*remote)
-		url := EffectiveRuleURL(remote.URL, remote.Accelerated)
-		if b.format == RenderFormatLoon {
-			// A Loon remote rule carries its own policy; a later one with the
-			// same tag would never match first.
-			if added {
-				b.loonRemote = append(b.loonRemote, url+",policy="+target+",tag="+loonOptionValue(name)+",enabled=true")
-			}
+		if !added {
+			// The rule set is already matched, under an earlier exit.
 			return
 		}
-		if added && b.format == RenderFormatSingBox {
+		url := EffectiveRuleURL(remote.URL, remote.Accelerated)
+		if b.format == RenderFormatLoon {
+			// A Loon remote rule carries its own policy.
+			b.loonRemote = append(b.loonRemote, url+",policy="+target+",tag="+loonOptionValue(name)+",enabled=true")
+			return
+		}
+		if b.format == RenderFormatSingBox {
 			b.sets = append(b.sets, map[string]any{"type": "remote", "tag": name, "format": remote.Format, "url": url, "http_client": map[string]any{"detour": "direct"}})
-		} else if added {
+		} else {
 			b.providers[name] = map[string]any{"type": "http", "behavior": remote.Behavior, "format": remote.Format, "url": url}
 		}
 		value = name
+	} else {
+		key := kind + "\x00" + value
+		if b.seen[key] {
+			return
+		}
+		b.seen[key] = true
 	}
 	if b.format == RenderFormatSingBox {
+		action := "route"
+		if target == "REJECT" {
+			action = "reject"
+		}
+		// Matches in a row with one exit join one rule, which sing-box takes
+		// when any of them matches, so a large rule set is one rule rather
+		// than thousands the client tries in turn. A rule set stays a rule of
+		// its own, since sing-box requires it alongside a rule's other matches.
+		if kind != "remote" && b.merging != nil && b.merging["action"] == action && (action == "reject" || b.merging["outbound"] == target) {
+			values, _ := b.merging[kind].([]string)
+			b.merging[kind] = append(values, value)
+			return
+		}
+		b.merging = nil
 		if kind == "remote" {
 			kind = "rule_set"
 		}
-		entry := map[string]any{kind: []string{value}, "action": "route", "outbound": target}
-		if target == "REJECT" {
-			delete(entry, "outbound")
-			entry["action"] = "reject"
+		entry := map[string]any{kind: []string{value}, "action": action}
+		if action == "route" {
+			entry["outbound"] = target
+		}
+		if kind != "rule_set" {
+			b.merging = entry
 		}
 		b.rules = append(b.rules, entry)
 	} else {

@@ -51,17 +51,26 @@ func inboundTag(originKey string) string {
 }
 
 // SyncPool makes the pool what its inputs yield: every fleet node's
-// published inbounds and every node a source's filter keeps. Nodes that are
-// gone are deleted with their channel memberships and grants, the others
-// keep their display names and positions, and new nodes are appended in
-// origin order. A source whose content no longer reads and a fleet node with
+// published inbounds and every node a source's filter keeps. A node keeps
+// its ID, display name, position, channel memberships and grants while its
+// origin keeps it, even under a new name or address (see the store's
+// matchPoolNodes); nodes that are gone are deleted with their memberships
+// and grants, and new nodes are appended in origin order. A source whose content no longer reads and a fleet node with
 // neither a public host nor a public IP keep their nodes as they are, so a
 // node that briefly reports no public IP takes no node out of its channels.
-// Synchronizations run one at a time.
+// Synchronizations run one at a time, and one whose inputs are those the
+// last one synchronized from returns at once, without reading any source.
 func (application *Service) SyncPool(ctx context.Context) error {
 	application.poolMu.Lock()
 	defer application.poolMu.Unlock()
 	for attempt := 0; ; attempt++ {
+		fingerprint, err := application.database.SubscriptionPoolFingerprint(ctx)
+		if err != nil {
+			return err
+		}
+		if fingerprint == application.syncedFingerprint {
+			return nil
+		}
 		inputs, err := application.database.LoadSubscriptionPoolInputs(ctx)
 		if err != nil {
 			return err
@@ -71,10 +80,30 @@ func (application *Service) SyncPool(ctx context.Context) error {
 			return err
 		}
 		err = application.database.SynchronizeSubscriptionPool(ctx, plan)
+		if err == nil {
+			application.syncedFingerprint = plan.Fingerprint
+			return nil
+		}
 		if !errors.Is(err, store.ErrSubscriptionPoolInputsChanged) || attempt == 2 {
 			return err
 		}
 	}
+}
+
+// RequestPoolSync asks for a pool synchronization without waiting for it,
+// as after a fleet node's report, so the node's session never waits on every
+// source being read; requests made while one is pending join it.
+func (application *Service) RequestPoolSync(context.Context) {
+	select {
+	case application.poolRequests <- struct{}{}:
+	default:
+	}
+}
+
+// PoolSyncRequests delivers the pending RequestPoolSync, for the loop that
+// serves it with PoolInputsChanged.
+func (application *Service) PoolSyncRequests() <-chan struct{} {
+	return application.poolRequests
 }
 
 // PoolInputsChanged synchronizes the pool after one of its inputs changed,
@@ -91,7 +120,7 @@ func (application *Service) planPool(inputs store.SubscriptionPoolInputs) (store
 	locals := application.localNodes(inputs.Publications)
 	plan := store.SubscriptionPoolSynchronization{
 		Fingerprint: inputs.Fingerprint, KeptSources: map[string]bool{}, SourceErrors: map[string]string{},
-		KeptNodes: locals.Hostless, At: application.now().UTC(),
+		ReadSources: map[string]bool{}, KeptNodes: locals.Hostless, At: application.now().UTC(),
 	}
 	for _, inbound := range locals.Inbounds {
 		key := inboundOriginKey(inbound.Node)
@@ -112,6 +141,7 @@ func (application *Service) planPool(inputs store.SubscriptionPoolInputs) (store
 			plan.SourceErrors[source.ID] = sourceErrorCode(err)
 			continue
 		}
+		plan.ReadSources[source.ID] = true
 		for _, item := range reading.Kept() {
 			outbound, err := json.Marshal(item.Outbound)
 			if err != nil {
