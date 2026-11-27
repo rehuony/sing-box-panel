@@ -849,7 +849,10 @@ running and for 30 seconds after the reading. Its nullable
 by the panel from adjacent samples of the same process and their actual
 elapsed time: one-second rates while a node is viewed, ten-second averages
 otherwise. A first sample, process change, decrease, or interval over fifteen
-seconds has no rate. Existing cumulative fields remain available; the bundled Web client
+seconds has no rate. The node reads its counters and reports on separate
+clocks, so it may report one reading twice: the repeat changes nothing. A
+sample without traffic hides the live sample until the next reading, whose rate
+still spans the gap. Existing cumulative fields remain available; the bundled Web client
 uses the new rate fields directly. Live samples do not enter the persisted accounting totals.
 Collector availability and historical sampling quality remain separate from
 recorded period usage. Snapshots use narrow runtime
@@ -874,7 +877,9 @@ verified stopped states do; download and upload values are never a dash.
 The interface colours each download and upload reading as its chart series:
 download cyan, upload magenta, a zero value in secondary text. Rates expire three seconds after their sample, even
 when fresh stream envelopes repeat the same observation; this does not mark
-the entire runtime stream stale before its ten-second threshold.
+the entire runtime stream stale before its ten-second threshold. The live chart
+keeps each reading's own rates however late it arrives, such as the reading a
+node sampling every ten seconds sent before the stream opened.
 
 System services read three narrowly scoped read-only host-counter mounts while
 retaining procfs isolation; see [systemd packaging](systemd.md#system-service)
@@ -885,7 +890,9 @@ cached value) and refreshes every 30 seconds only while subscribers exist.
 Assembly runs independently of live collection. A slow client retains just the
 latest pending snapshot, and cannot stall collection or grow an event backlog.
 The Dashboard owns this subscription; other routes do not query historical data.
-Each event includes the node's one-hour / 24-hour histories, runtime transitions,
+Each event includes the node's one-hour / 24-hour histories, each starting on the
+whole minute or five minutes at or before its length ago so that a refresh
+changes only the newest bucket, runtime transitions,
 its two most recent activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
 overlapping connection-chart tails when history catches up. Live tails are bounded to 120
@@ -932,15 +939,18 @@ transitions.
 Traffic charts choose a shared B/s, KB/s, MB/s, GB/s, TB/s or PB/s unit from the
 largest displayed upload/download rate. The chart's label, axis and details update
 together when live data or the selected history changes; the vertical range
-rescales with headroom. Historical traffic keeps the full bucket denominator,
-including partial buckets. The connection chart can join its final historical
+rescales with headroom. Historical traffic is each bucket's deltas over its
+`traffic_seconds`, so an interval across a bucket boundary or a bucket still
+filling lowers no rate; the newest bucket is left out while it has no value. The connection chart can join its final historical
 bucket at the persistence watermark to subsequent live observations. Explicit
 missing values break the line, and so does a live interval longer than two and
 a half times the stream's usual spacing, never under three seconds, so a
 reconnect or restart shows while a node sampling every few seconds still draws
-a line. A step to or from a stored sample may also reach one and a half of that
-sample's interval, so the stored samples join each other and the stream's first
-reading, while a missing stored sample still breaks the line. Series are monotone cubic curves, which never overshoot their samples;
+a line. A step to or from a point may also reach one and a half of the span its
+rates cover, a stored sample's interval or the time since a stream reading's
+previous one, so the stored samples join each other and the stream's first
+readings, while a missing stored sample still breaks the line. A break sits
+midway between its two points, so the details at either show its values. Series are monotone cubic curves, which never overshoot their samples;
 small points keep individual live observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;
@@ -1099,9 +1109,11 @@ GET /api/v1/nodes/{nodeId}/metrics/history?from&to&bucket_seconds&activation_bun
 
 `from`, `to`, and a positive `bucket_seconds` are required; the bundle filter
 is optional. A request may cover at most 90 days and produce at most 512
-buckets. Each bucket returns traffic deltas, average and peak memory, average
-and peak active connections, sample count, and `complete`, `partial`, or
-`missing` coverage. A bucket without samples that the node's runtime history
+buckets. Each bucket returns the traffic deltas of the intervals wholly within
+it and `traffic_seconds`, how long those intervals last, so their rate is the
+deltas over it; average and peak memory, average and peak active connections,
+sample count, and `complete`, `partial`, or `missing` coverage. A bucket known
+idle has zero traffic over its whole length. A bucket without samples that the node's runtime history
 shows wholly stopped or failed held no running core: it is `complete`, with
 zero traffic, memory and connections. Every other bucket without evidence is
 emitted explicitly as `missing` with nullable measurements, never synthetic

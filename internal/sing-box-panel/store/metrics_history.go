@@ -35,10 +35,13 @@ type MetricsHistoryFilter struct {
 }
 
 type MetricsHistoryBucket struct {
-	From                     time.Time      `json:"from"`
-	To                       time.Time      `json:"to"`
-	UploadBytes              *int64         `json:"upload_bytes"`
-	DownloadBytes            *int64         `json:"download_bytes"`
+	From          time.Time `json:"from"`
+	To            time.Time `json:"to"`
+	UploadBytes   *int64    `json:"upload_bytes"`
+	DownloadBytes *int64    `json:"download_bytes"`
+	// TrafficSeconds is how long the intervals whose deltas the traffic
+	// holds last, so their rate is the traffic over it; nil with no traffic.
+	TrafficSeconds           *float64       `json:"traffic_seconds"`
 	MemoryBytesAverage       *float64       `json:"memory_bytes_avg"`
 	MemoryBytesPeak          *int64         `json:"memory_bytes_peak"`
 	ActiveConnectionsAverage *float64       `json:"active_connections_avg"`
@@ -233,6 +236,11 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		             WHEN start_epoch >= bucket_start - 0.000001 AND end_epoch <= bucket_end + 0.000001
 		             THEN download_delta
 		           END),
+		       SUM(CASE
+		             WHEN start_epoch >= bucket_start - 0.000001 AND end_epoch <= bucket_end + 0.000001
+		                  AND upload_delta IS NOT NULL AND download_delta IS NOT NULL
+		             THEN end_epoch - start_epoch
+		           END),
 		       COUNT(*),
 		       COUNT(CASE WHEN coverage = 'complete' THEN 1 END),
 		       MIN(CASE WHEN coverage = 'complete' THEN MAX(start_epoch, bucket_start) END),
@@ -255,12 +263,13 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		var (
 			index                                int
 			upload, download                     sql.NullInt64
+			trafficSeconds                       sql.NullFloat64
 			evidenceCount, completeIntervalCount int64
 			firstCoveredStart, lastCoveredEnd    sql.NullFloat64
 			coveredSeconds                       sql.NullFloat64
 		)
 		if err := evidenceRows.Scan(
-			&index, &upload, &download, &evidenceCount, &completeIntervalCount,
+			&index, &upload, &download, &trafficSeconds, &evidenceCount, &completeIntervalCount,
 			&firstCoveredStart, &lastCoveredEnd, &coveredSeconds,
 		); err != nil {
 			return MetricsHistory{}, fmt.Errorf("scan metrics interval evidence: %w", err)
@@ -274,6 +283,9 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		}
 		if download.Valid {
 			bucket.DownloadBytes = &download.Int64
+		}
+		if trafficSeconds.Valid {
+			bucket.TrafficSeconds = &trafficSeconds.Float64
 		}
 		if evidenceCount == 0 {
 			continue
@@ -430,7 +442,8 @@ func runtimeIdleSpans(ctx context.Context, db metricsHistoryQuery, nodeID string
 func zeroIdleBucket(bucket *MetricsHistoryBucket) {
 	upload, download, memoryPeak, connectionsPeak := int64(0), int64(0), int64(0), int64(0)
 	memoryAverage, connectionsAverage := float64(0), float64(0)
-	bucket.UploadBytes, bucket.DownloadBytes = &upload, &download
+	seconds := bucket.To.Sub(bucket.From).Seconds()
+	bucket.UploadBytes, bucket.DownloadBytes, bucket.TrafficSeconds = &upload, &download, &seconds
 	bucket.MemoryBytesAverage, bucket.MemoryBytesPeak = &memoryAverage, &memoryPeak
 	bucket.ActiveConnectionsAverage, bucket.ActiveConnectionsPeak = &connectionsAverage, &connectionsPeak
 	bucket.Coverage = CoverageComplete
@@ -497,11 +510,13 @@ func (s *Store) DashboardMetricsHistory(ctx context.Context, nodeID string, at t
 		}
 		watermark = &parsed
 	}
-	hour, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-time.Hour), To: at, BucketSeconds: 60})
+	// Each range starts on a whole bucket, so a later read changes only its
+	// newest bucket and adds the next.
+	hour, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-time.Hour).Truncate(time.Minute), To: at, BucketSeconds: 60})
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}
-	day, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-24 * time.Hour), To: at, BucketSeconds: 300})
+	day, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-24 * time.Hour).Truncate(5 * time.Minute), To: at, BucketSeconds: 300})
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}

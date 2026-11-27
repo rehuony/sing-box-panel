@@ -185,6 +185,15 @@ func TestMetricsHistoryPreservesPartialAndMissingCoverage(t *testing.T) {
 		fractionalHistory.Buckets[0].Coverage != CoveragePartial || fractionalHistory.Buckets[1].Coverage != CoverageMissing {
 		t.Fatalf("fractional-boundary history = %+v, err=%v", fractionalHistory, err)
 	}
+	// The traffic covers only the intervals within each bucket: both whole
+	// intervals of the first, and the one interval the shifted bucket holds
+	// whole, not the one across its start.
+	if seconds := history.Buckets[0].TrafficSeconds; seconds == nil || *seconds != 20 {
+		t.Fatalf("traffic seconds = %v; want 20", seconds)
+	}
+	if seconds := fractionalHistory.Buckets[0].TrafficSeconds; seconds == nil || *seconds != 10 {
+		t.Fatalf("fractional-boundary traffic seconds = %v; want 10", seconds)
+	}
 	if _, err := database.MetricsHistory(ctx, MetricsHistoryFilter{
 		NodeID: testNodeID, From: from, To: from.Add(90*24*time.Hour + time.Second), BucketSeconds: 3600,
 	}); err == nil {
@@ -226,6 +235,7 @@ func TestMetricsHistoryZeroesBucketsWithoutARunningCore(t *testing.T) {
 	for index, idle := range []bool{false, true, true, true, false, false} {
 		bucket := history.Buckets[index]
 		known := bucket.UploadBytes != nil && *bucket.UploadBytes == 0 && bucket.DownloadBytes != nil && *bucket.DownloadBytes == 0 &&
+			bucket.TrafficSeconds != nil && *bucket.TrafficSeconds == 20 &&
 			bucket.ActiveConnectionsAverage != nil && *bucket.ActiveConnectionsAverage == 0 && bucket.Coverage == CoverageComplete
 		missing := bucket.UploadBytes == nil && bucket.ActiveConnectionsAverage == nil && bucket.Coverage == CoverageMissing
 		if (idle && !known) || (!idle && !missing) {

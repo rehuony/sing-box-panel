@@ -90,7 +90,9 @@ func TestDashboardSnapshotUsesStableRangesWithoutInventingEvidence(t *testing.T)
 	if !snapshot.CollectedAt.Equal(now) || snapshot.History1H.BucketSeconds != 60 || snapshot.History24H.BucketSeconds != 300 {
 		t.Fatalf("dashboard snapshot=%+v", snapshot)
 	}
-	if !snapshot.History1H.From.Equal(now.Add(-time.Hour)) || !snapshot.History24H.From.Equal(now.Add(-24*time.Hour)) {
+	// Each range starts on the whole bucket at or before its length ago.
+	if !snapshot.History1H.From.Equal(now.Add(-time.Hour).Truncate(time.Minute)) ||
+		!snapshot.History24H.From.Equal(now.Add(-24*time.Hour).Truncate(5*time.Minute)) {
 		t.Fatalf("dashboard ranges 1h=%s 24h=%s", snapshot.History1H.From, snapshot.History24H.From)
 	}
 	for _, bucket := range append(snapshot.History1H.Buckets, snapshot.History24H.Buckets...) {

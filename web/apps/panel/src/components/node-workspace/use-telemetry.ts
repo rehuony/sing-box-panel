@@ -19,7 +19,10 @@ export interface TrafficRates {
 }
 export interface LivePoint extends TrafficRates {
   at: number;
-  /** How long a stored sample's rates cover, in milliseconds; the stream's own readings leave it out. */
+  /**
+   * How long the point's rates cover, in milliseconds: a stored sample's
+   * interval, or for a stream reading the time since the reading before it.
+   */
   span?: number;
   connections: number | null;
 }
@@ -77,13 +80,11 @@ function idlePoints(idle: RecentMetrics['idle'][number]): LivePoint[] {
   return points;
 }
 
-function trafficRates(snapshot: MetricsSnapshot): TrafficRates {
-  const sample = snapshot.live_sample;
-  const age = Date.parse(snapshot.collected_at) - Date.parse(sample?.sampled_at ?? '');
+/** The rates the panel derived for a sample, or none when it has none it stands behind. */
+function sampleRates(sample: TrafficSample | undefined): TrafficRates {
   const upload = sample?.upload_bytes_per_second;
   const download = sample?.download_bytes_per_second;
-  if (!sample?.accepted || !Number.isFinite(age) || age > 3000
-    || upload == null || download == null
+  if (!sample?.accepted || upload == null || download == null
     || !Number.isFinite(upload) || !Number.isFinite(download) || upload < 0 || download < 0) {
     return emptyRates;
   }
@@ -178,17 +179,24 @@ export function useTelemetryStore(online: boolean): TelemetryStore {
         && sample.activation_bundle_id === previous.activation_bundle_id;
       const at = sample ? Date.parse(sample.sampled_at) : Date.parse(event.metrics.collected_at);
       if (!repeated) ratesExpireAt = receivedAt + 3000 - Math.max(0, Date.parse(event.metrics.collected_at) - at);
-      const fresh = receivedAt < ratesExpireAt;
-      const rates = stopped ? idleRates : fresh ? trafficRates(event.metrics) : emptyRates;
-      const connections = stopped ? 0 : sample?.accepted && fresh ? sample.active_connections : null;
-      const point: LivePoint = { at, ...rates, connections };
+      // The current rates are the newest reading's while it is at most three
+      // seconds old; the chart keeps every reading's own, however old it
+      // arrives, such as the one a node sampling every ten seconds sent last.
+      const reading = stopped ? idleRates : sampleRates(sample);
+      const rates = stopped || receivedAt < ratesExpireAt ? reading : emptyRates;
+      const connections = stopped ? 0 : sample?.accepted ? sample.active_connections : null;
+      const point: LivePoint = { at, ...reading, connections };
       const tail = repeated ? state.liveTail : state.liveTail.filter(p => p.at > at - 120_000 && p.at < at);
       if (!repeated) {
         const changedProcess = previous && sample && (previous.pid !== sample.pid
           || previous.process_start_token !== sample.process_start_token
           || previous.activation_bundle_id !== sample.activation_bundle_id);
-        if ((interrupted || changedProcess) && tail.length && tail.at(-1)!.at < at - 1) {
-          tail.push({ at: at - 1, ...emptyRates, connections: null });
+        const last = tail.at(-1);
+        if (interrupted || changedProcess) {
+          // Midway, so the cursor at either reading shows that reading.
+          if (last && last.at < at - 1) tail.push({ at: (last.at + at) / 2, ...emptyRates, connections: null });
+        } else if (previous && sample && reading.uploadBytesPerSecond !== null) {
+          point.span = at - Date.parse(previous.sampled_at);
         }
         tail.push(point);
         interrupted = false;

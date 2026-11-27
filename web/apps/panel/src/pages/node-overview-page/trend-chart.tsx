@@ -7,6 +7,9 @@ import type { TrendChartData } from './trend-chart-data';
 import { timeLabelFits } from './trend-chart-data';
 import 'uplot/dist/uPlot.min.css';
 
+/** Steps between the connection axis's labels: whole connections only. */
+const connectionSteps = Array.from({ length: 10 }, (_, power) => [1, 2, 5].map(step => step * 10 ** power)).flat();
+
 export function TrendChart({
   chart,
   kind,
@@ -86,6 +89,7 @@ export function TrendChart({
               size: 44,
               gap: 4,
               space: 55,
+              ...(kind === 'connections' ? { incrs: connectionSteps } : {}),
               stroke: color('--muted-foreground'),
               ticks: { show: false },
               grid: { stroke: color('--border'), width: 1 },

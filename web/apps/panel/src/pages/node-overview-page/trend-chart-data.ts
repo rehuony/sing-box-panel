@@ -29,12 +29,14 @@ function gapLimit(times: number[]): number {
 
 /**
  * The live tail's last two minutes as aligned series, broken across
- * collection gaps. A step to or from a stored sample may also reach one and a
- * half of that sample's own span, so the stored samples a window opens with,
- * about ten seconds apart, join each other and the stream's first reading
- * while the stream's own readings keep their limit. The span starts at the oldest sample it keeps, so no blank
- * strip leads the lines, whether the page opened moments ago or the window's
- * first sample falls a few seconds after its start.
+ * collection gaps. A step to or from a point may also reach one and a half of
+ * the span its rates cover, so the stored samples a window opens with, about
+ * ten seconds apart, join each other and the stream's first readings while the
+ * stream's own readings keep their limit. A break sits midway between its two
+ * points, so the cursor at either one shows its values. The span starts at
+ * the oldest sample it keeps, so no blank strip leads the lines, whether the
+ * page opened moments ago or the window's first sample falls a few seconds
+ * after its start.
  */
 function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | null)[]) {
   const to = tail.at(-1)?.at;
@@ -47,7 +49,7 @@ function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | nul
   for (const point of recent) {
     const allowed = Math.max(limit, 1.5 * Math.max(point.span ?? 0, last?.span ?? 0));
     if (last !== undefined && point.at - last.at > allowed) {
-      times.push(point.at - 1);
+      times.push((last.at + point.at) / 2);
       for (const values of series) values.push(null);
     }
     times.push(point.at);
@@ -69,6 +71,12 @@ export function liveConnectionsChartData(tail: LivePoint[]): TrendChartData {
   return { data: [times, connections], unit: null, from, to };
 }
 
+/** A bucket's traffic as a rate over the time its intervals cover, which may be less than the bucket. */
+function bucketRate(bytes: number | null, bucket: MetricsHistory['buckets'][number]): number | null {
+  const seconds = bucket.traffic_seconds;
+  return bytes === null || seconds === null || seconds <= 0 ? null : bytes / seconds;
+}
+
 // Historical traffic uses bucket averages only. Connections can still join the
 // latest persisted bucket to live readings at the persistence watermark, or
 // after the last bucket known without samples because no core ran.
@@ -78,30 +86,35 @@ export function trendChartData(history: MetricsHistory | null, kind: 'traffic' |
     .reduce((latest, bucket) => Math.max(latest, Date.parse(bucket.to)), Number.NEGATIVE_INFINITY);
   const through = Math.max(watermark ? Date.parse(watermark) : Number.NEGATIVE_INFINITY, idleThrough);
   const from = history ? Date.parse(history.from) : undefined;
+  // The newest bucket fills until the range's end and is left out until it has a value.
+  const all = history?.buckets ?? [];
+  const newest = all.at(-1);
+  const filling = newest !== undefined
+    && Date.parse(newest.to) - Date.parse(newest.from) < history!.bucket_seconds * 1000
+    && (kind === 'connections'
+      ? newest.active_connections_avg === null
+      : bucketRate(newest.download_bytes, newest) === null);
+  const known = filling ? all.slice(0, -1) : all;
   const live = kind === 'connections'
     ? tail.filter(point => point.at > through && (from === undefined || point.at >= from))
     : [];
   const first = live[0]?.at ?? Number.POSITIVE_INFINITY;
   const boundary = live.length && Number.isFinite(through) ? through : Number.POSITIVE_INFINITY;
-  const buckets = (history?.buckets ?? []).filter(bucket => Number.isFinite(boundary)
+  const buckets = known.filter(bucket => Number.isFinite(boundary)
     ? Date.parse(bucket.from) < boundary
     : Date.parse(bucket.to) < first);
   const times = buckets.map(bucket => Math.min(Date.parse(bucket.to), boundary));
   const down = buckets.map(bucket => kind === 'connections'
     ? bucket.active_connections_avg
-    : bucket.download_bytes === null
-      ? null
-      : bucket.download_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000));
-  const up = buckets.map(bucket => bucket.upload_bytes === null
-    ? null
-    : bucket.upload_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000));
+    : bucketRate(bucket.download_bytes, bucket));
+  const up = buckets.map(bucket => bucketRate(bucket.upload_bytes, bucket));
   if (live.length) {
     const limit = gapLimit(live.map(point => point.at));
     for (const point of live) {
       const previous = times.at(-1);
       // Null samples preserve reconnects, restarts and unavailable metrics.
       if (previous !== undefined && point.at - previous > limit) {
-        times.push(point.at - 1);
+        times.push((previous + point.at) / 2);
         down.push(null);
       }
       times.push(point.at);

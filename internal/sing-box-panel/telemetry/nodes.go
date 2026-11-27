@@ -96,11 +96,15 @@ type MetricsSnapshot struct {
 
 // liveNode is the newest evidence of one node and its recorded traffic.
 type liveNode struct {
-	instanceID  string
-	host        *HostMetrics
-	traffic     *LiveTrafficSample
-	persistedAt time.Time
-	ledger      trafficLedger
+	instanceID string
+	host       *HostMetrics
+	// traffic is the newest traffic reading and the base of the next one's
+	// rates; trafficCurrent reports whether the node's newest sample carried
+	// it, so a sample without traffic hides it but keeps the base.
+	traffic        *LiveTrafficSample
+	trafficCurrent bool
+	persistedAt    time.Time
+	ledger         trafficLedger
 }
 
 // trafficLedger is a node's recorded traffic as the panel last stored or
@@ -174,19 +178,20 @@ func (nodes *liveNodes) keepLoaded(nodeID string, live *liveNode, version uint64
 
 // RecordNodeSample keeps a node's sample as its live evidence and stores its
 // traffic at most every few seconds, and at once when the core process or
-// node instance changes.
+// node instance changes. A node reads its counters and reports on clocks of
+// its own, so it may report one reading twice; the repeat changes nothing.
 func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID string, sample NodeSample) error {
 	service.live.mu.Lock()
 	live := service.live.entry(nodeID)
 	if live.instanceID != instanceID {
 		// A recreated node database starts new live evidence; its recorded
 		// traffic stays.
-		live.instanceID, live.traffic, live.persistedAt = instanceID, nil, time.Time{}
+		live.instanceID, live.traffic, live.trafficCurrent, live.persistedAt = instanceID, nil, false, time.Time{}
 	}
 	live.host = sample.Host
 	traffic := sample.Traffic
 	if traffic == nil {
-		live.traffic = nil
+		live.trafficCurrent = false
 		service.live.mu.Unlock()
 		return nil
 	}
@@ -198,6 +203,12 @@ func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID
 	previous := live.traffic
 	sameProcess := previous != nil && previous.PID == current.PID && previous.ProcessStartToken == current.ProcessStartToken &&
 		previous.ActivationBundleID == current.ActivationBundleID
+	if sameProcess && current.SampledAt.Equal(previous.SampledAt) &&
+		current.UploadTotal == previous.UploadTotal && current.DownloadTotal == previous.DownloadTotal {
+		live.trafficCurrent = true
+		service.live.mu.Unlock()
+		return nil
+	}
 	if sameProcess && current.UploadTotal >= previous.UploadTotal && current.DownloadTotal >= previous.DownloadTotal {
 		if elapsed := current.SampledAt.Sub(previous.SampledAt); elapsed > 0 && elapsed <= maximumLiveRateGap {
 			upload := float64(current.UploadTotal-previous.UploadTotal) / elapsed.Seconds()
@@ -206,7 +217,7 @@ func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID
 		}
 	}
 	persist := !sameProcess || live.persistedAt.IsZero() || current.SampledAt.Sub(live.persistedAt) >= trafficPersistInterval
-	live.traffic = current
+	live.traffic, live.trafficCurrent = current, true
 	version := live.ledger.version
 	service.live.mu.Unlock()
 	if !persist {
@@ -327,7 +338,7 @@ func (service *Service) NodeMetrics(ctx context.Context, node store.Node, applie
 			host := *live.host
 			result.Host = &host
 		}
-		if live.traffic != nil && now.Sub(live.traffic.SampledAt) <= liveSampleLifetime {
+		if live.traffic != nil && live.trafficCurrent && now.Sub(live.traffic.SampledAt) <= liveSampleLifetime {
 			traffic := *live.traffic
 			result.LiveSample = &traffic
 		}

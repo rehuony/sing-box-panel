@@ -4142,7 +4142,7 @@ components:
     MetricsHistoryBucket:
       type: object
       additionalProperties: false
-      required: [from, to, upload_bytes, download_bytes, memory_bytes_avg, memory_bytes_peak, active_connections_avg, active_connections_peak, sample_count, coverage]
+      required: [from, to, upload_bytes, download_bytes, traffic_seconds, memory_bytes_avg, memory_bytes_peak, active_connections_avg, active_connections_peak, sample_count, coverage]
       properties:
         from: {type: string, format: date-time}
         to: {type: string, format: date-time}
@@ -4154,6 +4154,10 @@ components:
           type: [integer, "null"]
           format: int64
           minimum: 0
+        traffic_seconds:
+          type: [number, "null"]
+          minimum: 0
+          description: How long the sampling intervals whose deltas the bucket's traffic holds last, so the traffic over it is their rate; null when the bucket holds no traffic.
         memory_bytes_avg:
           type: [number, "null"]
           minimum: 0
