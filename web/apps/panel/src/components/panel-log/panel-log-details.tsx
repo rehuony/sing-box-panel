@@ -47,7 +47,7 @@ export function PanelLogDetails({ item, open, onOpenChange, onClosed, returnFocu
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onClosed: () => void;
-  returnFocus: () => HTMLElement | null;
+  returnFocus: () => HTMLElement | false | null;
 }) {
   const { t, i18n } = useTranslation();
   const titleRef = useRef<HTMLHeadingElement>(null);

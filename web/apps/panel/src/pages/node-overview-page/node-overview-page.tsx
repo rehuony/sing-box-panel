@@ -14,6 +14,7 @@ import { percentOf } from '@/utils/fleet-summary';
 import { ErrorNotice } from '@/components/error-notice';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { KeyFigure, KeyFigures } from '@/components/key-figures';
+import { PanelLogLevelText } from '@/components/panel-log-level';
 import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { useDashboardSubscription, useOptionalSharedTelemetry } from '@/components/node-workspace';
 
@@ -58,13 +59,6 @@ const stateSwatch: Record<RuntimeTransitionState, string> = {
   // The unknown state's fine hatch, as in a cell meter, so a gap in the record never reads as a state.
   unknown: 'bg-[repeating-linear-gradient(135deg,var(--color-border-strong)_0_1px,var(--color-surface-raised)_0_3px)]',
 };
-/** A log line's level in its tone; only what needs attention takes a colour. */
-const levelText: Partial<Record<string, string>> = {
-  warn: 'text-[var(--color-warning-text)]',
-  error: 'text-[var(--color-danger-text)]',
-  fatal: 'text-[var(--color-danger-text)]',
-};
-
 const titleBar = 'flex h-11 flex-none items-center gap-2 border-b ps-4 pe-2';
 const card = 'relative flex min-w-0 flex-col rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]';
 
@@ -391,7 +385,7 @@ function DashboardHistory() {
                       <time className='whitespace-nowrap text-[var(--color-text-faint)] tabular-nums' dateTime={entry.time} aria-label={fullTime}>
                         {formatActivityTime(entry.time, locale, today)}
                       </time>
-                      <span className={levelText[entry.level] ?? 'text-muted-foreground'}>{entry.level.toUpperCase()}</span>
+                      <PanelLogLevelText level={entry.level} />
                       <span className='min-w-0 truncate font-[family-name:var(--font-body)]'>{title}</span>
                     </TooltipTrigger>
                     <TooltipContent role='tooltip'>

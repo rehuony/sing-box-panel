@@ -76,7 +76,7 @@ describe('node core logs', () => {
     await act(() => i18n.changeLanguage('zh-CN'));
     expect(screen.queryByText('start_succeeded')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('table').querySelector('time')).toHaveAttribute('datetime', transition.occurred_at));
-    await userEvent.click(screen.getByRole('button', { name: '查看详情: 核心已启动' }));
+    await userEvent.click(screen.getByRole('button', { name: '核心已启动' }));
     const dialog = screen.getByRole('dialog', { name: '运行状态详情' });
     expect(within(dialog).getByText(testNode.name)).toBeVisible();
     const context = within(dialog).getByRole('region', { name: '事件上下文' });

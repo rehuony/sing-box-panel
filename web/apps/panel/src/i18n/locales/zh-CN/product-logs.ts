@@ -34,7 +34,6 @@ export const productLogs = {
   time: '时间',
   message: '内容',
   source: '来源',
-  details: '查看详情',
   detailTitle: '日志详情',
   basicInfo: '基本信息',
   context: '事件上下文',
@@ -81,14 +80,12 @@ export const productLogs = {
     level: '级别',
     summary: '事件摘要',
     source: '事件来源',
-    actions: '操作',
   },
   stateColumns: {
     time: '发生时间',
     state: '状态',
     reason: '原因',
     node: '节点',
-    actions: '操作',
   },
   states: {
     running: '运行中',

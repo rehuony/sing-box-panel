@@ -52,8 +52,10 @@ describe('panel log presentation and details', () => {
     show(createMockApiClient({
       listPanelLogs: vi.fn().mockResolvedValue({ items: [record], total: 1 }),
     }));
-    const trigger = await screen.findByRole('button', { name: 'View details: Core start operation completed' });
-    await user.click(trigger);
+    const trigger = await screen.findByRole('button', { name: 'Core start operation completed' });
+    // Details the keyboard opened return focus to their line.
+    trigger.focus();
+    await user.keyboard('{Enter}');
     const dialog = screen.getByRole('dialog', { name: 'Log details' });
     expect(within(dialog).getByText('0', { exact: true })).toBeVisible();
     expect(within(dialog).getByText('false', { exact: true })).toBeVisible();
@@ -81,7 +83,8 @@ describe('panel log presentation and details', () => {
       .mockResolvedValueOnce({ items: [item], total: 1 })
       .mockResolvedValue({ items: [{ ...item, id: 'log:new', code: 'future.event', message: 'New event' }], total: 1 }) });
     show(client);
-    await userEvent.click(await screen.findByRole('button', { name: /View details:/ }));
+    (await screen.findByRole('button', { name: 'Core start operation completed' })).focus();
+    await userEvent.keyboard('{Enter}');
     await act(() => vi.advanceTimersByTimeAsync(5000));
     const dialog = screen.getByRole('dialog');
     expect(dialog.querySelector('pre')).toHaveTextContent('Core start completed');
@@ -99,7 +102,7 @@ describe('panel log presentation and details', () => {
     show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [{
       ...item, code: 'future.event', message, metadata: { error_code: 'future_error', error },
     }], total: 1 }) }));
-    await userEvent.click(await screen.findByRole('button', { name: /View details:/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Unrecognized event/ }));
     const dialog = screen.getByRole('dialog');
     await waitFor(() => expect(within(dialog).getByRole('heading', { name: 'Log details' })).toHaveFocus());
     expect(JSON.parse(dialog.querySelector('pre')!.textContent!)).toHaveProperty('message', message);
@@ -114,7 +117,7 @@ describe('panel log presentation and details', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
     const notify = vi.spyOn(toast, 'add');
     show();
-    await user.click(await screen.findByRole('button', { name: /View details:/ }));
+    await user.click(await screen.findByRole('button', { name: 'Core start operation completed' }));
     expect(screen.getByText('No additional context was recorded.')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Copy log' }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Could not copy the log', type: 'error' })));
@@ -127,10 +130,10 @@ describe('panel log presentation and details', () => {
       ...item, code: 'runtime.start.failed', message: 'Core start failed', level: 'error',
       metadata: { error_code: 'core_not_enabled', error: 'core is not enabled', file: 'not-the-reason' },
     }], total: 1 }) }));
-    expect(await screen.findByRole('cell', { name: '核心启动操作失败' })).toBeVisible();
+    const trigger = await screen.findByRole('button', { name: '核心启动操作失败 · core_not_enabled' });
     expect(screen.queryByText('请先启用核心版本。')).not.toBeInTheDocument();
     expect(screen.queryByText('not-the-reason')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /查看详情:/ }));
+    await userEvent.click(trigger);
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('请先启用核心版本。')).toBeVisible();
     expect(within(dialog).queryByRole('region', { name: '原始消息' })).not.toBeInTheDocument();
@@ -140,12 +143,12 @@ describe('panel log presentation and details', () => {
 
   it('searches translated names on the server and resets numbered pagination', async () => {
     const client = show(createMockApiClient({
-      listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 21 }),
+      listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 101 }),
     }));
     await screen.findByText('Core start operation completed');
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ offset: 10 }), expect.any(AbortSignal),
+      expect.objectContaining({ offset: 50 }), expect.any(AbortSignal),
     ));
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '核心启动' } });
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(expect.objectContaining({

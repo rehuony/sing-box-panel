@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import { ScrollText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@shared/components/ui/button';
+import { Badge } from '@shared/components/ui/badge';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -15,27 +15,17 @@ import { RegionState } from '@/components/region-state';
 import { SelectField } from '@/components/select-field';
 import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
-import { PanelLogLevel } from '@/components/panel-log-level';
+import { logTitle } from '@/utils/panel-log-presentation';
 import { ListPagination } from '@/components/list-pagination';
-import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
+import { PanelLogLevelText } from '@/components/panel-log-level';
 import { CardToolbar, StripDivider, StripSearch, TitleStrip } from '@/components/title-strip';
 
 import type { PanelLogRecord } from './panel-log-details';
 
 import { ClearLogsAction } from './clear-logs-action';
 import { PanelLogDetails } from './panel-log-details';
-import { matchingEventCodes } from './panel-log-presentation';
-
-const panelColumns = [
-  { key: 'time', className: 'w-48' },
-  { key: 'level', className: 'w-25' },
-  { key: 'summary', className: '' },
-  { key: 'source', className: 'w-32' },
-  { key: 'actions', className: 'w-30' },
-] as const;
-
-// A node's events all come from the panel's work on it, so they need no source.
-const nodeColumns = panelColumns.filter(column => column.key !== 'source');
+import { LogRow, LogRowTitle, LogTime } from './log-table';
+import { logTableClass, logTimeColumnClass, matchingEventCodes } from './panel-log-presentation';
 
 /**
  * The panel's log in one scope, filtered by level: the panel's own entries
@@ -54,11 +44,10 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search.trim());
   const [level, setLevel] = useState('');
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(50);
   const [page, setPage] = useState(1);
   const enabled = usePageVisible();
   const node = 'nodeID' in scope ? scope.nodeID : undefined;
-  const columns = node === undefined ? panelColumns : nodeColumns;
   const logs = useQuery({
     queryKey: ['panelLogs', node ?? 'panel', limit, level, query, page],
     queryFn: ({ signal }) => client.listPanelLogs({ limit, level: level ? level as LogLevel : undefined,
@@ -70,7 +59,12 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
   const loading = logs.isPending || logs.isPlaceholderData;
   const pages = Math.max(1, Math.ceil(result.total / limit));
   if (!logs.isPlaceholderData && logs.data && page > pages) setPage(pages);
-  function open(item: LogEntry, trigger: HTMLButtonElement) {
+  const columns = [
+    { key: 'time', className: logTimeColumnClass(result.items.map(item => item.time)) },
+    { key: 'level', className: 'w-19 max-sm:w-16' },
+    { key: 'summary', className: '' },
+  ] as const;
+  function open(item: LogEntry, trigger: HTMLButtonElement | null) {
     triggerRef.current = trigger;
     setSelected({ entry: structuredClone(item), kind: 'log' });
     setDetailsOpen(true);
@@ -114,7 +108,7 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
       <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
         {lead != null && <CardToolbar>{controls}</CardToolbar>}
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
-          <table className='workspace-table w-full min-w-195 flex-none table-fixed border-collapse [&_td]:px-4 [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground [&_td:last-child]:text-center [&_th:last-child]:text-center'>
+          <table className={logTableClass}>
             <thead>
               <tr>
                 {columns.map(column => (
@@ -127,18 +121,18 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
             <tbody>
               {result.items.map((item) => {
                 const title = logTitle(item, t);
+                const failure = typeof item.metadata.error_code === 'string' ? item.metadata.error_code : undefined;
                 return (
-                  <tr className='border-b' key={item.id}>
-                    <td className='truncate text-muted-foreground'><time dateTime={item.time}>{formatLogTime(item.time, language)}</time></td>
-                    <td><PanelLogLevel level={item.level} /></td>
-                    <td><div className='truncate' title={title}>{title}</div></td>
-                    {node === undefined && <td className='truncate text-muted-foreground'>{t(`productLogs.sources.${item.source}`, { defaultValue: item.source })}</td>}
+                  <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
+                    <td className='truncate'><LogTime language={language} value={item.time} /></td>
+                    <td className='font-[family-name:var(--font-data)] text-xs'><PanelLogLevelText level={item.level} /></td>
                     <td>
-                      <Button variant='ghost' size='sm' aria-label={`${t('productLogs.details')}: ${title}`} onClick={event => open(item, event.currentTarget)}>
-                        {t('productLogs.details')}
-                      </Button>
+                      <div className='flex min-w-0 items-center gap-2'>
+                        {item.source === 'security' && <Badge variant='secondary'>{t('productLogs.sources.security')}</Badge>}
+                        <LogRowTitle detail={failure} title={title} onOpen={trigger => open(item, trigger)} />
+                      </div>
                     </td>
-                  </tr>
+                  </LogRow>
                 );
               })}
             </tbody>
@@ -164,7 +158,12 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onClosed={() => setSelected(null)}
-        returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : searchRef.current}
+        returnFocus={() => {
+          const trigger = triggerRef.current;
+          // Details a press opened leave focus out of the list.
+          if (trigger === null) return false;
+          return trigger.isConnected ? trigger : searchRef.current;
+        }}
       />
     </>
   );

@@ -34,7 +34,6 @@ export const productLogs = {
   time: 'Time',
   message: 'Message',
   source: 'Source',
-  details: 'View details',
   detailTitle: 'Log details',
   basicInfo: 'Basic information',
   context: 'Event context',
@@ -81,14 +80,12 @@ export const productLogs = {
     level: 'Level',
     summary: 'Event summary',
     source: 'Event source',
-    actions: 'Actions',
   },
   stateColumns: {
     time: 'Occurred at',
     state: 'State',
     reason: 'Reason',
     node: 'Node',
-    actions: 'Actions',
   },
   states: {
     running: 'Running',
