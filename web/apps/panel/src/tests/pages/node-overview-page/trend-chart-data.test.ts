@@ -6,7 +6,7 @@ import { testMetricsHistory } from '@/tests/api/mock-api-client';
 import { liveTrafficChartData, trendChartData } from '@/pages/node-overview-page/trend-chart-data';
 
 describe('live traffic evidence', () => {
-  it('keeps only the latest two minutes without averaging peaks or filling gaps', () => {
+  it('keeps the latest two minutes and the reading before them without averaging peaks or filling gaps', () => {
     const point = (at: number, downloadBytesPerSecond: number | null): LivePoint => ({
       at, downloadBytesPerSecond, uploadBytesPerSecond: downloadBytesPerSecond, connections: 2,
     });
@@ -16,9 +16,10 @@ describe('live traffic evidence', () => {
     ]);
     expect(chart.from).toBe(2000);
     expect(chart.to).toBe(122000);
+    // The reading before the window runs the line off its start without choosing the unit.
     expect(chart.unit).toBe('KB/s');
-    expect(chart.data[0]).toEqual([2000, 3000, 4000, 62500, 121000, 122000]);
-    expect(chart.data[1]).toEqual([1, 0.5, null, null, 0, 0.25]);
+    expect(chart.data[0]).toEqual([1000, 2000, 3000, 4000, 62500, 121000, 122000]);
+    expect(chart.data[1]).toEqual([1024 ** 2, 1, 0.5, null, null, 0, 0.25]);
   });
 
   it('connects a stream that samples every few seconds and breaks it only at a longer pause', () => {
@@ -53,15 +54,16 @@ describe('live traffic evidence', () => {
     expect(chart.data[1]).not.toContain(null);
   });
 
-  it('starts the live span at its oldest sample, at least ten seconds before the newest', () => {
+  it('spans exactly two minutes up to the newest sample, however few samples it holds', () => {
     const point = (at: number): LivePoint => ({
       at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2,
     });
-    expect(liveTrafficChartData([point(50_000), point(55_000), point(80_000)]).from).toBe(50_000);
-    expect(liveTrafficChartData([point(50_000), point(55_000)]).from).toBe(45_000);
-    // Two minutes on, the oldest kept sample still starts the span.
+    const few = liveTrafficChartData([point(50_000), point(55_000), point(80_000)]);
+    expect(few).toMatchObject({ from: -40_000, to: 80_000 });
     const tail = Array.from({ length: 30 }, (_, index) => point(index * 5000 + 3000));
-    expect(liveTrafficChartData(tail).from).toBe(28_000);
+    const chart = liveTrafficChartData(tail);
+    expect(chart).toMatchObject({ from: 28_000, to: 148_000 });
+    expect(chart.data[0][0]).toBe(23_000);
   });
 
   it('does not mix live rates into historical traffic averages', () => {

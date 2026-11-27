@@ -968,9 +968,13 @@ before: the node's stored samples, about ten seconds apart and each with the
 rates of the interval ending at it, and the spans in which its runtime history
 shows no core running, drawn as a known zero every ten seconds because a
 stopped core stores no samples. The stream's readings follow at their own
-spacing, and a reading of the same moment replaces the stored one. The span starts at the oldest sample it shows, and at least ten
-seconds before the newest, so no blank strip leads the lines; a time label that
-would run into the vertical axis or past the chart's edge is left out. While
+spacing, and a reading of the same moment replaces the stored one. The window
+is always two minutes long and ends at the next whole second of the node's
+clock, estimated from its readings, so it never rescales and steps one second
+at a time on each tick, the newest reading always inside it; the reading
+before the window runs the lines off its start, and time labels slide out
+under the plot's edges. The one-hour and 24-hour views leave out a label that
+would run into the vertical axis or past the chart's edge instead. While
 the node reports its core stopped, each reading is a known zero, so the lines
 rest at 0 instead of breaking. Browser suspension or network failures can still
 leave actual sampling gaps; missing observations are not filled in, and a range
