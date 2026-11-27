@@ -24,6 +24,7 @@ import type { Entry, MatchKind, Row } from './rule-lines';
 import type { RuleTextErrorCode, RuleTextIssue, RuleTextNoteCode } from './rule-text';
 
 import { RuleEditor } from './rule-editor';
+import { RuleSetIconMenu } from './rule-set-icon-menu';
 import { RuleEditLine, RuleEntry, RuleList } from './rule-lines';
 import { dataFace, gutterCell, gutterWidth } from './rule-line-style';
 import { SubscriptionContentState } from './subscription-content-state';
@@ -32,6 +33,7 @@ import { parseRules, ruleLine, ruleType, serializeRules, withRuleType } from './
 /** What the rail shows of the set being edited. */
 export interface RuleSetDraft {
   id: string;
+  icon: string;
   name: string;
   dirty: boolean;
   rules: readonly SubscriptionRule[];
@@ -109,6 +111,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   const gutterRef = useRef<HTMLDivElement>(null);
   const bandsRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState(ruleSet.name);
+  const [icon, setIcon] = useState(ruleSet.icon);
   const [naming, setNaming] = useState(false);
   const [rows, setRows] = useState<Row[]>(() => savedRows(saved));
   const [text, setText] = useState<string | null>(null);
@@ -136,11 +139,13 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   } else if (takenNames.some(each => each.toLowerCase() === trimmed.toLowerCase())) {
     nameIssue = t('subscriptions.ruleSets.validation.setNameTaken', { name: trimmed });
   }
-  const changes = useMemo(() => countChanges(current, saved), [current, saved]) + (trimmed === ruleSet.name ? 0 : 1);
+  const changes = useMemo(() => countChanges(current, saved), [current, saved])
+    + (trimmed === ruleSet.name ? 0 : 1) + (icon === ruleSet.icon ? 0 : 1);
   const dirty = changes > 0 || textInvalid;
 
   function discard() {
     setName(ruleSet.name);
+    setIcon(ruleSet.icon);
     setNaming(false);
     setRows(savedRows(saved));
     setText(null);
@@ -150,12 +155,12 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   useUnsavedChanges(dirty, discard);
 
   useEffect(() => {
-    onDraftChange({ id: ruleSet.id, name: trimmed || ruleSet.name, rules, dirty });
-  }, [dirty, onDraftChange, ruleSet.id, ruleSet.name, rules, trimmed]);
+    onDraftChange({ id: ruleSet.id, name: trimmed || ruleSet.name, icon, rules, dirty });
+  }, [dirty, icon, onDraftChange, ruleSet.id, ruleSet.name, rules, trimmed]);
   useEffect(() => () => onDraftChange(null), [onDraftChange]);
 
   const save = useMutation({
-    mutationFn: () => client.updateSubscriptionRuleSet(ruleSet.id, { name: trimmed, rules }, version),
+    mutationFn: () => client.updateSubscriptionRuleSet(ruleSet.id, { name: trimmed, icon, rules }, version),
     onSuccess: (updated) => {
       cache.setQueryData<SubscriptionRuleSet[]>(['ruleSets'], sets => sets?.map(set => set.id === updated.id ? updated : set));
       void cache.invalidateQueries({ queryKey: ['ruleSets'] });
@@ -521,6 +526,8 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
         >
           λ
         </span>
+        {/* The set's icon, changed like its name: in the draft until saved. */}
+        <RuleSetIconMenu onChange={setIcon} value={icon} variant='toolbar' />
         <div className='flex min-w-0 flex-1 items-center gap-1'>
           <h2 className='flex min-w-0'>
             {showNameInput

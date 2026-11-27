@@ -7,7 +7,7 @@ import { canAccelerateRuleURL, createsGroupCycle, detectRuleFormat, directRuleUR
 const node = (id: string): ChannelGroupMember => ({ kind: 'node', id });
 const group = (id: string): ChannelGroupMember => ({ kind: 'group', id });
 function ruleSet(id: string, client: SubscriptionRuleSet['client'], name: string): SubscriptionRuleSet {
-  return { id, client, name, rules: [], channels: [], created_at: '2026-11-20T00:00:00Z', updated_at: '2026-11-20T00:00:00Z' };
+  return { id, client, name, icon: 'layers', rules: [], channels: [], created_at: '2026-11-20T00:00:00Z', updated_at: '2026-11-20T00:00:00Z' };
 }
 function poolNode(id: string, protocol: string, origin: SubscriptionNode['origin']): SubscriptionNode {
   return { id, display_name: id, origin_name: id, protocol, origin, updated_at: '2026-11-20T00:00:00Z' };

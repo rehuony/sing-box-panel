@@ -413,10 +413,22 @@ set's client exactly as a channel's own rules are, and a set holds at most 5000
 rules in at most 640 KiB. Changing a set changes every channel that routes by it
 at once. Deleting one deletes the exit rules that route by it, and each channel
 that loses one takes a new `updated_at`, so an edit of that channel begun
-earlier is refused with 412. The list, of one client's rule sets when asked, is
-in name order and names the channels whose exit rules use each set, in name
-order. Reads and writes use `updated_at` as the `ETag` and `If-Match` version,
-as sources do.
+earlier is refused with 412. The list, of one client's rule sets when asked,
+holds each client's sets in their saved order and names the channels whose exit
+rules use each set, in name order. Reads and writes use `updated_at` as the
+`ETag` and `If-Match` version, as sources do.
+
+A set also keeps an `icon`, the key of one of the icons the Web application
+draws, `layers` when none is given; a key is a lowercase letter followed by up
+to 31 lowercase letters, digits or hyphens, and any other is refused at `icon`
+with `invalid_icon`. An update without `icon` keeps the current one. A new set
+goes to the end of its client's order. `PUT /subscription/rule-set-order` takes
+a client and every one of its set IDs exactly once and answers 204; a different
+set of IDs means the sets changed since they were read and is refused with 409
+`subscription_rule_sets_changed`. Saving an order changes no set's
+`updated_at`. The rule sets tab shows a dropped set in its new place at once
+and saves the order behind it, outside a search, and the channel exit-rule
+picker lists a client's sets in it.
 
 A rule list can be edited as Clash classic lines, one per rule in order:
 `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `IP-CIDR` or `IP-CIDR6`, and

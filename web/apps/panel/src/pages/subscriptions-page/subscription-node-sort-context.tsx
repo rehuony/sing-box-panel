@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { SortingStrategy } from '@dnd-kit/sortable';
 
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
@@ -9,8 +10,12 @@ import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, To
 import { showGrabbing } from './drag-slot';
 
 interface Props {
+  /** What a drop announces; by default that the node order changed. */
+  ended?: string;
   children: ReactNode;
   instructions: string;
+  /** How the items make room while one drags; by default a grid. */
+  strategy?: SortingStrategy;
   items: { id: string; label: string }[];
   renderOverlay: (id: string) => ReactNode;
   onDraggingChange?: (dragging: boolean) => void;
@@ -18,7 +23,7 @@ interface Props {
 }
 
 export function SubscriptionNodeSortContext({
-  items, children, instructions, renderOverlay, onMove, onDraggingChange,
+  items, children, ended, instructions, renderOverlay, onMove, onDraggingChange, strategy = rectSortingStrategy,
 }: Props) {
   const { t } = useTranslation();
   const [active, setActive] = useState<string | null>(null);
@@ -47,7 +52,7 @@ export function SubscriptionNodeSortContext({
         announcements: {
           onDragStart: ({ active }) => t('channels.nodeDragStart', { name: name(active.id) }),
           onDragOver: ({ over }) => over ? t('channels.nodeDragPosition', { position: items.findIndex((item) => item.id === over.id) + 1, count: items.length }) : undefined,
-          onDragEnd: () => t('channels.nodeDragEnd'),
+          onDragEnd: () => ended ?? t('channels.nodeDragEnd'),
           onDragCancel: () => t('channels.nodeDragCancel'),
         },
       }}
@@ -62,7 +67,7 @@ export function SubscriptionNodeSortContext({
         finish();
       }}
     >
-      <SortableContext items={items.map((item) => item.id)} strategy={rectSortingStrategy}>
+      <SortableContext items={items.map((item) => item.id)} strategy={strategy}>
         {children}
       </SortableContext>
       {createPortal(

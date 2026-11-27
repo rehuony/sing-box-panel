@@ -40,6 +40,64 @@ export function RailCount({ children }: { children: ReactNode }) {
   return <span className='font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums'>{children}</span>;
 }
 
+interface RailItemFace {
+  name: string;
+  /** What the item counts, at its end. */
+  end?: ReactNode;
+  /** A second line of data. */
+  sub?: ReactNode;
+  icon?: ReactNode;
+  /** A mark after the name, such as a warning dot. */
+  marker?: ReactNode;
+}
+
+function railItemLayout(sub: ReactNode, icon: ReactNode) {
+  return sub
+    ? cn('grid h-13 items-center gap-x-2.5 ps-2', icon ? 'grid-cols-[2rem_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]')
+    : 'flex h-10 items-center gap-2 ps-2.5';
+}
+
+/** What a rail item shows, laid out by {@link railItemLayout}; the end slot holds the count. */
+function RailItemContent({ end, icon, marker, name, sub, wideEnd }: RailItemFace & {
+  /** Keeps the end as wide as the actions that take its place. */
+  wideEnd?: boolean;
+}) {
+  const endSlot = (
+    <span className={cn('flex h-6 flex-none items-center justify-end', wideEnd && 'w-12 group-focus-within/rail-item:invisible group-hover/rail-item:invisible [@media(hover:none)]:invisible')}>
+      {end}
+    </span>
+  );
+  if (!sub) {
+    return (
+      <>
+        {icon ? <span aria-hidden='true' className='flex flex-none text-muted-foreground [&_svg]:size-4'>{icon}</span> : null}
+        <span className='min-w-0 flex-1 truncate font-medium'>{name}</span>
+        {marker}
+        {endSlot}
+      </>
+    );
+  }
+  return (
+    <>
+      {icon
+        ? (
+            <span aria-hidden='true' className='flex size-8 items-center justify-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-4'>
+              {icon}
+            </span>
+          )
+        : null}
+      <span className='flex min-w-0 flex-col gap-0.5'>
+        <span className='flex min-w-0 items-center gap-1.5'>
+          <span className='min-w-0 truncate font-medium'>{name}</span>
+          {marker}
+        </span>
+        <span className='truncate text-xs text-[var(--color-text-secondary)]'>{sub}</span>
+      </span>
+      {endSlot}
+    </>
+  );
+}
+
 /**
  * One rail item: an icon, its name in full and what it counts, with an
  * optional second line. With one, the icon sits in a tile beside both lines
@@ -47,69 +105,32 @@ export function RailCount({ children }: { children: ReactNode }) {
  * pointer or focus is on the item, so nothing moves and the name keeps its
  * width.
  */
-export function RailItem({ actions, current, details, end, icon, marker, name, sub, ...props }: Omit<ComponentProps<'button'>, 'children'> & {
-  name: string;
-  icon?: ReactNode;
+export function RailItem({ actions, className, current, details, end, icon, item, marker, name, sub, ...props }: Omit<ComponentProps<'button'>, 'children'> & RailItemFace & {
   /** Whether the item is the one shown. */
   current: boolean;
-  /** A mark after the name, such as a warning dot. */
-  marker?: ReactNode;
-  /** What the item counts, at its end. */
-  end?: ReactNode;
-  /** A second line of data. */
-  sub?: ReactNode;
   /** Icon actions that replace the end while the item is hovered or focused. */
   actions?: ReactNode;
   /** The item's details, in a tooltip beside it. */
   details?: ReactNode;
+  /** Props of the list item around the button, such as a sortable item's ref and transform. */
+  item?: ComponentProps<'li'>;
 }) {
-  const endSlot = (
-    <span className={cn('flex h-6 flex-none items-center justify-end', actions && 'w-12 group-focus-within/rail-item:invisible group-hover/rail-item:invisible [@media(hover:none)]:invisible')}>
-      {end}
-    </span>
-  );
   const button = (
     <button
       {...props}
       aria-current={current || undefined}
       className={cn(
         'w-full min-w-0 cursor-pointer rounded-[var(--radius-control)] pe-1.5 text-left text-sm outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] aria-[current=true]:bg-accent',
-        sub ? cn('grid h-13 items-center gap-x-2.5 ps-2', icon ? 'grid-cols-[2rem_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_auto]') : 'flex h-10 items-center gap-2 ps-2.5',
+        railItemLayout(sub, icon),
+        className,
       )}
       type='button'
     >
-      {sub
-        ? (
-            <>
-              {icon
-                ? (
-                    <span aria-hidden='true' className='flex size-8 items-center justify-center rounded-[var(--radius-control)] border bg-[var(--color-surface-raised)] text-muted-foreground [&_svg]:size-4'>
-                      {icon}
-                    </span>
-                  )
-                : null}
-              <span className='flex min-w-0 flex-col gap-0.5'>
-                <span className='flex min-w-0 items-center gap-1.5'>
-                  <span className='min-w-0 truncate font-medium'>{name}</span>
-                  {marker}
-                </span>
-                <span className='truncate text-xs text-[var(--color-text-secondary)]'>{sub}</span>
-              </span>
-              {endSlot}
-            </>
-          )
-        : (
-            <>
-              {icon ? <span aria-hidden='true' className='flex flex-none text-muted-foreground [&_svg]:size-4'>{icon}</span> : null}
-              <span className='min-w-0 flex-1 truncate font-medium'>{name}</span>
-              {marker}
-              {endSlot}
-            </>
-          )}
+      <RailItemContent end={end} icon={icon} marker={marker} name={name} sub={sub} wideEnd={Boolean(actions)} />
     </button>
   );
   return (
-    <li className='group/rail-item relative flex-none'>
+    <li {...item} className={cn('group/rail-item relative flex-none', item?.className)}>
       {details
         ? (
             <Tooltip>
@@ -127,5 +148,17 @@ export function RailItem({ actions, current, details, end, icon, marker, name, s
           )
         : null}
     </li>
+  );
+}
+
+/** The copy of a rail item that follows the pointer while the item is dragged, floating above the rail. */
+export function RailItemOverlay({ wideEnd, ...face }: RailItemFace & { wideEnd?: boolean }) {
+  return (
+    <div
+      aria-hidden='true'
+      className={cn('cursor-grabbing rounded-[var(--radius-control)] border bg-popover pe-1.5 text-sm shadow-[var(--shadow-panel)]', railItemLayout(face.sub, face.icon))}
+    >
+      <RailItemContent {...face} wideEnd={wideEnd} />
+    </div>
   );
 }

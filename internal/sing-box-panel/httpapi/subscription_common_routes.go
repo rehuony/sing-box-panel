@@ -130,6 +130,8 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_node_name_invalid", "Display name invalid", "A display name is 1 to 256 bytes without surrounding spaces, control characters or commas.")
 	case errors.Is(err, store.ErrSubscriptionNodeNameTaken):
 		writeProblem(w, request, http.StatusConflict, "subscription_node_name_taken", "Display name taken", "Another node already uses this display name.")
+	case errors.Is(err, store.ErrSubscriptionRuleSetsChanged):
+		writeProblem(w, request, http.StatusConflict, "subscription_rule_sets_changed", "Rule sets changed", "The client's rule sets changed since they were read; reload them and retry.")
 	case errors.Is(err, store.ErrSubscriptionPoolChanged), errors.Is(err, store.ErrSubscriptionPoolInputsChanged):
 		writeProblem(w, request, http.StatusConflict, "subscription_pool_changed", "Node pool changed", "The node pool changed since it was read; reload it and retry.")
 	case errors.Is(err, store.ErrSubscriptionTokenSecretUnavailable):

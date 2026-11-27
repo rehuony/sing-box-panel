@@ -1,13 +1,17 @@
 import userEvent from '@testing-library/user-event';
 import { toast } from '@shared/components/ui/toast-manager';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { TestRouter } from '@/tests/test-router';
+import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page';
 import { createMockApiClient, testSubscriptionRuleSets } from '@/tests/api/mock-api-client';
+
+/** The rail's rule set names, top to bottom. */
+const railNames = () => screen.getAllByRole('button', { description: /F2/ }).map(item => item.querySelector('.font-medium')?.textContent);
 
 beforeEach(() => window.history.replaceState(null, '', '/subscriptions'));
 afterEach(() => vi.restoreAllMocks());
@@ -40,7 +44,7 @@ describe('rule sets', () => {
 
     await waitFor(() => expect(client.updateSubscriptionRuleSet).toHaveBeenCalledWith(
       streaming.id,
-      { name: streaming.name, rules: [...streaming.rules, { kind: 'domain_suffix', value: 'disneyplus.com' }] },
+      { name: streaming.name, icon: streaming.icon, rules: [...streaming.rules, { kind: 'domain_suffix', value: 'disneyplus.com' }] },
       streaming.updated_at,
     ));
 
@@ -85,5 +89,71 @@ describe('rule sets', () => {
     expect(client.updateSubscriptionRuleSet).not.toHaveBeenCalled();
     await user.click(within(editor).getByRole('tab', { name: 'Entries' }));
     expect(text).toHaveFocus();
+  });
+
+  it('creates a rule set with the icon picked in its name field', async () => {
+    const user = userEvent.setup();
+    const client = renderRuleSets();
+    await screen.findByRole('region', { name: testSubscriptionRuleSets[0].name });
+    await user.click(screen.getByRole('button', { name: 'New rule set' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New rule set' });
+    await user.click(within(dialog).getByRole('button', { name: 'Icon: Rules' }));
+    await user.click(await screen.findByRole('radio', { name: 'Games' }));
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Games{Enter}');
+
+    // The dialog closes as it is submitted and the set joins the end of the rail without reading the list again.
+    expect(dialog).not.toBeInTheDocument();
+    expect(railNames()).toEqual(['Streaming', 'Games']);
+    expect(client.createSubscriptionRuleSet).toHaveBeenCalledExactlyOnceWith({ client: 'mihomo', icon: 'gamepad', name: 'Games', rules: [] });
+    expect(await screen.findByRole('region', { name: 'Games' })).toBeVisible();
+    expect(client.listSubscriptionRuleSets).toHaveBeenCalledOnce();
+  });
+
+  it('takes a set the server refuses back out of the rail and says why', async () => {
+    const user = userEvent.setup();
+    const client = createMockApiClient();
+    client.createSubscriptionRuleSet.mockRejectedValue(new ApiRequestError('Subscription limit exceeded', { status: 422, code: 'subscription_limit_exceeded' }));
+    const feedback = vi.spyOn(toast, 'add');
+    renderRuleSets(client);
+    await screen.findByRole('region', { name: testSubscriptionRuleSets[0].name });
+    await user.click(screen.getByRole('button', { name: 'New rule set' }));
+    await user.type(within(await screen.findByRole('dialog')).getByRole('textbox', { name: 'Name' }), 'Games{Enter}');
+
+    await waitFor(() => expect(railNames()).toEqual(['Streaming']));
+    expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'The rule set “Games” was not created', type: 'error' }));
+    expect(screen.getByRole('region', { name: testSubscriptionRuleSets[0].name })).toBeVisible();
+  });
+
+  it('moves a rule set with the keyboard and saves the client\'s order', async () => {
+    const [streaming] = testSubscriptionRuleSets;
+    const news = { ...streaming, id: 'rule_set_news', icon: 'newspaper', name: 'News', rules: [] };
+    const client = createMockApiClient();
+    client.listSubscriptionRuleSets.mockResolvedValue({ items: [streaming, news] });
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    // Items stack 52px apart; the copy that follows the pointer starts over the first.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.matches('li') && this.querySelector(':scope > [aria-roledescription="Sortable rule set"]')) {
+        const index = Array.from(this.parentElement!.children).indexOf(this);
+        return DOMRect.fromRect({ x: 0, y: index * 52, width: 256, height: 52 });
+      }
+      if (this.classList.contains('cursor-grabbing')) return DOMRect.fromRect({ x: 0, y: 0, width: 256, height: 52 });
+      return originalRect.call(this);
+    });
+    renderRuleSets(client);
+    await screen.findByRole('region', { name: streaming.name });
+    expect(railNames()).toEqual(['Streaming', 'News']);
+
+    const item = screen.getAllByRole('button', { description: /F2/ })[0]!;
+    item.focus();
+    fireEvent.keyDown(item, { key: 'F2', code: 'F2' });
+    await userEvent.setup().keyboard('[ArrowDown]');
+    await waitFor(() => expect(screen.getByText('Position 2 of 2.')).toBeInTheDocument());
+    fireEvent.keyDown(item, { key: 'F2', code: 'F2' });
+
+    expect(railNames()).toEqual(['News', 'Streaming']);
+    await waitFor(() => expect(client.setSubscriptionRuleSetOrder).toHaveBeenCalledWith('mihomo', ['rule_set_news', 'rule_set_streaming']));
+    expect(client.listSubscriptionRuleSets).toHaveBeenCalledOnce();
+    // Dropping does not open the set it moved over.
+    expect(screen.getByRole('region', { name: streaming.name })).toBeVisible();
   });
 });

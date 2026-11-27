@@ -1253,7 +1253,7 @@ paths:
   /subscription/rule-sets:
     get:
       operationId: listSubscriptionRuleSets
-      description: Every rule set, or one client's, in name order.
+      description: Every rule set, or one client's, each client's sets in their saved order.
       parameters:
         - name: client
           in: query
@@ -1275,6 +1275,28 @@ paths:
           $ref: "#/components/responses/SubscriptionRuleSet"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/rule-set-order:
+    put:
+      operationId: setSubscriptionRuleSetOrder
+      description: >-
+        Saves the order of one client's rule sets. The IDs must be exactly that
+        client's current rule sets, each once; otherwise its sets changed since
+        they were read and the request answers 409. Saving an order changes no
+        set's updated_at.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionRuleSetOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The client's rule sets changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/rule-sets/{ruleSetId}:
     parameters:
       - $ref: "#/components/parameters/RuleSetID"
@@ -1288,7 +1310,7 @@ paths:
     put:
       operationId: updateSubscriptionRuleSet
       description: >-
-        Replaces the rule set's name and rules; every channel that routes by it
+        Replaces the rule set's name, icon and rules; every channel that routes by it
         publishes the new rules at once. Its client never changes. An update is
         refused with rules: too_many_rules when a channel using the set would
         expand to more than 20000 rules.
@@ -3501,7 +3523,7 @@ components:
     SubscriptionRuleSet:
       type: object
       additionalProperties: false
-      required: [id, client, name, rules, channels, created_at, updated_at]
+      required: [id, client, name, icon, rules, channels, created_at, updated_at]
       description: >-
         A client's reusable list of rules; channels of that client route by it.
         updated_at is its version for If-Match.
@@ -3509,6 +3531,7 @@ components:
         id: {type: string}
         client: {type: string, enum: [sing-box, mihomo, loon]}
         name: {type: string, maxLength: 128, description: "Unique among the client's rule sets, ignoring case."}
+        icon: {$ref: "#/components/schemas/SubscriptionRuleSetIcon"}
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
         channels:
           type: array
@@ -3526,9 +3549,11 @@ components:
       type: object
       additionalProperties: false
       required: [client, name, rules]
+      description: A new rule set joins the end of its client's order; its icon is layers unless given.
       properties:
         client: {type: string, enum: [sing-box, mihomo, loon]}
         name: {type: string, minLength: 1, maxLength: 128}
+        icon: {$ref: "#/components/schemas/SubscriptionRuleSetIcon"}
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
     SubscriptionRuleSetUpdate:
       type: object
@@ -3536,7 +3561,23 @@ components:
       required: [name, rules]
       properties:
         name: {type: string, minLength: 1, maxLength: 128}
+        icon:
+          allOf: [{$ref: "#/components/schemas/SubscriptionRuleSetIcon"}]
+          description: Omitted keeps the current icon.
         rules: {type: array, maxItems: 5000, items: {$ref: "#/components/schemas/SubscriptionRule"}}
+    SubscriptionRuleSetIcon:
+      type: string
+      pattern: '^[a-z][a-z0-9-]{0,31}$'
+      description: >-
+        The key of the icon the Web application draws for the set; an unknown
+        key draws the default, layers.
+    SubscriptionRuleSetOrder:
+      type: object
+      additionalProperties: false
+      required: [client, ids]
+      properties:
+        client: {type: string, enum: [sing-box, mihomo, loon]}
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionRuleSetList:
       type: object
       additionalProperties: false

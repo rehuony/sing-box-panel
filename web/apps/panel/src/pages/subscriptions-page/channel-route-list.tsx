@@ -24,7 +24,6 @@ import type {
   SubscriptionRuleSet,
 } from '@/api/api-client';
 
-import { compareText } from '@/utils/compare-text';
 import { IconAction } from '@/components/icon-action';
 import { SelectField } from '@/components/select-field';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
@@ -85,8 +84,8 @@ export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }:
 }) {
   const { t } = useTranslation();
   const [adding, setAdding] = useState<{ remote: boolean } | null>(null);
+  // The client's sets in the order the rule sets tab keeps.
   const sets = (ruleSets ?? []).filter(set => set.client === format);
-  sets.sort((left, right) => compareText(left.name, right.name));
   const used = new Set(routes.flatMap(route => route.rule_set_id === undefined ? [] : [route.rule_set_id]));
   function add(match: { rule_set_id: string } | { rule: SubscriptionRule }) {
     onAdd({ id: crypto.randomUUID(), enabled: true, ...match, exit });

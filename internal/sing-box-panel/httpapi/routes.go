@@ -142,6 +142,7 @@ var routes = []route{
 
 	{http.MethodGet, "/subscription/rule-sets", "listSubscriptionRuleSets", accessSession, (*Handler).listSubscriptionRuleSets},
 	{http.MethodPost, "/subscription/rule-sets", "createSubscriptionRuleSet", accessSession, (*Handler).createSubscriptionRuleSet},
+	{http.MethodPut, "/subscription/rule-set-order", "setSubscriptionRuleSetOrder", accessSession, (*Handler).setSubscriptionRuleSetOrder},
 	{http.MethodGet, "/subscription/rule-sets/{ruleSetId}", "getSubscriptionRuleSet", accessSession, withPathValue("ruleSetId", (*Handler).getSubscriptionRuleSet)},
 	{http.MethodPut, "/subscription/rule-sets/{ruleSetId}", "updateSubscriptionRuleSet", accessSession, withPathValue("ruleSetId", (*Handler).updateSubscriptionRuleSet)},
 	{http.MethodDelete, "/subscription/rule-sets/{ruleSetId}", "deleteSubscriptionRuleSet", accessSession, withPathValue("ruleSetId", (*Handler).deleteSubscriptionRuleSet)},

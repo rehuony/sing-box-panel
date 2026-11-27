@@ -180,6 +180,7 @@ export const testSubscriptionRuleSets: SubscriptionRuleSet[] = [
   {
     id: 'rule_set_streaming',
     client: 'mihomo',
+    icon: 'tv',
     name: 'Streaming',
     rules: [
       { kind: 'domain_suffix', value: 'netflix.com' },
@@ -192,6 +193,7 @@ export const testSubscriptionRuleSets: SubscriptionRuleSet[] = [
   {
     id: 'rule_set_direct',
     client: 'sing-box',
+    icon: 'layers',
     name: 'Direct',
     rules: [{ kind: 'domain_suffix', value: 'cn' }],
     channels: [],
@@ -430,8 +432,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     refreshSubscriptionSource: vi.fn<ApiClient['refreshSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
     previewSubscriptionSource: vi.fn<ApiClient['previewSubscriptionSource']>().mockResolvedValue({ items: [] }),
     listSubscriptionRuleSets: vi.fn<ApiClient['listSubscriptionRuleSets']>().mockResolvedValue({ items: testSubscriptionRuleSets }),
+    setSubscriptionRuleSetOrder: vi.fn<ApiClient['setSubscriptionRuleSetOrder']>().mockResolvedValue(undefined),
     createSubscriptionRuleSet: vi.fn<ApiClient['createSubscriptionRuleSet']>().mockImplementation(async input => ({
-      ...input, id: 'rule_set_new', channels: [], created_at: '2026-08-26T08:00:00Z', updated_at: '2026-08-26T08:00:00.000000001Z',
+      ...input, icon: input.icon ?? 'layers', id: 'rule_set_new', channels: [], created_at: '2026-08-26T08:00:00Z', updated_at: '2026-08-26T08:00:00.000000001Z',
     })),
     updateSubscriptionRuleSet: vi.fn<ApiClient['updateSubscriptionRuleSet']>().mockImplementation(async (id, input) => ({
       ...testSubscriptionRuleSets.find(set => set.id === id)!, ...input, updated_at: '2026-08-26T08:00:00.000000001Z',

@@ -245,7 +245,7 @@ export interface ApiClient {
     updatedAt: string,
     signal?: AbortSignal,
   ) => Promise<void>;
-  /** Every rule set, or one client's, in name order. */
+  /** Every rule set, or one client's, each client's in their saved order. */
   listSubscriptionRuleSets: (client?: SubscriptionRuleSet['client'], signal?: AbortSignal) => Promise<SubscriptionRuleSetList>;
 
   compileConfiguration: (
@@ -283,6 +283,12 @@ export interface ApiClient {
     expiresAt?: string,
     signal?: AbortSignal,
   ) => Promise<SubscriptionTokenRotation>;
+  /** Saves one client's rule set order; ids must be every one of its sets once, or they changed and it answers 409. */
+  setSubscriptionRuleSetOrder: (
+    client: SubscriptionRuleSet['client'],
+    ids: string[],
+    signal?: AbortSignal,
+  ) => Promise<void>;
   /** Parses content without saving: a stored source's, a URL's or the request's, filtered by the given rules. */
   previewSubscriptionSource: (
     input: SubscriptionSourcePreviewRequest,
