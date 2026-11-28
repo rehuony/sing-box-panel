@@ -137,7 +137,7 @@ func Defaults() Settings {
 		Nodes:   defaultNodes(),
 		DataDir: dataDir,
 		GitHub:  GitHub{CatalogRefreshIntervalHours: 12},
-		Traffic: Traffic{SampleRetentionDays: 90},
+		Traffic: Traffic{SampleRetentionDays: 7},
 		Subscription: Subscription{
 			PrivateSourceCIDRs: []string{},
 		},

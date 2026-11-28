@@ -252,12 +252,13 @@ func (service *Service) RecordNodeSample(ctx context.Context, nodeID, instanceID
 	return nil
 }
 
-// ForgetNode drops a node's live evidence and recorded traffic, such as when
-// it is removed.
+// ForgetNode drops a node's live evidence, recorded traffic and kept
+// dashboard history, such as when it is removed.
 func (service *Service) ForgetNode(nodeID string) {
 	service.live.mu.Lock()
-	defer service.live.mu.Unlock()
 	delete(service.live.nodes, nodeID)
+	service.live.mu.Unlock()
+	service.resetDashboardHistory(nodeID)
 }
 
 // trafficPeriod returns the node's recorded traffic in its period that

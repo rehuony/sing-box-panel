@@ -4,11 +4,10 @@ import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { PencilLine, Save, Undo2 } from 'lucide-react';
-import { Textarea } from '@shared/components/ui/textarea';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { SubscriptionRule, SubscriptionRuleSet } from '@/api/api-client';
 
@@ -21,12 +20,14 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 
 import type { Entry, MatchKind, Row } from './rule-lines';
-import type { RuleTextErrorCode, RuleTextIssue, RuleTextNoteCode } from './rule-text';
+import type { RuleTextHandle, RuleTextMarks } from './rule-text-view';
+import type { RuleTextErrorCode, RuleTextIssue, RuleTextNoteCode, RuleTextResult } from './rule-text';
 
 import { RuleEditor } from './rule-editor';
+import { RuleTextView } from './rule-text-view';
 import { RuleSetIconMenu } from './rule-set-icon-menu';
+import { gutterCell, gutterWidth } from './rule-line-style';
 import { RuleEditLine, RuleEntry, RuleList } from './rule-lines';
-import { dataFace, gutterCell, gutterWidth } from './rule-line-style';
 import { SubscriptionContentState } from './subscription-content-state';
 import { parseRules, ruleLine, ruleType, serializeRules, withRuleType } from './rule-text';
 
@@ -107,15 +108,12 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   const saved = ruleSet.rules;
   const nextKeyRef = useRef(saved.length);
   const nameRef = useRef<HTMLInputElement>(null);
-  const textRef = useRef<HTMLTextAreaElement>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
-  const bandsRef = useRef<HTMLDivElement>(null);
+  const textViewRef = useRef<RuleTextHandle>(null);
   const [name, setName] = useState(ruleSet.name);
   const [icon, setIcon] = useState(ruleSet.icon);
   const [naming, setNaming] = useState(false);
   const [rows, setRows] = useState<Row[]>(() => savedRows(saved));
   const [text, setText] = useState<string | null>(null);
-  const [caretLine, setCaretLine] = useState(0);
   const [version, setVersion] = useState(ruleSet.updated_at);
   // The line whose last input was refused, its prompt in danger until it changes.
   const [refused, setRefused] = useState<'entry' | 'row' | null>(null);
@@ -127,7 +125,13 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   const [pinned, setPinned] = useState<{ query: string; keys: ReadonlySet<number> }>({ query, keys: NO_KEYS });
   const pinnedKeys = pinned.query === query ? pinned.keys : NO_KEYS;
 
-  const parsed = useMemo(() => text === null ? null : parseRules(text, ruleSet.client), [ruleSet.client, text]);
+  // Each keystroke shows at once; reading the text, its marks and what changed follow when the editor is idle.
+  // Saving and leaving the text read the text as it is.
+  const deferredText = useDeferredValue(text);
+  const source = text === null ? null : deferredText ?? text;
+  const parsed = useMemo(() => source === null ? null : parseRules(source, ruleSet.client), [ruleSet.client, source]);
+  const parseNow = (): RuleTextResult | null =>
+    text === null || (source === text && parsed) ? parsed : parseRules(text, ruleSet.client);
   const textRows = useMemo(() => parsed ? matchRows(parsed.rules, saved, index => index) : null, [parsed, saved]);
   const current = textRows ?? rows;
   const rules = useMemo(() => current.map(row => row.rule), [current]);
@@ -160,7 +164,8 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   useEffect(() => () => onDraftChange(null), [onDraftChange]);
 
   const save = useMutation({
-    mutationFn: () => client.updateSubscriptionRuleSet(ruleSet.id, { name: trimmed, icon, rules }, version),
+    mutationFn: (next: SubscriptionRule[]) =>
+      client.updateSubscriptionRuleSet(ruleSet.id, { name: trimmed, icon, rules: next }, version),
     onSuccess: (updated) => {
       cache.setQueryData<SubscriptionRuleSet[]>(['ruleSets'], sets => sets?.map(set => set.id === updated.id ? updated : set));
       void cache.invalidateQueries({ queryKey: ['ruleSets'] });
@@ -349,25 +354,12 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     input?.setSelectionRange(input.value.length, input.value.length);
   }, [naming]);
 
-  function syncText(area: HTMLTextAreaElement) {
-    if (gutterRef.current) gutterRef.current.scrollTop = area.scrollTop;
-    if (bandsRef.current) bandsRef.current.style.transform = `translateY(${-area.scrollTop}px)`;
-  }
-
   /** Says why the text cannot be used yet and puts the caret on its first unreadable line; false when it can. */
-  function blockedByText(): boolean {
-    const error = parsed?.errors[0];
-    if (!parsed || !error || text === null) return false;
-    notify('error', lineIssue(error, parsed.errors.length));
-    const area = textRef.current;
-    if (area) {
-      const start = text.split('\n').slice(0, error.line - 1).reduce((offset, line) => offset + line.length + 1, 0);
-      area.focus();
-      area.setSelectionRange(start, start);
-      setCaretLine(error.line);
-      area.scrollTop = Math.max(0, (error.line - 1) * 20 - area.clientHeight / 2);
-      syncText(area);
-    }
+  function blockedByText(now: RuleTextResult | null): boolean {
+    const error = now?.errors[0];
+    if (!now || !error) return false;
+    notify('error', lineIssue(error, now.errors.length));
+    textViewRef.current?.revealLine(error.line);
     return true;
   }
 
@@ -383,17 +375,18 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   function changeView(view: string) {
     if (view === 'text' && text === null) {
       setText(serializeRules(rows.map(row => row.rule)));
-      setCaretLine(0);
       setEditingKey(null);
       quiet();
-    } else if (view === 'entries' && parsed && !blockedByText()) {
+    } else if (view === 'entries' && text !== null) {
+      const now = parseNow();
+      if (!now || blockedByText(now)) return;
       // Text left as it was keeps the rows, and what changed in them.
       if (text !== serializeRules(rows.map(row => row.rule))) {
-        setRows(matchRows(parsed.rules, saved, () => nextKeyRef.current++));
+        setRows(matchRows(now.rules, saved, () => nextKeyRef.current++));
       }
       setText(null);
-      const note = parsed.notes[0];
-      if (note) notify('info', lineIssue(note, parsed.notes.length));
+      const note = now.notes[0];
+      if (note) notify('info', lineIssue(note, now.notes.length));
     }
   }
 
@@ -403,57 +396,35 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     return rows.flatMap((row, index) => matches(row) ? [{ position: index + 1, row }] : []);
   }, [editingKey, pinnedKeys, query, rows]);
   const showNameInput = naming || name !== ruleSet.name;
-  const lineCount = text === null ? rows.length : text.split('\n').length;
+  const lineCount = useMemo(() => text === null ? rows.length : text.split('\n').length, [rows.length, text]);
+  const marks = useMemo<RuleTextMarks | null>(() => {
+    if (!parsed || !textRows) return null;
+    // A marked number says on hover why: the line's first problem, or what was left out of it.
+    const issues = new Map<number, RuleTextIssue<RuleTextErrorCode | RuleTextNoteCode>>();
+    for (const issue of [...parsed.errors, ...parsed.notes]) {
+      if (!issues.has(issue.line)) issues.set(issue.line, issue);
+    }
+    return {
+      changed: new Set(textRows.flatMap((row, index) => changed(row, saved) ? [parsed.lines[index]!] : [])),
+      errors: new Set(parsed.errors.map(issue => issue.line)),
+      issues,
+      notes: new Set(parsed.notes.map(issue => issue.line)),
+    };
+  }, [parsed, saved, textRows]);
 
   let body;
-  if (parsed && text !== null) {
-    const errorLines = new Set(parsed.errors.map(issue => issue.line));
-    const noteLines = new Set(parsed.notes.map(issue => issue.line));
-    const changedLines = new Set(textRows!.flatMap((row, index) => changed(row, saved) ? [parsed.lines[index]!] : []));
-    // A marked number says on hover why: the line's first problem, or what was left out of it.
-    const reasons = new Map<number, string>();
-    for (const issue of [...parsed.errors, ...parsed.notes]) {
-      if (!reasons.has(issue.line)) reasons.set(issue.line, messageLine(issueText(issue)));
-    }
-    const lineTone = (line: number) => {
-      if (errorLines.has(line)) return 'text-[var(--color-danger-text)]';
-      if (noteLines.has(line)) return 'text-[var(--color-warning-text)]';
-      if (changedLines.has(line)) return 'text-primary';
-      return line === caretLine ? 'text-foreground' : 'text-[var(--color-text-faint)]';
-    };
+  if (text !== null && marks) {
     body = (
-      <div className='relative flex min-h-0 flex-1 overflow-hidden'>
-        {/* A line that cannot be read sits on a danger band, which scrolls with the text. */}
-        <div aria-hidden='true' className='pointer-events-none absolute inset-0 overflow-hidden'>
-          <div className='absolute inset-x-0 top-0' ref={bandsRef}>
-            {[...errorLines].map(line => (
-              <span className='absolute inset-x-0 h-5 bg-[var(--color-danger-soft)]' key={line} style={{ top: `calc(0.75rem + ${(line - 1) * 1.25}rem)` }} />
-            ))}
-          </div>
-        </div>
-        <div aria-hidden='true' className={cn(gutterCell, 'relative w-[calc(1rem+var(--rule-gutter))] flex-none overflow-hidden py-3 ps-4 select-none')} ref={gutterRef}>
-          {text.split('\n').map((_, index) => {
-            const line = index + 1;
-            // eslint-disable-next-line react/no-array-index-key
-            return <div className={lineTone(line)} key={index} title={reasons.get(line)}>{line}</div>;
-          })}
-        </div>
-        <Textarea
-          aria-invalid={textInvalid || undefined}
-          aria-label={t('subscriptions.ruleSets.textLabel')}
-          className={cn(dataFace, 'relative min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent py-3 ps-3 pe-4 text-compact leading-5 focus-visible:outline-none aria-invalid:ring-0 md:text-compact dark:bg-transparent @max-[30rem]/editor:ps-2')}
-          onChange={event => setText(event.target.value)}
-          onScroll={event => syncText(event.currentTarget)}
-          onSelect={(event) => {
-            const area = event.currentTarget;
-            setCaretLine(area.value.slice(0, area.selectionStart).split('\n').length);
-          }}
-          ref={textRef}
-          spellCheck={false}
-          value={text}
-          wrap='off'
-        />
-      </div>
+      <RuleTextView
+        describe={issue => messageLine(issueText(issue))}
+        invalid={textInvalid}
+        label={t('subscriptions.ruleSets.textLabel')}
+        lineCount={lineCount}
+        marks={marks}
+        onChange={setText}
+        ref={textViewRef}
+        text={text}
+      />
     );
   } else {
     const editingRow = editingKey === null ? undefined : rows.find(row => row.key === editingKey);
@@ -612,8 +583,10 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
           className='@max-md/editor:w-(--control-height-sm) @max-md/editor:px-0'
           disabled={!dirty}
           onClick={() => {
-            if (save.isPending || blockedByName() || blockedByText()) return;
-            save.mutate();
+            if (save.isPending || blockedByName()) return;
+            const now = parseNow();
+            if (blockedByText(now)) return;
+            save.mutate(now?.rules ?? rules);
           }}
           size='sm'
           type='button'

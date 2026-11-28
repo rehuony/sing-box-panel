@@ -1,17 +1,17 @@
 import type { SyntheticEvent } from 'react';
-import type { DraggableSyntheticListeners } from '@dnd-kit/core';
+import type { DraggableSyntheticListeners, KeyboardCodes } from '@dnd-kit/core';
 
 import { cn } from '@shared/lib/utils';
 import { CSS } from '@dnd-kit/utilities';
 import { createPortal } from 'react-dom';
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { closestCenter, DndContext, DragOverlay } from '@dnd-kit/core';
 import { CirclePlus, GripVertical, Link2, ListFilter, PencilLine, Trash2 } from 'lucide-react';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import type {
@@ -27,8 +27,8 @@ import type {
 import { IconAction } from '@/components/icon-action';
 import { InfoTooltip } from '@/components/info-tooltip';
 import { SelectField } from '@/components/select-field';
-import { dropSlot, showGrabbing } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { dropSlot, showGrabbing, useSortSensors, useSortWindow } from '@/components/sortable';
 
 import { ruleType } from './rule-text';
 import { RuleEditor } from './rule-editor';
@@ -49,6 +49,8 @@ const actionsCell = 'flex justify-end gap-0.5 sm:col-start-4 sm:row-start-1 max-
 const secondary = 'text-xs text-[var(--color-text-secondary)]';
 const danger = 'text-xs text-[var(--color-danger-text)]';
 const positionCell = 'text-end font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums sm:pe-2';
+/** A row's grip picks it up and drops it with F2, Space or Enter; Escape cancels. */
+const routeKeys: KeyboardCodes = { start: ['F2', 'Space', 'Enter'], end: ['F2', 'Space', 'Enter'], cancel: ['Escape'] };
 
 /**
  * A row's pointer listeners, which start a drag from anywhere on the row but
@@ -205,8 +207,9 @@ function RouteRow({ aheadOf, busy, choices, format, index, onEdit, onExit, onRem
 }) {
   const { t } = useTranslation();
   const reducedMotion = usePrefersReducedMotion();
+  // While the channel saves the list's sensors start no drag, so saving re-registers no row.
   const { attributes, isDragging, listeners, setActivatorNodeRef, setNodeRef, transform, transition }
-    = useSortable({ id: route.id, disabled: !sortable || busy });
+    = useSortable({ id: route.id, disabled: !sortable });
   const position = index + 1;
   const draggable = sortable && !busy;
   return (
@@ -295,9 +298,10 @@ function RouteRowOverlay({ aheadOf, choices, format, index, route, ruleSets }: {
 
 /**
  * A channel's exit rules as one block of rows in matching order, sorted by
- * dragging. Filtered to the rules that leave through a group, the rows keep
- * their positions in the whole list but do not sort. The final exit, which
- * takes what no rule matches, is set on a group in the rail.
+ * dragging; a long list draws the rows near its view and the one dragged.
+ * Filtered to the rules that leave through a group, the rows keep their
+ * positions in the whole list but do not sort. The final exit, which takes
+ * what no rule matches, is set on a group in the rail.
  */
 export function ChannelRouteList({
   busy, config, format, groupID, nodes, onRoutesChange, ruleSets,
@@ -319,19 +323,14 @@ export function ChannelRouteList({
   const [dragged, setDragged] = useState<string | null>(null);
   // A drag cut short by leaving the view must not leave the hand closed.
   useEffect(() => () => showGrabbing(false), []);
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-      keyboardCodes: { start: ['F2', 'Space', 'Enter'], end: ['F2', 'Space', 'Enter'], cancel: ['Escape'] },
-    }),
-  );
-  const shown = routes.flatMap((route, index) =>
-    groupID === undefined || exitsThrough(route.exit, groupID) ? [{ index, route }] : []);
+  const sensors = useSortSensors(busy, routeKeys);
+  const shown = useMemo(() => routes.flatMap((route, index) =>
+    groupID === undefined || exitsThrough(route.exit, groupID) ? [{ index, route }] : []), [groupID, routes]);
+  const ids = useMemo(() => shown.map(({ route }) => route.id), [shown]);
+  const { ref, slots, style } = useSortWindow(ids, dragged);
   const position = (id: string | number) => routes.findIndex(route => route.id === id) + 1;
   const draggedRow = dragged === null ? undefined : shown.find(({ route }) => route.id === dragged);
-  const ahead = loonAheadOf(routes, ruleSets, format);
+  const ahead = useMemo(() => loonAheadOf(routes, ruleSets, format), [format, routes, ruleSets]);
   const replace = (id: string, next: Partial<ChannelRoute>) =>
     onRoutesChange(routes.map(route => route.id === id ? { ...route, ...next } : route));
 
@@ -371,24 +370,28 @@ export function ChannelRouteList({
                 }}
                 sensors={sensors}
               >
-                <SortableContext items={shown.map(({ route }) => route.id)} strategy={verticalListSortingStrategy}>
-                  <ol aria-label={t('channels.routes')}>
-                    {shown.map(({ index, route }) => (
-                      <RouteRow
-                        aheadOf={ahead.get(route.id)}
-                        busy={busy}
-                        choices={exits.choices(route.exit)}
-                        format={format}
-                        index={index}
-                        key={route.id}
-                        onEdit={() => setEditing(route)}
-                        onExit={exit => replace(route.id, { exit })}
-                        onRemove={() => onRoutesChange(routes.filter(value => value.id !== route.id))}
-                        route={route}
-                        ruleSets={ruleSets}
-                        sortable={groupID === undefined}
-                      />
-                    ))}
+                <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+                  <ol aria-label={t('channels.routes')} ref={ref} style={style}>
+                    {slots.map((slot) => {
+                      if (typeof slot !== 'number') return <li key='gap' {...slot} />;
+                      const { index, route } = shown[slot]!;
+                      return (
+                        <RouteRow
+                          aheadOf={ahead.get(route.id)}
+                          busy={busy}
+                          choices={exits.choices(route.exit)}
+                          format={format}
+                          index={index}
+                          key={route.id}
+                          onEdit={() => setEditing(route)}
+                          onExit={exit => replace(route.id, { exit })}
+                          onRemove={() => onRoutesChange(routes.filter(value => value.id !== route.id))}
+                          route={route}
+                          ruleSets={ruleSets}
+                          sortable={groupID === undefined}
+                        />
+                      );
+                    })}
                   </ol>
                 </SortableContext>
                 {createPortal(

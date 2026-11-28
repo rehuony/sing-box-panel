@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import '@/i18n';
 import type { SubscriptionNode, SubscriptionNodeList } from '@/api/api-client';
 
+import { deferred } from '@/tests/deferred';
 import { TestRouter } from '@/tests/test-router';
 import { ApiRequestError } from '@/api/api-client';
 import { ApiClientProvider } from '@/api/api-client-context';
@@ -97,6 +98,48 @@ describe('subscription node pool', () => {
     await waitFor(() => expect(cards()).toEqual(['tokyo', 'osaka', 'new']));
     expect(client.listSubscriptionNodes).toHaveBeenCalledTimes(2);
     expect(notice).toHaveBeenCalledWith(expect.objectContaining({ type: 'warning', title: expect.stringContaining('read again') }));
+  });
+
+  it('draws a large pool near its view, following the scroll, and still sorts it from the keyboard', async () => {
+    const items = Array.from({ length: 400 }, (_, index) => inbound(`n${index}`));
+    const byID = new Map(items.map(item => [item.id, item]));
+    const client = mount({
+      listSubscriptionNodes: vi.fn().mockResolvedValue(pool(items)),
+      setSubscriptionNodeOrder: vi.fn(async (ids: string[]) => pool(ids.map(id => byID.get(id)!))),
+    });
+    await screen.findByRole('button', { name: 'n0' });
+    expect(cards().length).toBeLessThan(40);
+    await moveRight('n0', 400);
+    expect(client.setSubscriptionNodeOrder).toHaveBeenCalledExactlyOnceWith(['n1', 'n0', ...items.slice(2).map(item => item.id)]);
+    // Scrolled 150 rows down, the grid draws the cards there instead of the first ones.
+    const grid = screen.getByRole('list', { name: 'Nodes' });
+    Object.defineProperty(grid, 'getBoundingClientRect', { value: () => DOMRect.fromRect({ y: -150 * 116, width: 640 }) });
+    fireEvent.scroll(grid.closest('[data-slot="scroll-area-viewport"]')!);
+    await waitFor(() => expect(cards()).toContain('n150'));
+    expect(cards()).not.toContain('n0');
+  });
+
+  it('starts no drag while a new order saves', async () => {
+    const saved = deferred<SubscriptionNodeList>();
+    const items = [inbound('tokyo'), inbound('osaka'), inbound('seoul')];
+    mount({
+      listSubscriptionNodes: vi.fn().mockResolvedValue(pool(items)),
+      setSubscriptionNodeOrder: vi.fn(() => saved.promise),
+    });
+    await screen.findByRole('button', { name: 'tokyo' });
+    await moveRight('tokyo', 3);
+    const grid = screen.getByRole('list', { name: 'Nodes' });
+    expect(grid).toHaveAttribute('aria-busy', 'true');
+    const seoul = screen.getByRole('button', { name: 'seoul' });
+    seoul.focus();
+    fireEvent.keyDown(seoul, { key: 'F2', code: 'F2' });
+    expect(seoul).not.toHaveAttribute('data-dragging');
+    saved.resolve(pool([items[1]!, items[0]!, items[2]!]));
+    await waitFor(() => expect(grid).not.toHaveAttribute('aria-busy'));
+    fireEvent.keyDown(seoul, { key: 'F2', code: 'F2' });
+    await waitFor(() => expect(seoul).toHaveAttribute('data-dragging', 'true'));
+    fireEvent.keyDown(seoul, { key: 'Escape', code: 'Escape' });
+    await waitFor(() => expect(seoul).not.toHaveAttribute('data-dragging'));
   });
 
   it('groups unpublished fleet nodes by cause, each opening its configuration', async () => {

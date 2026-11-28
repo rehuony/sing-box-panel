@@ -3,6 +3,7 @@ import type { PropsWithChildren } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import type { CoreLine } from '@/pages/node-logs-page/core-log-lines';
 import type { ApiClient, CoreLogChunk, CoreLogFile } from '@/api/api-client';
 
 import { deferred } from '@/tests/deferred';
@@ -13,6 +14,11 @@ import { useCoreLogs } from '@/pages/node-logs-page/use-core-logs';
 const current = '2026-09-23-000.log';
 const archive = '2026-09-22-000.log';
 const files = [current, archive].map((name) => ({ name, size: 32, updated_at: '2026-09-23T00:00:00Z', deletable: name === archive }));
+
+/** The text of the lines the log shows. */
+function shown({ lines }: { lines: readonly CoreLine[] }) {
+  return lines.map(line => `${line.prefix}${line.message}`);
+}
 
 function show(client: ApiClient) {
   return renderHook(useCoreLogs, {
@@ -45,10 +51,10 @@ describe('core log file lifecycle', () => {
     latest = next;
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(result.current.file).toBe(current);
-    expect(result.current.text).toBe(current);
+    expect(shown(result.current)).toEqual([current]);
     expect(client.streamCoreLog).toHaveBeenCalledTimes(1);
     await act(async () => result.current.setPaused(false));
-    expect(result.current.text).toBe(next);
+    expect(shown(result.current)).toEqual([next]);
     expect(client.streamCoreLog).toHaveBeenLastCalledWith(next, -1, '', expect.any(AbortSignal));
   });
 
@@ -77,12 +83,12 @@ describe('core log file lifecycle', () => {
     latest = next;
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(result.current.file).toBe(next);
-    expect(result.current.text).toBe('');
+    expect(shown(result.current)).toEqual([]);
     expect(client.streamCoreLog.mock.calls[0][3]?.aborted).toBe(true);
     await act(async () => append.resolve());
-    expect(result.current.text).toBe('new');
+    expect(shown(result.current)).toEqual(['new']);
     await act(async () => result.current.selectFile(current));
-    expect(result.current.text).toBe('old');
+    expect(shown(result.current)).toEqual(['old']);
     expect(client.readCoreLog).toHaveBeenCalledWith(current, -1, '', expect.any(AbortSignal));
   });
 
@@ -110,12 +116,12 @@ describe('core log file lifecycle', () => {
     });
     expect(client.streamCoreLog.mock.calls[0][3]?.aborted).toBe(true);
     await act(async () => queued.resolve());
-    expect(result.current.text).toBe('old');
+    expect(shown(result.current)).toEqual(['old']);
     await act(async () => {
       cleared.resolve();
       await clearing;
     });
-    expect(result.current.text).toBe('');
+    expect(shown(result.current)).toEqual([]);
     expect(client.streamCoreLog).toHaveBeenLastCalledWith(current, 0, '', expect.any(AbortSignal));
   });
 
@@ -134,7 +140,7 @@ describe('core log file lifecycle', () => {
     await act(async () => {
       await expect(result.current.clear(current)).rejects.toThrow('clear failed');
     });
-    expect(result.current.text).toBe('old');
+    expect(shown(result.current)).toEqual(['old']);
     expect(client.streamCoreLog).toHaveBeenLastCalledWith(current, 3, 'old', expect.any(AbortSignal));
   });
 
@@ -155,13 +161,13 @@ describe('core log file lifecycle', () => {
     else await waitFor(() => expect(first.result.current.file).not.toBe(''));
     act(() => first.result.current.setPaused(true));
     await act(() => first.result.current.clear(current));
-    expect(first.result.current.text).toBe('');
+    expect(shown(first.result.current)).toEqual([]);
     expect(first.result.current.paused).toBe(true);
     first.unmount();
     const second = show(client);
     if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
     else await waitFor(() => expect(second.result.current.file).not.toBe(''));
-    expect(second.result.current.text).toBe('');
+    expect(shown(second.result.current)).toEqual([]);
   });
 
   it('retains selection on deletion failure and handles deletion of the last file', async () => {
@@ -236,9 +242,9 @@ describe('core log clear requests', () => {
       }),
     });
     const { result } = show(client);
-    await waitFor(() => expect(result.current.text).toBe('INFO old\n'));
+    await waitFor(() => expect(shown(result.current)).toEqual(['INFO old']));
     await act(async () => release());
-    expect(result.current.text).toBe('INFO new after external clear\n');
+    expect(shown(result.current)).toEqual(['INFO new after external clear']);
     expect(client.clearCoreLog).not.toHaveBeenCalled();
   });
 
@@ -261,7 +267,7 @@ describe('core log clear requests', () => {
       const { result, unmount } = show(client);
       if (vi.isFakeTimers()) await act(() => vi.advanceTimersByTimeAsync(1));
       else await waitFor(() => expect(result.current.file).not.toBe(''));
-      expect(result.current.text).toBe('INFO old\n');
+      expect(shown(result.current)).toEqual(['INFO old']);
       if (mode === 'resume') {
         act(() => result.current.setPaused(true));
         await act(async () => result.current.setPaused(false));
@@ -269,7 +275,7 @@ describe('core log clear requests', () => {
         await act(() => vi.advanceTimersByTimeAsync(2000));
       }
       expect(client.streamCoreLog).toHaveBeenLastCalledWith(current, 9, 'old', expect.any(AbortSignal));
-      expect(result.current.text).toBe('INFO new after external clear\n');
+      expect(shown(result.current)).toEqual(['INFO new after external clear']);
       unmount();
     } finally {
       vi.useRealTimers();
@@ -300,12 +306,12 @@ describe('core log clear requests', () => {
     expect(vi.mocked(client.readCoreLog).mock.calls[0][3]?.aborted).toBe(true);
     expect(client.readCoreLog).toHaveBeenLastCalledWith(archive, 0, '', expect.any(AbortSignal));
     await act(async () => finishRead({ file: archive, text: 'INFO stale history\n', size: 32, generation: 'test-generation', next_offset: 32 }));
-    expect(result.current.text).toBe('');
+    expect(shown(result.current)).toEqual([]);
     act(() => result.current.selectFile(current));
     await waitFor(() => expect(result.current.file).toBe(current));
     act(() => result.current.selectFile(archive));
     await waitFor(() => expect(client.readCoreLog).toHaveBeenLastCalledWith(archive, -1, '', expect.any(AbortSignal)));
-    expect(result.current.text).toBe('');
+    expect(shown(result.current)).toEqual([]);
     expect(client.clearCoreLog).toHaveBeenCalledExactlyOnceWith(archive);
   });
 

@@ -313,6 +313,85 @@ func TestPartialRestoreRepairsReferencesToRecordsThatAreGone(t *testing.T) {
 	}
 }
 
+// TestScheduledBackupRestoresHistoryWithoutRawSamples: a scheduled backup
+// holds the history but its raw traffic samples, and restoring that history
+// leaves no raw samples, those taken since the backup included, while the
+// daily traffic and the checkpoint the next delta starts from return as
+// backed up.
+func TestScheduledBackupRestoresHistoryWithoutRawSamples(t *testing.T) {
+	ctx := t.Context()
+	now := time.Date(2026, time.November, 27, 10, 0, 0, 0, time.UTC)
+	day := time.Date(2026, time.November, 27, 0, 0, 0, 0, time.UTC)
+	var node string
+	sample := func(database *store.Store, at time.Time, total int64) {
+		t.Helper()
+		if _, err := database.RecordTrafficSample(ctx, store.TrafficSampleInput{
+			NodeID: node, InstanceID: "instance-a", ActivationBundleID: "bundle-a", PID: 101, ProcessStartToken: "process",
+			PeriodStart: day, PeriodEnd: day.AddDate(0, 1, 0), SampledAt: at, UploadTotal: total, DownloadTotal: 2 * total,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	installation := newPanel(t, 3100, func(database *store.Store) {
+		node = testutil.CreateNode(t, database, "edge")
+		sample(database, now.Add(-2*time.Minute), 100)
+		sample(database, now.Add(-time.Minute), 150)
+	})
+	service := installation.service(now)
+	info, err := service.Create(ctx, CreateOptions{Kind: KindScheduled, Categories: DefaultCategories})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	history := func() string {
+		t.Helper()
+		database, err := store.Open(ctx, filepath.Join(installation.dataDir, store.PanelFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer database.Close()
+		var got string
+		err = database.WithTx(ctx, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(ctx, `SELECT
+                (SELECT count(*) FROM traffic_samples) || '|' ||
+                (SELECT inbound_bytes || '/' || outbound_bytes FROM traffic_days) || '|' ||
+                (SELECT last_upload_total FROM traffic_checkpoint)`).Scan(&got)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	database, err := store.Open(ctx, filepath.Join(installation.dataDir, store.PanelFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample(database, now, 200)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := history(); got != "3|200/100|200" {
+		t.Fatalf("history before the restore = %s", got)
+	}
+	file, err := os.Open(filepath.Join(service.Directory(), info.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := service.Stage(ctx, file, "")
+	_ = file.Close()
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if _, err := service.RequestRestore(ctx, staged.ID, false, []Category{CategoryHistory}); err != nil {
+		t.Fatalf("RequestRestore: %v", err)
+	}
+	if applied, err := ApplyPending(ctx, installation.settingsPath, installation.dataDir); err != nil || applied == nil || applied.Skipped != "" {
+		t.Fatalf("ApplyPending = %+v, %v", applied, err)
+	}
+	if got := history(); got != "0|100/50|150" {
+		t.Fatalf("restored history = %s, want no samples and the backed-up days and checkpoint", got)
+	}
+}
+
 // TestEncryptedBackupRefusesAnAlteredManifest refuses an encrypted backup
 // whose readable manifest no longer matches the one inside its payload.
 func TestEncryptedBackupRefusesAnAlteredManifest(t *testing.T) {

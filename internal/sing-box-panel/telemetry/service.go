@@ -27,7 +27,11 @@ type Service struct {
 
 	dashboardsMu sync.Mutex
 	root         context.Context
-	dashboards   map[string]*Feed[DashboardStreamSnapshot]
+	dashboards   map[string]*dashboard
+
+	// logsMu guards logsRecorded, which the next recorded log entry closes.
+	logsMu       sync.Mutex
+	logsRecorded chan struct{}
 }
 
 // Options supplies a Service's collaborators.
@@ -45,15 +49,16 @@ type Options struct {
 // period and sample retention from panelSettings.
 func New(database *store.Store, panelSettings *settings.Service, options Options) *Service {
 	service := &Service{
-		database:    database,
-		now:         time.Now,
-		random:      rand.Read,
-		logObserver: options.Observe,
-		classify:    options.Classify,
-		settings:    panelSettings,
-		live:        liveNodes{nodes: map[string]*liveNode{}},
-		root:        context.Background(),
-		dashboards:  map[string]*Feed[DashboardStreamSnapshot]{},
+		database:     database,
+		now:          time.Now,
+		random:       rand.Read,
+		logObserver:  options.Observe,
+		classify:     options.Classify,
+		settings:     panelSettings,
+		live:         liveNodes{nodes: map[string]*liveNode{}},
+		root:         context.Background(),
+		dashboards:   map[string]*dashboard{},
+		logsRecorded: make(chan struct{}),
 	}
 	if options.Now != nil {
 		service.now = options.Now
@@ -69,7 +74,7 @@ func (service *Service) Bind(ctx context.Context) {
 	service.dashboardsMu.Lock()
 	defer service.dashboardsMu.Unlock()
 	service.root = ctx
-	for _, feed := range service.dashboards {
-		feed.Bind(ctx)
+	for _, entry := range service.dashboards {
+		entry.feed.Bind(ctx)
 	}
 }

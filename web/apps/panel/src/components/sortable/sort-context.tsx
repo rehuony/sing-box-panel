@@ -2,16 +2,19 @@ import type { ReactNode } from 'react';
 import type { SortingStrategy } from '@dnd-kit/sortable';
 
 import { createPortal } from 'react-dom';
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { rectSortingStrategy, SortableContext, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { useEffect, useMemo, useState } from 'react';
+import { closestCenter, DndContext, DragOverlay } from '@dnd-kit/core';
+import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable';
 
 import { showGrabbing } from './drag-slot';
+import { useSortSensors } from './sort-sensors';
 
 interface Props {
   /** What a drop announces, such as that the order changed. */
   ended: string;
+  /** Refuses new drags, such as while a new order saves, without re-rendering the items. */
+  locked?: boolean;
   children: ReactNode;
   instructions: string;
   /** How the items make room while one drags; by default a grid. */
@@ -26,23 +29,21 @@ interface Props {
  * Sorts a list or grid by dragging with the mouse, a touch or the keyboard:
  * F2 picks an item up and drops it, the arrow keys move it and Escape cancels;
  * a copy follows the pointer above everything while the item leaves its drop
- * slot, and the page shows the grabbing hand until the drag ends.
+ * slot, and the page shows the grabbing hand until the drag ends. Items that
+ * keep their identity across renders keep the sortables beneath from
+ * re-rendering.
  */
 export function SortContext({
-  items, children, ended, instructions, renderOverlay, onMove, onDraggingChange, strategy = rectSortingStrategy,
+  items, children, ended, instructions, locked = false, renderOverlay, onMove, onDraggingChange,
+  strategy = rectSortingStrategy,
 }: Props) {
   const { t } = useTranslation();
   const [active, setActive] = useState<string | null>(null);
   // A drag cut short by leaving the view must not leave the hand closed.
   useEffect(() => () => showGrabbing(false), []);
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-      keyboardCodes: { start: ['F2'], end: ['F2'], cancel: ['Escape'] },
-    }),
-  );
+  const sensors = useSortSensors(locked);
+  // The same IDs while the items stay the same, so the sortables beneath re-render only when they change.
+  const ids = useMemo(() => items.map(item => item.id), [items]);
   const name = (id: string | number) => items.find((item) => item.id === id)?.label ?? '';
   function finish() {
     setActive(null);
@@ -76,7 +77,7 @@ export function SortContext({
         finish();
       }}
     >
-      <SortableContext items={items.map((item) => item.id)} strategy={strategy}>
+      <SortableContext items={ids} strategy={strategy}>
         {children}
       </SortableContext>
       {createPortal(

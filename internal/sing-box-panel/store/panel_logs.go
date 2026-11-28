@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -30,15 +31,17 @@ type LogScope struct {
 	Panel  bool
 }
 
-// clause is the scope's condition on log_entries, or "" for every entry.
+// clause is the scope's condition on log_entries, or "" for every entry. The
+// node_id column, empty for the panel's own entries, has an index for each
+// scope's timeline.
 func (scope LogScope) clause() (string, []any, error) {
 	switch {
 	case scope.Panel && scope.NodeID != "":
 		return "", nil, invalidQuery("a log scope is the panel or one node, not both")
 	case scope.Panel:
-		return "COALESCE(json_extract(metadata_json, '$.node_id'), '') = ''", nil, nil
+		return "node_id = ''", nil, nil
 	case scope.NodeID != "":
-		return "json_extract(metadata_json, '$.node_id') = ?", []any{scope.NodeID}, nil
+		return "node_id = ?", []any{scope.NodeID}, nil
 	}
 	return "", nil, nil
 }
@@ -125,16 +128,15 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	}
 	defer tx.Rollback()
 	result := PanelLogPage{Items: []LogEntry{}}
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM log_entries WHERE `+where, args...).Scan(&result.Total); err != nil {
-		return PanelLogPage{}, fmt.Errorf("count panel logs: %w", err)
-	}
+	countArgs := slices.Clone(args)
+	page := where
 	if filter.Cursor != nil {
-		where += " AND (occurred_at < ? OR (occurred_at = ? AND id < ?))"
+		page += " AND (occurred_at < ? OR (occurred_at = ? AND id < ?))"
 		args = append(args, formatTime(filter.Cursor.Time), formatTime(filter.Cursor.Time), filter.Cursor.ID)
 	}
 	args = append(args, limit+1, filter.Offset)
 	rows, err := tx.QueryContext(ctx, `SELECT id, occurred_at, source, level, code, message, metadata_json
-           FROM log_entries WHERE `+where+` ORDER BY occurred_at DESC, id DESC LIMIT ? OFFSET ?`, args...)
+           FROM log_entries WHERE `+page+` ORDER BY occurred_at DESC, id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return PanelLogPage{}, fmt.Errorf("query panel log: %w", err)
 	}
@@ -149,10 +151,21 @@ func (s *Store) ListPanelLogs(ctx context.Context, filter PanelLogFilter) (Panel
 	if err := rows.Err(); err != nil {
 		return PanelLogPage{}, err
 	}
-	if len(result.Items) > limit {
+	more := len(result.Items) > limit
+	if more {
 		result.Items = result.Items[:limit]
 		last := result.Items[limit-1]
 		result.Next = &LogCursor{Time: last.Time, ID: last.ID}
+	}
+	switch {
+	case filter.Cursor == nil && !more && (len(result.Items) > 0 || filter.Offset == 0):
+		// An offset page that ends the matches, and holds one or starts
+		// them, tells the total without counting.
+		result.Total = filter.Offset + len(result.Items)
+	default:
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM log_entries WHERE `+where, countArgs...).Scan(&result.Total); err != nil {
+			return PanelLogPage{}, fmt.Errorf("count panel logs: %w", err)
+		}
 	}
 	return result, tx.Commit()
 }

@@ -84,22 +84,20 @@ export function PoolNodeCardOverlay({ node }: { node: SubscriptionNode }) {
 interface PoolNodeCardProps {
   /** Where the card sits in the grid; cards past the first screenful paint only near the view. */
   index: number;
-  /** Whether it can be dragged; off while an order saves. */
-  sortable: boolean;
   node: SubscriptionNode;
   onOpen: (node: SubscriptionNode) => void;
 }
 
 /**
  * One pool node, a card of its own in the pool's grid like a fleet pane. The
- * whole card drags with the mouse, a held touch or F2, and its slot stays
- * while it moves; a click, Enter or Space opens its detail.
+ * whole card drags with the mouse, a held touch or F2, unless the pool's sort
+ * context is locked, and its slot stays while it moves; a click, Enter or
+ * Space opens its detail.
  */
-export const PoolNodeCard = memo(({ index, node, onOpen, sortable }: PoolNodeCardProps) => {
+export const PoolNodeCard = memo(({ index, node, onOpen }: PoolNodeCardProps) => {
   const { t } = useTranslation();
   const reducedMotion = usePrefersReducedMotion();
-  const { attributes, isDragging, listeners, setNodeRef, transform, transition }
-    = useSortable({ id: node.id, disabled: !sortable });
+  const { attributes, isDragging, listeners, setNodeRef, transform, transition } = useSortable({ id: node.id });
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;

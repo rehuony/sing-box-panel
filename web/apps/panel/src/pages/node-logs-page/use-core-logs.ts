@@ -72,9 +72,8 @@ export function useCoreLogs(active = true) {
     files,
     file,
     current,
-    text: content.text,
-    /** The sequence number of the first line of text, which row keys follow. */
-    firstLine: content.first,
+    /** The kept lines, parsed as they arrive; each keeps its identity while the buffer moves. */
+    lines: content.lines,
     connected: connected && !paused && !clearing && enabled,
     loading,
     error: error ?? listError,

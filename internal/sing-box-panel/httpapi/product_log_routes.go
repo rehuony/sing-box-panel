@@ -8,7 +8,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -59,8 +61,8 @@ func writeCoreLogProblem(w http.ResponseWriter, r *http.Request, code string, er
 	writeNodeProblem(w, r, code, err)
 }
 
-// readCoreLog reads a node's core log. The stream reads the node again every
-// second until it closes after a minute for the client to reconnect.
+// readCoreLog reads a node's core log. The stream follows the file until it
+// closes after a minute for the client to reconnect.
 func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stream bool) {
 	query, ok := strictCoreQuery(w, r, "file", "offset", "generation")
 	if !ok {
@@ -89,25 +91,44 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 		writeJSON(w, 200, chunk)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), coreLogStreamLifetime)
+	fleetService, file := handler.services.Fleet, chunk.File
+	followCoreLog(r.Context(), w, coreLogKey{fleet: fleetService, nodeID: nodeID, file: file}, chunk,
+		func(ctx context.Context, cursor coreLogCursor) (fleet.CoreLogChunk, error) {
+			return fleetService.ReadCoreLog(ctx, nodeID, file, cursor.offset, cursor.generation)
+		})
+}
+
+// followCoreLog streams first, the stream's own read of the file, even when
+// it is empty, since it opens the stream and gives the client its cursor;
+// then what is appended to the file, from the reads every stream of key
+// shares, or from read when they do not show what follows this stream's
+// cursor, such as after it fell behind them.
+func followCoreLog(
+	ctx context.Context, w http.ResponseWriter, key coreLogKey, first fleet.CoreLogChunk,
+	read func(context.Context, coreLogCursor) (fleet.CoreLogChunk, error),
+) {
+	ctx, cancel := context.WithTimeout(ctx, coreLogStreamLifetime)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
 	events, ok := newEventStream(ctx, w, deadline, maximumSnapshotFrameBytes)
 	if !ok {
 		return
 	}
-	send := func() error {
+	send := func(chunk fleet.CoreLogChunk) error {
 		data, err := json.Marshal(chunk)
 		if err != nil {
 			return err
 		}
 		return events.event("output", data)
 	}
-	if err := send(); err != nil {
+	if err := send(first); err != nil {
 		return
 	}
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	cursor := coreLogCursor{offset: first.NextOffset, generation: first.Generation}
+	reads, leave := coreLogReaders.join(key, cursor, read)
+	defer leave()
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
 	rotation := rotationTimer(coreLogStreamLifetime)
 	defer rotation.Stop()
 	for {
@@ -117,12 +138,26 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 		case <-rotation.C:
 			_ = events.reconnect()
 			return
-		case <-ticker.C:
-			chunk, err = handler.services.Fleet.ReadCoreLog(ctx, nodeID, chunk.File, chunk.NextOffset, chunk.Generation)
-			if err != nil {
+		case <-heartbeat.C:
+			if events.heartbeat() != nil {
 				return
 			}
-			if err := send(); err != nil {
+		case shared := <-reads:
+			if shared.err != nil {
+				return
+			}
+			next, ok := shared.continuation(cursor)
+			if !ok {
+				var err error
+				if next, err = read(ctx, cursor); err != nil {
+					return
+				}
+			}
+			cursor = coreLogCursor{offset: next.NextOffset, generation: next.Generation}
+			if next.Text == "" && !next.Reset {
+				continue
+			}
+			if send(next) != nil {
 				return
 			}
 		}
@@ -132,6 +167,144 @@ func (handler *Handler) readCoreLog(w http.ResponseWriter, r *http.Request, stre
 // coreLogStreamLifetime is how long one core log stream runs before it asks
 // its client to reconnect.
 const coreLogStreamLifetime = time.Minute
+
+// coreLogReadInterval is how often a streamed core log file is read.
+const coreLogReadInterval = time.Second
+
+// coreLogCursor is a position in a node's core log file: a byte offset in
+// one generation of the file.
+type coreLogCursor struct {
+	offset     int64
+	generation string
+}
+
+// coreLogRead is one read of a shared core log reader: the cursor it read
+// from and the chunk the node returned.
+type coreLogRead struct {
+	from  coreLogCursor
+	chunk fleet.CoreLogChunk
+	err   error
+}
+
+// continuation returns the chunk that reading from cursor at the time of the
+// read returns, or the part of it the read holds, and false when the read
+// holds none of what follows cursor. Within a generation the file is only
+// appended to, and a stale generation restarts at zero.
+func (read coreLogRead) continuation(cursor coreLogCursor) (fleet.CoreLogChunk, bool) {
+	chunk := read.chunk
+	if cursor == read.from {
+		return chunk, true
+	}
+	if cursor.generation != chunk.Generation {
+		if chunk.Reset && cursor.generation != "" {
+			// A read in a stale generation restarts at zero, as this one did.
+			return chunk, true
+		}
+		return fleet.CoreLogChunk{}, false
+	}
+	start := read.from.offset
+	if chunk.Reset {
+		start = 0
+	}
+	switch {
+	case cursor.offset >= chunk.NextOffset:
+		// The cursor is past what the read reached: nothing new yet.
+		return fleet.CoreLogChunk{File: chunk.File, NextOffset: cursor.offset, Size: chunk.Size, Generation: chunk.Generation}, true
+	case cursor.offset < start:
+		return fleet.CoreLogChunk{}, false
+	}
+	// The text is the file's bytes from start unless the node replaced
+	// invalid UTF-8; only then does an offset into the file index it.
+	if strings.ContainsRune(chunk.Text, utf8.RuneError) || int64(len(chunk.Text)) != chunk.NextOffset-start {
+		return fleet.CoreLogChunk{}, false
+	}
+	return fleet.CoreLogChunk{
+		File: chunk.File, Text: strings.ToValidUTF8(chunk.Text[cursor.offset-start:], string(utf8.RuneError)),
+		NextOffset: chunk.NextOffset, Size: chunk.Size, Generation: chunk.Generation,
+	}, true
+}
+
+// coreLogKey names one node's core log file as one fleet reaches it.
+type coreLogKey struct {
+	fleet  *fleet.Service
+	nodeID string
+	file   string
+}
+
+// coreLogReaders shares one reader per streamed core log file. A reader runs
+// while a stream follows its file and is dropped with the last one.
+var coreLogReaders = coreLogRegistry{readers: map[coreLogKey]*coreLogReader{}}
+
+type coreLogRegistry struct {
+	mu      sync.Mutex
+	readers map[coreLogKey]*coreLogReader
+}
+
+// coreLogReader reads one file every coreLogReadInterval and hands each
+// stream the newest read; a stream that misses one reads for itself.
+type coreLogReader struct {
+	streams map[chan coreLogRead]struct{}
+	stop    context.CancelFunc
+}
+
+// join follows key with the streams already following it, or starts a reader
+// from cursor with read, and returns the reads and a function that leaves.
+func (registry *coreLogRegistry) join(
+	key coreLogKey, cursor coreLogCursor, read func(context.Context, coreLogCursor) (fleet.CoreLogChunk, error),
+) (<-chan coreLogRead, func()) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	reader := registry.readers[key]
+	if reader == nil {
+		ctx, stop := context.WithCancel(context.Background())
+		reader = &coreLogReader{streams: map[chan coreLogRead]struct{}{}, stop: stop}
+		registry.readers[key] = reader
+		go registry.run(ctx, reader, cursor, read)
+	}
+	reads := make(chan coreLogRead, 1)
+	reader.streams[reads] = struct{}{}
+	var once sync.Once
+	return reads, func() {
+		once.Do(func() {
+			registry.mu.Lock()
+			defer registry.mu.Unlock()
+			delete(reader.streams, reads)
+			if len(reader.streams) == 0 {
+				reader.stop()
+				delete(registry.readers, key)
+			}
+		})
+	}
+}
+
+func (registry *coreLogRegistry) run(ctx context.Context, reader *coreLogReader, cursor coreLogCursor, read func(context.Context, coreLogCursor) (fleet.CoreLogChunk, error)) {
+	ticker := time.NewTicker(coreLogReadInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		chunk, err := read(ctx, cursor)
+		if ctx.Err() != nil {
+			return
+		}
+		result := coreLogRead{from: cursor, chunk: chunk, err: err}
+		if err == nil {
+			cursor = coreLogCursor{offset: chunk.NextOffset, generation: chunk.Generation}
+		}
+		registry.mu.Lock()
+		for reads := range reader.streams {
+			select {
+			case <-reads:
+			default:
+			}
+			reads <- result
+		}
+		registry.mu.Unlock()
+	}
+}
 
 // Covers all 256 codes of 128 bytes even when every byte is percent-encoded,
 // plus the other filters. Other endpoints retain their existing query limit.

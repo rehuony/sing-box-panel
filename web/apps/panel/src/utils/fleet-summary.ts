@@ -153,16 +153,18 @@ export function attentionItems(items: readonly NodeStatus[]): Attention[] {
   return found.sort((first, second) => order.indexOf(first.kind) - order.indexOf(second.kind));
 }
 
-/** The fleet's own values the backdrop mixes into its text. */
-export function fleetWords(items: readonly NodeStatus[], formatRate: (value: number) => string): string[] {
+/**
+ * The fleet's own values the backdrop mixes into its text: names, hosts,
+ * addresses, platforms and versions. Live readings stay out; each new set of
+ * words rewrites a burst of glyphs, which a rate would set off every frame.
+ */
+export function fleetWords(items: readonly NodeStatus[]): string[] {
   const words = new Set<string>();
-  for (const { metrics, node } of items) {
+  for (const { node } of items) {
     for (const value of [node.name, node.hostname, node.public_ip, node.build_version, `${node.os}/${node.arch}`,
       node.runtime?.enabled_core?.exact_core_version]) {
       if (value) words.add(value);
     }
-    const rate = metrics.live_sample?.download_bytes_per_second;
-    if (typeof rate === 'number' && rate > 0) words.add(formatRate(rate));
   }
   return [...words];
 }

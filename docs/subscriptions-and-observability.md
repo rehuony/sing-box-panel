@@ -178,6 +178,8 @@ fleet node whose public host is not known keeps its nodes the same way, as
 `PUT /subscription/node-order` takes every current ID exactly once. A different
 set means the pool was synchronized since it was read and answers 409; the UI
 then reloads the pool. Otherwise the last saved order wins.
+`GET /subscription/nodes` sends an `ETag` digest of its body, so a client holding
+an unchanged list gets `304`.
 
 ### Fleet inbounds
 
@@ -769,7 +771,9 @@ lists the panel log and `/api/v1/fleet/runtime/history` the runtime states.
 Each initial file read loads the last 64 KiB; the browser retains at most 2,000
 lines and searches/filters only this buffer. File lists refresh every 10 seconds
 without overlapping requests and refresh when the page becomes visible again;
-the output stream checks for appended content every second. Core capture
+the output stream checks for appended content every second, with one read of
+the file for all its streams, and sends only new output, with a heartbeat
+comment every ten seconds while the file is quiet. Core capture
 retention applies only to sing-box capture files; the panel log and runtime
 states are described under [Durable logs](#durable-logs).
 The neutral status dot and icon buttons float over the output in the same softly
@@ -850,7 +854,9 @@ reads the service journal.
 `Last-Event-ID` for reconnection. Like the other streams it ends within a
 minute with a `control` event of type `reconnect`, so a client reconnects and
 authenticates again; `Last-Event-ID` resumes it after the last entry it
-received. Each write has its own deadline.
+received. Each write has its own deadline. The stream reads new entries when
+the panel records one, at most twice a second, and every five seconds for the
+entries another process, such as the command line, records.
 
 The panel log is stored in `logs.db` beside `panel.db` and is kept until it is
 cleared. An entry is about a node when its metadata names the node's
@@ -940,7 +946,11 @@ latest pending snapshot, and cannot stall collection or grow an event backlog.
 The Dashboard owns this subscription; other routes do not query historical data.
 Each event includes the node's one-hour / 24-hour histories, each starting on the
 whole minute or five minutes at or before its length ago so that a refresh
-changes only the newest bucket, runtime transitions,
+changes only the newest bucket and those that samples or runtime transitions
+recorded since reach; a refresh reads just those and keeps the other closed
+buckets, and removing samples or transitions, by retention or with the node,
+makes the next refresh read every bucket. A node's projection is dropped a
+minute after its last viewer leaves. Each event also carries the runtime transitions,
 its two most recent activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
 overlapping connection-chart tails when history catches up. Live tails are bounded to 120
@@ -1139,7 +1149,7 @@ from a reset event, and a stream that stays down hands over to one
 `/fleet/status` read.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
-is initialized to 90 and accepts 1 through 366 days. A settings file without
+is initialized to 7 and accepts 1 through 366 days. A settings file without
 the field is rejected. The server removes expired raw samples during startup
 and every 24 hours, and rechecks immediately after a Web settings save, in
 small batches so arriving samples are not held up. Daily and traffic period
@@ -1204,7 +1214,10 @@ authentication and request boundaries.
 ### Reverse proxy streaming
 
 Nginx must pass the event stream without response buffering (see the
-[official buffering documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)).
+[official buffering documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)),
+and should serve browsers over HTTP/2, as
+[Behind Nginx](configuration-and-runtime.md#behind-nginx) shows, so open
+streams do not use up the browser's connections.
 The application emits `X-Accel-Buffering: no`; avoid configurations that ignore
 that header. A dedicated API location can also set:
 

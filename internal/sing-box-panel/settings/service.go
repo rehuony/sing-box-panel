@@ -18,6 +18,9 @@ type Service struct {
 	settingsPath string
 	now          func() time.Time
 	random       func([]byte) (int, error)
+	// credentials holds the credentials parsed from the settings document
+	// CurrentCredentials last read.
+	credentials credentialMemo
 }
 
 // NewService serves the settings file at path, started with value. An empty

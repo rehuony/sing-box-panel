@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/rehuony/sing-box-panel/internal/database"
 )
@@ -32,7 +33,8 @@ const (
 	CategoryRuleSets Category = "rule_sets"
 	// CategoryKeys is the subscription keys and their users and grants.
 	CategoryKeys Category = "keys"
-	// CategoryHistory is the nodes' traffic and runtime records.
+	// CategoryHistory is the nodes' traffic and runtime records. A snapshot
+	// may hold it without the raw traffic samples.
 	CategoryHistory Category = "history"
 )
 
@@ -46,8 +48,12 @@ var categoryTables = map[Category][]string{
 	CategorySubscriptions: {"subscription_sources", "subscription_nodes", "subscription_channels", "subscription_channel_groups", "subscription_channel_members", "subscription_channel_routes"},
 	CategoryRuleSets:      {"subscription_rule_sets"},
 	CategoryKeys:          {"subscription_users", "subscription_user_grants", "subscription_tokens", "subscription_token_secrets"},
-	CategoryHistory:       {"runtime_transitions", "traffic_samples", "traffic_checkpoint", "traffic_days", "traffic_periods"},
+	CategoryHistory:       {"runtime_transitions", trafficSamplesTable, "traffic_checkpoint", "traffic_days", "traffic_periods"},
 }
+
+// trafficSamplesTable holds the raw traffic samples, which make up most of
+// the panel database of a reporting fleet.
+const trafficSamplesTable = "traffic_samples"
 
 // installationTables belong to one installation and are never backed up or
 // restored: sign-ins, interrupted moves and saves, and the release catalog and
@@ -84,15 +90,17 @@ type SnapshotCounts struct {
 
 // Snapshot writes into dir the panel database of dataDir with only the
 // categories given, when any is, and with logs the log database, each under
-// its own name. It never holds installation tables, and it is rebuilt after
-// leaving parts out so that their records do not linger in free pages. While
-// the panel runs it reads through read-only connections; while it is stopped
-// the caller holds its lease.
-func Snapshot(ctx context.Context, dataDir, dir string, categories []Category, includeLogs bool) (SnapshotInfo, error) {
+// its own name. withoutSamples leaves the raw traffic samples out of the
+// history category, which keeps its daily traffic, periods and runtime
+// records. It never holds installation tables, and nothing it leaves out
+// stays readable in its file. While the panel runs it reads through
+// read-only connections; while it is stopped the caller holds its lease.
+func Snapshot(ctx context.Context, dataDir, dir string, categories []Category, includeLogs, withoutSamples bool) (SnapshotInfo, error) {
 	panelID := ""
 	if len(categories) > 0 {
 		panel := filepath.Join(dir, PanelFile)
-		if err := database.Snapshot(ctx, filepath.Join(dataDir, PanelFile), panel); err != nil {
+		fresh, err := database.Snapshot(ctx, filepath.Join(dataDir, PanelFile), panel)
+		if err != nil {
 			return SnapshotInfo{}, fmt.Errorf("snapshot panel database: %w", err)
 		}
 		left := slices.Clone(installationTables)
@@ -101,13 +109,15 @@ func Snapshot(ctx context.Context, dataDir, dir string, categories []Category, i
 				left = append(left, categoryTables[category]...)
 			}
 		}
-		var err error
-		if panelID, err = leaveOut(ctx, panel, left); err != nil {
+		if withoutSamples && !slices.Contains(left, trafficSamplesTable) {
+			left = append(left, trafficSamplesTable)
+		}
+		if panelID, err = leaveOut(ctx, panel, left, fresh); err != nil {
 			return SnapshotInfo{}, fmt.Errorf("leave unselected records out of the snapshot: %w", err)
 		}
 	}
 	if includeLogs {
-		if err := database.Snapshot(ctx, filepath.Join(dataDir, LogsFile), filepath.Join(dir, LogsFile)); err != nil {
+		if _, err := database.Snapshot(ctx, filepath.Join(dataDir, LogsFile), filepath.Join(dir, LogsFile)); err != nil {
 			return SnapshotInfo{}, fmt.Errorf("snapshot log database: %w", err)
 		}
 	}
@@ -118,28 +128,97 @@ func Snapshot(ctx context.Context, dataDir, dir string, categories []Category, i
 	return info, err
 }
 
-// leaveOut empties tables in the snapshot at path and rebuilds it, returning
-// the panel identity it held first.
-func leaveOut(ctx context.Context, path string, tables []string) (panelID string, err error) {
+// leaveOut empties tables in the snapshot at path so that none of their
+// records stays readable in the file, returning the panel identity it held
+// first. A fresh copy zeroes the pages it frees. A copy of the file as it
+// is, whose free space holds what the panel deleted before, is rebuilt, and
+// so is one that leaves out the raw traffic samples: rebuilding writes only
+// what remains, where zeroing would write every page they took.
+func leaveOut(ctx context.Context, path string, tables []string, fresh bool) (panelID string, err error) {
 	db, err := database.OpenFile(path, false)
 	if err != nil {
 		return "", err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
-	if err := db.QueryRowContext(ctx, `SELECT coalesce((SELECT panel_id FROM fleet_identity), '')`).Scan(&panelID); err != nil {
+	// The pragmas hold for this connection alone.
+	conn, err := db.Conn(ctx)
+	if err != nil {
 		return "", err
 	}
+	defer func() { err = errors.Join(err, conn.Close()) }()
+	if err := conn.QueryRowContext(ctx, `SELECT coalesce((SELECT panel_id FROM fleet_identity), '')`).Scan(&panelID); err != nil {
+		return "", err
+	}
+	rebuild := !fresh || slices.Contains(tables, trafficSamplesTable)
 	// Each table is emptied as it is; a restore repairs references across categories.
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
-		return "", err
+	pragmas := []string{`PRAGMA foreign_keys = OFF`}
+	if !rebuild {
+		pragmas = append(pragmas, `PRAGMA secure_delete = ON`)
 	}
-	for _, table := range tables {
-		if _, err := db.ExecContext(ctx, `DELETE FROM "`+table+`"`); err != nil {
+	for _, pragma := range pragmas {
+		if _, err := conn.ExecContext(ctx, pragma); err != nil {
 			return "", err
 		}
 	}
-	_, err = db.ExecContext(ctx, `VACUUM`)
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// A table with a delete trigger is emptied row by row, which leaves
+	// pieces of its indexes behind; without its triggers it is emptied page
+	// by page, and they return after.
+	triggers, err := tableTriggers(ctx, tx, tables)
+	if err != nil {
+		return "", err
+	}
+	for name := range triggers {
+		if _, err := tx.ExecContext(ctx, `DROP TRIGGER "`+name+`"`); err != nil {
+			return "", err
+		}
+	}
+	for _, table := range tables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+table+`"`); err != nil {
+			return "", err
+		}
+	}
+	for _, statement := range triggers {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return "", err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	if rebuild {
+		_, err = conn.ExecContext(ctx, `VACUUM`)
+	}
 	return panelID, err
+}
+
+// tableTriggers are the triggers on tables, each name with the statement
+// that creates it.
+func tableTriggers(ctx context.Context, tx *sql.Tx, tables []string) (map[string]string, error) {
+	placeholders := make([]string, len(tables))
+	args := make([]any, len(tables))
+	for index, table := range tables {
+		placeholders[index], args[index] = "?", table
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT name, sql FROM sqlite_schema
+        WHERE type = 'trigger' AND tbl_name IN (`+strings.Join(placeholders, ", ")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	triggers := make(map[string]string)
+	for rows.Next() {
+		var name, statement string
+		if err := rows.Scan(&name, &statement); err != nil {
+			return nil, err
+		}
+		triggers[name] = statement
+	}
+	return triggers, rows.Err()
 }
 
 // InspectSnapshot verifies the databases in dir, as Snapshot writes them or a

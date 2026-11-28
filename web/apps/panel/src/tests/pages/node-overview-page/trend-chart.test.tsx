@@ -125,6 +125,23 @@ describe('chart details', () => {
     expect(UPlot).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps its plot through writes to the root that leave its colours alone', async () => {
+    const root = document.documentElement;
+    render(<TrendChart chart={trendChartData(testMetricsHistory, 'traffic', [])} kind='traffic' />);
+    try {
+      // A menu's or dialog's scroll lock writes the root's style.
+      root.style.setProperty('scrollbar-gutter', 'stable');
+      await act(() => Promise.resolve());
+      expect(UPlot).toHaveBeenCalledTimes(1);
+
+      root.style.setProperty('--chart-1', '#0b7189');
+      await waitFor(() => expect(UPlot).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(UPlot).mock.calls[1]![0].series[1]!.stroke).toBe('#0b7189');
+    } finally {
+      root.removeAttribute('style');
+    }
+  });
+
   it('steps a live window of fixed length one second at a time on the node\'s clock', () => {
     vi.useFakeTimers({ now: 10_400, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     try {

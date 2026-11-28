@@ -103,7 +103,8 @@ function windowsOf({ scope }: ShellScopeState): WindowEntry[] {
  */
 function CommandAction({ className, controls }: { className?: string; controls: string }) {
   const { t } = useTranslation();
-  const { open, setOpen } = useCommandSession();
+  const open = useCommandSession(state => state.open);
+  const setOpen = useCommandSession(state => state.setOpen);
   return (
     <Tooltip>
       <TooltipTrigger
@@ -279,12 +280,13 @@ function SignOutAction() {
 /** With panes selected on the home screen, the selection takes the scope's and windows' place. */
 function Selection({ compact = false, nodes }: { compact?: boolean; nodes: readonly NodeStatus[] }) {
   const { t } = useTranslation();
-  const { clearSelection, select, visible } = useFleetView();
+  const clearSelection = useFleetView(state => state.clearSelection);
+  const select = useFleetView(state => state.select);
   const count = nodes.length;
   return (
     <div aria-label={t('shell.selection.count', { count })} className='flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]' role='group'>
       <span className='flex-none px-2 whitespace-nowrap text-foreground tabular-nums'>{t('shell.selection.count', { count })}</span>
-      <Button className='font-[family-name:var(--font-body)]' onClick={() => select(visible)} size='xs' variant='ghost'>
+      <Button className='font-[family-name:var(--font-body)]' onClick={() => select(useFleetView.getState().visible)} size='xs' variant='ghost'>
         {t('shell.selection.selectAll')}
       </Button>
       <Button className='font-[family-name:var(--font-body)]' onClick={clearSelection} size='xs' variant='ghost'>

@@ -149,6 +149,26 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 	if app.settingsPath == "" {
 		return PanelSettingsSaveResult{}, errors.New("panel settings file path is required")
 	}
+	// A new password is compared and hashed before the lock, against the hash
+	// saved now, so the slow hashing holds up no other settings reader or
+	// writer; under the lock the save refuses as a conflict when that hash has
+	// changed since.
+	var checkedHash, newHash string
+	if credentials := input.Credentials; credentials != nil && credentials.NewPassword != "" {
+		var err error
+		if _, checkedHash, err = app.CurrentCredentials(ctx); err != nil {
+			return PanelSettingsSaveResult{}, err
+		}
+		same, err := webauth.VerifyPassword(ctx, credentials.NewPassword, checkedHash)
+		if err != nil {
+			return PanelSettingsSaveResult{}, err
+		}
+		if !same {
+			if newHash, err = webauth.HashPassword(ctx, credentials.NewPassword); err != nil {
+				return PanelSettingsSaveResult{}, err
+			}
+		}
+	}
 	lock, err := settingsfile.Lock(ctx, app.settingsPath)
 	if err != nil {
 		return PanelSettingsSaveResult{}, err
@@ -189,15 +209,11 @@ func (app *Service) SavePanelSettings(ctx context.Context, input PanelSettingsWr
 			value.Auth.Email = email
 		}
 		if credentials.NewPassword != "" {
-			same, err := webauth.VerifyPassword(ctx, credentials.NewPassword, value.Auth.PasswordHash)
-			if err != nil {
-				return PanelSettingsSaveResult{}, err
+			if value.Auth.PasswordHash != checkedHash {
+				return PanelSettingsSaveResult{}, store.ErrPanelSettingsConflict
 			}
-			if !same {
-				value.Auth.PasswordHash, err = webauth.HashPassword(ctx, credentials.NewPassword)
-				if err != nil {
-					return PanelSettingsSaveResult{}, err
-				}
+			if newHash != "" {
+				value.Auth.PasswordHash = newHash
 				credentialsChanged = true
 			}
 		}

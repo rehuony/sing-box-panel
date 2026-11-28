@@ -93,6 +93,10 @@ func TestSessionsPersistAcrossDatabaseReopenAndExpire(t *testing.T) {
 
 type fixedCredentials struct{ email, hash string }
 
+func (credentials fixedCredentials) CurrentCredentials(context.Context) (string, string, error) {
+	return credentials.email, credentials.hash, nil
+}
+
 func (credentials fixedCredentials) WithCredentials(_ context.Context, action func(string, string) error) error {
 	return action(credentials.email, credentials.hash)
 }

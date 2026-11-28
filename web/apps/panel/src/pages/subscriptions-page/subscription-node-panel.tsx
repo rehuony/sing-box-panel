@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react';
+
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -13,7 +15,6 @@ import { queries } from '@/api/queries';
 import { nodePath } from '@/utils/node-path';
 import { ApiRequestError } from '@/api/api-client';
 import { compareText } from '@/utils/compare-text';
-import { SortContext } from '@/components/sortable';
 import { useApiClient } from '@/api/api-client-context';
 import { RegionError } from '@/components/region-state';
 import { SelectField } from '@/components/select-field';
@@ -21,6 +22,7 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError } from '@/components/error-notice';
 import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
+import { SortContext, useDraggedId, useSortWindow } from '@/components/sortable';
 import { StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 
 import type { IssueItem } from './issue-list';
@@ -87,13 +89,43 @@ function PoolDiagnostics({ diagnostics, publications }: {
 }
 
 /**
+ * The pool's cards in their grid: every card of a small pool, and of a large
+ * one the cards near the view and the one being dragged.
+ */
+function PoolGrid({ nodes, onOpen, saving, ...handlers }: {
+  nodes: readonly SubscriptionNode[];
+  saving: boolean;
+  onOpen: (node: SubscriptionNode) => void;
+} & Pick<ComponentProps<'ul'>, 'onClickCapture' | 'onKeyDownCapture' | 'onPointerDownCapture'>) {
+  const { t } = useTranslation();
+  const ids = useMemo(() => nodes.map(node => node.id), [nodes]);
+  const { ref, slots, style } = useSortWindow(ids, useDraggedId());
+  return (
+    <ul
+      aria-busy={saving || undefined}
+      aria-label={t('subscriptions.tabs.nodes')}
+      className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'
+      data-slot='pool-node-grid'
+      ref={ref}
+      style={style}
+      {...handlers}
+    >
+      {slots.map(slot => (typeof slot === 'number'
+        ? <PoolNodeCard index={slot} key={nodes[slot]!.id} node={nodes[slot]!} onOpen={onOpen} />
+        : <li key='gap' {...slot} />))}
+    </ul>
+  );
+}
+
+/**
  * The subscription node pool beside the rail of its origins: every node, the
  * fleet's inbounds, then each source, which the rail adds, refreshes and
- * edits. The pool shows as a grid of panes in its saved order, unpaged,
- * filtered by the rail's origin and the strip's protocol and search. A drop
- * saves the whole pool's new order; while it saves the pending order shows,
- * here or after coming back, and a pool that changed meanwhile is read
- * again. A click opens a node's detail.
+ * edits. The pool shows as a grid of panes in its saved order, unpaged and
+ * drawn near the view, filtered by the rail's origin and the strip's
+ * protocol and search. A drop saves the whole pool's new order; while it
+ * saves the pending order shows, here or after coming back, no card drags,
+ * and a pool that changed meanwhile is read again. A click opens a node's
+ * detail.
  */
 export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
   active?: boolean;
@@ -171,6 +203,7 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
     && (protocolValue === ALL_PROTOCOLS || node.protocol === protocolValue)
     && matchesNode(node, query)), [ordered, originValue, protocolValue, query]);
   const byID = useMemo(() => new Map(ordered.map(node => [node.id, node])), [ordered]);
+  const sortItems = useMemo(() => shown.map(node => ({ id: node.id, label: node.display_name })), [shown]);
 
   function move(activeID: string, overID: string) {
     if (saving) return;
@@ -195,7 +228,8 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
         <SortContext
           ended={t('channels.nodeDragEnd')}
           instructions={t('subscriptions.pool.dragInstructions')}
-          items={shown.map(node => ({ id: node.id, label: node.display_name }))}
+          items={sortItems}
+          locked={saving}
           onDraggingChange={(dragging) => {
             draggingRef.current = dragging;
             if (dragging) suppressClickRef.current = true;
@@ -206,11 +240,8 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
             return node ? <PoolNodeCardOverlay node={node} /> : null;
           }}
         >
-          <ul
-            aria-busy={saving || undefined}
-            aria-label={t('subscriptions.tabs.nodes')}
-            className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'
-            data-slot='pool-node-grid'
+          <PoolGrid
+            nodes={shown}
             onClickCapture={(event) => {
               if (!suppressClickRef.current) return;
               event.preventDefault();
@@ -219,14 +250,12 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
             onKeyDownCapture={(event) => {
               if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
             }}
+            onOpen={setOpened}
             onPointerDownCapture={() => {
               if (!draggingRef.current) suppressClickRef.current = false;
             }}
-          >
-            {shown.map((node, index) => (
-              <PoolNodeCard index={index} key={node.id} node={node} onOpen={setOpened} sortable={!saving} />
-            ))}
-          </ul>
+            saving={saving}
+          />
         </SortContext>
       </ScrollArea>
     );

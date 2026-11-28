@@ -95,6 +95,8 @@ func (service *Service) ensureDirectory() (string, error) {
 
 // CreateOptions describe one backup.
 type CreateOptions struct {
+	// Kind is why the backup is made; a scheduled one holds its history
+	// without the raw traffic samples.
 	Kind Kind
 	// Categories are what the backup holds.
 	Categories []Category
@@ -138,7 +140,8 @@ func (service *Service) create(ctx context.Context, options CreateOptions) (Info
 			return Info{}, err
 		}
 	}
-	snapshot, err := store.Snapshot(ctx, service.options.DataDir, staging, databaseCategories(categories), slices.Contains(categories, CategoryLogs))
+	snapshot, err := store.Snapshot(ctx, service.options.DataDir, staging, databaseCategories(categories),
+		slices.Contains(categories, CategoryLogs), options.Kind == KindScheduled)
 	if err != nil {
 		return Info{}, err
 	}

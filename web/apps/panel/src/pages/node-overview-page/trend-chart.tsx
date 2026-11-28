@@ -1,5 +1,6 @@
 import UPlot from 'uplot';
 import { useTranslation } from 'react-i18next';
+import { numberFormat } from '@shared/lib/telemetry-format';
 import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import type { TrendChartData } from './trend-chart-data';
@@ -9,6 +10,25 @@ import 'uplot/dist/uPlot.min.css';
 
 /** Steps between the connection axis's labels: whole connections only. */
 const connectionSteps = Array.from({ length: 10 }, (_, power) => [1, 2, 5].map(step => step * 10 ** power)).flat();
+
+/** The tokens the charts paint with. */
+interface ChartColors {
+  axis: string;
+  grid: string;
+  upload: string;
+  download: string;
+}
+
+function readChartColors(): ChartColors {
+  const style = getComputedStyle(document.documentElement);
+  const color = (name: string) => style.getPropertyValue(name).trim();
+  return { axis: color('--muted-foreground'), download: color('--chart-1'), grid: color('--border'), upload: color('--chart-2') };
+}
+
+function sameColors(first: ChartColors, second: ChartColors): boolean {
+  return first.axis === second.axis && first.grid === second.grid
+    && first.download === second.download && first.upload === second.upload;
+}
 
 /**
  * How far the node's clock runs ahead of this one, estimated from its
@@ -80,11 +100,11 @@ export function TrendChart({
     const time = new Intl.DateTimeFormat(i18n.language, {
       hour: '2-digit', minute: '2-digit', ...(live ? { second: '2-digit' } as const : {}),
     });
+    const amount = numberFormat(i18n.language, { maximumFractionDigits: 3, notation: 'compact' });
+    let colors = readChartColors();
     function create() {
       plotRef.current?.destroy();
       plotRef.current = null;
-      const style = getComputedStyle(document.documentElement);
-      const color = (name: string) => style.getPropertyValue(name).trim();
       // Monotone cubic curves follow the samples without overshooting them,
       // so a rate never dips below zero between two.
       const smooth = UPlot.paths.spline?.();
@@ -111,7 +131,7 @@ export function TrendChart({
               size: 20,
               gap: 4,
               space: 85,
-              stroke: color('--muted-foreground'),
+              stroke: colors.axis,
               grid: { show: false },
               ticks: { show: false },
               font: '11px sans-serif',
@@ -126,17 +146,11 @@ export function TrendChart({
               gap: 4,
               space: 55,
               ...(kind === 'connections' ? { incrs: connectionSteps } : {}),
-              stroke: color('--muted-foreground'),
+              stroke: colors.axis,
               ticks: { show: false },
-              grid: { stroke: color('--border'), width: 1 },
+              grid: { stroke: colors.grid, width: 1 },
               font: '11px sans-serif',
-              values: (_plot, splits) =>
-                splits.map((value) =>
-                  new Intl.NumberFormat(i18n.language, {
-                    maximumFractionDigits: 3,
-                    notation: 'compact',
-                  }).format(value),
-                ),
+              values: (_plot, splits) => splits.map(value => amount.format(value)),
             },
           ],
           series: [
@@ -145,9 +159,9 @@ export function TrendChart({
               label: t(
                 kind === 'traffic' ? 'dashboard.trend.download' : 'dashboard.trend.connections',
               ),
-              stroke: color('--chart-1'),
+              stroke: colors.download,
               // Keep the grid visible through the fill instead of tinting it with an opaque surface color.
-              fill: `color-mix(in srgb, ${color('--chart-1')} 8%, transparent)`,
+              fill: `color-mix(in srgb, ${colors.download} 8%, transparent)`,
               width: 2,
               paths: smooth,
               spanGaps: false,
@@ -157,7 +171,7 @@ export function TrendChart({
               ? [
                   {
                     label: t('dashboard.trend.upload'),
-                    stroke: color('--chart-2'),
+                    stroke: colors.upload,
                     width: 1.7,
                     paths: smooth,
                     spanGaps: false,
@@ -209,7 +223,14 @@ export function TrendChart({
       else create();
     });
     resize.observe(host);
-    const theme = new MutationObserver(create);
+    // The root's style also changes for what the charts do not paint, such as
+    // the scroll lock of every menu and dialog, so they rebuild only when their colours change.
+    const theme = new MutationObserver(() => {
+      const next = readChartColors();
+      if (sameColors(next, colors)) return;
+      colors = next;
+      create();
+    });
     theme.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['style', 'class', 'data-theme'],
@@ -257,7 +278,7 @@ export function TrendChart({
     tooltip.style.left = `${Math.max(inset, Math.min(left, host.clientWidth - width - inset))}px`;
     tooltip.style.top = `${Math.max(inset, Math.min(top, host.clientHeight - height - inset))}px`;
   }, [focused, bucket, data, unit, i18n.language]);
-  const format = new Intl.NumberFormat(i18n.language, kind === 'traffic'
+  const format = numberFormat(i18n.language, kind === 'traffic'
     ? { minimumSignificantDigits: 2, maximumSignificantDigits: 3 }
     : { maximumFractionDigits: 1 });
   const metrics = kind === 'traffic' ? ['download', 'upload'] as const : ['connections'] as const;

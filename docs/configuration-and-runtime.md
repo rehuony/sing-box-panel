@@ -428,7 +428,7 @@ changes take effect after restart.
 | `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
 | `github.token` | GitHub token | Empty |
 | `github.catalog_refresh_interval_hours` | GitHub version check interval | `12` |
-| `traffic.sample_retention_days` | Metric retention | `90` |
+| `traffic.sample_retention_days` | Metric retention | `7` |
 | `subscription.private_source_cidrs` | File/API only | `[]` |
 | `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
 | `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
@@ -482,6 +482,7 @@ map $http_upgrade $connection_upgrade {
 
 server {
     listen 443 ssl;
+    http2 on;
     server_name www.example.com;
     ssl_certificate     /etc/letsencrypt/live/www.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/www.example.com/privkey.pem;
@@ -495,7 +496,12 @@ server {
 }
 ```
 
-Without a base path, use `location /`. The keepalive pings keep node sessions
+Without a base path, use `location /`. HTTP/2 carries a browser's live streams
+over one connection: over HTTP/1.1 a browser opens at most six connections to
+the panel, and the streams of two open node windows use them all, leaving other
+requests waiting. WebSocket upgrades, the nodes' and the browser's alike, still
+use HTTP/1.1 on their own. Nginx before 1.25.1 writes it as
+`listen 443 ssl http2;`. The keepalive pings keep node sessions
 within Nginx's default 60-second `proxy_read_timeout`, and session frames are
 not request bodies, so `client_max_body_size` does not limit them. Nginx offers
 TLS 1.3 by default since 1.23.4. Keep the existing Web proxy settings, such as
@@ -601,10 +607,13 @@ categories chosen of what a backup holds:
 | `logs` | The panel log |
 
 Back up now and `system backup` take every category but `logs` unless told
-otherwise, as scheduled backups do. Unsaved drafts, login sessions, the release
-catalog, core binaries and anything on node hosts are never included. A backup
-can hold the administrator's password hash, the GitHub token and the
-subscription keys; keep it as private as the settings file.
+otherwise, as scheduled backups do. A scheduled backup's `history` leaves out
+the raw traffic samples and keeps the daily traffic, traffic periods and
+runtime records; manual and pre-restore backups keep the raw samples. Unsaved
+drafts, login sessions, the release catalog, core binaries and anything on node
+hosts are never included, and nothing a backup leaves out stays readable in its
+database file. A backup can hold the administrator's password hash, the GitHub
+token and the subscription keys; keep it as private as the settings file.
 
 Backups live in `<data_dir>/backups`, each readable by the service account
 alone, named `sing-box-panel-<date>-<time>-<kind>.tar.gz`: `manual` for Back up
@@ -641,6 +650,12 @@ that named a removed pool node fall back, an exit rule's to reject and a
 channel's final exit to direct; and the records of nodes that are gone are
 removed. The dialog says what the restore will change this way before it
 starts. Restoring nodes from another panel means each node must enroll again.
+Restoring `history` replaces all of it with the backup's, raw traffic samples
+included: after a scheduled backup's history the panel has no raw samples,
+not even those recorded since the backup, because each node's next traffic
+counts from the restored checkpoint and those samples would count it twice.
+Charts that read raw samples fill again as nodes report; the pre-restore
+backup still holds the samples that were replaced.
 
 The data directory always stays this host's; with the settings, the listener,
 base path and external origin stay too unless the restore takes the backup's.

@@ -1181,9 +1181,24 @@ paths:
         host or is deleted, and when a source's content, filter or existence
         changes; a node that disappears is deleted together with its channel
         memberships and grants, and new nodes are appended in origin order.
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionNodeList"
+          description: The subscription node pool in its saved order.
+          headers:
+            ETag:
+              description: Digest of the response body; an unchanged list answers If-None-Match with 304.
+              schema:
+                type: string
+          content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeList"}}}
+        "304":
+          description: The list matches If-None-Match.
+          headers:
+            ETag:
+              description: Digest of the unchanged response body.
+              schema:
+                type: string
         default:
           $ref: "#/components/responses/Problem"
   /subscription/node-order:

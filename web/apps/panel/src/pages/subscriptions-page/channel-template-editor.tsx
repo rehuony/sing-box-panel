@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import { useEffect, useRef, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { CircleCheck, Eye, RotateCcw } from 'lucide-react';
 import { toast } from '@shared/components/ui/toast-manager';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -15,8 +15,8 @@ import {
 import type { CodeEditorLanguage } from '@/components/code-editor';
 import type { ChannelNativeTemplate, SubscriptionNode, SubscriptionPreview } from '@/api/api-client';
 
-import { CodeEditor } from '@/components/code-editor';
 import { toastFailure } from '@/components/error-notice';
+import { LoadingState } from '@/components/loading-state';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { channelTemplateDefaults } from '@/constants/channel-templates';
 
@@ -31,6 +31,9 @@ interface Props {
   onApply: (template: ChannelNativeTemplate) => void;
   onPreview: (template: ChannelNativeTemplate, signal: AbortSignal) => Promise<SubscriptionPreview>;
 }
+
+// CodeMirror loads with the first template opened, not with the page.
+const CodeEditor = lazy(() => import('@/components/code-editor').then(module => ({ default: module.CodeEditor })));
 
 const editorLanguage: Record<ChannelNativeTemplate['format'], CodeEditorLanguage> = { 'sing-box': 'json', 'mihomo': 'yaml', 'loon': 'plain' };
 const languageName: Record<ChannelNativeTemplate['format'], string> = { 'sing-box': 'JSON', 'mihomo': 'YAML', 'loon': 'Loon' };
@@ -119,7 +122,9 @@ export function ChannelTemplateEditor({ template, format, nodes, onClose, onPrev
             </Button>
           </div>
           <div className='min-h-0 flex-1'>
-            <CodeEditor disabled={busy} label={t('channels.templateCode')} language={editorLanguage[format]} onChange={setContent} value={content} />
+            <Suspense fallback={<LoadingState className='h-full' fullScreen={false} label={t('common.loading')} />}>
+              <CodeEditor disabled={busy} label={t('channels.templateCode')} language={editorLanguage[format]} onChange={setContent} value={content} />
+            </Suspense>
           </div>
         </div>
         <DialogFooter>

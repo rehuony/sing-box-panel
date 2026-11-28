@@ -1,13 +1,15 @@
+import type { ComponentProps } from 'react';
+
 import { cn } from '@shared/lib/utils';
 import { CSS } from '@dnd-kit/utilities';
-import { memo, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
+import { memo, useId, useMemo, useRef } from 'react';
 
 import type { ChannelRuleGroup, SubscriptionFormat, SubscriptionNode } from '@/api/api-client';
 
-import { dropSlotCard, SortContext } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { dropSlotCard, SortContext, useDraggedId, useSortWindow } from '@/components/sortable';
 
 import { groupTypeName } from './channel-policy';
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
@@ -92,7 +94,11 @@ const CandidateContent = memo(({ format, item }: { item: ChannelNodeCard; format
 });
 CandidateContent.displayName = 'CandidateContent';
 
-function SortableCard({ format, item, onToggle }: { item: ChannelNodeCard; format: SubscriptionFormat; onToggle: Props['onToggle'] }) {
+const SortableCard = memo(({ format, item, onToggle }: {
+  item: ChannelNodeCard;
+  format: SubscriptionFormat;
+  onToggle: Props['onToggle'];
+}) => {
   const reasonId = useId();
   const reducedMotion = usePrefersReducedMotion();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -141,6 +147,24 @@ function SortableCard({ format, item, onToggle }: { item: ChannelNodeCard; forma
       <CandidateContent format={format} item={item} />
     </div>
   );
+});
+SortableCard.displayName = 'SortableCard';
+
+/** The candidates' grid: every card of a short list, and of a long one the cards near the view and the one dragged. */
+function CandidateGrid({ format, items, onToggle, ...handlers }: {
+  items: ChannelNodeCard[];
+  format: SubscriptionFormat;
+  onToggle: Props['onToggle'];
+} & Pick<ComponentProps<'div'>, 'onClickCapture' | 'onKeyDownCapture' | 'onPointerDownCapture'>) {
+  const ids = useMemo(() => items.map(item => item.id), [items]);
+  const { ref, slots, style } = useSortWindow(ids, useDraggedId());
+  return (
+    <div className={candidateGrid} data-slot='channel-candidates' ref={ref} style={style} {...handlers}>
+      {slots.map(slot => (typeof slot === 'number'
+        ? <SortableCard format={format} item={items[slot]!} key={items[slot]!.id} onToggle={onToggle} />
+        : <div key='gap' {...slot} />))}
+    </div>
+  );
 }
 
 /** A group's candidates as cards in their order: a click or Space selects one, F2 moves it. */
@@ -169,7 +193,9 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
         );
       }}
     >
-      <div data-slot='channel-candidates' className={candidateGrid}
+      <CandidateGrid
+        format={format}
+        items={items}
         onPointerDownCapture={() => {
           if (!draggingRef.current) suppressClickRef.current = false;
         }}
@@ -181,17 +207,28 @@ export function ChannelNodeCards({ format, items, onToggle, onMove, onDraggingCh
             event.preventDefault();
             event.stopPropagation();
           }
-        }}>
-        {items.map((item) => <SortableCard format={format} key={item.id} item={item} onToggle={onToggle} />)}
-      </div>
+        }}
+        onToggle={onToggle}
+      />
     </SortContext>
   );
 }
 
+/** A node a group's match takes, as a candidate card that is neither selectable nor sortable. */
+const MatchedCard = memo(({ format, node }: { node: SubscriptionNode; format: SubscriptionFormat }) => {
+  const item = useMemo(() => ({ id: `node:${node.id}`, label: node.display_name, node, selected: false }), [node]);
+  return (
+    <li aria-label={node.display_name} className={cn(candidateFace, 'bg-[var(--color-surface-translucent)] select-none')}>
+      <CandidateContent format={format} item={item} />
+    </li>
+  );
+});
+MatchedCard.displayName = 'MatchedCard';
+
 /**
  * The pool nodes a group's match takes, after its members under a hairline
  * heading with their count: cards like the members', neither selectable
- * nor sortable.
+ * nor sortable, those of a long list drawn near the view.
  */
 export function ChannelMatchedCards({ format, nodes }: {
   /** The channel's client. */
@@ -199,6 +236,8 @@ export function ChannelMatchedCards({ format, nodes }: {
   nodes: readonly SubscriptionNode[];
 }) {
   const { t } = useTranslation();
+  const ids = useMemo(() => nodes.map(node => node.id), [nodes]);
+  const { ref, slots, style } = useSortWindow(ids);
   if (!nodes.length) return null;
   const heading = t('channels.autoMatched', { count: nodes.length });
   return (
@@ -206,15 +245,10 @@ export function ChannelMatchedCards({ format, nodes }: {
       <h3 className='flex items-center gap-2 text-xs text-[var(--color-text-secondary)] after:h-px after:flex-1 after:bg-border'>
         {heading}
       </h3>
-      <ul className={candidateGrid}>
-        {nodes.map(node => (
-          <li aria-label={node.display_name} className={cn(candidateFace, 'bg-[var(--color-surface-translucent)] select-none')} key={node.id}>
-            <CandidateContent
-              format={format}
-              item={{ id: `node:${node.id}`, label: node.display_name, node, selected: false }}
-            />
-          </li>
-        ))}
+      <ul className={candidateGrid} ref={ref} style={style}>
+        {slots.map(slot => (typeof slot === 'number'
+          ? <MatchedCard format={format} key={nodes[slot]!.id} node={nodes[slot]!} />
+          : <li key='gap' {...slot} />))}
       </ul>
     </section>
   );

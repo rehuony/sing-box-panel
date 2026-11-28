@@ -87,10 +87,27 @@ func (application *Service) RecordLog(ctx context.Context, request LogRecordRequ
 		Message:  request.Message,
 		Metadata: request.Metadata,
 	})
-	if err == nil && application.logObserver != nil {
+	if err != nil {
+		return entry, err
+	}
+	application.logsMu.Lock()
+	close(application.logsRecorded)
+	application.logsRecorded = make(chan struct{})
+	application.logsMu.Unlock()
+	if application.logObserver != nil {
 		application.logObserver(entry)
 	}
-	return entry, err
+	return entry, nil
+}
+
+// LogsRecorded returns a channel that closes once this service records a log
+// entry after the call, so a reader that takes it before reading sees every
+// later entry either in that read or by the channel closing. Entries that
+// another process records do not close it.
+func (application *Service) LogsRecorded() <-chan struct{} {
+	application.logsMu.Lock()
+	defer application.logsMu.Unlock()
+	return application.logsRecorded
 }
 
 func (application *Service) Log(ctx context.Context, entryID string) (store.LogEntry, error) {

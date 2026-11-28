@@ -3,8 +3,11 @@ package store
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/rehuony/sing-box-panel/internal/database"
 )
 
 func TestPanelLogsPreserveEventsAndCursor(t *testing.T) {
@@ -73,6 +76,43 @@ func TestPanelLogsSearchAlternativesShareTotalsAndPagination(t *testing.T) {
 	codeOnly, err := db.ListPanelLogs(ctx, filter)
 	if err != nil || codeOnly.Total != 1 {
 		t.Fatalf("code-only search: %+v, %v", codeOnly, err)
+	}
+}
+
+// TestPanelLogScopesKeepEntriesFromBeforeTheNodeIndex: entries a log held
+// before its node column arrived keep their node or panel scope.
+func TestPanelLogScopesKeepEntriesFromBeforeTheNodeIndex(t *testing.T) {
+	ctx := testContext(t)
+	dir := t.TempDir()
+	schema, err := LogSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline := database.Schema{ApplicationID: schema.ApplicationID, Migrations: schema.Migrations[:1]}
+	logs, err := database.Open(ctx, filepath.Join(dir, LogsFile), baseline, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, entry := range [][2]string{{"about-node", `{"node_id":"node_a"}`}, {"about-panel", `{"node_id":""}`}, {"unnamed", `{}`}} {
+		if _, err := logs.ExecContext(ctx, `INSERT INTO log_entries(id, occurred_at, source, level, code, message, metadata_json)
+            VALUES (?, ?, 'panel', 'info', 'panel.ready', 'Panel ready', ?)`, entry[0], formatTime(now), entry[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := logs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := Open(ctx, filepath.Join(dir, PanelFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if page, err := db.ListPanelLogs(ctx, PanelLogFilter{NodeID: "node_a"}); err != nil || page.Total != 1 || page.Items[0].ID != "about-node" {
+		t.Fatalf("node scope: %+v, %v", page, err)
+	}
+	if page, err := db.ListPanelLogs(ctx, PanelLogFilter{PanelOnly: true}); err != nil || page.Total != 2 {
+		t.Fatalf("panel scope: %+v, %v", page, err)
 	}
 }
 

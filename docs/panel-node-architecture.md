@@ -106,7 +106,8 @@ install, remove and list cores; print an installed core's configuration schema;
 read the runtime status; browse and resolve filesystem paths; list, read, delete
 and clear core log files; and update the node to the panel's release. A command that uses the configuration carries the node's saved
 revision: its ID, file revision, SHA-256 and bytes. The panel follows a core log
-by reading it again each second, so the protocol has no follow command.
+by reading it again each second, once for all the streams that follow the file,
+so the protocol has no follow command.
 
 Panel and node are released together. Within `v1` new commands and fields come
 with a new minor protocol version, the field numbers and names of a removed

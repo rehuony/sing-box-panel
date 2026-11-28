@@ -105,7 +105,7 @@ Only active settings are generated. Removed subscription author/provider fields
 and `logs.retention_days` are rejected, while `logs.panel_retention_days` carries
 over to `nodes.runtime_history_retention_days`; see the field mapping above.
 
-`traffic.sample_retention_days` defaults to 90. It is required for startup and
+`traffic.sample_retention_days` defaults to 7 in a new settings file. It is required for startup and
 `config verify` and must be between 1 and 366;
 older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`

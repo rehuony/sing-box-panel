@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -103,4 +104,42 @@ func TestDashboardSnapshotUsesStableRangesWithoutInventingEvidence(t *testing.T)
 	if len(snapshot.Runtime24H.Items) != 1 || len(snapshot.Activity.Items) != 0 {
 		t.Fatalf("dashboard did not include initialized runtime evidence: %+v", snapshot)
 	}
+}
+
+// A renewed stream finds its node's dashboard; one no one views is dropped.
+func TestDashboardStaysThroughRenewalAndDropsWhenUnviewed(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		database, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "panel.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = database.Close() })
+		app := New(database, nil, Options{})
+		nodeID := testutil.CreateNode(t, database, "edge")
+		current := func() *dashboard {
+			app.dashboardsMu.Lock()
+			defer app.dashboardsMu.Unlock()
+			return app.dashboards[nodeID]
+		}
+		results, release := app.SubscribeDashboard(nodeID)
+		if result := <-results; result.Err != nil {
+			t.Fatal(result.Err)
+		}
+		viewed := current()
+		release()
+		time.Sleep(dashboardIdleGrace / 2)
+		_, releaseRenewed := app.SubscribeDashboard(nodeID)
+		// The grace of the first release ends while the renewed stream views it.
+		time.Sleep(dashboardIdleGrace)
+		synctest.Wait()
+		if current() != viewed {
+			t.Fatal("a viewed dashboard was dropped or replaced")
+		}
+		releaseRenewed()
+		time.Sleep(dashboardIdleGrace)
+		synctest.Wait()
+		if current() != nil {
+			t.Fatal("a dashboard no one views was kept")
+		}
+	})
 }

@@ -5,10 +5,12 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/subscription"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
 func TestSubscriptionNodePoolHTTP(t *testing.T) {
@@ -20,6 +22,20 @@ func TestSubscriptionNodePoolHTTP(t *testing.T) {
 	if listed.Code != http.StatusOK || json.Unmarshal(listed.Body.Bytes(), &list) != nil || len(list.Items) != 2 ||
 		list.Items[0].ID != ids[0] || list.Items[0].Origin.Kind != "source" || strings.Contains(listed.Body.String(), "secret") {
 		t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
+	}
+	// The list's ETag is its digest: the same list answers 304.
+	listedSince := func(etag string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/subscription/nodes", nil)
+		testutil.Authorize(t, handler, request)
+		request.Header.Set("If-None-Match", etag)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	listedETag := listed.Header().Get("ETag")
+	if unchanged := listedSince(listedETag); listedETag == "" || unchanged.Code != http.StatusNotModified || unchanged.Body.Len() != 0 ||
+		unchanged.Header().Get("ETag") != listedETag || unchanged.Header().Get("Cache-Control") != "private, no-cache" {
+		t.Fatalf("conditional list status=%d headers=%v", unchanged.Code, unchanged.Header())
 	}
 	detail := authenticatedRequest(t, handler, http.MethodGet, "/api/v1/subscription/nodes/"+ids[0], "", "")
 	if detail.Code != http.StatusOK || detail.Header().Get("Cache-Control") != "no-store" || !strings.Contains(detail.Body.String(), `"password":"secret"`) {
@@ -38,6 +54,9 @@ func TestSubscriptionNodePoolHTTP(t *testing.T) {
 	renamed := authenticatedRequest(t, handler, http.MethodPut, path, `{"display_name":"Alpha"}`, version)
 	if renamed.Code != http.StatusOK || renamed.Header().Get("ETag") == version || !strings.Contains(renamed.Body.String(), `"display_name":"Alpha"`) {
 		t.Fatalf("rename status=%d body=%s", renamed.Code, renamed.Body.String())
+	}
+	if changed := listedSince(listedETag); changed.Code != http.StatusOK || changed.Header().Get("ETag") == listedETag {
+		t.Fatalf("list after a rename status=%d ETag=%q", changed.Code, changed.Header().Get("ETag"))
 	}
 	if stale := authenticatedRequest(t, handler, http.MethodPut, path, `{"display_name":"Beta"}`, version); stale.Code != http.StatusPreconditionFailed {
 		t.Fatalf("stale rename status=%d body=%s", stale.Code, stale.Body.String())

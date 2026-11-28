@@ -20,51 +20,54 @@ import (
 var ErrSnapshotNeedsRecovery = errors.New("database needs recovery by its owner before a snapshot; start the service once")
 
 // Snapshot writes a consistent copy of the database at source to target,
-// which must not exist, as a database in rollback-journal mode. While the
-// source has a WAL, as while its owner runs, it copies through a read-only
-// connection, which includes what the WAL commits. Without a WAL the file is
-// the whole database and is copied as it is; the caller keeps every owner
-// out meanwhile, such as by holding the service's lease. A WAL without its
-// shared memory is refused: reading it would create files its owner might
-// not be able to open.
-func Snapshot(ctx context.Context, source, target string) error {
+// which must not exist, as a database in rollback-journal mode, and reports
+// whether it wrote the copy afresh. While the source has a WAL, as while its
+// owner runs, it rebuilds the copy with VACUUM INTO through a read-only
+// connection, which includes what the WAL commits and nothing of the
+// source's free space. Without a WAL the file is the whole database and is
+// copied as it is, with whatever its free space holds of deleted records;
+// the caller keeps every owner out meanwhile, such as by holding the
+// service's lease. A WAL without its shared memory is refused: reading it
+// would create files its owner might not be able to open.
+func Snapshot(ctx context.Context, source, target string) (fresh bool, err error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
-	source, err := filepath.Abs(source)
+	source, err = filepath.Abs(source)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := os.Lstat(target); err == nil {
-		return fmt.Errorf("snapshot target %s exists", target)
+		return false, fmt.Errorf("snapshot target %s exists", target)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return false, err
 	}
 	_, walErr := os.Lstat(source + "-wal")
 	switch {
 	case errors.Is(walErr, os.ErrNotExist):
 		if err := copyFile(source, target); err != nil {
-			return err
+			return false, err
 		}
 	case walErr != nil:
-		return walErr
+		return false, walErr
 	default:
 		if _, err := os.Lstat(source + "-shm"); err != nil {
-			return fmt.Errorf("%w: %v", ErrSnapshotNeedsRecovery, err)
+			return false, fmt.Errorf("%w: %v", ErrSnapshotNeedsRecovery, err)
 		}
 		if err := vacuumInto(ctx, source, target); err != nil {
-			return err
+			return false, err
 		}
+		fresh = true
 	}
 	if err := os.Chmod(target, 0o600); err != nil {
-		return err
+		return false, err
 	}
 	db, err := OpenFile(target, false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_, err = db.ExecContext(ctx, "PRAGMA journal_mode = DELETE")
-	return errors.Join(err, db.Close())
+	return fresh, errors.Join(err, db.Close())
 }
 
 // OpenFile opens a single connection to the SQLite file at path, such as a

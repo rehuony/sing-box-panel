@@ -3,9 +3,14 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 )
 
+// listSubscriptionNodes answers with the pool. Its ETag is the response's
+// digest, so a client holding the same list gets 304.
 func (handler *Handler) listSubscriptionNodes(w http.ResponseWriter, request *http.Request) {
 	if !handler.subscriptionReadRequest(w, request) {
 		return
@@ -15,7 +20,22 @@ func (handler *Handler) listSubscriptionNodes(w http.ResponseWriter, request *ht
 		writeSubscriptionProblem(w, request, "subscription_node_list_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	body, err := json.Marshal(list)
+	if err != nil {
+		writeSubscriptionProblem(w, request, "subscription_node_list_failed", err)
+		return
+	}
+	digest := sha256.Sum256(body)
+	etag := quoteETag(hex.EncodeToString(digest[:16]))
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if noneMatchHits(request.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 func (handler *Handler) getSubscriptionNode(w http.ResponseWriter, request *http.Request, id string) {

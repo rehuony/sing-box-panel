@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { Eraser, ListEnd, Pause, Play, SearchX, SquareTerminal, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@shared/components/ui/alert-dialog';
@@ -15,10 +15,10 @@ import { LoadingState } from '@/components/loading-state';
 import { RegionError, RegionState } from '@/components/region-state';
 import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 
-import type { CoreLevel } from './core-log-lines';
+import type { CoreLevel, CoreLine } from './core-log-lines';
 
+import { coreLevels } from './core-log-lines';
 import { useCoreLogs } from './use-core-logs';
-import { coreLevels, parseCoreLines } from './core-log-lines';
 
 const levelText: Record<CoreLevel | 'unknown', string> = {
   trace: 'text-[var(--color-text-faint)]',
@@ -30,6 +30,16 @@ const levelText: Record<CoreLevel | 'unknown', string> = {
   panic: 'text-[var(--color-danger-text)]',
   unknown: 'text-[var(--color-text-faint)]',
 };
+
+/** One line of the log; a kept line is the same object as it was, so it is not drawn again as others arrive. */
+const CoreLogLine = memo(({ line }: { line: CoreLine }) => (
+  <span className={levelText[line.level]}>
+    <span className='text-muted-foreground'>{line.prefix}</span>
+    {line.message}
+    {'\n'}
+  </span>
+));
+CoreLogLine.displayName = 'CoreLogLine';
 
 /**
  * The node's core log: today's file follows live, earlier files read as
@@ -49,15 +59,12 @@ export function CoreLogView({ lead }: { lead: ReactNode }) {
   const cleared = clearedFile === log.file && log.file !== '';
   const viewportRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
-  const lines = useMemo(
-    () =>
-      parseCoreLines({ first: log.firstLine, text: log.text }).filter(
-        (line) =>
-          (!level || line.level === level)
-          && `${line.prefix}${line.message}`.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [log.firstLine, log.text, level, search],
-  );
+  const lines = useMemo(() => {
+    const needle = search.toLowerCase();
+    if (!level && !needle) return log.lines;
+    return log.lines.filter(line =>
+      (!level || line.level === level) && `${line.prefix}${line.message}`.toLowerCase().includes(needle));
+  }, [log.lines, level, search]);
   useEffect(() => {
     followRef.current = true;
   }, [log.file]);
@@ -244,18 +251,12 @@ export function CoreLogView({ lead }: { lead: ReactNode }) {
                 : (
                     <RegionState
                       icon={!log.files.length ? SquareTerminal : SearchX}
-                      title={t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.text ? 'productLogs.cleared' : 'productLogs.empty')}
+                      title={t(!log.files.length ? 'productLogs.emptyCore' : cleared && !log.lines.length ? 'productLogs.cleared' : 'productLogs.empty')}
                     />
                   )
             : (
                 <pre className='m-0 flex-none font-mono text-compact [tab-size:2] whitespace-pre'>
-                  {lines.map((line) => (
-                    <span className={levelText[line.level]} key={line.id}>
-                      <span className='text-muted-foreground'>{line.prefix}</span>
-                      {line.message}
-                      {'\n'}
-                    </span>
-                  ))}
+                  {lines.map(line => <CoreLogLine key={line.id} line={line} />)}
                 </pre>
               )}
         </ScrollArea>

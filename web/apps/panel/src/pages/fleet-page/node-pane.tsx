@@ -4,12 +4,12 @@ import type { MeterLimits, TrafficDirection } from '@shared/lib/telemetry-format
 import { cn } from '@shared/lib/utils';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { memo, useEffect, useRef } from 'react';
 import { CellMeter } from '@shared/components/cell-meter';
 import { ReadoutParts, ReadoutRow } from '@shared/components/terminal';
-import { formatRelativeTime, formatShortDateTime } from '@shared/lib/format-time';
+import { createContext, memo, use, useEffect, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
-import { EM_DASH, formatBytes, formatDuration, formatRate, shareTone, trafficDirectionText, trafficValueText } from '@shared/lib/telemetry-format';
+import { dateTimeFormat, formatRelativeTime, formatShortDateTime } from '@shared/lib/format-time';
+import { EM_DASH, formatBytes, formatDuration, formatRate, numberFormat, shareTone, trafficDirectionText, trafficValueText } from '@shared/lib/telemetry-format';
 
 import type { NodeStatus } from '@/utils/fleet-summary';
 
@@ -47,15 +47,37 @@ function useUnits() {
 }
 
 function percentText(locale: string, percent: number): string {
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0, style: 'percent' }).format(percent / 100);
+  return numberFormat(locale, { maximumFractionDigits: 0, style: 'percent' }).format(percent / 100);
 }
 
-/** Details that open on hover; under touch the pane stays one link and the node's own view carries them. */
+/**
+ * The time a duration counts to, for the leaf that shows one: the clock's
+ * tick then redraws that reading alone, not the pane around it.
+ */
+function Clocked({ children }: { children: (now: number) => ReactNode }) {
+  return children(useClock());
+}
+
+/**
+ * Whether a mouse has reached the pane, which mounts its readings' tooltips:
+ * a fleet of panes keeps none until then, and they mount as the pointer
+ * crosses the pane's edge, before it rests on a reading.
+ */
+const DetailsContext = createContext(false);
+
+/**
+ * Details that open on hover; under touch the pane stays one link and the
+ * node's own view carries them, and readers get them from the text each
+ * reading carries.
+ */
 function Detail({ children, className, content }: { children: ReactNode; className?: string; content: string | null }) {
+  const detailed = use(DetailsContext);
   if (content === null) return <span className={className}>{children}</span>;
+  const triggerClass = cn('pointer-fine:relative pointer-fine:z-10', className);
+  if (!detailed) return <span className={triggerClass} data-pane-detail=''>{children}</span>;
   return (
     <Tooltip>
-      <TooltipTrigger render={<span className={cn('pointer-fine:relative pointer-fine:z-10', className)} data-pane-detail='' />}>{children}</TooltipTrigger>
+      <TooltipTrigger render={<span className={triggerClass} data-pane-detail='' />}>{children}</TooltipTrigger>
       <TooltipContent>{content}</TooltipContent>
     </Tooltip>
   );
@@ -65,16 +87,17 @@ function Detail({ children, className, content }: { children: ReactNode; classNa
  * The node's worst condition: the fleet's attention rules and host load at
  * the meters' thresholds, its reasons on hover.
  */
-function HealthDot({ item, now }: { item: NodeStatus; now: number }) {
+function HealthDot({ item, now }: { item: NodeStatus; now?: number }) {
   const { t } = useTranslation();
   const locale = useLocale();
   const { node } = item;
   let tone: Health = 'success';
   let summary = t('fleet.pane.healthy');
   const found = attentionItems([item]);
+  // Only an offline node's reason says when it was last seen, which is what the clock moves.
   const reasons = found.map(({ kind, percent }) => t(`fleet.attention.${kind}`, {
     percent: percent === undefined ? '' : percentText(locale, percent),
-    time: formatRelativeTime(node.last_seen_at, locale, now),
+    time: kind === 'offline' ? formatRelativeTime(node.last_seen_at, locale, now) : '',
   }));
   const tones: Tone[] = found.map(({ tone: each }) => each);
   const load = hostLoad(item);
@@ -151,36 +174,40 @@ function Rate({ direction, label, value }: { direction: TrafficDirection; label:
   );
 }
 
+/** An offline node's headline: how long it has been away in danger, with when it was last seen at the end. */
+function OfflineHeadline({ lastSeen, now }: { lastSeen: string | null; now: number }) {
+  const { t } = useTranslation();
+  const locale = useLocale();
+  const units = useUnits();
+  const since = lastSeen ? formatDuration(now - Date.parse(lastSeen), units, 1) : EM_DASH;
+  const seen = formatShortDateTime(lastSeen, locale, now);
+  return (
+    <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
+      <span className={cn('truncate text-xl font-semibold', toneText.danger)}>
+        {t('fleet.pane.offline', { time: since })}
+      </span>
+      {seen
+        ? (
+            <span className='flex-none text-xs text-muted-foreground'>
+              <span aria-hidden='true'>{seen}</span>
+              <span className='sr-only'>{t('fleet.pane.lastSeen', { time: seen })}</span>
+            </span>
+          )
+        : null}
+    </div>
+  );
+}
+
 /**
  * The pane's headline answers what the node is doing now, in one place for
  * every state: live download and upload with connections at the end while it
  * is online; how long it has been away in danger, with when it was last seen
  * at the end, while it is offline.
  */
-function Headline({ item, now }: { item: NodeStatus; now: number }) {
+function Headline({ item }: { item: NodeStatus }) {
   const { t } = useTranslation();
-  const locale = useLocale();
-  const units = useUnits();
   const { metrics, node } = item;
-  if (node.state === 'offline') {
-    const since = node.last_seen_at ? formatDuration(now - Date.parse(node.last_seen_at), units, 1) : EM_DASH;
-    const seen = formatShortDateTime(node.last_seen_at, locale, now);
-    return (
-      <div className='flex h-7 min-w-0 items-baseline justify-between gap-3 whitespace-nowrap'>
-        <span className={cn('truncate text-xl font-semibold', toneText.danger)}>
-          {t('fleet.pane.offline', { time: since })}
-        </span>
-        {seen
-          ? (
-              <span className='flex-none text-xs text-muted-foreground'>
-                <span aria-hidden='true'>{seen}</span>
-                <span className='sr-only'>{t('fleet.pane.lastSeen', { time: seen })}</span>
-              </span>
-            )
-          : null}
-      </div>
-    );
-  }
+  if (node.state === 'offline') return <Clocked>{now => <OfflineHeadline lastSeen={node.last_seen_at} now={now} />}</Clocked>;
   const rates = nodeRates(item);
   const live = metrics.live_sample;
   const idle = node.runtime?.observation_state === 'stopped';
@@ -208,7 +235,7 @@ function Separator() {
  * An offline node's row holds the version it last ran and the traffic its
  * period has recorded.
  */
-function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
+function CoreRow({ item }: { item: NodeStatus }) {
   const { t } = useTranslation();
   const locale = useLocale();
   const units = useUnits();
@@ -264,7 +291,9 @@ function CoreRow({ item, now }: { item: NodeStatus; now: number }) {
           : (
               <>
                 <Separator />
-                <span className='flex-none'>{t('fleet.pane.uptime', { value: formatDuration(now - Date.parse(started), units, 1) })}</span>
+                <span className='flex-none'>
+                  <Clocked>{now => t('fleet.pane.uptime', { value: formatDuration(now - Date.parse(started), units, 1) })}</Clocked>
+                </span>
               </>
             )}
       </Detail>
@@ -329,7 +358,7 @@ function QuotaMeter({ item }: { item: NodeStatus }) {
   let tone: Tone | undefined;
   if (reached) tone = 'danger';
   else if (quota && share >= QUOTA_LIMITS.warning) tone = 'warning';
-  const resets = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(period.period_end));
+  const resets = dateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(period.period_end));
   const detail = [
     t('fleet.pane.used', { value: quota ? `${formatBytes(used, locale)} / ${formatBytes(quota, locale)}` : formatBytes(used, locale) }),
     `↓ ${formatBytes(period.inbound_bytes, locale)}`,
@@ -348,7 +377,7 @@ function QuotaMeter({ item }: { item: NodeStatus }) {
 }
 
 /** The headline, then the core's row, host load and quota in one labelled column. */
-function Readings({ item, now }: { item: NodeStatus; now: number }) {
+function Readings({ item }: { item: NodeStatus }) {
   const { t } = useTranslation();
   const locale = useLocale();
   const load = hostLoad(item);
@@ -357,9 +386,9 @@ function Readings({ item, now }: { item: NodeStatus; now: number }) {
   return (
     // Each line keeps to one line, so the pane holds its fixed height.
     <div className='flex min-h-0 flex-1 flex-col justify-center px-3 whitespace-nowrap'>
-      <Headline item={item} now={now} />
+      <Headline item={item} />
       <dl className='mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3'>
-        <CoreRow item={item} now={now} />
+        <CoreRow item={item} />
         <ReadoutRow label={t('fleet.pane.cpu')}>
           <Share
             detail={host ? `${t('fleet.pane.cores', { count: host.cpu_count })} · ${t('fleet.pane.load', { value: host.load_one.toFixed(2) })}` : null}
@@ -403,12 +432,12 @@ interface NodePaneProps {
  */
 export const NodePane = memo(({ item, morph, onToggle, release, selected, selecting }: NodePaneProps) => {
   const { t } = useTranslation();
-  const now = useClock();
   const { node } = item;
   const host = [node.hostname, node.public_ip].filter(Boolean).join(' · ');
   const pressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
   // The click and context menu that end a long press are not the user's next action.
   const swallowRef = useRef(false);
+  const [detailed, setDetailed] = useState(false);
 
   function cancelPress() {
     if (pressRef.current) window.clearTimeout(pressRef.current.timer);
@@ -485,37 +514,42 @@ export const NodePane = memo(({ item, morph, onToggle, release, selected, select
       onPointerCancel={cancelPress}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
+      onPointerEnter={(event) => {
+        if (event.pointerType === 'mouse') setDetailed(true);
+      }}
       onPointerUp={cancelPress}
     >
-      <header className={cn('flex h-8 flex-none items-center gap-2 border-b px-3', selected && 'border-primary/25')}>
-        <HealthDot item={item} now={now} />
-        <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium'>
-          <Link
-            aria-checked={selecting ? selected : undefined}
-            className='outline-none [-webkit-touch-callout:none] after:absolute after:inset-0 after:rounded-[inherit]'
-            onClick={onLinkClick}
-            onKeyDown={(event) => {
-              if (event.key !== ' ') return;
-              event.preventDefault();
-              onToggle(node.id, event.shiftKey);
-            }}
-            role={selecting ? 'checkbox' : undefined}
-            to={nodePath(node.id)}
-            viewTransition={morph && !selecting}
+      <DetailsContext value={detailed}>
+        <header className={cn('flex h-8 flex-none items-center gap-2 border-b px-3', selected && 'border-primary/25')}>
+          {node.state === 'offline' ? <Clocked>{now => <HealthDot item={item} now={now} />}</Clocked> : <HealthDot item={item} />}
+          <h2 className='min-w-0 truncate font-[family-name:var(--font-body)] text-sm font-medium'>
+            <Link
+              aria-checked={selecting ? selected : undefined}
+              className='outline-none [-webkit-touch-callout:none] after:absolute after:inset-0 after:rounded-[inherit]'
+              onClick={onLinkClick}
+              onKeyDown={(event) => {
+                if (event.key !== ' ') return;
+                event.preventDefault();
+                onToggle(node.id, event.shiftKey);
+              }}
+              role={selecting ? 'checkbox' : undefined}
+              to={nodePath(node.id)}
+              viewTransition={morph && !selecting}
+            >
+              {node.name}
+            </Link>
+          </h2>
+          {/* The host takes the room the name and the end leave, so it gives way first; its details add the tags. */}
+          <Detail
+            className='min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
+            content={[host, node.tags.length > 0 ? t('fleet.pane.tags', { tags: node.tags.join(', ') }) : ''].filter(Boolean).join(' · ') || null}
           >
-            {node.name}
-          </Link>
-        </h2>
-        {/* The host takes the room the name and the end leave, so it gives way first; its details add the tags. */}
-        <Detail
-          className='min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
-          content={[host, node.tags.length > 0 ? t('fleet.pane.tags', { tags: node.tags.join(', ') }) : ''].filter(Boolean).join(' · ') || null}
-        >
-          {host || t('fleet.pane.noHost')}
-        </Detail>
-        <TitleEnd item={item} release={release} />
-      </header>
-      <Readings item={item} now={now} />
+            {host || t('fleet.pane.noHost')}
+          </Detail>
+          <TitleEnd item={item} release={release} />
+        </header>
+        <Readings item={item} />
+      </DetailsContext>
     </article>
   );
 });

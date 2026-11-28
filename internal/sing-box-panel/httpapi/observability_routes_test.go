@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -237,6 +238,70 @@ func TestDurableLogSSEStreamsSanitizedEntriesAndReconnectCursor(t *testing.T) {
 	if err != nil || cursor.ID != entry.ID || !cursor.Time.Equal(entry.Time) {
 		t.Fatalf("reconnect cursor = %+v, error = %v", cursor, err)
 	}
+}
+
+// The durable log stream delivers an entry the panel records within one read
+// gap, and one that another process records by its safety read.
+func TestDurableLogStreamWakesForRecordedEntries(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		handler, database := newCoreHTTPFixture(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream", nil).WithContext(ctx)
+		testutil.Authorize(t, handler, request)
+		response := &streamRecorder{header: http.Header{}}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handler.ServeHTTP(response, request)
+		}()
+		defer func() { cancel(); <-done }()
+		synctest.Wait()
+		record := func(records *telemetry.Service) store.LogEntry {
+			t.Helper()
+			entry, err := records.RecordLog(ctx, telemetry.LogRecordRequest{Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "test.recorded", Message: "Recorded"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return entry
+		}
+		local := record(handler.services.Telemetry)
+		time.Sleep(logStreamReadGap)
+		synctest.Wait()
+		if !strings.Contains(response.String(), local.ID) {
+			t.Fatalf("an entry the panel recorded was not streamed within one read gap: %s", response.String())
+		}
+		other := record(telemetry.New(database, nil, telemetry.Options{}))
+		time.Sleep(logStreamSafetyPoll)
+		synctest.Wait()
+		if !strings.Contains(response.String(), other.ID) {
+			t.Fatalf("an entry another process recorded was not streamed by the safety read: %s", response.String())
+		}
+	})
+}
+
+// streamRecorder is a response that a test reads while a handler streams it.
+type streamRecorder struct {
+	header http.Header
+	mu     sync.Mutex
+	body   strings.Builder
+}
+
+func (recorder *streamRecorder) Header() http.Header { return recorder.header }
+
+func (recorder *streamRecorder) WriteHeader(int) {}
+
+func (recorder *streamRecorder) Flush() {}
+
+func (recorder *streamRecorder) Write(data []byte) (int, error) {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	return recorder.body.Write(data)
+}
+
+func (recorder *streamRecorder) String() string {
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	return recorder.body.String()
 }
 
 type flushRecorder struct {

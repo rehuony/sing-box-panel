@@ -70,3 +70,68 @@ func BenchmarkMetricsHistoryNinetyDays(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkDashboardMetricsHistory reads a node's dashboard ranges over two
+// days of one sample every ten seconds, each read ten seconds and one new
+// sample after the last: every bucket anew, and with the history kept.
+func BenchmarkDashboardMetricsHistory(b *testing.B) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(b.TempDir(), "panel.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = database.Close() })
+	if err := createTestNode(ctx, database); err != nil {
+		b.Fatal(err)
+	}
+	from := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	const seeded = 17280
+	insert := func(first, count int) {
+		b.Helper()
+		if _, err := database.db.ExecContext(ctx, `
+			WITH RECURSIVE samples(n) AS (SELECT ? UNION ALL SELECT n+1 FROM samples WHERE n+1 < ?)
+			INSERT INTO traffic_samples(
+				node_id, instance_id, activation_bundle_id, pid, process_start_token, sampled_at,
+				memory_bytes, active_connections, upload_total, download_total,
+				upload_delta, download_delta, interval_start, interval_end,
+				coverage, accepted, diagnostic_code
+			)
+			SELECT ?, 'benchmark-instance', 'bundle-benchmark', 606, 'benchmark-process',
+			       strftime('%Y-%m-%dT%H:%M:%S', ? + (n+1)*10, 'unixepoch') || '.000000000Z',
+			       1048576 + n%4096, n%64, n+1, (n+1)*2, 1, 2,
+			       strftime('%Y-%m-%dT%H:%M:%S', ? + n*10, 'unixepoch') || '.000000000Z',
+			       strftime('%Y-%m-%dT%H:%M:%S', ? + (n+1)*10, 'unixepoch') || '.000000000Z',
+			       'complete', 1, ''
+			  FROM samples`, first, first+count, testNodeID, from.Unix(), from.Unix(), from.Unix()); err != nil {
+			b.Fatal(err)
+		}
+	}
+	insert(0, seeded)
+	next := seeded
+	for _, test := range []struct {
+		name string
+		kept bool
+	}{{"full", false}, {"kept", true}} {
+		b.Run(test.name, func(b *testing.B) {
+			var history *DashboardHistory
+			if test.kept {
+				history = &DashboardHistory{}
+			}
+			read := func() {
+				at := from.Add(time.Duration(next)*10*time.Second + 5*time.Second)
+				if _, _, _, err := database.DashboardMetricsHistory(ctx, testNodeID, at, history); err != nil {
+					b.Fatal(err)
+				}
+			}
+			read()
+			b.ResetTimer()
+			for range b.N {
+				b.StopTimer()
+				insert(next, 1)
+				next++
+				b.StartTimer()
+				read()
+			}
+		})
+	}
+}

@@ -202,6 +202,12 @@ func (application *Service) EnforceRetention(ctx context.Context) (RetentionResu
 	}
 	now := application.now().UTC()
 	var result RetentionResult
+	// A retention of one day reaches into the dashboard's day.
+	defer func() {
+		if result.TrafficSamples > 0 || result.RuntimeTransitions > 0 {
+			application.resetDashboardHistory("")
+		}
+	}()
 	if result.TrafficSamples, err = application.database.DeleteTrafficSamplesBefore(ctx, now.AddDate(0, 0, -sampleDays)); err != nil {
 		return result, err
 	}

@@ -173,6 +173,25 @@ The full range stays expensive. The dashboard stream shares one read among its
 viewers and runs only while one is open, so the cost is per refresh, not per
 viewer.
 
+```sh
+go test ./internal/sing-box-panel/store -run '^$' \
+  -bench '^BenchmarkDashboardMetricsHistory' -benchtime=200x -benchmem
+```
+
+`BenchmarkDashboardMetricsHistory` reads a node's dashboard ranges, the last
+hour and the last day, over two days of one sample every ten seconds, each
+read ten seconds and one new sample after the last. Three runs on Apple M5:
+
+| Dashboard read | Elapsed | Allocated | Allocations |
+| --- | ---: | ---: | ---: |
+| Every bucket | 55.0–55.6 ms | 216 KB | 7,742 |
+| Kept history | 0.50–0.51 ms | 74 KB | 361–362 |
+
+A kept history reads again only the buckets that rows recorded since its last
+read reach and the open one, so a refresh costs about a hundredth of a full
+read; the first read after a viewer opens the dashboard, a retention pass or a
+node's removal is a full one.
+
 ## Not measured
 
 - Separate hosts: the live fleet runs in one process on loopback, so network

@@ -108,9 +108,12 @@ var ErrMergeInconsistent = errors.New("the restored records do not fit this pane
 // MergeSnapshot replaces the categories of the panel database in dataDir
 // with those of the snapshot in stageDir, which must have this binary's
 // schema, then removes or releases what refers to records that are gone, in
-// one transaction. endSessions signs everyone out, as restoring the settings
-// with their credentials requires. The panel must be stopped; the caller
-// holds its lease. It returns what the repair changed.
+// one transaction. Each table of a category is replaced whole: history from
+// a snapshot without raw traffic samples leaves none, because each node's
+// next delta starts from the restored checkpoint, and samples the panel took
+// after it would count that traffic twice. endSessions signs everyone out,
+// as restoring the settings with their credentials requires. The panel must
+// be stopped; the caller holds its lease. It returns what the repair changed.
 func MergeSnapshot(ctx context.Context, dataDir, stageDir string, categories []Category, endSessions bool) (effects MergeEffects, err error) {
 	schema, err := Schema()
 	if err != nil {

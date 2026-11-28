@@ -103,7 +103,9 @@ func (handler *Handler) streamDurableLogs(w http.ResponseWriter, request *http.R
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), logStreamLifetime)
 	defer cancel()
+	recorded := handler.services.Telemetry.LogsRecorded()
 	initial, err := handler.services.Telemetry.TailLogs(ctx, filter)
+	lastRead := time.Now()
 	if err != nil {
 		writeQueryProblem(w, request, "log_filter_invalid", "Log filter invalid", err)
 		return
@@ -133,8 +135,24 @@ func (handler *Handler) streamDurableLogs(w http.ResponseWriter, request *http.R
 	if len(initial) == 0 && stream.open() != nil || send(initial) != nil {
 		return
 	}
-	poll := time.NewTicker(500 * time.Millisecond)
-	defer poll.Stop()
+	// The stream reads again when the panel records an entry, at most once
+	// per logStreamReadGap, and every logStreamSafetyPoll for the entries
+	// another process records. A read that found entries may have left more
+	// behind its limit, so the next follows it.
+	read := time.NewTimer(logStreamReadGap)
+	defer read.Stop()
+	due := len(initial) > 0
+	if !due {
+		read.Stop()
+	}
+	schedule := func() {
+		if !due {
+			due = true
+			read.Reset(max(0, logStreamReadGap-time.Since(lastRead)))
+		}
+	}
+	safety := time.NewTicker(logStreamSafetyPoll)
+	defer safety.Stop()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	rotation := rotationTimer(logStreamLifetime)
@@ -150,14 +168,34 @@ func (handler *Handler) streamDurableLogs(w http.ResponseWriter, request *http.R
 		case <-rotation.C:
 			_ = stream.reconnect()
 			return
-		case <-poll.C:
+		case <-recorded:
+			// The next read takes a new channel; this one stays closed.
+			recorded = nil
+			schedule()
+		case <-safety.C:
+			schedule()
+		case <-read.C:
+			due = false
+			recorded = handler.services.Telemetry.LogsRecorded()
 			entries, err := handler.services.Telemetry.TailLogs(ctx, filter)
+			lastRead = time.Now()
 			if err != nil || send(entries) != nil {
 				return
+			}
+			if len(entries) > 0 {
+				schedule()
 			}
 		}
 	}
 }
+
+// logStreamReadGap is the least time between two reads of one log stream,
+// so a burst of entries costs one read per gap.
+const logStreamReadGap = 500 * time.Millisecond
+
+// logStreamSafetyPoll is how often a log stream reads without being woken,
+// for the entries that another process, such as the command line, records.
+const logStreamSafetyPoll = 5 * time.Second
 
 // logStreamLifetime is how long one log stream runs before it asks its
 // client to reconnect, which authenticates it again; Last-Event-ID resumes

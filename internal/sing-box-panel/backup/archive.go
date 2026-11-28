@@ -62,7 +62,10 @@ var (
 type Kind string
 
 const (
-	KindManual     Kind = "manual"
+	KindManual Kind = "manual"
+	// KindScheduled is a backup the schedule made. Its history leaves out
+	// the raw traffic samples and keeps the daily traffic, traffic periods
+	// and runtime records, so restoring that history leaves no raw samples.
 	KindScheduled  Kind = "scheduled"
 	KindPreRestore Kind = "pre_restore"
 )

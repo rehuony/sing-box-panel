@@ -43,7 +43,8 @@ func startBackupSchedule(ctx context.Context, services app.Services) <-chan stru
 	return done
 }
 
-// scheduledBackup makes one scheduled backup when one is due, then removes
+// scheduledBackup makes one scheduled backup when one is due, of the default
+// categories with their history but the raw traffic samples, then removes
 // the scheduled backups beyond those to keep.
 func scheduledBackup(ctx context.Context, services app.Services, now time.Time) {
 	configuration, err := services.Settings.EffectiveSettings(ctx)

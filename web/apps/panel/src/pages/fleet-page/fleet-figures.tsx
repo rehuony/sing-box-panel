@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { EM_DASH, formatBytes, formatRate } from '@shared/lib/telemetry-format';
+import { EM_DASH, formatBytes, formatRate, numberFormat } from '@shared/lib/telemetry-format';
 
 import type { FleetFigures as Figures } from '@/utils/fleet-summary';
 
@@ -35,7 +35,7 @@ export function FleetFigures({ figures }: { figures: Figures }) {
         label={t('fleet.figures.connections')}
         meta={t('fleet.figures.connectionsMeta', { online: figures.online, total: figures.total })}
       >
-        {new Intl.NumberFormat(locale).format(figures.connections)}
+        {numberFormat(locale).format(figures.connections)}
       </KeyFigure>
       <KeyFigure
         help={t('fleet.usageHint')}
