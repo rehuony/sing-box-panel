@@ -3,12 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHttpApiClient } from '@/api/http-api-client';
 
 describe('createHttpApiClient subscription domain', () => {
-  it('requests numbered key pages and preserves the server total', async () => {
-    const page = { items: [], total: 27 };
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(page)));
+  it('saves each list\'s order as its IDs at the list\'s order path', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(null, { status: 204 }));
     const client = createHttpApiClient({ fetcher });
-    await expect(client.listSubscriptionTokens({ offset: 20, limit: 10 })).resolves.toEqual(page);
-    expect(fetcher).toHaveBeenCalledWith('/api/v1/subscription/tokens?offset=20&limit=10', expect.objectContaining({ method: 'GET' }));
+    await client.setSubscriptionSourceOrder(['source-b', 'source-a']);
+    await client.setSubscriptionChannelOrder(['channel-b', 'channel-a']);
+    await client.setSubscriptionTokenOrder(['token-b', 'token-a']);
+    expect(fetcher.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([
+      ['/api/v1/subscription/source-order', 'PUT', '{"ids":["source-b","source-a"]}'],
+      ['/api/v1/subscription/channel-order', 'PUT', '{"ids":["channel-b","channel-a"]}'],
+      ['/api/v1/subscription/token-order', 'PUT', '{"ids":["token-b","token-a"]}'],
+    ]);
   });
 
   it('decodes UTF-8 preview bytes and sends isolated unsaved template input', async () => {

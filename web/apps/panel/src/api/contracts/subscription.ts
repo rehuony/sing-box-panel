@@ -14,7 +14,7 @@ export type {
   NodePublication,
   SubscriptionChannel,
   SubscriptionChannelConfig,
-  SubscriptionChannelPage,
+  SubscriptionChannelList,
   SubscriptionChannelSummary,
   SubscriptionChannelInput as SubscriptionChannelWrite,
   SubscriptionCursor,
@@ -35,23 +35,17 @@ export type {
   SubscriptionSourceFilter,
   SubscriptionSourceFormatChoice,
   SubscriptionSourceKind,
-  SubscriptionSourcePage,
+  SubscriptionSourceList,
   SubscriptionSourceParseError,
   SubscriptionSourcePreview,
   SubscriptionSourcePreviewItem,
   SubscriptionSourcePreviewRequest,
   SubscriptionSourceUpdate,
   SubscriptionToken,
-  SubscriptionTokenPage,
+  SubscriptionTokenList,
   SubscriptionTokenRotation,
   SubscriptionUser,
   SubscriptionUserPage,
 } from '../generated';
 
 export type SubscriptionFormat = SubscriptionChannel['format'];
-
-export interface SubscriptionListFilter {
-  limit?: number;
-  beforeID?: string;
-  beforeTime?: string;
-}

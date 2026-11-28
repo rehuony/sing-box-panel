@@ -28,10 +28,9 @@ import type {
 import type {
   CreatedSubscriptionToken,
   SubscriptionChannel,
-  SubscriptionChannelPage,
+  SubscriptionChannelList,
   SubscriptionChannelWrite,
   SubscriptionDraftPreview,
-  SubscriptionListFilter,
   SubscriptionNodeDetail,
   SubscriptionNodeList,
   SubscriptionNodeUpdate,
@@ -42,12 +41,12 @@ import type {
   SubscriptionRuleSetUpdate,
   SubscriptionSource,
   SubscriptionSourceCreate,
-  SubscriptionSourcePage,
+  SubscriptionSourceList,
   SubscriptionSourcePreview,
   SubscriptionSourcePreviewRequest,
   SubscriptionSourceUpdate,
   SubscriptionToken,
-  SubscriptionTokenPage,
+  SubscriptionTokenList,
   SubscriptionTokenRotation,
 } from './contracts/subscription';
 import type {
@@ -198,12 +197,24 @@ export interface ApiClient {
   listSubscriptionNodes: (signal?: AbortSignal) => Promise<SubscriptionNodeList>;
   removeCoreArtifact: (artifactID: string, signal?: AbortSignal) => Promise<void>;
   enableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
+  /** Every key in its saved order. */
+  listSubscriptionTokens: (signal?: AbortSignal) => Promise<SubscriptionTokenList>;
   deleteSubscriptionToken: (tokenID: string, signal?: AbortSignal) => Promise<void>;
   disableCore: (artifactID: string, signal?: AbortSignal) => Promise<RuntimeStatus>;
+  /** Saves the keys' order; ids must be every key once, or they changed and it answers 409. */
+  setSubscriptionTokenOrder: (ids: string[], signal?: AbortSignal) => Promise<void>;
+
   /** Deletes the log entries in scope and shrinks the log's files; runtime states stay. */
   clearPanelLogs: (scope: LogScope, signal?: AbortSignal) => Promise<LogClearResult>;
+  /** Every source in its saved order. */
+  listSubscriptionSources: (signal?: AbortSignal) => Promise<SubscriptionSourceList>;
   refreshCatalog: (force?: boolean, signal?: AbortSignal) => Promise<CatalogRefresh>;
-
+  /** Saves the sources' order; ids must be every source once, or they changed and it answers 409. */
+  setSubscriptionSourceOrder: (ids: string[], signal?: AbortSignal) => Promise<void>;
+  /** Saves the channels' order; ids must be every channel once, or they changed and it answers 409. */
+  setSubscriptionChannelOrder: (ids: string[], signal?: AbortSignal) => Promise<void>;
+  /** Every channel in its saved order. */
+  listSubscriptionChannels: (signal?: AbortSignal) => Promise<SubscriptionChannelList>;
   renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;
   /** Issues a new one-time enrollment code; the node's current key stays valid until it is redeemed. */
@@ -241,12 +252,14 @@ export interface ApiClient {
     filter?: CatalogAssetFilter,
     signal?: AbortSignal,
   ) => Promise<CatalogAssetList>;
+
   listCoreArtifacts: (
     filter?: CoreArtifactFilter,
     signal?: AbortSignal,
   ) => Promise<CoreArtifactPage>;
   readCoreLog: (file: string, offset?: number, generation?: string, signal?: AbortSignal) => Promise<CoreLogChunk>;
   applyPanelRestore: (id: string, input: PanelRestoreApply, signal?: AbortSignal) => Promise<PanelRestoreRequested>;
+
   /** Backs up the current state and applies the staged restore as the panel restarts. */
   /** Counts what restoring categories of a staged restore changes beyond them; changes nothing. */
   planPanelRestore: (id: string, input: PanelRestorePlanRequest, signal?: AbortSignal) => Promise<PanelRestorePlan>;
@@ -255,10 +268,10 @@ export interface ApiClient {
     input: PanelSettingsWrite,
     signal?: AbortSignal,
   ) => Promise<PanelSettingsSaveResult>;
-
   streamMetrics: (
     signal?: AbortSignal,
   ) => AsyncIterable<{ metrics: MetricsSnapshot; runtime: RuntimeStatus }>;
+
   deleteSubscriptionSource: (
     sourceID: string,
     updatedAt: string,
@@ -268,7 +281,6 @@ export interface ApiClient {
     artifactID: string,
     signal?: AbortSignal,
   ) => Promise<ConfigurationSchemaContract>;
-
   saveConfigurationFile: (
     input: ConfigurationFileWrite,
     signal?: AbortSignal,
@@ -284,7 +296,6 @@ export interface ApiClient {
     input: { coreArtifactID: string },
     signal?: AbortSignal,
   ) => Promise<ConfigurationCompile>;
-
   createSubscriptionSource: (
     input: SubscriptionSourceCreate,
     signal?: AbortSignal,
@@ -293,14 +304,6 @@ export interface ApiClient {
     input: SubscriptionChannelWrite,
     signal?: AbortSignal,
   ) => Promise<SubscriptionChannel>;
-  listSubscriptionSources: (
-    filter?: SubscriptionListFilter,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionSourcePage>;
-  listSubscriptionChannels: (
-    filter?: SubscriptionListFilter,
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionChannelPage>;
   /** Every node's runtime transitions, newest first. */
   listFleetRuntimeHistory: (
     filter?: FleetRuntimeHistoryFilter,
@@ -333,10 +336,6 @@ export interface ApiClient {
     generation?: string,
     signal?: AbortSignal,
   ) => AsyncIterable<CoreLogChunk>;
-  listSubscriptionTokens: (
-    filter?: SubscriptionListFilter & { offset?: number },
-    signal?: AbortSignal,
-  ) => Promise<SubscriptionTokenPage>;
   /** Changes a pool node's display name; updatedAt is the version it was read at. */
   updateSubscriptionNode: (
     id: string,

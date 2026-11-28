@@ -3,17 +3,17 @@ import type {
   ApiClient,
   CreatedSubscriptionToken,
   SubscriptionChannel,
-  SubscriptionChannelPage,
+  SubscriptionChannelList,
   SubscriptionNodeDetail,
   SubscriptionNodeList,
   SubscriptionPreview,
   SubscriptionRuleSet,
   SubscriptionRuleSetList,
   SubscriptionSource,
-  SubscriptionSourcePage,
+  SubscriptionSourceList,
   SubscriptionSourcePreview,
   SubscriptionToken,
-  SubscriptionTokenPage,
+  SubscriptionTokenList,
   SubscriptionTokenRotation,
 } from '../api-client';
 
@@ -22,17 +22,13 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
     baseUrl, buildQuery, fetcher, quoteETag, request, writeHeaders, writeJSONHeaders,
   } = context;
   return {
-    listSubscriptionChannels(filter = {}, signal) {
-      const query = buildQuery({
-        limit: filter.limit ?? 50,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
+    listSubscriptionChannels(signal) {
+      return request<SubscriptionChannelList>(fetcher, `${baseUrl}/subscription/channels`, { method: 'GET', signal });
+    },
+    setSubscriptionChannelOrder(ids, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/channel-order`, {
+        method: 'PUT', body: JSON.stringify({ ids }), headers: writeJSONHeaders(), signal,
       });
-      return request<SubscriptionChannelPage>(
-        fetcher,
-        `${baseUrl}/subscription/channels${query}`,
-        { method: 'GET', signal },
-      );
     },
     getSubscriptionChannel(channelID, signal) {
       return request<SubscriptionChannel>(
@@ -130,17 +126,13 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         method: 'DELETE', headers: writeHeaders({ 'If-Match': quoteETag(updatedAt) }), signal,
       });
     },
-    listSubscriptionSources(filter = {}, signal) {
-      const query = buildQuery({
-        limit: filter.limit ?? 50,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
+    listSubscriptionSources(signal) {
+      return request<SubscriptionSourceList>(fetcher, `${baseUrl}/subscription/sources`, { method: 'GET', signal });
+    },
+    setSubscriptionSourceOrder(ids, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/source-order`, {
+        method: 'PUT', body: JSON.stringify({ ids }), headers: writeJSONHeaders(), signal,
       });
-      return request<SubscriptionSourcePage>(
-        fetcher,
-        `${baseUrl}/subscription/sources${query}`,
-        { method: 'GET', signal },
-      );
     },
     getSubscriptionSource(sourceID, signal) {
       return request<SubscriptionSource>(
@@ -186,16 +178,12 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
         method: 'POST', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,
       });
     },
-    listSubscriptionTokens(filter = {}, signal) {
-      const query = buildQuery({
-        offset: filter.offset,
-        limit: filter.limit ?? 50,
-        before_time: filter.beforeTime,
-        before_id: filter.beforeID,
-      });
-      return request<SubscriptionTokenPage>(fetcher, `${baseUrl}/subscription/tokens${query}`, {
-        method: 'GET',
-        signal,
+    listSubscriptionTokens(signal) {
+      return request<SubscriptionTokenList>(fetcher, `${baseUrl}/subscription/tokens`, { method: 'GET', signal });
+    },
+    setSubscriptionTokenOrder(ids, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/token-order`, {
+        method: 'PUT', body: JSON.stringify({ ids }), headers: writeJSONHeaders(), signal,
       });
     },
     getSubscriptionTokenSecret(tokenID, signal) {

@@ -60,23 +60,25 @@ func (application *Service) SubscriptionToken(
 	return applicationSubscriptionToken(stored, now), nil
 }
 
-func (application *Service) ListSubscriptionTokens(
-	ctx context.Context,
-	request SubscriptionListRequest,
-) (SubscriptionTokenPage, error) {
+// ListSubscriptionTokens returns every key in its saved order.
+func (application *Service) ListSubscriptionTokens(ctx context.Context) (SubscriptionTokenList, error) {
 	now := application.now().UTC()
-	stored, err := application.database.ListSubscriptionTokens(ctx, store.SubscriptionTokenListFilter{
-		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit, Offset: request.Offset,
-	})
+	stored, err := application.database.ListSubscriptionTokens(ctx)
 	if err != nil {
-		return SubscriptionTokenPage{}, err
+		return SubscriptionTokenList{}, err
 	}
-	page := SubscriptionTokenPage{Items: make([]SubscriptionToken, len(stored.Items)), Total: stored.Total}
-	for index, token := range stored.Items {
-		page.Items[index] = applicationSubscriptionToken(token, now)
+	list := SubscriptionTokenList{Items: make([]SubscriptionToken, len(stored))}
+	for index, token := range stored {
+		list.Items[index] = applicationSubscriptionToken(token, now)
 	}
-	page.Next = applicationSubscriptionCursor(stored.Next)
-	return page, nil
+	return list, nil
+}
+
+// SetSubscriptionTokenOrder saves the keys' order. ids must name every key
+// exactly once; otherwise they changed since they were read and it fails
+// with store.ErrSubscriptionTokensChanged.
+func (application *Service) SetSubscriptionTokenOrder(ctx context.Context, ids []string) error {
+	return application.database.SetSubscriptionTokenOrder(ctx, ids)
 }
 
 func (application *Service) AuthenticateSubscriptionToken(

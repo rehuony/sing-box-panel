@@ -10,16 +10,27 @@ import (
 )
 
 func (handler *Handler) listSubscriptionTokens(w http.ResponseWriter, request *http.Request) {
-	input, ok := handler.subscriptionListRequest(w, request, "offset")
-	if !ok {
+	if !handler.subscriptionReadRequest(w, request) {
 		return
 	}
-	tokens, err := handler.services.Subscriptions.ListSubscriptionTokens(request.Context(), input)
+	tokens, err := handler.services.Subscriptions.ListSubscriptionTokens(request.Context())
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_token_list_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tokens)
+}
+
+func (handler *Handler) setSubscriptionTokenOrder(w http.ResponseWriter, request *http.Request) {
+	ids, ok := handler.subscriptionOrderRequest(w, request)
+	if !ok {
+		return
+	}
+	if err := handler.services.Subscriptions.SetSubscriptionTokenOrder(request.Context(), ids); err != nil {
+		writeSubscriptionProblem(w, request, "subscription_token_order_failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *Handler) createSubscriptionToken(w http.ResponseWriter, request *http.Request) {

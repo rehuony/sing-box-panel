@@ -87,16 +87,6 @@ type SubscriptionChannelRoute struct {
 	Exit   SubscriptionChannelExit
 }
 
-type SubscriptionChannelListFilter struct {
-	Cursor *CreatedAtCursor
-	Limit  int
-}
-
-type SubscriptionChannelPage struct {
-	Items []SubscriptionChannel
-	Next  *CreatedAtCursor
-}
-
 type UpdateSubscriptionChannelInput struct {
 	Channel           SubscriptionChannel
 	ExpectedUpdatedAt time.Time
@@ -106,6 +96,8 @@ const subscriptionChannelColumns = `
     id, name, format, enabled, incompatible_nodes, template, default_exit_kind,
     coalesce(default_exit_node_id, ''), coalesce(default_exit_group_id, ''), created_at, updated_at`
 
+// CreateSubscriptionChannel stores a new channel at the end of the channels'
+// order.
 func (s *Store) CreateSubscriptionChannel(ctx context.Context, channel SubscriptionChannel) (SubscriptionChannel, error) {
 	prepared, err := prepareSubscriptionChannel(channel)
 	if err != nil {
@@ -121,8 +113,8 @@ func (s *Store) CreateSubscriptionChannel(ctx context.Context, channel Subscript
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_channels(
-				id, name, format, enabled, incompatible_nodes, template, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				id, name, format, enabled, incompatible_nodes, template, created_at, updated_at, position
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT coalesce(max(position) + 1, 0) FROM subscription_channels))`,
 			prepared.ID, prepared.Name, string(prepared.Format), boolInt(prepared.Enabled), prepared.Config.IncompatibleNodes,
 			prepared.Config.Template, formatTime(prepared.CreatedAt), formatTime(prepared.UpdatedAt)); err != nil {
 			return fmt.Errorf("insert subscription channel: %w", err)
@@ -152,67 +144,49 @@ func (s *Store) GetSubscriptionChannel(ctx context.Context, channelID string) (S
 	return channel, tx.Commit()
 }
 
-// ListSubscriptionChannels reads a page of channels, newest first, each with
-// its groups, members and exit rules, all from one snapshot.
-func (s *Store) ListSubscriptionChannels(ctx context.Context, filter SubscriptionChannelListFilter) (SubscriptionChannelPage, error) {
-	limit, err := normalizePageLimit(filter.Limit)
-	if err != nil {
-		return SubscriptionChannelPage{}, err
-	}
-	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
-		return SubscriptionChannelPage{}, err
-	}
-	query := `SELECT id FROM subscription_channels`
-	args := make([]any, 0, 4)
-	if filter.Cursor != nil {
-		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTime(filter.Cursor.CreatedAt)
-		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
-	}
-	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
-	args = append(args, limit+1)
+// ListSubscriptionChannels returns every channel in its saved order, each
+// with its groups, members and exit rules, all from one snapshot.
+func (s *Store) ListSubscriptionChannels(ctx context.Context) ([]SubscriptionChannel, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return SubscriptionChannelPage{}, err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM subscription_channels ORDER BY position, id`)
 	if err != nil {
-		return SubscriptionChannelPage{}, fmt.Errorf("list subscription channels: %w", err)
+		return nil, fmt.Errorf("list subscription channels: %w", err)
 	}
-	ids := make([]string, 0, limit+1)
+	ids := []string{}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			_ = rows.Close()
-			return SubscriptionChannelPage{}, fmt.Errorf("scan subscription channel: %w", err)
+			return nil, fmt.Errorf("scan subscription channel: %w", err)
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Close(); err != nil {
-		return SubscriptionChannelPage{}, err
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
-		return SubscriptionChannelPage{}, fmt.Errorf("iterate subscription channels: %w", err)
+		return nil, fmt.Errorf("iterate subscription channels: %w", err)
 	}
-	items := make([]SubscriptionChannel, 0, len(ids))
+	channels := make([]SubscriptionChannel, 0, len(ids))
 	for _, id := range ids {
 		channel, err := getSubscriptionChannel(ctx, tx, id)
 		if err != nil {
-			return SubscriptionChannelPage{}, err
+			return nil, err
 		}
-		items = append(items, channel)
+		channels = append(channels, channel)
 	}
-	if err := tx.Commit(); err != nil {
-		return SubscriptionChannelPage{}, err
-	}
-	page := SubscriptionChannelPage{Items: items}
-	if len(items) > limit {
-		page.Items = items[:limit]
-		last := page.Items[len(page.Items)-1]
-		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
-	}
-	return page, nil
+	return channels, tx.Commit()
+}
+
+// SetSubscriptionChannelOrder saves the channels' order. ids must name every
+// channel exactly once; otherwise they changed since they were read and it
+// fails with ErrSubscriptionChannelsChanged.
+func (s *Store) SetSubscriptionChannelOrder(ctx context.Context, ids []string) error {
+	return s.saveSubscriptionOrder(ctx, "subscription_channels", ids, ErrSubscriptionChannelsChanged, "")
 }
 
 // UpdateSubscriptionChannel replaces a channel, its groups, members and exit

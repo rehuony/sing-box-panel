@@ -14,16 +14,27 @@ import (
 const maximumSourceRequestBytes = 2*store.MaximumSourceContentBytes + (64 << 10)
 
 func (handler *Handler) listSubscriptionSources(w http.ResponseWriter, request *http.Request) {
-	input, ok := handler.subscriptionListRequest(w, request)
-	if !ok {
+	if !handler.subscriptionReadRequest(w, request) {
 		return
 	}
-	sources, err := handler.services.Subscriptions.ListSubscriptionSources(request.Context(), input)
+	sources, err := handler.services.Subscriptions.ListSubscriptionSources(request.Context())
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_source_list_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sources)
+}
+
+func (handler *Handler) setSubscriptionSourceOrder(w http.ResponseWriter, request *http.Request) {
+	ids, ok := handler.subscriptionOrderRequest(w, request)
+	if !ok {
+		return
+	}
+	if err := handler.services.Subscriptions.SetSubscriptionSourceOrder(request.Context(), ids); err != nil {
+		writeSubscriptionProblem(w, request, "subscription_source_order_failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *Handler) createSubscriptionSource(w http.ResponseWriter, request *http.Request) {

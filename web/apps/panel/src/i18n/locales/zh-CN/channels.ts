@@ -80,4 +80,6 @@ export const channels = {
   draftRestored: '已恢复刷新前未保存的更改', draftOutdated: '渠道已在其他地方更改，刷新前未保存的更改未恢复',
   memberCount_one: '{{count}} 个成员', memberCount_other: '{{count}} 个成员',
   removed: '渠道已删除',
+  orderStale: '渠道已有变化，已重新载入',
+  orderSaveFailed: '渠道顺序未能保存',
 } as const;

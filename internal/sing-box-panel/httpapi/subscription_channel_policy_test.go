@@ -128,7 +128,7 @@ func TestChannelPreviewDeliveryAndNodeRemoval(t *testing.T) {
 	}
 	// A node that leaves the pool leaves the channel: its final exit falls
 	// back to direct instead of naming another proxy.
-	sources, err := services.Subscriptions.ListSubscriptionSources(ctx, subscription.SubscriptionListRequest{})
+	sources, err := services.Subscriptions.ListSubscriptionSources(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,14 +27,19 @@ The key list shows each key's name, its state (active, disabled, used up,
 expired or revoked), when it was last used, its expiry and its downloads against
 its quota; a phone keeps the name, state and actions. A row opens the key's
 details with its secret; its actions are enable/disable and a menu with rotation
-and deletion, and a revoked key can only be deleted. Its metadata
+and deletion, and a revoked key can only be deleted. The list holds every key
+in its saved order, without pagination: a new key joins the end, a rotation's
+new key takes the rotated key's place with the revoked key directly after it,
+and dragging a row saves the order with `PUT /subscription/token-order`. Its metadata
 and in-flight list request survive subscription-tab switches, with refreshes after
-key changes or pagination. Leaving the subscriptions page releases that state.
+key changes. Leaving the subscriptions page releases that state.
 Secret dialog contents, and the secret a channel link read, are cleared on close
 or when leaving the tab. The channel list shows each channel's client, the pool
 nodes it publishes, its exit rules and its final exit; a row opens its channel,
 and its menu duplicates it as an independent channel with the same configuration
-or deletes it. Preview, clipboard and public delivery use the same
+or deletes it. It holds every channel in its saved order, without pagination;
+a new channel, a duplicate included, joins the end, and dragging a row saves
+the order with `PUT /subscription/channel-order`. Preview, clipboard and public delivery use the same
 formatted output: indented JSON, block-style YAML, or native line-oriented Loon.
 Any unrevoked key can be rotated, whether enabled, disabled, expired or exhausted.
 Rotation replaces its secret while preserving enablement, scope, quota and usage;
@@ -255,6 +260,16 @@ source. Its name may stay empty, and then it is the link's host without a
 leading `sub.`, `www.` or `api.`, or the file's name. The dialog reads what was
 given before saving it, says why it cannot be read with the step that may fix
 it, choosing a format or retrying the fetch, and saves only what it could read.
+
+The sources tab lists every source in its saved order, without pagination; a
+new source joins the end, and dragging one saves the order with
+`PUT /subscription/source-order`. The order is for display only: the pool still
+appends new nodes by the sources' creation time. Each of the source, channel and
+key order requests takes every current ID of its list exactly once and answers
+204 without changing any item's `updated_at`; a different set means the list
+changed since it was read and answers 409 `subscription_sources_changed`,
+`subscription_channels_changed` or `subscription_tokens_changed`, and the UI
+then reloads the list.
 
 Each source has a filter of name rules. Plain text matches a case-insensitive
 substring of a node's name in the source; text wrapped in slashes is an RE2
@@ -515,10 +530,13 @@ a note, because the exit rule sets the exit. A rule-set link may hold commas:
 the link is everything between the name and the trailing format and behavior,
 so every saved rule reads back the same. Other rule types, invalid values,
 formats the client cannot use and repeated rule-set names are listed by line,
-and saving is refused while one remains. The entries add one rule, or every
-line of a pasted block that can be read, from the line at their foot, and
-refuse a rule the set already holds. The server's validation remains the
-final check.
+and saving is refused while one remains. Both views colour each part of a
+line the same way: the type, the match value or address, a remote set's name,
+link and format, and the fields a line drops. The entries add one rule, or
+every line of a pasted block that can be read, from the line at their foot,
+and refuse a rule the set already holds. Outside a search, a rule drags into
+another place by its line number, or with F2; the new order is saved with the
+set's other changes. The server's validation remains the final check.
 
 Remote rule sets store metadata only. Sing-box uses source JSON or binary SRS;
 Mihomo uses YAML, TEXT or MRS with native behavior (MRS excludes classical).
@@ -793,11 +811,11 @@ deletion also requires confirmation. Clearing while paused preserves that
 state; the empty output says it was cleared, and the live-updates control
 resumes streaming.
 
-The panel log, runtime states and subscription-key lists support `offset` with
+The panel log and runtime states lists support `offset` with
 `limit` for numbered pages and return `total` before pagination. Totals include
 the active filters. Counts and rows come from one database snapshot;
-live inserts or deletions may shift rows between requests. The panel log and key
-lists also take the `before_time` and `before_id` cursors, which cannot be
+live inserts or deletions may shift rows between requests. The panel log
+also takes the `before_time` and `before_id` cursors, which cannot be
 combined with `offset`.
 The Web footer supports direct page entry and 5, 10, or 50 items per page.
 

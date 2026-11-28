@@ -48,7 +48,7 @@ func TestURLSourceRefreshKeepsLastContentThatParsed(t *testing.T) {
 	if !errors.As(err, &parseErr) || parseErr.Code != SourceErrorUnrecognizedFormat {
 		t.Fatalf("create from unparsable content = %v", err)
 	}
-	if sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{}); err != nil || len(sources.Items) != 0 {
+	if sources, err := app.ListSubscriptionSources(ctx); err != nil || len(sources.Items) != 0 {
 		t.Fatalf("a failed create saved a source: %+v %v", sources, err)
 	}
 

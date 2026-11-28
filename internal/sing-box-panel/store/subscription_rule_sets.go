@@ -278,47 +278,7 @@ func (s *Store) SetSubscriptionRuleSetOrder(ctx context.Context, client Subscrip
 	if !validSubscriptionFormat(client) {
 		return fmt.Errorf("%w: invalid rule set client %q", ErrInvalidQuery, client)
 	}
-	return s.WithTx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM subscription_rule_sets WHERE client = ?`, string(client))
-		if err != nil {
-			return fmt.Errorf("read subscription rule sets: %w", err)
-		}
-		current := map[string]bool{}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			current[id] = true
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(ids) != len(current) {
-			return ErrSubscriptionRuleSetsChanged
-		}
-		for _, id := range ids {
-			if !current[id] {
-				return ErrSubscriptionRuleSetsChanged
-			}
-			delete(current, id)
-		}
-		statement, err := tx.PrepareContext(ctx, `UPDATE subscription_rule_sets SET position = ? WHERE id = ?`)
-		if err != nil {
-			return err
-		}
-		defer statement.Close()
-		for position, id := range ids {
-			if _, err := statement.ExecContext(ctx, position, id); err != nil {
-				return fmt.Errorf("save subscription rule set order: %w", err)
-			}
-		}
-		return nil
-	})
+	return s.saveSubscriptionOrder(ctx, "subscription_rule_sets", ids, ErrSubscriptionRuleSetsChanged, `WHERE client = ?`, string(client))
 }
 
 func prepareSubscriptionRuleSet(set SubscriptionRuleSet) (SubscriptionRuleSet, error) {

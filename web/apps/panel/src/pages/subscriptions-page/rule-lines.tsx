@@ -1,20 +1,24 @@
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 
 import { cn } from '@shared/lib/utils';
+import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { Check, CirclePlus, CornerDownLeft, Trash2, X, Zap } from 'lucide-react';
-import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Check, CirclePlus, CornerDownLeft, GripVertical, Trash2, X, Zap } from 'lucide-react';
 
 import type { SubscriptionRule } from '@/api/api-client';
 
 import { IconAction } from '@/components/icon-action';
 import { SelectField } from '@/components/select-field';
 import { StripDivider } from '@/components/title-strip';
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { dropSlot, SortContext, SortOverlay, useDraggedId } from '@/components/sortable';
 
-import { ruleLine, ruleType } from './rule-text';
-import { dataFace, gutterCell } from './rule-line-style';
+import { ruleLine, ruleName, ruleType } from './rule-text';
+import { dataFace, gutterCell, ruleTone } from './rule-line-style';
 
 export type MatchKind = Exclude<SubscriptionRule['kind'], 'remote'>;
 
@@ -56,27 +60,28 @@ function lineType(rule: SubscriptionRule): string {
 }
 
 /**
- * A rule's value on one line: a match value, or a remote rule set's name,
- * then its link without the scheme and its format. Only the link's start
- * gives way, so the file and the format stay; the name takes at most 60%.
+ * A rule's value on one line in the text's syntax colours: a match value or
+ * address, or a remote rule set's name, then its link without the scheme
+ * and its format. Only the link's start gives way, so the file and the
+ * format stay; the name takes at most 60%.
  */
 function RuleValue({ rule }: { rule: SubscriptionRule }) {
   const { t } = useTranslation();
   if (rule.kind !== 'remote' || !rule.remote) {
-    return <span className={cn(dataFace, 'min-w-0 truncate text-compact')}>{rule.value}</span>;
+    return <span className={cn(dataFace, 'min-w-0 truncate text-compact', ruleTone[rule.kind === 'ip_cidr' ? 'address' : 'value'])}>{rule.value}</span>;
   }
   const { accelerated, behavior, format, name, url } = rule.remote;
   const shown = url.replace(/^https?:\/\//, '');
   const file = shown.lastIndexOf('/') + 1;
   return (
     <span className={cn(dataFace, 'flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap')}>
-      <span className='max-w-[60%] flex-none truncate text-compact'>{name}</span>
-      <span className='flex min-w-0 flex-1 items-center overflow-hidden text-xs text-muted-foreground'>
-        {accelerated ? <Zap aria-label={t('subscriptions.ruleSets.accelerate')} className='me-1 size-3 flex-none' role='img' /> : null}
-        <span className='min-w-0 shrink truncate'>{shown.slice(0, file)}</span>
-        <span className='flex-none'>{shown.slice(file)}</span>
+      <span className={cn('max-w-[60%] flex-none truncate text-compact', ruleTone.name)}>{name}</span>
+      <span className='flex min-w-0 flex-1 items-center overflow-hidden text-xs'>
+        {accelerated ? <Zap aria-label={t('subscriptions.ruleSets.accelerate')} className='me-1 size-3 flex-none text-muted-foreground' role='img' /> : null}
+        <span className={cn('min-w-0 shrink truncate', ruleTone.link)}>{shown.slice(0, file)}</span>
+        <span className={cn('flex-none', ruleTone.link)}>{shown.slice(file)}</span>
         <span aria-hidden='true' className='mx-1.5 flex-none text-[var(--color-text-faint)]'>·</span>
-        <span className='flex-none'>{[format, behavior].filter(Boolean).join(' · ')}</span>
+        <span className={cn('flex-none', ruleTone.option)}>{[format, behavior].filter(Boolean).join(' · ')}</span>
       </span>
     </span>
   );
@@ -86,39 +91,67 @@ function RuleValue({ rule }: { rule: SubscriptionRule }) {
  * A rule's line at rest: its number, type and value as one action that
  * edits it, then remove, shown on hover and focus and left to the edit line
  * on touch screens. Only the line holding the list's focus is a tab stop.
+ * While the list is sortable, the number turns into a grip on hover that a
+ * press or a held touch drags, and F2 picks the line up from the keyboard.
  */
-const RuleLine = memo(({ active, changed, flashing, onEdit, onFocusLine, onRemove, position, row }: {
+const RuleLine = memo(({ active, changed, flashing, onEdit, onFocusLine, onRemove, position, row, sortable }: {
   row: Row;
   position: number;
   /** Whether the line is the list's tab stop. */
   active: boolean;
   changed: boolean;
   flashing: boolean;
+  /** Whether the line can be dragged into another place. */
+  sortable: boolean;
   onEdit: (key: number) => void;
   onRemove: (key: number) => void;
   onFocusLine: (key: number) => void;
 }) => {
   const { t } = useTranslation();
+  const reducedMotion = usePrefersReducedMotion();
+  const { attributes, isDragging, listeners, setActivatorNodeRef, setNodeRef, transform, transition } = useSortable({
+    id: String(row.key), disabled: !sortable,
+  });
   return (
     <li
       className={cn(
         lineGrid,
         'group/rule h-9 border-b transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)]',
         flashing && 'bg-accent hover:bg-accent',
+        isDragging && dropSlot,
       )}
       data-rule-key={row.key}
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition: reducedMotion ? undefined : transition }}
     >
       <button
+        aria-describedby={sortable ? attributes['aria-describedby'] : undefined}
         aria-description={t('subscriptions.ruleSets.editRule')}
+        aria-keyshortcuts={sortable ? 'F2' : undefined}
         className='col-span-3 grid h-full cursor-pointer grid-cols-subgrid items-center text-start outline-none focus-visible:bg-[var(--color-hover)]'
         data-rule-button=''
         onClick={() => onEdit(row.key)}
         onFocus={() => onFocusLine(row.key)}
+        onKeyDown={sortable ? event => listeners?.onKeyDown?.(event) : undefined}
+        ref={setActivatorNodeRef}
         tabIndex={active ? 0 : -1}
         type='button'
       >
-        <span className={cn(gutterCell, changed ? 'text-primary' : 'text-[var(--color-text-faint)] group-focus-within/rule:text-foreground')}>{position}</span>
-        <span className={cn(dataFace, 'truncate text-xs text-[var(--color-text-secondary)]')}>{lineType(row.rule)}</span>
+        <span
+          className={cn(gutterCell, 'relative', sortable && 'cursor-grab')}
+          onMouseDown={sortable ? event => listeners?.onMouseDown?.(event) : undefined}
+          onTouchStart={sortable ? event => listeners?.onTouchStart?.(event) : undefined}
+        >
+          <span className={cn(changed ? 'text-primary' : 'text-[var(--color-text-faint)] group-focus-within/rule:text-foreground', sortable && 'group-hover/rule:invisible [@media(hover:none)]:visible')}>{position}</span>
+          {sortable
+            ? (
+                <span aria-hidden='true' className='invisible absolute inset-0 flex items-center justify-end text-[var(--color-text-secondary)] group-hover/rule:visible [@media(hover:none)]:invisible'>
+                  <GripVertical className='size-3.5' />
+                </span>
+              )
+            : null}
+        </span>
+        <span className={cn(dataFace, 'truncate text-xs', ruleTone.type)}>{lineType(row.rule)}</span>
         <RuleValue rule={row.rule} />
       </button>
       <span className='invisible flex justify-end group-focus-within/rule:visible group-hover/rule:visible [@media(hover:none)]:hidden'>
@@ -235,23 +268,67 @@ export function RuleEditLine({ onApply, onCancel, onInput, onRemove, position, r
  * lines in view. The list is one tab stop: the arrow keys, Home, End and the
  * page keys move between lines, Enter edits one and Delete removes it.
  */
-export function RuleList({
-  editLine, editingKey, entries, flashKey, followSignal, isChanged, label, onEdit, onRemove,
-}: {
-  entries: readonly Entry[];
+interface RuleListProps {
   label: string;
-  /** The line being edited, drawn in its row's place. */
-  editingKey: number | null;
+  /** Whether lines can be dragged into another place, as while nothing is searched or edited. */
+  sortable: boolean;
   editLine: ReactNode;
-  /** A line to bring into view and highlight. */
-  flashKey: number | null;
   /** Changes whenever lines were added, to follow them to the list's end. */
   followSignal: number;
-  isChanged: (row: Row) => boolean;
+  /** A line to bring into view and highlight. */
+  flashKey: number | null;
+  /** The line being edited, drawn in its row's place. */
+  editingKey: number | null;
+  entries: readonly Entry[];
   onEdit: (key: number) => void;
   onRemove: (key: number) => void;
+  isChanged: (row: Row) => boolean;
+  /** Moves a line to another's place. */
+  onMove: (key: number, over: number) => void;
+}
+
+export function RuleList({ onMove, ...props }: RuleListProps) {
+  const { t } = useTranslation();
+  const draggingRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const { entries, sortable } = props;
+  const items = useMemo(
+    () => entries.map(({ row }) => ({ id: String(row.key), label: ruleLine(row.rule) })),
+    [entries],
+  );
+  return (
+    <SortContext
+      ended={t('subscriptions.ruleSets.ruleDragEnd')}
+      instructions={t('subscriptions.ruleSets.ruleDragInstructions')}
+      items={items}
+      locked={!sortable}
+      onDraggingChange={(dragging) => {
+        draggingRef.current = dragging;
+        if (dragging) suppressClickRef.current = true;
+      }}
+      onMove={(active, over) => onMove(Number(active), Number(over))}
+      renderOverlay={(id) => {
+        const row = entries.find(entry => String(entry.row.key) === id)?.row;
+        return row ? <SortOverlay detail={lineType(row.rule)} name={ruleName(row.rule)} /> : null;
+      }}
+      strategy={verticalListSortingStrategy}
+    >
+      <RuleLines {...props} draggingRef={draggingRef} suppressClickRef={suppressClickRef} />
+    </SortContext>
+  );
+}
+
+function RuleLines({
+  draggingRef, editLine, editingKey, entries, flashKey, followSignal, isChanged, label, onEdit, onRemove, sortable,
+  suppressClickRef,
+}: Omit<RuleListProps, 'onMove'> & {
+  /** Whether a line is being dragged, which the list's keys leave to the drag. */
+  draggingRef: RefObject<boolean>;
+  /** Whether a drag just ended, so the press that dropped the line edits nothing. */
+  suppressClickRef: RefObject<boolean>;
 }) {
   const listRef = useRef<HTMLOListElement>(null);
+  const dragged = useDraggedId();
   /** The element that scrolls the list, the shared scroll area's viewport. */
   const scrollRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef(0);
@@ -331,6 +408,7 @@ export function RuleList({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLOListElement>) {
+    if (draggingRef.current) return;
     if (!(event.target instanceof HTMLElement) || !event.target.hasAttribute('data-rule-button')) return;
     const index = entries.findIndex(({ row }) => row.key === active);
     const page = Math.max(1, Math.floor(view.height / LINE) - 1);
@@ -358,7 +436,12 @@ export function RuleList({
   const top = Math.min(view.top, Math.max(0, entries.length * LINE - height));
   const first = Math.max(0, Math.floor(top / LINE) - OVERSCAN);
   const last = Math.min(entries.length, Math.ceil((top + height) / LINE) + OVERSCAN);
-  const drawn = entries.slice(first, last);
+  // The line being dragged stays drawn wherever the view goes, the lines between it and the view left out.
+  const kept = dragged === null ? -1 : entries.findIndex(({ row }) => String(row.key) === dragged);
+  const runs: [number, number][] = [[first, last]];
+  if (kept >= 0 && kept < first) runs.unshift([kept, kept + 1]);
+  else if (kept >= last) runs.push([kept, kept + 1]);
+  const drawn = runs.flatMap(([from, to]) => entries.slice(from, to));
   // The tab stop is the active line while it is drawn, otherwise the first line drawn, so Tab always reaches the list.
   const tabStop = drawn.some(({ row }) => row.key === active) ? active : drawn[0]?.row.key ?? null;
   return (
@@ -375,25 +458,47 @@ export function RuleList({
       }}
       viewportRef={scrollRef}
     >
-      <ol aria-label={label} onKeyDown={onKeyDown} ref={listRef}>
+      <ol
+        aria-label={label}
+        onClickCapture={(event) => {
+          if (suppressClickRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+        onKeyDown={onKeyDown}
+        onKeyDownCapture={(event) => {
+          if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
+        }}
+        onPointerDownCapture={() => {
+          if (!draggingRef.current) suppressClickRef.current = false;
+        }}
+        ref={listRef}
+      >
         {/* The lines out of view keep their room as spacers, so the scrollbar measures the whole list. */}
-        {first > 0 ? <li aria-hidden='true' className='list-none' style={{ height: first * LINE }} /> : null}
-        {drawn.map(({ position, row }) => (row.key === editingKey
-          ? <Fragment key={row.key}>{editLine}</Fragment>
-          : (
-              <RuleLine
-                active={row.key === tabStop}
-                changed={isChanged(row)}
-                flashing={row.key === flashKey}
-                key={row.key}
-                onEdit={onEdit}
-                onFocusLine={setActiveKey}
-                onRemove={onRemove}
-                position={position}
-                row={row}
-              />
-            )))}
-        {last < entries.length ? <li aria-hidden='true' className='list-none' style={{ height: (entries.length - last) * LINE }} /> : null}
+        {runs.flatMap(([from, to], run) => {
+          const before = from - (run > 0 ? runs[run - 1]![1] : 0);
+          return [
+            before > 0 ? <li aria-hidden='true' className='list-none' key={`gap-${from}`} style={{ height: before * LINE }} /> : null,
+            ...entries.slice(from, to).map(({ position, row }) => (row.key === editingKey
+              ? <Fragment key={row.key}>{editLine}</Fragment>
+              : (
+                  <RuleLine
+                    active={row.key === tabStop}
+                    changed={isChanged(row)}
+                    flashing={row.key === flashKey}
+                    key={row.key}
+                    onEdit={onEdit}
+                    onFocusLine={setActiveKey}
+                    onRemove={onRemove}
+                    position={position}
+                    row={row}
+                    sortable={sortable}
+                  />
+                ))),
+          ];
+        })}
+        {runs.at(-1)![1] < entries.length ? <li aria-hidden='true' className='list-none' style={{ height: (entries.length - runs.at(-1)![1]) * LINE }} /> : null}
       </ol>
     </ScrollArea>
   );

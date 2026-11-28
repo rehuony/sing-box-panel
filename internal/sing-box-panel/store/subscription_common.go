@@ -47,6 +47,13 @@ var (
 	ErrSubscriptionConflict               = errors.New("subscription resource changed")
 	ErrSubscriptionLimitExceeded          = errors.New("subscription resource limit exceeded")
 	ErrSubscriptionReference              = errors.New("subscription reference is invalid")
+
+	// ErrSubscriptionSourcesChanged, ErrSubscriptionChannelsChanged and
+	// ErrSubscriptionTokensChanged refuse an order that does not name exactly
+	// the current sources, channels or keys.
+	ErrSubscriptionSourcesChanged  = errors.New("subscription sources changed")
+	ErrSubscriptionChannelsChanged = errors.New("subscription channels changed")
+	ErrSubscriptionTokensChanged   = errors.New("subscription tokens changed")
 )
 
 // SubscriptionReferenceError names a reference to a pool node or rule set
@@ -178,13 +185,64 @@ func ensureTokenIdentityAvailable(ctx context.Context, q queryRower, id string, 
 	return fmt.Errorf("%w: id or digest belongs to %s", ErrSubscriptionTokenExists, existingID)
 }
 
-func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token SubscriptionToken) error {
+// saveSubscriptionOrder saves the order of the rows of table that scope
+// selects: each takes its ID's index in ids as its position. ids must name
+// each of those rows exactly once; otherwise they changed since they were
+// read and it fails with changed. No row's updated_at changes.
+func (s *Store) saveSubscriptionOrder(ctx context.Context, table string, ids []string, changed error, scope string, args ...any) error {
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM `+table+` `+scope, args...)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", table, err)
+		}
+		current := map[string]bool{}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			current[id] = true
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(ids) != len(current) {
+			return changed
+		}
+		for _, id := range ids {
+			if !current[id] {
+				return changed
+			}
+			delete(current, id)
+		}
+		statement, err := tx.PrepareContext(ctx, `UPDATE `+table+` SET position = ? WHERE id = ?`)
+		if err != nil {
+			return err
+		}
+		defer statement.Close()
+		for position, id := range ids {
+			if _, err := statement.ExecContext(ctx, position, id); err != nil {
+				return fmt.Errorf("save %s order: %w", table, err)
+			}
+		}
+		return nil
+	})
+}
+
+// insertSubscriptionToken stores a new key at position in the keys' order,
+// or at its end when position is nil.
+func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token SubscriptionToken, position *int64) error {
 	_, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO subscription_tokens(
 			id, user_id, label, token_sha256, enabled, expires_at, revoked_at, created_at, download_limit,
-            successful_request_count, body_response_count, bytes_served, last_used_at
-		 ) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+            successful_request_count, body_response_count, bytes_served, last_used_at, position
+		 ) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?,
+            coalesce(?, (SELECT coalesce(max(position) + 1, 0) FROM subscription_tokens)))`,
 		token.ID,
 		token.UserID,
 		token.Label,
@@ -193,6 +251,7 @@ func insertSubscriptionToken(ctx context.Context, tx *sql.Tx, token Subscription
 		nullableTime(token.ExpiresAt),
 		formatTime(token.CreatedAt),
 		token.DownloadLimit, token.SuccessfulRequestCount, token.BodyResponseCount, token.BytesServed, nullableTime(token.LastUsedAt),
+		position,
 	)
 	if err != nil {
 		return fmt.Errorf("insert subscription token: %w", err)

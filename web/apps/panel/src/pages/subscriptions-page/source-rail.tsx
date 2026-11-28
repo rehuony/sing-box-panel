@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { cn } from '@shared/lib/utils';
+import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
+import { useSortable } from '@dnd-kit/sortable';
 import { Button } from '@shared/components/ui/button';
 import { formatDateTime } from '@shared/lib/format-time';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -10,11 +12,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 
 import type { SubscriptionSource } from '@/api/api-client';
 
+import { dropSlot } from '@/components/sortable';
 import { ApiRequestError } from '@/api/api-client';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { RailCount, RailItem } from '@/components/rail';
 import { toastFailure } from '@/components/error-notice';
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
 
 import type { SourceDialogMode } from './subscription-source-dialog';
 
@@ -27,19 +31,24 @@ import { SubscriptionSourceDialog } from './subscription-source-dialog';
  * A source in the pool's rail: its kind's icon, its name in full, a warning
  * dot while its last attempt failed and the nodes it adds; its kind, refresh
  * interval, content and failure on hover, and refresh and edit in place of
- * the count.
+ * the count. While the sources can be sorted, the whole item drags into
+ * another place with the mouse or a held touch, and F2 picks it up.
  */
-export function SourceRailItem({ count, current, onEdit, onRefresh, onSelect, refreshing, source }: {
+export function SourceRailItem({ count, current, onEdit, onRefresh, onSelect, refreshing, sortable, source }: {
   source: SubscriptionSource;
   /** The pool nodes it adds. */
   count: number;
   current: boolean;
   refreshing: boolean;
+  sortable: boolean;
   onSelect: () => void;
   onEdit: () => void;
   onRefresh: () => void;
 }) {
   const { i18n, t } = useTranslation();
+  const reducedMotion = usePrefersReducedMotion();
+  const { attributes, isDragging, listeners, setNodeRef, transform, transition }
+    = useSortable({ id: source.id, disabled: !sortable });
   const intervalLabel = useIntervalLabel();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const failure = source.last_error
@@ -55,6 +64,17 @@ export function SourceRailItem({ count, current, onEdit, onRefresh, onSelect, re
   const Icon = source.kind === 'url' ? Link2 : FileText;
   return (
     <RailItem
+      {...attributes}
+      {...listeners}
+      aria-disabled={undefined}
+      aria-keyshortcuts={sortable ? 'F2' : undefined}
+      aria-roledescription={t('subscriptions.sources.sortable')}
+      className='touch-pan-y select-none'
+      item={{
+        className: isDragging ? dropSlot : undefined,
+        ref: setNodeRef,
+        style: { transform: CSS.Translate.toString(transform), transition: reducedMotion ? undefined : transition },
+      }}
       actions={(
         <>
           {source.kind === 'url'

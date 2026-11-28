@@ -2,11 +2,12 @@ import type { Ref } from 'react';
 
 import { cn } from '@shared/lib/utils';
 import { Textarea } from '@shared/components/ui/textarea';
-import { useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { RuleTextErrorCode, RuleTextIssue, RuleTextNoteCode } from './rule-text';
 
-import { dataFace, gutterCell } from './rule-line-style';
+import { ruleLineTokens } from './rule-text';
+import { dataFace, gutterCell, ruleTone } from './rule-line-style';
 
 type Issue = RuleTextIssue<RuleTextErrorCode | RuleTextNoteCode>;
 
@@ -35,12 +36,13 @@ const INSET = 12;
 const OVERSCAN = 20;
 
 /**
- * Rule set rules as classic rule lines over the gutter of their numbers. A
- * line that cannot be read takes danger on its number over a danger band,
+ * Rule set rules as classic rule lines over the gutter of their numbers,
+ * each part of a line in its syntax colour. A line that cannot be read takes danger on its number over a danger band,
  * one that lost a policy takes warning, a changed one the accent, each
  * number saying why on hover; the number of the caret's line reads in the
- * text colour. The gutter draws only the numbers in view, so the caret and
- * each keystroke redraw a screenful of them, however long the text.
+ * text colour. The gutter and the colours draw only the lines in view, so
+ * the caret and each keystroke redraw a screenful of them, however long the
+ * text.
  */
 export function RuleTextView({ describe, invalid, label, lineCount, marks, onChange, ref, text }: {
   text: string;
@@ -58,14 +60,22 @@ export function RuleTextView({ describe, invalid, label, lineCount, marks, onCha
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const bandsRef = useRef<HTMLDivElement>(null);
+  const colorsRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef(0);
   const [caretLine, setCaretLine] = useState(0);
   const [view, setView] = useState({ top: 0, height: 0 });
+  const lines = useMemo(() => text.split('\n'), [text]);
+
+  // The colours sit under the text and move with it, sideways too.
+  function place(area: HTMLTextAreaElement) {
+    if (gutterRef.current) gutterRef.current.scrollTop = area.scrollTop;
+    if (bandsRef.current) bandsRef.current.style.transform = `translateY(${-area.scrollTop}px)`;
+    if (colorsRef.current) colorsRef.current.style.transform = `translate(${-area.scrollLeft}px, ${-area.scrollTop}px)`;
+  }
 
   // The gutter and the bands follow the text's scroll at once; the numbers drawn follow on the next frame.
   function follow(area: HTMLTextAreaElement) {
-    if (gutterRef.current) gutterRef.current.scrollTop = area.scrollTop;
-    if (bandsRef.current) bandsRef.current.style.transform = `translateY(${-area.scrollTop}px)`;
+    place(area);
     cancelAnimationFrame(frameRef.current);
     frameRef.current = requestAnimationFrame(() => setView({ top: area.scrollTop, height: area.clientHeight }));
   }
@@ -82,9 +92,9 @@ export function RuleTextView({ describe, invalid, label, lineCount, marks, onCha
     };
   }, []);
 
-  // Drawing other numbers keeps the gutter where the text is.
+  // Drawing other lines keeps the gutter and the colours where the text is.
   useLayoutEffect(() => {
-    if (areaRef.current && gutterRef.current) gutterRef.current.scrollTop = areaRef.current.scrollTop;
+    if (areaRef.current) place(areaRef.current);
   });
 
   useImperativeHandle(ref, () => ({
@@ -96,8 +106,7 @@ export function RuleTextView({ describe, invalid, label, lineCount, marks, onCha
       area.setSelectionRange(start, start);
       setCaretLine(line);
       area.scrollTop = Math.max(0, (line - 1) * LINE - area.clientHeight / 2);
-      if (gutterRef.current) gutterRef.current.scrollTop = area.scrollTop;
-      if (bandsRef.current) bandsRef.current.style.transform = `translateY(${-area.scrollTop}px)`;
+      place(area);
       setView({ top: area.scrollTop, height: area.clientHeight });
     },
   }), []);
@@ -134,21 +143,43 @@ export function RuleTextView({ describe, invalid, label, lineCount, marks, onCha
         })}
         {last < lineCount ? <div style={{ height: (lineCount - last) * LINE }} /> : null}
       </div>
-      <Textarea
-        aria-invalid={invalid || undefined}
-        aria-label={label}
-        className={cn(dataFace, 'relative min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent py-3 ps-3 pe-4 text-compact leading-5 focus-visible:outline-none aria-invalid:ring-0 md:text-compact dark:bg-transparent @max-[30rem]/editor:ps-2')}
-        onChange={event => onChange(event.target.value)}
-        onScroll={event => follow(event.currentTarget)}
-        onSelect={(event) => {
-          const area = event.currentTarget;
-          setCaretLine(area.value.slice(0, area.selectionStart).split('\n').length);
-        }}
-        ref={areaRef}
-        spellCheck={false}
-        value={text}
-        wrap='off'
-      />
+      <div className='relative flex min-h-0 min-w-0 flex-1'>
+        {/* The text is transparent over its colours, so its caret and selection still show. */}
+        <div aria-hidden='true' className={cn(dataFace, 'pointer-events-none absolute inset-0 overflow-hidden text-compact leading-5 whitespace-pre text-foreground')}>
+          <div className='absolute inset-x-0 top-0' ref={colorsRef}>
+            {drawn.map(line => (
+              <div className='absolute start-3 h-5 @max-[30rem]/editor:start-2' key={line} style={{ top: `calc(0.75rem + ${(line - 1) * 1.25}rem)` }}>
+                <LineColors line={lines[line - 1] ?? ''} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <Textarea
+          aria-invalid={invalid || undefined}
+          aria-label={label}
+          className={cn(dataFace, 'relative min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent py-3 ps-3 pe-4 text-compact leading-5 text-transparent caret-foreground focus-visible:outline-none aria-invalid:ring-0 md:text-compact dark:bg-transparent @max-[30rem]/editor:ps-2')}
+          onChange={event => onChange(event.target.value)}
+          onScroll={event => follow(event.currentTarget)}
+          onSelect={(event) => {
+            const area = event.currentTarget;
+            setCaretLine(area.value.slice(0, area.selectionStart).split('\n').length);
+          }}
+          ref={areaRef}
+          spellCheck={false}
+          value={text}
+          wrap='off'
+        />
+      </div>
     </div>
   );
+}
+
+/** A line's parts in their colours. */
+function LineColors({ line }: { line: string }) {
+  let offset = 0;
+  return ruleLineTokens(line).map((token) => {
+    const at = offset;
+    offset += token.text.length;
+    return <span className={ruleTone[token.tone]} key={at}>{token.text}</span>;
+  });
 }

@@ -40,9 +40,9 @@ type SubscriptionSource struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 }
 
-type SubscriptionSourcePage struct {
+// SubscriptionSourceList is every source in its saved order.
+type SubscriptionSourceList struct {
 	Items []SubscriptionSource `json:"items"`
-	Next  *SubscriptionCursor  `json:"next,omitempty"`
 }
 
 // CreateSubscriptionSourceRequest creates a URL source, given its URL and
@@ -216,19 +216,25 @@ func (application *Service) SubscriptionSource(ctx context.Context, sourceID str
 	return applicationSubscriptionSource(stored), nil
 }
 
-func (application *Service) ListSubscriptionSources(ctx context.Context, request SubscriptionListRequest) (SubscriptionSourcePage, error) {
-	stored, err := application.database.ListSubscriptionSources(ctx, store.SubscriptionSourceListFilter{
-		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
-	})
+// ListSubscriptionSources returns every source in its saved order.
+func (application *Service) ListSubscriptionSources(ctx context.Context) (SubscriptionSourceList, error) {
+	stored, err := application.database.ListSubscriptionSources(ctx)
 	if err != nil {
-		return SubscriptionSourcePage{}, err
+		return SubscriptionSourceList{}, err
 	}
-	page := SubscriptionSourcePage{Items: make([]SubscriptionSource, len(stored.Items))}
-	for index, source := range stored.Items {
-		page.Items[index] = applicationSubscriptionSource(source)
+	list := SubscriptionSourceList{Items: make([]SubscriptionSource, len(stored))}
+	for index, source := range stored {
+		list.Items[index] = applicationSubscriptionSource(source)
 	}
-	page.Next = applicationSubscriptionCursor(stored.Next)
-	return page, nil
+	return list, nil
+}
+
+// SetSubscriptionSourceOrder saves the sources' order, which is the order
+// they are listed in; the pool still appends new nodes by source creation
+// time. ids must name every source exactly once; otherwise they changed
+// since they were read and it fails with store.ErrSubscriptionSourcesChanged.
+func (application *Service) SetSubscriptionSourceOrder(ctx context.Context, ids []string) error {
+	return application.database.SetSubscriptionSourceOrder(ctx, ids)
 }
 
 // UpdateSubscriptionSource replaces a source's settings, and a file source's

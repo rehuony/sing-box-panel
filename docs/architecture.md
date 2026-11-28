@@ -304,7 +304,7 @@ below exercise the corresponding source, API and runtime boundaries.
 | CFG-01 | One editable config.json, version-scoped root sections (13 in 1.14) with flat label/control rows, DNS/route sub-tabs and inline list editing; advanced JSON; floating icon tools and find/replace with case, word and regex matching; preserve unknown fields and numbers | Canonical saved text, version-scoped schema, validated startup artifacts | Lossless round trip; invalid JSON can save, cannot start | implemented |
 | CFG-02 | Save independent of running process; loaded/dirty/restart-required/start-pending states; start/restart checks saved file before replacement | Saved-file identity vs loaded immutable artifact; CAS and runtime transitions | Concurrent edits, failed validation preserves running process, restart loads saved bytes | implemented |
 | CFG-03 | The configuration window copies another node's saved configuration into its draft after a difference view, unsaved until saved | Configuration file API of the source node | Browser review of the copy dialog with a difference | implemented |
-| SUB-01 | Pool nodes, sources, channels and keys; URL and file sources with include/exclude name filters and a preview of what they keep; edit settings with a file source's content in one save, refresh, and delete | Source API, SSRF-safe acquisition, strict parsers and one stored content per source | A failed fetch or parse keeps the current content and nodes; invalid filters and unconvertible kept nodes are refused with their location | implemented |
+| SUB-01 | Pool nodes, sources, channels and keys; sources, channels and keys each in a saved order without pagination that dragging changes and new items join at the end; URL and file sources with include/exclude name filters and a preview of what they keep; edit settings with a file source's content in one save, refresh, and delete | Source API, SSRF-safe acquisition, strict parsers and one stored content per source; source, channel and key order APIs | A failed fetch or parse keeps the current content and nodes; invalid filters and unconvertible kept nodes are refused with their location; a stale order is refused | implemented |
 | NODE-01 | One pool of every published fleet inbound and every kept source node, as cards in a saved order without pagination; display name, origin, protocol, endpoint, TLS/Reality/SNI and transport; whole-card dragging saves the order; the detail edits only the display name | Pool synchronization with origin-derived IDs | Removed nodes leave every channel and grant; new nodes append; a stale order is refused | implemented |
 | NODE-04 | Published addresses, credentials visible and copyable in the node detail, an inbound's detail links to its configuration; the pool cannot delete an inbound | Inbound provenance and configuration deep links | IPv6, unknown public IP, no listener/SNI/port mutation, real copy results | implemented |
 | KEY-01 | Subscription keys replace user UI; expiry and successful-download quota shared across all channels; failed requests do not consume | Token storage and atomic delivery accounting; user-scoped access checks | Concurrent quota requests, expiry, failures, existing grants preserved | implemented |
@@ -357,7 +357,8 @@ and operational records directly. `logs/` builds the log database `logs.db`,
 which holds the panel log apart from `panel.db` so that clearing it rewrites
 only that file; the second migration in `panel/` moved the log out of
 `panel.db`, the third gives each rule set an icon and a place in its client's
-order, and the fourth drops the traffic sample interval index no query reads.
+order, the fourth drops the traffic sample interval index no query reads, and
+the fifth gives each source, channel and key a place in its list's order.
 The second migration in `logs/` indexes each entry by the node its metadata
 names; the panel's own entries name none. Each node keeps its
 runtime evidence in its own `node.db`, built by
@@ -627,7 +628,8 @@ Configuration writes use revision preconditions. The editable file API accepts
 revision receives `412 Precondition Failed`
 and must be reviewed rather than overwritten automatically. Channel, rule set, source, pool node,
 user and user-grant mutations send the record's `updated_at` in `If-Match`; a
-pool or rule set order whose list changed since it was read receives `409`;
+pool, rule set, source, channel or key order whose list changed since it was
+read receives `409`;
 token mutations use their lifecycle preconditions.
 
 Compilation stores the raw JSON bytes together with the configuration revision,

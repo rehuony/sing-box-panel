@@ -143,6 +143,7 @@ var routes = []route{
 
 	{http.MethodGet, "/subscription/channels", "listSubscriptionChannels", accessSession, (*Handler).listSubscriptionChannels},
 	{http.MethodPost, "/subscription/channels", "createSubscriptionChannel", accessSession, (*Handler).createSubscriptionChannel},
+	{http.MethodPut, "/subscription/channel-order", "setSubscriptionChannelOrder", accessSession, (*Handler).setSubscriptionChannelOrder},
 	{http.MethodGet, "/subscription/channels/{channelId}", "getSubscriptionChannel", accessSession, withPathValue("channelId", (*Handler).getSubscriptionChannel)},
 	{http.MethodPut, "/subscription/channels/{channelId}", "updateSubscriptionChannel", accessSession, withPathValue("channelId", (*Handler).updateSubscriptionChannel)},
 	{http.MethodDelete, "/subscription/channels/{channelId}", "deleteSubscriptionChannel", accessSession, withPathValue("channelId", (*Handler).deleteSubscriptionChannel)},
@@ -157,6 +158,7 @@ var routes = []route{
 
 	{http.MethodGet, "/subscription/sources", "listSubscriptionSources", accessSession, (*Handler).listSubscriptionSources},
 	{http.MethodPost, "/subscription/sources", "createSubscriptionSource", accessSession, (*Handler).createSubscriptionSource},
+	{http.MethodPut, "/subscription/source-order", "setSubscriptionSourceOrder", accessSession, (*Handler).setSubscriptionSourceOrder},
 	{http.MethodPost, "/subscription/sources/preview", "previewSubscriptionSource", accessSession, (*Handler).previewSubscriptionSource},
 	{http.MethodGet, "/subscription/sources/{sourceId}", "getSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).getSubscriptionSource)},
 	{http.MethodPut, "/subscription/sources/{sourceId}", "updateSubscriptionSource", accessSession, withPathValue("sourceId", (*Handler).updateSubscriptionSource)},
@@ -165,6 +167,7 @@ var routes = []route{
 
 	{http.MethodGet, "/subscription/tokens", "listSubscriptionTokens", accessSession, (*Handler).listSubscriptionTokens},
 	{http.MethodPost, "/subscription/tokens", "createSubscriptionToken", accessSession, (*Handler).createSubscriptionToken},
+	{http.MethodPut, "/subscription/token-order", "setSubscriptionTokenOrder", accessSession, (*Handler).setSubscriptionTokenOrder},
 	{http.MethodGet, "/subscription/tokens/{tokenId}", "getSubscriptionToken", accessSession, withPathValue("tokenId", (*Handler).getSubscriptionToken)},
 	{http.MethodDelete, "/subscription/tokens/{tokenId}", "deleteSubscriptionToken", accessSession, withPathValue("tokenId", (*Handler).deleteSubscriptionToken)},
 	{http.MethodGet, "/subscription/tokens/{tokenId}/secret", "getSubscriptionTokenSecret", accessSession, withPathValue("tokenId", (*Handler).getSubscriptionTokenSecret)},

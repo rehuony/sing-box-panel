@@ -80,4 +80,6 @@ export const channels = {
   draftRestored: 'Restored the changes left unsaved before the reload', draftOutdated: 'The channel changed elsewhere, so the changes left unsaved before the reload were not restored',
   memberCount_one: '{{count}} member', memberCount_other: '{{count}} members',
   removed: 'Channel deleted',
+  orderStale: 'The channels changed and were read again',
+  orderSaveFailed: 'Channel order was not saved',
 } as const;

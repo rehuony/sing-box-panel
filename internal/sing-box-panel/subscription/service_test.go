@@ -71,7 +71,7 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 		t.Fatalf("loaded channel = %+v, err=%v", loaded, err)
 	}
 	// The list counts the nodes the group and the exit rule publish, and names the final exit.
-	listed, err := app.ListSubscriptionChannels(ctx, SubscriptionListRequest{})
+	listed, err := app.ListSubscriptionChannels(ctx)
 	if err != nil || len(listed.Items) != 1 || listed.Items[0].ID != channel.ID || listed.Items[0].NodeCount != 2 ||
 		listed.Items[0].RouteCount != 1 || listed.Items[0].FinalExit != (ChannelFinalExit{Kind: "group", Name: "Main"}) {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
@@ -115,7 +115,7 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 	if _, err := app.RefreshSubscriptionSource(ctx, source.ID); !errors.Is(err, ErrSourceKindMismatch) {
 		t.Fatalf("a file source refreshed: %v", err)
 	}
-	sources, err := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})
+	sources, err := app.ListSubscriptionSources(ctx)
 	if err != nil || len(sources.Items) != 1 || sources.Items[0].ID != source.ID {
 		t.Fatalf("listed sources = %+v, err=%v", sources, err)
 	}
@@ -180,7 +180,7 @@ func TestApplicationSubscriptionTokenPlaintextLifecycleDoesNotLeakFromReads(t *t
 	if stored.TokenSHA256 != hex.EncodeToString(digest[:]) || stored.TokenSHA256 == created.Token {
 		t.Fatalf("stored token digest = %q", stored.TokenSHA256)
 	}
-	listed, err := app.ListSubscriptionTokens(ctx, SubscriptionListRequest{})
+	listed, err := app.ListSubscriptionTokens(ctx)
 	if err != nil || len(listed.Items) != 1 {
 		t.Fatalf("listed tokens = %+v, err=%v", listed, err)
 	}
@@ -315,8 +315,8 @@ func TestApplicationSubscriptionTokenRandomFailuresDoNotPersist(t *testing.T) {
 			if _, err := app.CreateSubscriptionToken(ctx, CreateSubscriptionTokenRequest{}); err == nil {
 				t.Fatal("token creation accepted failed entropy")
 			}
-			tokens, err := database.ListSubscriptionTokens(ctx, store.SubscriptionTokenListFilter{})
-			if err != nil || len(tokens.Items) != 0 {
+			tokens, err := database.ListSubscriptionTokens(ctx)
+			if err != nil || len(tokens) != 0 {
 				t.Fatalf("tokens after entropy failure = %+v, err=%v", tokens, err)
 			}
 		})

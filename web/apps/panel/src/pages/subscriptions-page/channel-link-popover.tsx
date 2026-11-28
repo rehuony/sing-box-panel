@@ -356,7 +356,7 @@ function QRCode({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Every active key, read across all pages when the panel opens; a key made here joins them. */
+/** Every active key in the keys' order, read when the panel opens; a key made here joins them. */
 function useActiveKeys() {
   const client = useApiClient();
   const cache = useQueryClient();
@@ -366,15 +366,7 @@ function useActiveKeys() {
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      const items: SubscriptionToken[] = [];
-      let cursor: { id: string; created_at: string } | undefined;
-      do {
-        const page = await client.listSubscriptionTokens(
-          { limit: 100, beforeID: cursor?.id, beforeTime: cursor?.created_at }, controller.signal,
-        );
-        items.push(...page.items);
-        cursor = page.next;
-      } while (cursor && !controller.signal.aborted);
+      const { items } = await client.listSubscriptionTokens(controller.signal);
       if (!controller.signal.aborted) setState({ items: items.filter(token => token.active), loading: false });
     }
     void load().catch((error: unknown) => {

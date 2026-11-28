@@ -66,16 +66,6 @@ type SubscriptionSourceContent struct {
 	Format  string
 }
 
-type SubscriptionSourceListFilter struct {
-	Cursor *CreatedAtCursor
-	Limit  int
-}
-
-type SubscriptionSourcePage struct {
-	Items []SubscriptionSource
-	Next  *CreatedAtCursor
-}
-
 // NewSubscriptionSource is a source with the content it was created from.
 type NewSubscriptionSource struct {
 	Source  SubscriptionSource
@@ -117,6 +107,8 @@ const subscriptionSourceColumns = `
     s.next_refresh_at, s.created_at, s.updated_at,
     (SELECT count(*) FROM subscription_nodes AS n WHERE n.source_id = s.id)`
 
+// CreateSubscriptionSource stores a new source at the end of the sources'
+// order.
 func (s *Store) CreateSubscriptionSource(ctx context.Context, input NewSubscriptionSource) (SubscriptionSource, error) {
 	source, err := prepareSubscriptionSource(input.Source)
 	if err != nil {
@@ -143,8 +135,9 @@ func (s *Store) CreateSubscriptionSource(ctx context.Context, input NewSubscript
 		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_sources(
 				id, name, kind, url, refresh_minutes, format, include_rules, exclude_rules,
 				content, content_sha256, content_format, content_at, last_attempt_at,
-				next_refresh_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				next_refresh_at, created_at, updated_at, position
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+				(SELECT coalesce(max(position) + 1, 0) FROM subscription_sources))`,
 			source.ID, source.Name, string(source.Kind), nullableSourceURL(source), nullableRefreshMinutes(source),
 			source.Format, include, exclude, input.Content, contentDigest(input.Content), source.ContentFormat,
 			formatTime(source.ContentAt), nullableTime(source.LastAttemptAt), nullableTime(source.NextRefreshAt),
@@ -182,46 +175,32 @@ func (s *Store) SubscriptionSourceContent(ctx context.Context, sourceID string) 
 	return value, nil
 }
 
-func (s *Store) ListSubscriptionSources(ctx context.Context, filter SubscriptionSourceListFilter) (SubscriptionSourcePage, error) {
-	limit, err := normalizePageLimit(filter.Limit)
+// ListSubscriptionSources returns every source in its saved order.
+func (s *Store) ListSubscriptionSources(ctx context.Context) ([]SubscriptionSource, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+subscriptionSourceColumns+` FROM subscription_sources AS s ORDER BY s.position, s.id`)
 	if err != nil {
-		return SubscriptionSourcePage{}, err
-	}
-	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
-		return SubscriptionSourcePage{}, err
-	}
-	query := `SELECT ` + subscriptionSourceColumns + ` FROM subscription_sources AS s`
-	args := make([]any, 0, 4)
-	if filter.Cursor != nil {
-		query += ` WHERE (s.created_at < ? OR (s.created_at = ? AND s.id < ?))`
-		cursorTime := formatTime(filter.Cursor.CreatedAt)
-		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
-	}
-	query += ` ORDER BY s.created_at DESC, s.id DESC LIMIT ?`
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return SubscriptionSourcePage{}, fmt.Errorf("list subscription sources: %w", err)
+		return nil, fmt.Errorf("list subscription sources: %w", err)
 	}
 	defer rows.Close()
-	items := make([]SubscriptionSource, 0, limit+1)
+	sources := []SubscriptionSource{}
 	for rows.Next() {
 		source, err := scanSubscriptionSource(rows)
 		if err != nil {
-			return SubscriptionSourcePage{}, fmt.Errorf("scan subscription source: %w", err)
+			return nil, fmt.Errorf("scan subscription source: %w", err)
 		}
-		items = append(items, source)
+		sources = append(sources, source)
 	}
 	if err := rows.Err(); err != nil {
-		return SubscriptionSourcePage{}, fmt.Errorf("iterate subscription sources: %w", err)
+		return nil, fmt.Errorf("iterate subscription sources: %w", err)
 	}
-	page := SubscriptionSourcePage{Items: items}
-	if len(items) > limit {
-		page.Items = items[:limit]
-		last := page.Items[len(page.Items)-1]
-		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
-	}
-	return page, nil
+	return sources, nil
+}
+
+// SetSubscriptionSourceOrder saves the sources' order. ids must name every
+// source exactly once; otherwise they changed since they were read and it
+// fails with ErrSubscriptionSourcesChanged.
+func (s *Store) SetSubscriptionSourceOrder(ctx context.Context, ids []string) error {
+	return s.saveSubscriptionOrder(ctx, "subscription_sources", ids, ErrSubscriptionSourcesChanged, "")
 }
 
 // UpdateSubscriptionSource replaces a source's settings. The kind and the

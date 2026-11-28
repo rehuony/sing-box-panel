@@ -74,8 +74,11 @@ function RailItemContent({ end, icon, marker, name, sub, wideEnd }: RailItemFace
     return (
       <>
         {icon ? <span aria-hidden='true' className='flex flex-none text-muted-foreground [&_svg]:size-4'>{icon}</span> : null}
-        <span className='min-w-0 flex-1 truncate font-medium'>{name}</span>
-        {marker}
+        {/* The mark follows the name, which gives way first, so the mark stays in view. */}
+        <span className='flex min-w-0 flex-1 items-center gap-1.5'>
+          <span className='min-w-0 truncate font-medium'>{name}</span>
+          {marker}
+        </span>
         {endSlot}
       </>
     );

@@ -5,6 +5,16 @@
  */
 export const dropSlot = 'relative isolate before:absolute before:inset-1 before:-z-1 before:rounded-[var(--radius-control)] before:border before:border-dashed before:border-[var(--color-border-strong)] before:bg-[var(--color-hover)] *:opacity-40';
 
+/**
+ * The same slot as an element of its own, for a table row: a row's own
+ * pseudo-element would become a cell and move the columns. The row is its
+ * positioned, isolated container and fades its other cells.
+ */
+export const dropSlotRow = {
+  row: 'relative isolate [&>td:not(:first-child)]:opacity-40',
+  slot: 'pointer-events-none absolute inset-1 -z-1 rounded-[var(--radius-control)] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-hover)]',
+};
+
 /** The same slot for a card that draws its own border: the border turns dashed. */
 export const dropSlotCard = 'border-dashed border-[var(--color-border-strong)] bg-[var(--color-hover)] *:opacity-40';
 

@@ -1377,13 +1377,10 @@ paths:
   /subscription/channels:
     get:
       operationId: listSubscriptionChannels
-      parameters:
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
+      description: Every channel in the channels' saved order; a new channel joins the end.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionChannelPage"
+          $ref: "#/components/responses/SubscriptionChannelList"
         default:
           $ref: "#/components/responses/Problem"
     post:
@@ -1397,6 +1394,27 @@ paths:
           $ref: "#/components/responses/SubscriptionChannel"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/channel-order:
+    put:
+      operationId: setSubscriptionChannelOrder
+      description: >-
+        Saves the order of the channels. The IDs must be exactly the current
+        channels, each once; otherwise they changed since they were read and the
+        request answers 409. Saving an order changes no channel's updated_at.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionChannelOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The channels changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/channels/{channelId}:
     parameters:
       - $ref: "#/components/parameters/ChannelID"
@@ -1543,13 +1561,13 @@ paths:
   /subscription/sources:
     get:
       operationId: listSubscriptionSources
-      parameters:
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
+      description: >-
+        Every source in the sources' saved order; a new source joins the end. The
+        order is for display: the pool appends a source's new nodes by the
+        sources' creation time.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionSourcePage"
+          $ref: "#/components/responses/SubscriptionSourceList"
         default:
           $ref: "#/components/responses/Problem"
     post:
@@ -1567,6 +1585,27 @@ paths:
           $ref: "#/components/responses/SubscriptionSource"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/source-order:
+    put:
+      operationId: setSubscriptionSourceOrder
+      description: >-
+        Saves the order of the sources. The IDs must be exactly the current
+        sources, each once; otherwise they changed since they were read and the
+        request answers 409. Saving an order changes no source's updated_at.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionSourceOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The sources changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/sources/preview:
     post:
       operationId: previewSubscriptionSource
@@ -1644,14 +1683,12 @@ paths:
   /subscription/tokens:
     get:
       operationId: listSubscriptionTokens
-      parameters:
-        - $ref: "#/components/parameters/PageOffset"
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
+      description: >-
+        Every key in the keys' saved order. A new key joins the end; a rotation's
+        new key takes the rotated key's place, and the revoked key follows it.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionTokenPage"
+          $ref: "#/components/responses/SubscriptionTokenList"
         default:
           $ref: "#/components/responses/Problem"
     post:
@@ -1669,6 +1706,27 @@ paths:
           $ref: "#/components/responses/CreatedSubscriptionToken"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/token-order:
+    put:
+      operationId: setSubscriptionTokenOrder
+      description: >-
+        Saves the order of the keys. The IDs must be exactly the current
+        keys, each once; otherwise they changed since they were read and the
+        request answers 409. Saving an order changes nothing else about a key.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionTokenOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The keys changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/tokens/{tokenId}:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -2629,30 +2687,30 @@ components:
     SubscriptionUserGrants:
       description: Subscription user and live node grants.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserGrants"}}}
-    SubscriptionChannelPage:
-      description: Page of subscription channels.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannelPage"}}}
+    SubscriptionChannelList:
+      description: Subscription channels in their saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannelList"}}}
     SubscriptionChannel:
       description: Subscription channel.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannel"}}}
     SubscriptionPreview:
       description: Rendered subscription preview and provenance.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionPreview"}}}
-    SubscriptionSourcePage:
-      description: Page of subscription sources.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourcePage"}}}
+    SubscriptionSourceList:
+      description: Subscription sources in their saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceList"}}}
     SubscriptionSource:
       description: Subscription source.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSource"}}}
     SubscriptionRuleSetList:
-      description: Rule sets in name order.
+      description: Rule sets, each client's in their saved order.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSetList"}}}
     SubscriptionRuleSet:
       description: Rule set.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSet"}}}
-    SubscriptionTokenPage:
-      description: Page of subscription token metadata.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
+    SubscriptionTokenList:
+      description: Subscription token metadata in the keys' saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenList"}}}
     CreatedSubscriptionToken:
       description: Token metadata and plaintext token.
       content: {application/json: {schema: {$ref: "#/components/schemas/CreatedSubscriptionToken"}}}
@@ -3996,13 +4054,18 @@ components:
       properties:
         format: {type: string, enum: [sing-box, mihomo, loon]}
         content: {type: string, maxLength: 262144}
-    SubscriptionChannelPage:
+    SubscriptionChannelList:
       type: object
       additionalProperties: false
       required: [items]
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionChannelSummary"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionChannelOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionSourceKind:
       type: string
       enum: [url, file]
@@ -4055,13 +4118,18 @@ components:
         next_refresh_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time, description: Changes only with the settings; send it quoted in If-Match.}
-    SubscriptionSourcePage:
+    SubscriptionSourceList:
       type: object
       additionalProperties: false
       required: [items]
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSource"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourceOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionSourcePreviewItem:
       type: object
       additionalProperties: false
@@ -4184,14 +4252,18 @@ components:
         last_used_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
         active: {type: boolean}
-    SubscriptionTokenPage:
+    SubscriptionTokenList:
       type: object
       additionalProperties: false
-      required: [items, total]
+      required: [items]
       properties:
-        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionToken"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionTokenOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionTokenSecret:
       type: object
       additionalProperties: false

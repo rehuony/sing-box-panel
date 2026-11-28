@@ -5,6 +5,7 @@ import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { toast } from '@shared/components/ui/toast-manager';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@shared/components/ui/input-group';
@@ -19,15 +20,16 @@ import { IconAction } from '@/components/icon-action';
 import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { DateTimeField } from '@/components/date-time-field';
-import { ListPagination } from '@/components/list-pagination';
 import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { SortContext, SortOverlay } from '@/components/sortable';
 import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 
-import type { useSubscriptionTokenPage } from './use-subscription-token-page';
+import type { useSubscriptionTokens } from './use-subscription-tokens';
 
 import { SubscriptionContentState } from './subscription-content-state';
+import { SortableTableHead, SortableTableRow } from './sortable-table-row';
 
 type KeyAction = 'rotate' | 'delete';
 /** What a key action failed to do. */
@@ -38,13 +40,15 @@ type Expiry = 'never' | '1' | '7' | '30' | '90' | '365' | 'custom';
 const expiries: Expiry[] = ['never', '1', '7', '30', '90', '365', 'custom'];
 
 export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
-  list: ReturnType<typeof useSubscriptionTokenPage>;
+  /** Every key in its saved order, which the page holds. */
+  list: ReturnType<typeof useSubscriptionTokens>;
   active?: boolean;
   toolbarTarget?: HTMLElement | null;
 }) {
   const { t, i18n } = useTranslation();
   const client = useApiClient();
-  const { items, page, pageSize, pages, loading, error, refresh, setPage, setPageSize } = list;
+  const { error, items, loading, move, refresh } = list;
+  const sortItems = items.map(key => ({ id: key.id, label: key.label }));
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState('');
   const [expiry, setExpiry] = useState<Expiry>('never');
@@ -221,7 +225,8 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
       <ScrollArea aria-busy={loading} className='min-h-0 flex-1' contentClassName='flex flex-col'>
         <Table className='sm:min-w-236'>
           <TableHeader>
-            <TableRow>
+            <TableRow className='[&>th:nth-child(2)]:ps-1'>
+              <SortableTableHead />
               <TableHead className='sm:w-56'>{t('subscriptions.common.name')}</TableHead>
               <TableHead className='w-24 sm:w-28'>{t('subscriptions.common.state')}</TableHead>
               <TableHead className='w-48 max-sm:hidden'>{t('subscriptions.keys.lastUsed')}</TableHead>
@@ -232,110 +237,117 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((key) => {
-              const state = keyState(key);
-              const lastUsed = key.last_used_at ? formatTime(key.last_used_at) : EM_DASH;
-              const expires = formatDate(key.expires_at);
-              const revoked = Boolean(key.revoked_at);
-              return (
-                <TableRow
-                  interactive
-                  key={key.id}
-                  onClick={(event) => {
+            <SortContext
+              ended={t('common.orderUpdated')}
+              instructions={t('common.reorderInstructions')}
+              items={sortItems}
+              onMove={move}
+              renderOverlay={(id) => {
+                const dragged = items.find(each => each.id === id);
+                return dragged ? <SortOverlay detail={keyState(dragged).label} name={dragged.label} /> : null;
+              }}
+              strategy={verticalListSortingStrategy}
+            >
+              {items.map((key) => {
+                const state = keyState(key);
+                const lastUsed = key.last_used_at ? formatTime(key.last_used_at) : EM_DASH;
+                const expires = formatDate(key.expires_at);
+                const revoked = Boolean(key.revoked_at);
+                return (
+                  <SortableTableRow
+                    id={key.id}
+                    interactive
+                    key={key.id}
+                    label={key.label}
+                    sortable
+                    onClick={(event) => {
                     // The row opens the key's details; its buttons and their floating layers do their own work.
-                    const target = event.target as Element;
-                    if (event.currentTarget.contains(target) && !target.closest('button')) void reveal(key);
-                  }}
-                >
-                  <TableCell>
-                    <button
-                      aria-haspopup='dialog'
-                      className='block w-full cursor-pointer truncate text-start font-medium outline-none'
-                      data-row-title=''
-                      onClick={() => void reveal(key)}
-                      title={key.label}
-                      type='button'
-                    >
-                      {key.label}
-                    </button>
-                  </TableCell>
-                  <TableCell>
-                    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', state.tone)}>
-                      <span aria-hidden='true' className='size-1.5 flex-none rounded-full bg-current' />
-                      {state.label}
-                    </span>
-                  </TableCell>
-                  <TableCell className='max-sm:hidden' kind='data' title={lastUsed}>{lastUsed}</TableCell>
-                  <TableCell
-                    className={cn('max-sm:hidden', !key.expires_at && 'font-[family-name:var(--font-body)] text-sm')}
-                    kind='data'
-                    title={expires}
+                      const target = event.target as Element;
+                      if (event.currentTarget.contains(target) && !target.closest('button')) void reveal(key);
+                    }}
                   >
-                    {expires}
-                  </TableCell>
-                  <TableCell className='max-sm:hidden' kind='number'>{usage(key)}</TableCell>
-                  <TableCell kind='actions'>
-                    {/* A revoked key can only be deleted. */}
-                    {revoked
-                      ? null
-                      : (
-                          <IconAction
-                            disabled={busy || loading}
-                            label={t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}
-                            onClick={() => void run('toggle', key)}
-                          >
-                            {key.enabled ? <PowerOff aria-hidden='true' /> : <Power aria-hidden='true' />}
-                          </IconAction>
-                        )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={(
-                          <IconAction
-                            className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground'
-                            label={t('subscriptions.keys.more', { name: key.label })}
-                          />
-                        )}
+                    <TableCell>
+                      <button
+                        aria-haspopup='dialog'
+                        className='block w-full cursor-pointer truncate text-start font-medium outline-none'
+                        data-row-title=''
+                        onClick={() => void reveal(key)}
+                        title={key.label}
+                        type='button'
                       >
-                        <MoreHorizontal aria-hidden='true' />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end' className='w-auto min-w-40'>
-                        <DropdownMenuGroup>
-                          {revoked
-                            ? null
-                            : (
-                                <DropdownMenuItem onClick={() => setConfirmation({ action: 'rotate', key })}>
-                                  <RefreshCw aria-hidden='true' />
-                                  {t('subscriptions.token.action.rotate.name')}
-                                </DropdownMenuItem>
-                              )}
-                        </DropdownMenuGroup>
-                        {revoked ? null : <DropdownMenuSeparator />}
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => setConfirmation({ action: 'delete', key })} variant='destructive'>
-                            <Trash2 aria-hidden='true' />
-                            {t('subscriptions.token.action.delete.name')}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                        {key.label}
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', state.tone)}>
+                        <span aria-hidden='true' className='size-1.5 flex-none rounded-full bg-current' />
+                        {state.label}
+                      </span>
+                    </TableCell>
+                    <TableCell className='max-sm:hidden' kind='data' title={lastUsed}>{lastUsed}</TableCell>
+                    <TableCell
+                      className={cn('max-sm:hidden', !key.expires_at && 'font-[family-name:var(--font-body)] text-sm')}
+                      kind='data'
+                      title={expires}
+                    >
+                      {expires}
+                    </TableCell>
+                    <TableCell className='max-sm:hidden' kind='number'>{usage(key)}</TableCell>
+                    <TableCell kind='actions'>
+                      {/* A revoked key can only be deleted. */}
+                      {revoked
+                        ? null
+                        : (
+                            <IconAction
+                              disabled={busy || loading}
+                              label={t(key.enabled ? 'subscriptions.common.disable' : 'subscriptions.common.enable')}
+                              onClick={() => void run('toggle', key)}
+                            >
+                              {key.enabled ? <PowerOff aria-hidden='true' /> : <Power aria-hidden='true' />}
+                            </IconAction>
+                          )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={(
+                            <IconAction
+                              className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground'
+                              label={t('subscriptions.keys.more', { name: key.label })}
+                            />
+                          )}
+                        >
+                          <MoreHorizontal aria-hidden='true' />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align='end' className='w-auto min-w-40'>
+                          <DropdownMenuGroup>
+                            {revoked
+                              ? null
+                              : (
+                                  <DropdownMenuItem onClick={() => setConfirmation({ action: 'rotate', key })}>
+                                    <RefreshCw aria-hidden='true' />
+                                    {t('subscriptions.token.action.rotate.name')}
+                                  </DropdownMenuItem>
+                                )}
+                          </DropdownMenuGroup>
+                          {revoked ? null : <DropdownMenuSeparator />}
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem onClick={() => setConfirmation({ action: 'delete', key })} variant='destructive'>
+                              <Trash2 aria-hidden='true' />
+                              {t('subscriptions.token.action.delete.name')}
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </SortableTableRow>
+                );
+              })}
+            </SortContext>
           </TableBody>
         </Table>
         {items.length === 0 && (loading
           ? <SubscriptionContentState loading />
           : !error && <SubscriptionContentState kind='keys' title={t('subscriptions.keys.empty')} />)}
       </ScrollArea>
-      <ListPagination
-        className='border-t px-2 pb-2'
-        page={page}
-        pages={pages}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        onPageSizeChange={setPageSize}
-      />
 
       <Dialog open={creating} onOpenChange={open => {
         if (!busy) setCreating(open);
