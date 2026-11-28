@@ -62,7 +62,7 @@ function NodeLayout({ node }: { node: FleetNode }) {
         fits only where the shell's viewport carries the edge padding; anywhere
         else it would overflow the shell's scroll area sideways.
       */}
-      <ScrollArea className='flex-1 max-sm:-mx-1' viewportClassName='flex flex-col max-sm:px-1' viewportRef={scrollRef}>
+      <ScrollArea className='flex-1 max-sm:-mx-1' contentClassName='flex flex-col max-sm:px-1' viewportRef={scrollRef}>
         {node.state === 'online' || settings ? <Outlet /> : <NodeUnavailable node={node} />}
       </ScrollArea>
     </div>

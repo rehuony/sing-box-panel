@@ -187,12 +187,12 @@ export function FleetPage() {
     // On a phone the figures and the card scroll together; elsewhere the card stays and the panes scroll inside it.
     content = figuresScroll
       ? (
-          <ScrollArea className='min-h-0 flex-1' viewportClassName='flex flex-col gap-3'>
+          <ScrollArea className='min-h-0 flex-1' contentClassName='flex flex-col gap-3'>
             {figuresCard}
             <div className={cn(paneCard, 'grow p-4')}>{grid}</div>
           </ScrollArea>
         )
-      : <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>{grid}</ScrollArea>;
+      : <ScrollArea className='min-h-0 flex-1' contentClassName='p-4'>{grid}</ScrollArea>;
   }
 
   // Size containment keeps the panes out of the workspace's height, so the

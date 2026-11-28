@@ -232,7 +232,7 @@ export function CoresPage() {
           value={tab}
           aria-busy={listLoading}
         >
-          <ScrollArea className='flex-1' viewportClassName='flex flex-col'>
+          <ScrollArea className='flex-1' contentClassName='flex flex-col'>
             <Table>
               <TableHeader>
                 <TableRow>

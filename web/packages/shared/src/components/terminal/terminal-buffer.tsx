@@ -94,7 +94,8 @@ interface TerminalBufferProps<Block extends TerminalBlock> {
   children?: ReactNode;
   /** Whether echoes repeat their prompt's scope; false where the scope shows elsewhere, leaving the symbol. */
   promptScope?: boolean;
-  viewportClassName?: string;
+  /** Classes of the scrolling content, such as its padding. */
+  contentClassName?: string;
   /** The log's own element, such as a place a completion menu renders into. */
   logRef?: Ref<HTMLDivElement>;
   entries: readonly (Block | LogLine)[];
@@ -113,7 +114,7 @@ export function TerminalBuffer<Block extends TerminalBlock>({
   logRef,
   promptScope = true,
   renderBlock,
-  viewportClassName = 'px-4 pt-1 pb-4',
+  contentClassName = 'px-4 pt-1 pb-4',
 }: TerminalBufferProps<Block>) {
   const { i18n, t } = useTranslation();
   const locale = i18n.resolvedLanguage ?? 'en';
@@ -135,7 +136,8 @@ export function TerminalBuffer<Block extends TerminalBlock>({
       // A column, so the viewport shrinks to the buffer's share even where the
       // container caps its height without setting one, as the command output does.
       className={cn('flex min-h-0 flex-1 flex-col', className)}
-      viewportClassName={cn('min-h-0 flex-1', viewportClassName)}
+      contentClassName={contentClassName}
+      viewportClassName='min-h-0 flex-1'
       viewportProps={{
         onScroll: (event) => {
           const viewport = event.currentTarget;

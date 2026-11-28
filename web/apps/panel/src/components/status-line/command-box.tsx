@@ -144,7 +144,7 @@ export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }
                   className='group-has-[[role=listbox]]:hidden'
                   entries={entries}
                   renderBlock={report => <BatchReportView report={report} />}
-                  viewportClassName='px-3 py-2'
+                  contentClassName='px-3 py-2'
                 />
               )
             : null}

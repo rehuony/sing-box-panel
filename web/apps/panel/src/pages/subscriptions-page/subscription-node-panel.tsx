@@ -224,7 +224,7 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
     content = <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')} />;
   } else {
     content = (
-      <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>
+      <ScrollArea className='min-h-0 flex-1' contentClassName='p-4'>
         <SortContext
           ended={t('channels.nodeDragEnd')}
           instructions={t('subscriptions.pool.dragInstructions')}
