@@ -15,6 +15,8 @@
 html {
   background: var(--color-canvas);
   height: 100%;
+  /* The window never scrolls, so a scroll gesture must not drag the shell along as an elastic overscroll. */
+  overscroll-behavior: none;
   overflow-x: clip;
 }
 
