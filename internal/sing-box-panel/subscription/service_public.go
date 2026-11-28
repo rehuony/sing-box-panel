@@ -8,11 +8,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"math"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
 var (
@@ -34,12 +36,18 @@ type PublicSubscriptionResult struct {
 	Traffic     PublicSubscriptionTraffic `json:"-"`
 }
 
-// PublicSubscriptionTraffic reports recorded usage, including incomplete or
-// stale totals. TotalBytes stays zero, because quotas belong to nodes.
+// PublicSubscriptionTraffic is what the Subscription-Userinfo header
+// reports: the recorded usage of the nodes whose inbounds the subscription
+// carries, including incomplete or stale totals, their quotas and the key's
+// expiry.
 type PublicSubscriptionTraffic struct {
 	UploadBytes   int64
 	DownloadBytes int64
-	TotalBytes    int64
+	// TotalBytes is the sum of the nodes' quotas, 0 when any of them is
+	// unlimited or the subscription carries no node.
+	TotalBytes int64
+	// ExpiresAt is when the key expires, nil when it never does.
+	ExpiresAt *time.Time
 }
 
 // PublicSubscription authenticates the current token/user state and renders
@@ -90,6 +98,7 @@ func (application *Service) PublicSubscription(
 	if err != nil {
 		return PublicSubscriptionResult{}, err
 	}
+	traffic.ExpiresAt = state.TokenExpiresAt
 	bodyDigest := sha256.Sum256(result.Content)
 	return PublicSubscriptionResult{
 		TokenID: state.TokenID, Format: store.SubscriptionFormat(result.Format), MediaType: result.MediaType,
@@ -112,14 +121,34 @@ func channelNodes(pool []store.SubscriptionPoolNode) []ChannelNode {
 
 // publicSubscriptionTraffic is the usage the subscription header reports:
 // the traffic of the nodes whose inbounds the subscription carries, each in
-// its own current period. Quotas belong to nodes, so the header reports no
-// total.
+// its own current period, against the sum of their quotas.
 func (application *Service) publicSubscriptionTraffic(ctx context.Context, at time.Time, nodeIDs []string) (PublicSubscriptionTraffic, error) {
 	status, err := application.telemetry.TrafficStatus(ctx, at, nodeIDs)
 	if err != nil {
 		return PublicSubscriptionTraffic{}, err
 	}
-	return PublicSubscriptionTraffic{UploadBytes: status.UploadBytes, DownloadBytes: status.DownloadBytes}, nil
+	return PublicSubscriptionTraffic{
+		UploadBytes: status.UploadBytes, DownloadBytes: status.DownloadBytes,
+		TotalBytes: quotaSum(status.Nodes),
+	}, nil
+}
+
+// quotaSum is the sum of the nodes' quotas, capped at the largest int64, so
+// what a client has left is what the nodes have left together. It is 0, which
+// clients read as unlimited, when any node is unlimited or there is none.
+func quotaSum(nodes []telemetry.NodeTrafficUsage) int64 {
+	var total int64
+	for _, node := range nodes {
+		if node.QuotaBytes == nil {
+			return 0
+		}
+		if *node.QuotaBytes > math.MaxInt64-total {
+			total = math.MaxInt64
+			continue
+		}
+		total += *node.QuotaBytes
+	}
+	return total
 }
 
 // renderSubscriptionState renders the channel of state, or config in its

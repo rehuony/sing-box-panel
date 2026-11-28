@@ -77,19 +77,22 @@ Every successful public subscription response, including `304 Not Modified`,
 includes an HTTP response header in the following format:
 
 ```http
-Subscription-Userinfo: upload=123; download=456; total=0
+Subscription-Userinfo: upload=123; download=456; total=107374182400; expire=1798761600
 ```
 
-Values are integer bytes, separated by a semicolon and a space. `upload` is the
-recorded outbound traffic of the nodes whose local inbounds the subscription
+Fields are separated by a semicolon and a space. `upload` is the recorded
+outbound traffic, in bytes, of the nodes whose local inbounds the subscription
 delivers, each in its own current period, and `download` is the same for
 inbound traffic. Those are the fleet nodes with an inbound the channel
 publishes and the key may receive; a subscription that publishes no inbounds
-reports zero. `total` is always `0`: each node has its own quota, and their sum
-would tell a client nothing about how much it can still use on the node it
-actually uses. The counters belong to the nodes, so every key that reaches the
-same nodes sees the same values. They do not represent individual user usage,
-subscription file sizes, or the key's download limit.
+reports zero. `total` is the sum of those nodes' quotas in bytes, so what a
+client shows as left, `total` minus `upload` and `download`, is what the nodes
+have left together; it is `0`, which clients read as unlimited, when any of
+them has no quota or there is none. `expire` is when the key expires, in Unix
+seconds, and is left out for a key that never expires. The counters and quotas
+belong to the nodes, so every key that reaches the same nodes sees the same
+values. They do not represent individual user usage, subscription file sizes,
+or the key's download limit.
 
 Each request reads those nodes' period settings and sums the recorded usage of
 each node's current period. When a node reaches its reset day, only its new
@@ -107,9 +110,9 @@ is rechecked before either a `200` or `304` response is committed.
 The panel keeps recent renderings by a digest of everything they are rendered
 from, so an unchanged channel renders once however many clients fetch it, and
 any change renders anew. Traffic changes leave the subscription body and its ETag unchanged. Conditional
-requests still receive refreshed traffic metadata. The response adds no expiry
-or refresh-interval field: a period boundary is not a subscription expiration.
-Clients display the new usage on their next successful subscription refresh,
+requests still receive refreshed traffic metadata. A period boundary is not an
+expiration: `expire` follows only the key, and the header has no refresh-interval
+field. Clients display the new usage on their next successful subscription refresh,
 so manually refresh an existing subscription to see it immediately.
 
 ## Subscription node pool
@@ -1121,7 +1124,8 @@ A node's metrics report its own `quota_bytes`, absent while unlimited, and
 `quota_exceeded`, set once the node's recorded upload and download together
 reach it, even while collection is stopped. `GET /api/v1/traffic/status` lists
 every node's current period, quota and `quota_exceeded`, and sums only usage
-into `upload_bytes` and `download_bytes`; quotas are never summed.
+into `upload_bytes` and `download_bytes`; it never sums quotas, which only the
+subscription header does.
 `GET /api/v1/fleet/status` returns every node with the metrics snapshot
 `GET /api/v1/nodes/{nodeId}/metrics` returns for it, without `latest_sample`
 and the period's `counters`, so the nodes home and the status line read the

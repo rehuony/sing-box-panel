@@ -5,6 +5,7 @@ package subscription
 import (
 	"database/sql"
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,9 +30,9 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Seed durable daily totals of two nodes without live samples. Node b
-	// resets on the 15th and has a quota of its own, which the header must
-	// not present as a total. A third node's inbound is not in the channel,
-	// so its traffic is not counted.
+	// resets on the 15th and has a quota, but node a has none, so the
+	// subscription's total stays unlimited. A third node's inbound is not in
+	// the channel, so its traffic is not counted.
 	nodes := []string{
 		testutil.PublishNode(t, db, "edge-a", testutil.InboundDocument, "", "203.0.113.1"),
 		testutil.PublishNode(t, db, "edge-b", testutil.InboundDocument, "", "203.0.113.2"),
@@ -95,10 +96,10 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 		resetDay int
 		want     PublicSubscriptionTraffic
 	}{
-		{"each node's own period", "2026-08-31T23:59:59Z", 15, PublicSubscriptionTraffic{123, 456, 0}},
-		{"one node starts a new UTC period", "2026-09-01T08:00:00+08:00", 15, PublicSubscriptionTraffic{23, 56, 0}},
-		{"before the reset day", "2026-08-14T12:00:00Z", 15, PublicSubscriptionTraffic{105, 406, 0}},
-		{"a changed reset day applies at once", "2026-08-31T23:59:59Z", 1, PublicSubscriptionTraffic{128, 462, 0}},
+		{"each node's own period", "2026-08-31T23:59:59Z", 15, PublicSubscriptionTraffic{UploadBytes: 123, DownloadBytes: 456}},
+		{"one node starts a new UTC period", "2026-09-01T08:00:00+08:00", 15, PublicSubscriptionTraffic{UploadBytes: 23, DownloadBytes: 56}},
+		{"before the reset day", "2026-08-14T12:00:00Z", 15, PublicSubscriptionTraffic{UploadBytes: 105, DownloadBytes: 406}},
+		{"a changed reset day applies at once", "2026-08-31T23:59:59Z", 1, PublicSubscriptionTraffic{UploadBytes: 128, DownloadBytes: 462}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			settings, err := db.Node(ctx, nodes[1])
@@ -143,5 +144,26 @@ func TestPublicSubscriptionTrafficSumsEveryNodesOwnPeriod(t *testing.T) {
 	app.telemetry = telemetry.New(db, app.settings, telemetry.Options{})
 	if _, err := app.PublicSubscription(ctx, key.Token, channel.ID); err == nil {
 		t.Fatal("traffic storage failure returned a successful subscription")
+	}
+}
+
+// TestQuotaSumIsUnlimitedUnlessEveryNodeHasAQuota: the header's total adds
+// the nodes' quotas, reads as unlimited when any node has none and never
+// wraps around.
+func TestQuotaSumIsUnlimitedUnlessEveryNodeHasAQuota(t *testing.T) {
+	limited := func(bytes int64) telemetry.NodeTrafficUsage { return telemetry.NodeTrafficUsage{QuotaBytes: &bytes} }
+	for _, test := range []struct {
+		name  string
+		nodes []telemetry.NodeTrafficUsage
+		want  int64
+	}{
+		{"every node limited", []telemetry.NodeTrafficUsage{limited(100 << 30), limited(50 << 30)}, 150 << 30},
+		{"one node unlimited", []telemetry.NodeTrafficUsage{limited(100 << 30), {}}, 0},
+		{"no node", nil, 0},
+		{"too large to add", []telemetry.NodeTrafficUsage{limited(math.MaxInt64 - 1), limited(2), limited(3)}, math.MaxInt64},
+	} {
+		if got := quotaSum(test.nodes); got != test.want {
+			t.Errorf("%s: quotaSum = %d, want %d", test.name, got, test.want)
+		}
 	}
 }

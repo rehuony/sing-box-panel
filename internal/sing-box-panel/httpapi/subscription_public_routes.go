@@ -52,8 +52,7 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 	}
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d",
-		result.Traffic.UploadBytes, result.Traffic.DownloadBytes, result.Traffic.TotalBytes))
+	w.Header().Set("Subscription-Userinfo", subscriptionUserinfo(result.Traffic))
 	if notModified {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -61,6 +60,16 @@ func (handler *Handler) publicSubscription(w http.ResponseWriter, request *http.
 	w.Header().Set("Content-Type", result.MediaType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(result.Body)
+}
+
+// subscriptionUserinfo formats the Subscription-Userinfo header: byte counts,
+// and the key's expiry in Unix seconds when it has one.
+func subscriptionUserinfo(traffic subscription.PublicSubscriptionTraffic) string {
+	value := fmt.Sprintf("upload=%d; download=%d; total=%d", traffic.UploadBytes, traffic.DownloadBytes, traffic.TotalBytes)
+	if traffic.ExpiresAt != nil {
+		value += fmt.Sprintf("; expire=%d", traffic.ExpiresAt.Unix())
+	}
+	return value
 }
 
 var errPublicSubscriptionUnavailable = errors.New("public subscription service unavailable")

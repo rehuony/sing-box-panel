@@ -927,7 +927,7 @@ paths:
         one read for the fleet views. The panel answers from the snapshot
         streamFleetStatus shares while it is at most two seconds old, and
         reads a new one otherwise. Without parameters every node is
-        returned. Quotas belong to nodes and are never summed.
+        returned. Quotas belong to nodes, and this endpoint never sums them.
       parameters:
         - $ref: "#/components/parameters/FleetState"
         - $ref: "#/components/parameters/FleetTag"
@@ -1745,9 +1745,10 @@ paths:
       security: []
       description: >-
         Successful responses include the recorded traffic of the fleet nodes whose
-        inbounds the channel publishes, each in that node's current period; total is
-        always 0. Settings or traffic-storage failures return 503 without consuming
-        download quota. The final authorization recheck must pass before traffic
+        inbounds the channel publishes, each in that node's current period, the sum
+        of their quotas as total and the key's expiry as expire. Settings or
+        traffic-storage failures return 503 without consuming download quota. The
+        final authorization recheck must pass before traffic
         metadata is exposed. Traffic changes do not change the body ETag.
       responses:
         "200":
@@ -2173,17 +2174,17 @@ components:
   headers:
     SubscriptionUserinfo:
       description: >-
-        Semicolon-and-space-separated byte integers. upload is every node's recorded
+        Semicolon-and-space-separated fields. upload is every node's recorded
         outbound bytes in that node's current period; download is the same for
-        inbound bytes. total is always 0, because quotas belong to individual nodes
-        and their sum would not tell a client how much it can still use. A node's
-        new period starts with zero recorded usage without deleting historical
-        totals. This header contains no expire field or refresh
-        interval; clients see updated values
-        on their next successful subscription refresh.
+        inbound bytes. total is the sum of the nodes' quotas in bytes, or 0, read as
+        unlimited, when any node has no quota or there is none. expire is the key's
+        expiry in Unix seconds, left out when the key never expires. A node's new
+        period starts with zero recorded usage without deleting historical totals.
+        The header has no refresh interval; clients see updated values on their
+        next successful subscription refresh.
       schema:
         type: string
-        pattern: '^upload=[0-9]+; download=[0-9]+; total=[0-9]+$'
+        pattern: '^upload=[0-9]+; download=[0-9]+; total=[0-9]+(; expire=[0-9]+)?$'
         example: 'upload=123; download=456; total=0'
   securitySchemes:
     sessionCookie:
