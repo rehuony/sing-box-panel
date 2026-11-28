@@ -135,6 +135,21 @@ describe('useTelemetry', () => {
     expect(result.current.liveTail.map(point => point.uploadBytesPerSecond)).toEqual([200, null, 400]);
   });
 
+  it('keeps the newest reading before the live window, so the lines reach its start', async () => {
+    const seconds = Array.from({ length: 14 }, (_, index) => index * 10);
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        for (const second of seconds) yield { metrics: liveMetrics(second, 100), runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    const base = Date.parse('2026-10-16T00:00:00Z');
+    // Two minutes before the newest reading, at 130 s, is 10 s: the reading there stays and the one at 0 s leaves.
+    const shown = () => result.current.liveTail.map(point => (point.at - base) / 1000);
+    await waitFor(() => expect(shown()).toEqual(seconds.slice(1)));
+  });
+
   it('opens the live window with the stored samples older than the stream', async () => {
     const at = (second: number) => new Date(Date.parse('2026-10-16T00:00:00Z') + second * 1000).toISOString();
     const stored = (second: number) => ({

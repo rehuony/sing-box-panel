@@ -2160,7 +2160,7 @@ paths:
       - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getRecentMetrics
-      description: The node's accepted stored samples of the last two minutes, oldest first, so a live chart opens with what came before it, and the spans of those two minutes in which the node's runtime history shows no core running, which hold no samples but are known zero traffic and connections. Samples are stored about every ten seconds whatever the node's live sampling. A read failure returns 503 recent_metrics_unavailable.
+      description: The node's accepted stored samples of the last two minutes, oldest first and led by the newest one before them, so a live chart opens with what came before it and its lines reach the window's start, and the spans of those two minutes in which the node's runtime history shows no core running, which hold no samples but are known zero traffic and connections. Samples are stored about every ten seconds whatever the node's live sampling. A read failure returns 503 recent_metrics_unavailable.
       responses:
         "200":
           $ref: "#/components/responses/RecentMetrics"

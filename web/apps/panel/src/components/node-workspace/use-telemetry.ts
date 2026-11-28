@@ -80,6 +80,20 @@ function idlePoints(idle: RecentMetrics['idle'][number]): LivePoint[] {
   return points;
 }
 
+/** How far back the live window reaches, as the node's charts show it. */
+const LIVE_SPAN = 120_000;
+
+/**
+ * The readings before `at` that its live window shows, led by the newest one
+ * before the window, so a line through them runs off the window's start
+ * rather than starting inside it.
+ */
+function windowTail(tail: LivePoint[], at: number): LivePoint[] {
+  const earlier = tail.filter(point => point.at < at);
+  const inside = earlier.findIndex(point => point.at > at - LIVE_SPAN);
+  return inside === -1 ? earlier.slice(-1) : earlier.slice(Math.max(0, inside - 1));
+}
+
 /** The rates the panel derived for a sample, or none when it has none it stands behind. */
 function sampleRates(sample: TrafficSample | undefined): TrafficRates {
   const upload = sample?.upload_bytes_per_second;
@@ -186,7 +200,7 @@ export function useTelemetryStore(online: boolean): TelemetryStore {
       const rates = stopped || receivedAt < ratesExpireAt ? reading : emptyRates;
       const connections = stopped ? 0 : sample?.accepted ? sample.active_connections : null;
       const point: LivePoint = { at, ...reading, connections };
-      const tail = repeated ? state.liveTail : state.liveTail.filter(p => p.at > at - 120_000 && p.at < at);
+      const tail = repeated ? state.liveTail : windowTail(state.liveTail, at);
       if (!repeated) {
         const changedProcess = previous && sample && (previous.pid !== sample.pid
           || previous.process_start_token !== sample.process_start_token

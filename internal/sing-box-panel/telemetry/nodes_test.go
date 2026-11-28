@@ -128,9 +128,10 @@ func TestTrafficLedgerAnswersFromMemoryAndFollowsChanges(t *testing.T) {
 }
 
 // TestRecentMetricsReturnsTheLastTwoMinutesAsRates reads the stored samples a
-// live chart opens with: those of the last two minutes, each with the rates
-// of the interval ending at it, and none for a sample a new process starts;
-// then the span after the core stopped, which holds no samples.
+// live chart opens with: those of the last two minutes led by the newest one
+// before them, so the line reaches the window's start, each with the rates of
+// the interval ending at it, and none for a sample a new process starts; then
+// the span after the core stopped, which holds no samples.
 func TestRecentMetricsReturnsTheLastTwoMinutesAsRates(t *testing.T) {
 	ctx := t.Context()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
@@ -153,7 +154,8 @@ func TestRecentMetricsReturnsTheLastTwoMinutesAsRates(t *testing.T) {
 	at := func(minute, second int) time.Time {
 		return time.Date(2026, time.June, 10, 12, minute, second, 0, time.UTC)
 	}
-	record(at(-1, 50), 7, 1, 0, 0) // 11:59:50, before the window
+	record(at(-1, 40), 7, 1, 0, 0) // 11:59:40, before the newest one before the window
+	record(at(-1, 50), 7, 1, 0, 0) // 11:59:50, the newest before the window
 	record(at(0, 10), 7, 2, 200, 400)
 	record(at(0, 20), 7, 3, 300, 600)
 	record(at(1, 0), 8, 4, 0, 0)
@@ -186,6 +188,7 @@ func TestRecentMetricsReturnsTheLastTwoMinutesAsRates(t *testing.T) {
 			value(sample.DownloadBytesPerSecond), sample.ActiveConnections})
 	}
 	want := []point{
+		{at(-1, 50), 10.0, 0.0, 0.0, 1},
 		{at(0, 10), 20.0, 10.0, 20.0, 2},
 		{at(0, 20), 10.0, 10.0, 20.0, 3},
 		{at(1, 0), nil, nil, nil, 4},

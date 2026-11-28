@@ -1008,8 +1008,9 @@ scrolls instead. Both default to Live: the last two minutes of
 received samples, including while the browser tab is hidden, with seconds on the
 time axis. The window opens with what `metrics/recent` returns for the last
 two minutes, so re-entering a node or reloading the page shows what came
-before: the node's stored samples, about ten seconds apart and each with the
-rates of the interval ending at it, and the spans in which its runtime history
+before: the node's stored samples, led by the newest one before the two
+minutes, about ten seconds apart and each with the rates of the interval
+ending at it, and the spans in which its runtime history
 shows no core running, drawn as a known zero every ten seconds because a
 stopped core stores no samples. The stream's readings follow at their own
 spacing, and a reading of the same moment replaces the stored one. The window
