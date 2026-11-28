@@ -95,7 +95,7 @@ describe('subscription sources', () => {
     const client = createMockApiClient({
       previewSubscriptionSource: vi.fn()
         .mockRejectedValueOnce(new ApiRequestError('The source could not be fetched (http_status_404).', {
-          code: 'subscription_source_fetch_failed', fields: { reason: 'http_status_404' }, status: 502,
+          code: 'subscription_source_fetch_failed', fields: { reason: 'http_status_404' }, status: 503,
         }))
         .mockResolvedValue({ format: 'share-links', items: [{ location: 'line 1', name: 'HK 01', protocol: 'vless', kept: true }] }),
     });

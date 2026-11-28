@@ -173,8 +173,9 @@ func TestGitHubRefreshReadsNothingMoreWhileNoStableTagChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeTagValidator: %v", err)
 	}
+	// GitHub answers a weak tag with its strong form when the encoding differs.
 	notModified := make(http.Header)
-	notModified.Set("ETag", `W/"same"`)
+	notModified.Set("ETag", `"same"`)
 	doer := &queueDoer{responses: []*http.Response{
 		{StatusCode: http.StatusNotModified, Header: notModified, Body: io.NopCloser(strings.NewReader(""))},
 	}}

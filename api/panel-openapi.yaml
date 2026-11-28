@@ -534,7 +534,7 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/SystemUpdate"
-        "502":
+        "503":
           $ref: "#/components/responses/Problem"
         default:
           $ref: "#/components/responses/Problem"
@@ -2238,8 +2238,6 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/NodeUpdate'}
         "409":
-          $ref: "#/components/responses/Problem"
-        "502":
           $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"

@@ -432,7 +432,7 @@ func batchInstallProblem(err error) (problemDetails, bool) {
 	case errors.Is(err, fleet.ErrCoreAssetUnavailable):
 		return problemDetails{http.StatusConflict, "core_asset_unavailable", "Core archive unavailable", err.Error()}, true
 	case errors.Is(err, fleet.ErrCoreDownloadFailed):
-		return problemDetails{http.StatusBadGateway, "core_download_failed", "Core download failed", err.Error()}, true
+		return problemDetails{http.StatusServiceUnavailable, "core_download_failed", "Core download failed", err.Error()}, true
 	}
 	return problemDetails{}, false
 }

@@ -67,8 +67,10 @@ func (client *GitHubClient) tagPagesUnchanged(ctx context.Context, pageETags []s
 		if response.StatusCode != http.StatusNotModified {
 			return false, nil
 		}
+		// GitHub marks the same entity tag weak or strong by the response's
+		// encoding, so the two match as If-None-Match does, ignoring W/.
 		responseETag := response.Header.Get("ETag")
-		if responseETag != "" && (!validHTTPETag(responseETag) || responseETag != pageETag) {
+		if responseETag != "" && (!validHTTPETag(responseETag) || strings.TrimPrefix(responseETag, "W/") != strings.TrimPrefix(pageETag, "W/")) {
 			return false, fail(StepTags, "invalid_page_etag", nil)
 		}
 	}

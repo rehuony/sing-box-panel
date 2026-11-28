@@ -61,7 +61,7 @@ func updateProblem(err error) problemDetails {
 	case errors.Is(err, releases.ErrNoUpdate):
 		return problemDetails{http.StatusConflict, "update_not_available", "No update available", err.Error()}
 	default:
-		return problemDetails{http.StatusBadGateway, "update_check_failed", "Update check failed",
+		return problemDetails{http.StatusServiceUnavailable, "update_check_failed", "Update check failed",
 			"The newest release could not be read from GitHub (" + selfupdate.FailureCode(err) + ")."}
 	}
 }
@@ -95,13 +95,13 @@ func nodeUpdateProblem(err error) problemDetails {
 	case errors.Is(err, fleet.ErrNodeRestartRequired):
 		return problemDetails{http.StatusConflict, "node_restart_required", "Node restart required", err.Error()}
 	case errors.Is(err, fleet.ErrNodeUpdateTimeout):
-		return problemDetails{http.StatusGatewayTimeout, "node_update_timeout", "Node did not come back", err.Error()}
+		return problemDetails{http.StatusServiceUnavailable, "node_update_timeout", "Node did not come back", err.Error()}
 	case errors.As(err, &failure):
-		return problemDetails{http.StatusBadGateway, "node_update_failed", "Node update failed", failure.Error()}
+		return problemDetails{http.StatusServiceUnavailable, "node_update_failed", "Node update failed", failure.Error()}
 	}
 	var release *releases.Failure
 	if errors.As(err, &release) {
-		return problemDetails{http.StatusBadGateway, "node_release_unavailable", "Node release unavailable",
+		return problemDetails{http.StatusServiceUnavailable, "node_release_unavailable", "Node release unavailable",
 			"The panel could not download and verify its node release (" + release.Code + ")."}
 	}
 	return nodeCommandProblem("node_update_failed", err)

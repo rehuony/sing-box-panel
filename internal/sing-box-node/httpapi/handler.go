@@ -367,7 +367,7 @@ func (handler *Handler) enroll(w http.ResponseWriter, request *http.Request, _ s
 		writeProblem(w, http.StatusUnprocessableEntity, "enrollment_rejected", "Enrollment rejected", failed.Reason)
 		return
 	case errors.As(err, &failed):
-		writeProblem(w, http.StatusBadGateway, "enrollment_failed", "Enrollment failed", failed.Reason)
+		writeProblem(w, http.StatusServiceUnavailable, "enrollment_failed", "Enrollment failed", failed.Reason)
 		return
 	case err != nil:
 		writeProblem(w, http.StatusInternalServerError, "enrollment_not_saved", "Enrollment not saved", err.Error())
