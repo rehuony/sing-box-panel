@@ -50,7 +50,7 @@ func TestRenderLoonConvertsProvenSubsetAndEscapesSecrets(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	want := `[Proxy]
-hy2 = Hysteria2,hy.example,8443,"hy&secret<1>",salamander-password="obfs-secret",sni=hy.example,skip-cert-verify=true,udp=true
+hy2 = Hysteria2,hy.example,8443,"hy&secret<1>",salamander-password=obfs-secret,sni=hy.example,skip-cert-verify=true,udp=true
 ss = Shadowsocks,ss.example,8388,aes-128-gcm,"p\"ass",udp=true
 vless = VLESS,v.example,443,"uuid-v",transport=tcp,flow=xtls-rprx-vision,over-tls=true,sni=sni.example,skip-cert-verify=false,udp=true
 `
@@ -63,5 +63,18 @@ vless = VLESS,v.example,443,"uuid-v",transport=tcp,flow=xtls-rprx-vision,over-tl
 	}
 	if !reflect.DeepEqual(result.Diagnostics, wantDiagnostics) {
 		t.Fatalf("Diagnostics = %#v, want %#v", result.Diagnostics, wantDiagnostics)
+	}
+}
+
+func TestRenderLoonOmitsUnrepresentableSalamanderPassword(t *testing.T) {
+	t.Parallel()
+	startup := []byte(`{"outbounds":[{"type":"hysteria2","tag":"hy2","server":"hy.example","server_port":8443,"password":"secret","obfs":{"type":"salamander","password":"obfs,secret"},"tls":{"enabled":true}}]}`)
+	result, err := Render(startup, RenderChannel{Format: RenderFormatLoon})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := []RenderDiagnostic{diagnostic(RenderFormatLoon, CollectionOutbounds, 0, DiagnosticUnsupportedOption)}
+	if result.NodeCount != 0 || !reflect.DeepEqual(result.Diagnostics, want) {
+		t.Fatalf("result = %#v, content %s", result, result.Content)
 	}
 }

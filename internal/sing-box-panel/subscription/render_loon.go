@@ -259,10 +259,12 @@ func loonHysteria2(value outbound) (loonNode, DiagnosticCode) {
 		}
 		typeID, typeOK := requiredString(object, "type")
 		obfsPassword, passwordOK := requiredString(object, "password")
-		if !typeOK || !passwordOK || typeID != "salamander" {
+		// Loon keeps quotes around this value as part of the key, so a value
+		// that would need them cannot be represented.
+		if !typeOK || !passwordOK || typeID != "salamander" || !validLoonAtom(obfsPassword) {
 			return loonNode{}, DiagnosticUnsupportedOption
 		}
-		parts = append(parts, "salamander-password="+loonQuoted(obfsPassword))
+		parts = append(parts, "salamander-password="+obfsPassword)
 	}
 	tlsParts, code := loonTLSOptions(tlsValue, true)
 	if code != "" {
