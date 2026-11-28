@@ -241,10 +241,13 @@ runs four stages:
    assertions. Each smoke job installs its own Go, Node.js and pinned pnpm
    prerequisites before building the probe's Web distribution.
 4. `draft` obtains `contents: write` only after both smoke jobs pass. It creates
-   a Draft Release targeted at the frozen commit, generates release notes,
-   uploads the six exact assets, downloads them into an empty directory, and
-   re-verifies the asset set, bytes, checksums, signature, version, source
-   commit, and embedded public key.
+   a Draft Release targeted at the frozen commit, whose notes open with what
+   `scripts/release-notes.sh` prints for the signed assets: each asset with what
+   it is, its size and SHA-256, the install and update commands, and how to
+   verify by hand; GitHub appends the changes it generates. It uploads the six
+   exact assets, downloads them into an empty directory, and re-verifies the
+   asset set, bytes, checksums, signature, version, source commit, and embedded
+   public key. The run's summary lists those checks with the same notes.
 
 The workflow never replaces an existing tag, Release, or asset. Draft-aware
 existence checks reject both published and unpublished releases. If draft
@@ -262,7 +265,7 @@ For every release:
 2. Dispatch `Release Build` with the next stable version.
 3. Wait for build, signing, and both native smoke jobs to succeed.
 4. Open the generated Draft Release and review its version, target commit,
-   generated notes, and six assets.
+   asset notes, generated changes, and six assets.
 5. Publish the draft once. Only a published, non-prerelease GitHub Release is
    visible to `sing-box-panel update`, the panel's update check and
    `sing-box-node update` on a node without a panel. One release carries both

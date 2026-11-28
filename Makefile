@@ -18,7 +18,7 @@ help:
 	@echo "  make check                       - Run every required check (backend + frontend + contracts)"
 	@echo "  make check-backend               - Go formatting, modules, vet and tests"
 	@echo "  make check-frontend              - Web lint, tests and third-party notices"
-	@echo "  make check-contracts             - Shell, installer, cleanup, protobuf and OpenAPI contracts"
+	@echo "  make check-contracts             - Shell, installer, cleanup, release notes, protobuf and OpenAPI contracts"
 	@echo "  make test                        - Run Go and Web tests"
 	@echo "  make test-backend                - Run Go tests only"
 	@echo "  make test-frontend               - Run Web tests only"
@@ -81,6 +81,7 @@ check-contracts: build-frontend proto-check
 	@for script in $$(find scripts -type f -name '*.sh'); do bash -n "$$script" || exit; done
 	bash scripts/test/installer-test.sh
 	bash scripts/test/cleanup-test.sh
+	bash scripts/test/release-notes-test.sh
 	go tool verify-openapi api/panel-openapi.yaml
 	go tool verify-openapi api/node-openapi.yaml
 
