@@ -3,6 +3,7 @@
 package subscription
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -17,6 +18,38 @@ func validateSubscriptionChannelConfig(format store.SubscriptionFormat, raw json
 		return ChannelConfig{}, err
 	}
 	if err := ValidateChannelConfig(config, RenderFormat(format)); err != nil {
+		return ChannelConfig{}, err
+	}
+	return config, nil
+}
+
+// renderableChannelConfig decodes and checks a channel configuration for
+// format, then renders it from the current pool and the rule sets it routes
+// by, as a preview of it would, so a write never stores a channel its
+// subscribers could not read; a render it refuses keeps the preview's
+// problem. The render lands in the render cache, ready for the first
+// subscriber.
+func (application *Service) renderableChannelConfig(ctx context.Context, format store.SubscriptionFormat, raw json.RawMessage) (ChannelConfig, error) {
+	config, err := validateSubscriptionChannelConfig(format, raw)
+	if err != nil {
+		return ChannelConfig{}, err
+	}
+	pool, err := application.database.SubscriptionPool(ctx)
+	if err != nil {
+		return ChannelConfig{}, err
+	}
+	available := make(map[string]bool, len(pool))
+	for _, node := range pool {
+		available[node.ID] = true
+	}
+	if err := validateChannelPoolReferences(config, available); err != nil {
+		return ChannelConfig{}, err
+	}
+	ruleSets, err := application.readChannelRuleSets(ctx, config)
+	if err != nil {
+		return ChannelConfig{}, err
+	}
+	if _, _, err := application.renderSubscriptionState(store.PublicSubscriptionState{Pool: pool}, format, config, ruleSets); err != nil {
 		return ChannelConfig{}, err
 	}
 	return config, nil

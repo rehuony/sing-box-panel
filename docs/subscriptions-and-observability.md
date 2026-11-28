@@ -351,7 +351,13 @@ the exit rules list holds only exit rules. Selecting another group replaces the
 previous choice, and clearing it, or disabling or deleting that group, restores
 direct fallback. New groups are not automatically selected as the final exit.
 A stored node or reject fallback is preserved until explicitly changed. Group drafts survive
-switching groups and are persisted together by Save changes. The open channel
+switching groups and are persisted together by Save changes, in one request:
+creating or updating a channel renders it from the current pool and its rule
+sets first, exactly as a preview does, and refuses one that would not render
+with the preview's problem, so a stored channel always renders for its
+subscribers and the render is cached for the first of them. Creating,
+duplicating and deleting a channel report as soon as the server answers and
+read the list again behind it. The open channel
 is part of the address, `#subscription-channels/<channel ID>`, so reloading the
 page or going back and forward shows it again; a channel that no longer exists
 says why and shows the list. An unsaved draft waits out a reload in the tab's

@@ -81,5 +81,6 @@ export const channels = {
   memberCount_one: '{{count}} member', memberCount_other: '{{count}} members',
   removed: 'Channel deleted',
   orderStale: 'The channels changed and were read again',
+  deleteStale: 'The channel changed elsewhere and was read again',
   orderSaveFailed: 'Channel order was not saved',
 } as const;

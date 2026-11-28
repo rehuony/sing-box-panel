@@ -81,5 +81,6 @@ export const channels = {
   memberCount_one: '{{count}} 个成员', memberCount_other: '{{count}} 个成员',
   removed: '渠道已删除',
   orderStale: '渠道已有变化，已重新载入',
+  deleteStale: '渠道已在其他地方更改，已重新载入',
   orderSaveFailed: '渠道顺序未能保存',
 } as const;

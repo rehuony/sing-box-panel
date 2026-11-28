@@ -76,11 +76,21 @@ func TestApplicationSubscriptionChannelAndSourceCRUD(t *testing.T) {
 		listed.Items[0].RouteCount != 1 || listed.Items[0].FinalExit != (ChannelFinalExit{Kind: "group", Name: "Main"}) {
 		t.Fatalf("listed channels = %+v, err=%v", listed, err)
 	}
+	// A write renders the channel first, as a preview would, and keeps the preview's refusal.
+	dangling := json.RawMessage(`{"groups":[],"routes":[],"default_exit":{"kind":"node","id":"sn_missing"}}`)
+	refusedDangling := func(err error) bool {
+		var policy *PolicyError
+		return errors.As(err, &policy) && *policy == PolicyError{Path: "default_exit", Code: "node_not_in_pool"}
+	}
 	if _, err := app.CreateSubscriptionChannel(ctx, CreateSubscriptionChannelRequest{
-		Name: "dangling", Format: store.SubscriptionFormatMihomo, Enabled: true,
-		Config: json.RawMessage(`{"groups":[],"routes":[],"default_exit":{"kind":"node","id":"sn_missing"}}`),
-	}); !errors.As(err, new(*store.SubscriptionReferenceError)) {
+		Name: "dangling", Format: store.SubscriptionFormatMihomo, Enabled: true, Config: dangling,
+	}); !refusedDangling(err) {
 		t.Fatalf("a channel named a node outside the pool: %v", err)
+	}
+	if _, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
+		Name: channel.Name, Format: channel.Format, Config: dangling, Enabled: true, ExpectedUpdatedAt: channel.UpdatedAt,
+	}); !refusedDangling(err) {
+		t.Fatalf("an update named a node outside the pool: %v", err)
 	}
 	updated, err := app.UpdateSubscriptionChannel(ctx, channel.ID, UpdateSubscriptionChannelRequest{
 		Name: "renamed", Format: store.SubscriptionFormatLoon, Config: emptyChannel,

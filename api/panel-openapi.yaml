@@ -1385,6 +1385,11 @@ paths:
           $ref: "#/components/responses/Problem"
     post:
       operationId: createSubscriptionChannel
+      description: >-
+        Creates a channel, which joins the end of the channels' order. The
+        channel is rendered from the current pool and its rule sets first, as
+        a preview of it would be, and one that would not render is refused with
+        the preview's problem.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -1427,6 +1432,11 @@ paths:
           $ref: "#/components/responses/Problem"
     put:
       operationId: updateSubscriptionChannel
+      description: >-
+        Replaces a channel at the version If-Match names. The channel is
+        rendered from the current pool and its rule sets first, as a preview of
+        it would be, and one that would not render is refused with the
+        preview's problem, so saving needs no preview of its own.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"

@@ -28,6 +28,7 @@ import type {
 } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
+import { ApiRequestError } from '@/api/api-client';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
@@ -103,7 +104,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const [name, setName] = useState('');
   const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
   const createProblem = useDialogProblem<'name'>(creating);
-  const [deleting, setDeleting] = useState<Pick<SubscriptionChannel, 'id' | 'name'> | null>(null);
+  const [deleting, setDeleting] = useState<Pick<SubscriptionChannel, 'id' | 'name' | 'updated_at'> | null>(null);
   // The key the last link used, offered first by every channel's link.
   const [linkKey, setLinkKey] = useState('');
   const [flash, setFlash] = useState<string | null>(null);
@@ -119,6 +120,10 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     await cache.invalidateQueries({ queryKey: ['nodes'], refetchType: 'none' });
     await Promise.all([cache.fetchQuery(queries.channels(client)), cache.fetchQuery(queries.nodes(client))]);
   }, [client, cache]);
+  /** Reads the channel list again behind what a write already showed. */
+  const refreshList = useCallback(() => {
+    void cache.invalidateQueries({ queryKey: queries.channels(client).queryKey, exact: true });
+  }, [cache, client]);
   useEffect(() => {
     const controller = new AbortController();
     lifetimeRef.current = controller;
@@ -187,8 +192,19 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
         name: copyName, format: fresh.format, enabled: fresh.enabled, config: fresh.config,
       }, signal);
       if (signal?.aborted) return;
-      await load(signal);
-      if (signal?.aborted) return;
+      // A copy publishes what its original does, so its row shows at once at the end of the order; the list is read
+      // again behind it.
+      const original = channels.find(item => item.id === id);
+      if (original) {
+        cache.setQueryData<SubscriptionChannelSummary[]>(queries.channels(client).queryKey, current => current && [
+          ...current,
+          {
+            ...original, id: created.id, name: created.name, enabled: created.enabled,
+            created_at: created.created_at, updated_at: created.updated_at,
+          },
+        ]);
+      }
+      refreshList();
       setFlash(created.id);
       toast.add({ title: t('channels.duplicated', { name: created.name }), type: 'success' });
     });
@@ -213,7 +229,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       fromListRef.current = true;
       // The form just saved is still dirty until it closes; it must not ask about opening its channel.
       skipGuard(() => void show(value.id));
-      await load(lifetimeRef.current?.signal);
+      refreshList();
       toast.add({ title: t('channels.saved'), type: 'success' });
     } catch (reason) {
       createProblem.report(t('channels.createFailed'), { description: describeRequestError(reason) });
@@ -225,20 +241,27 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     if (!deleting || busy) return;
     setBusy(true);
     try {
-      const fresh = await client.getSubscriptionChannel(deleting.id, lifetimeRef.current?.signal);
-      await client.deleteSubscriptionChannel(
-        fresh.id,
-        fresh.updated_at,
-        lifetimeRef.current?.signal,
-      );
+      // The version the list or the workspace shows; a channel changed since is refused with 412.
+      await client.deleteSubscriptionChannel(deleting.id, deleting.updated_at, lifetimeRef.current?.signal);
       if (lifetimeRef.current?.signal.aborted) return;
       setDeleting(null);
+      cache.setQueryData<SubscriptionChannelSummary[]>(
+        queries.channels(client).queryKey,
+        current => current?.filter(item => item.id !== deleting.id),
+      );
       // Deleting from its settings leaves the channel's workspace, whose edits went with it.
-      if (shown?.id === fresh.id) skipGuard(() => void show('', true));
-      await load(lifetimeRef.current?.signal);
+      if (shown?.id === deleting.id) skipGuard(() => void show('', true));
+      refreshList();
       toast.add({ title: t('channels.removed'), type: 'success' });
     } catch (reason) {
-      toastFailure(t('channels.removeFailed'), reason);
+      if (reason instanceof ApiRequestError && reason.status === 412) {
+        // The list is read again, so deleting again names the channel's current version.
+        setDeleting(null);
+        refreshList();
+        toast.add({ title: t('channels.deleteStale'), type: 'warning' });
+      } else {
+        toastFailure(t('channels.removeFailed'), reason);
+      }
     } finally {
       setBusy(false);
     }

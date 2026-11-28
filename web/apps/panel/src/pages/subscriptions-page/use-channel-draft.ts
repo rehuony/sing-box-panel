@@ -125,8 +125,8 @@ export function useChannelDraft(channel: SubscriptionChannel, onSaved: (channel:
   async function persist(c: SubscriptionChannelConfig = config) {
     if (!name.trim() || c.groups.some((value) => !value.name.trim())) throw new Error(t('channels.nameRequired'));
     c = { ...c, groups: c.groups.map((value) => ({ ...value, name: value.name.trim() })) };
-    await render(c);
-    if (lifeRef.current?.signal.aborted) return;
+    // One request: the server renders the channel before storing it, as a preview would, and refuses one
+    // that would not render.
     const result = await client.updateSubscriptionChannel(
       channel.id,
       { name: name.trim(), enabled: channel.enabled, format, config: c },

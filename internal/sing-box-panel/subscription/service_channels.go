@@ -15,7 +15,7 @@ func (application *Service) CreateSubscriptionChannel(
 	ctx context.Context,
 	request CreateSubscriptionChannelRequest,
 ) (SubscriptionChannel, error) {
-	config, err := validateSubscriptionChannelConfig(request.Format, request.Config)
+	config, err := application.renderableChannelConfig(ctx, request.Format, request.Config)
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
@@ -83,7 +83,7 @@ func (application *Service) UpdateSubscriptionChannel(
 	channelID string,
 	request UpdateSubscriptionChannelRequest,
 ) (SubscriptionChannel, error) {
-	config, err := validateSubscriptionChannelConfig(request.Format, request.Config)
+	config, err := application.renderableChannelConfig(ctx, request.Format, request.Config)
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
