@@ -288,6 +288,7 @@ export const productLogs = {
     configuration_schema_validation: '配置未通过结构验证。',
     configuration_changed: '操作过程中配置已发生变化。',
     core_artifact_not_found: '未找到所选核心产物。',
+    core_artifact_in_use: '核心已启用或正在运行，请先禁用再删除。',
     core_platform_mismatch: '核心不支持当前平台。',
     core_not_enabled: '请先启用核心版本。',
     no_applied_bundle: '暂无已应用的运行配置。',

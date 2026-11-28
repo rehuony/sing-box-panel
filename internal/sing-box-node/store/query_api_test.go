@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,17 +130,29 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 		t.Fatalf("stored feature fingerprint = %s, want defensive copy", unchanged.FeatureFingerprint)
 	}
 
-	eligibility, err := store.CoreArtifactRemovalEligibility(ctx, "artifact-2")
-	if err != nil || !eligibility.Eligible {
-		t.Fatalf("artifact-2 eligibility = %+v, %v, want eligible", eligibility, err)
-	}
-	if err := store.RemoveCoreArtifact(ctx, "artifact-2"); err != nil {
-		t.Fatalf("RemoveCoreArtifact(artifact-2) error = %v", err)
+	// A core nothing selects is removed and no longer listed; installing it
+	// again restores it as of the new installation.
+	removedAt := now.Add(time.Hour)
+	removal, err := store.RemoveCoreArtifact(ctx, "artifact-2", removedAt)
+	if err != nil || removal.Artifact.ID != "artifact-2" || removal.FilesShared {
+		t.Fatalf("RemoveCoreArtifact(artifact-2) = %+v, %v; want removed with its own files", removal, err)
 	}
 	if _, err := store.GetCoreArtifact(ctx, "artifact-2"); !errors.Is(err, ErrCoreArtifactNotFound) {
 		t.Fatalf("removed artifact lookup error = %v, want ErrCoreArtifactNotFound", err)
 	}
+	listed, err := store.ListCoreArtifacts(ctx, CoreArtifactListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListCoreArtifacts(after removal) error = %v", err)
+	}
+	assertArtifactIDs(t, listed.Items, "artifact-3", "artifact-1")
+	again := artifacts[1]
+	again.CreatedAt = removedAt
+	if restored, err := store.UpsertCoreArtifact(ctx, again); err != nil || !restored.CreatedAt.Equal(removedAt) {
+		t.Fatalf("UpsertCoreArtifact(removed) = %+v, %v; want it installed again at %v", restored, err, removedAt)
+	}
 
+	// Earlier startup records and bundles are history and keep no core; the
+	// selected one stays, and a rollback to a removed core is dropped.
 	revision, err := recordTestRevision(ctx, store,
 		NewCanonicalRevision{
 			ID: "artifact-reference-revision", SchemaVersion: configuration.SchemaVersion,
@@ -149,27 +162,44 @@ func TestCoreArtifactRepositoryAndRemovalEligibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveConfigurationFile(reference) error = %v", err)
 	}
+	for _, reference := range []struct{ startup, bundle, core string }{
+		{"startup-1", "bundle-1", "artifact-1"},
+		{"startup-3", "bundle-3", "artifact-3"},
+	} {
+		if _, err := store.db.ExecContext(
+			ctx,
+			`INSERT INTO startup_artifacts(
+			    id, canonical_revision_id, exact_core_version, core_artifact_id,
+			    config_bytes, config_sha256, state, created_at
+			 ) VALUES (?, ?, '1.13.19', ?, ?, ?, 'ready', ?)`,
+			reference.startup, revision.ID, reference.core, []byte(`{}`), strings.Repeat("f", 64), formatTime(now),
+		); err != nil {
+			t.Fatalf("insert startup artifact %s: %v", reference.startup, err)
+		}
+		if _, err := store.db.ExecContext(
+			ctx,
+			`INSERT INTO activation_bundles(id, startup_artifact_id, monitoring_tier, sha256, created_at)
+			 VALUES (?, ?, 'process_only', ?, ?)`,
+			reference.bundle, reference.startup, strings.Repeat(reference.core[len(reference.core)-1:], 64), formatTime(now),
+		); err != nil {
+			t.Fatalf("insert activation bundle %s: %v", reference.bundle, err)
+		}
+	}
 	if _, err := store.db.ExecContext(
 		ctx,
-		`INSERT INTO startup_artifacts(
-		    id, canonical_revision_id, exact_core_version, core_artifact_id,
-		    config_bytes, config_sha256, state, created_at
-		 ) VALUES (?, ?, '1.13.19', ?, ?, ?, 'ready', ?)`,
-		"startup-reference",
-		revision.ID,
-		"artifact-1",
-		[]byte(`{}`),
-		strings.Repeat("f", 64),
-		formatTime(now),
+		`UPDATE hub_state SET desired_bundle_id = 'bundle-3', applied_bundle_id = 'bundle-3', rollback_bundle_id = 'bundle-1'`,
 	); err != nil {
-		t.Fatalf("insert startup artifact reference: %v", err)
+		t.Fatalf("select bundle-3: %v", err)
 	}
-	blocked, err := store.CoreArtifactRemovalEligibility(ctx, "artifact-1")
-	if err != nil || blocked.Eligible || blocked.StartupArtifactReferences != 1 {
-		t.Fatalf("artifact-1 eligibility = %+v, %v, want one blocking startup", blocked, err)
+	if _, err := store.RemoveCoreArtifact(ctx, "artifact-3", removedAt); !errors.Is(err, ErrCoreArtifactInUse) {
+		t.Fatalf("RemoveCoreArtifact(selected) error = %v, want ErrCoreArtifactInUse", err)
 	}
-	if err := store.RemoveCoreArtifact(ctx, "artifact-1"); !errors.Is(err, ErrCoreArtifactInUse) {
-		t.Fatalf("RemoveCoreArtifact(in use) error = %v, want ErrCoreArtifactInUse", err)
+	if _, err := store.RemoveCoreArtifact(ctx, "artifact-1", removedAt); err != nil {
+		t.Fatalf("RemoveCoreArtifact(rollback target) error = %v", err)
+	}
+	var rollback sql.NullString
+	if err := store.db.QueryRowContext(ctx, `SELECT rollback_bundle_id FROM hub_state`).Scan(&rollback); err != nil || rollback.Valid {
+		t.Fatalf("rollback after removing its core = %+v, %v; want none", rollback, err)
 	}
 }
 

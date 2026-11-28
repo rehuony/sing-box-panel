@@ -37,8 +37,29 @@ func (application *Node) coreInstaller() (ArtifactInstaller, error) {
 	}
 	return artifacts.New(artifacts.Options{Root: filepath.Join(application.dataDir, "artifacts")})
 }
-func (application *Node) RemoveCoreArtifact(ctx context.Context, artifactID string) error {
-	return application.database.RemoveCoreArtifact(ctx, artifactID)
+
+// RemoveCoreArtifact removes an installed core the node neither selected nor
+// runs, and deletes its files unless another installed core shares them.
+func (application *Node) RemoveCoreArtifact(ctx context.Context, artifactID string) (operationErr error) {
+	defer func() {
+		application.recordOperation("core.remove", "Core removal", operationErr, OperationContext{CoreID: artifactID})
+	}()
+	removal, err := application.database.RemoveCoreArtifact(ctx, artifactID, application.now())
+	if err != nil || removal.FilesShared {
+		return err
+	}
+	digest, err := coreartifact.ParseSHA256(removal.Artifact.ArchiveSHA256)
+	if err != nil {
+		return err
+	}
+	installer, err := application.coreInstaller()
+	if err != nil {
+		return err
+	}
+	if err := installer.Remove(digest); err != nil {
+		return fmt.Errorf("the core was removed, but its files could not be deleted: %w", err)
+	}
+	return nil
 }
 func (application *Node) PersistInstalledCore(ctx context.Context, result artifacts.Result) (store.CoreArtifact, error) {
 	featureFingerprint, err := result.FeatureFingerprint.CanonicalJSON()
@@ -75,4 +96,6 @@ func (application *Node) PersistInstalledCore(ctx context.Context, result artifa
 
 type ArtifactInstaller interface {
 	Install(context.Context, artifacts.Candidate) (artifacts.Result, error)
+	// Remove deletes the files of the installed core whose archive has digest.
+	Remove(digest coreartifact.SHA256) error
 }

@@ -288,6 +288,7 @@ export const productLogs = {
     configuration_schema_validation: 'The configuration failed schema validation.',
     configuration_changed: 'The configuration changed during the operation.',
     core_artifact_not_found: 'The selected core artifact was not found.',
+    core_artifact_in_use: 'The core is enabled or running; disable it before removing it.',
     core_platform_mismatch: 'The core does not support this platform.',
     core_not_enabled: 'Enable a core version first.',
     no_applied_bundle: 'No active configuration is available.',

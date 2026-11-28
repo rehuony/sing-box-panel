@@ -100,6 +100,43 @@ func TestInstallOfficialVerifiesAndPublishesContentAddressedBinary(t *testing.T)
 	}
 }
 
+// Removing a core deletes the directory its archive's digest names and
+// nothing beside it; one already gone counts as removed.
+func TestRemoveDeletesOnlyTheCoresFiles(t *testing.T) {
+	t.Parallel()
+	version := artifactVersion(t, "1.13.19")
+	archive := makeArchive(t,
+		tarEntry{name: "sing-box-1.13.19-linux-amd64/", kind: tar.TypeDir},
+		tarEntry{name: "sing-box-1.13.19-linux-amd64/sing-box", data: minimalELF(coreartifact.ArchitectureAMD64), kind: tar.TypeReg},
+	)
+	digest := bytesDigest(archive)
+	fingerprint, err := newReportedFeatureFingerprint([]string{"with_musl"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspector := &fakeInspector{report: VersionReport{Version: version, FeatureFingerprint: fingerprint}}
+	store := newTestStore(t, &memoryDownloader{data: archive}, inspector, Limits{})
+	if _, err := store.InstallOfficial(context.Background(), officialAsset(version, int64(len(archive)))); err != nil {
+		t.Fatalf("InstallOfficial: %v", err)
+	}
+	sibling := filepath.Join(store.Root(), "sha256", strings.Repeat("0", 64))
+	if err := os.MkdirAll(sibling, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		if err := store.Remove(digest); err != nil {
+			t.Fatalf("Remove: %v", err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(store.Root(), "sha256", digest.String())); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed core directory: %v, want gone", err)
+	}
+	if _, err := os.Lstat(sibling); err != nil {
+		t.Fatalf("other core directory: %v, want kept", err)
+	}
+}
+
 func TestInstallReusesContentAddressWithoutDigestComparison(t *testing.T) {
 	t.Parallel()
 	version := artifactVersion(t, "1.13.19")

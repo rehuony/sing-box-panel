@@ -155,12 +155,15 @@ rewrites configuration fields. Start, restart and rollback also check the exact
 version and the configuration snapshot before execution.
 
 Stop retains the selection. Web Disable stops the selected artifact and clears
-selection only after success. Removal rejects artifacts still referenced by
-startup records or activation bundles. A committed activation records the selected
-installation; `artifacts/current` in the node's data directory is a relative
-convenience symlink reconciled from that record after startup or recovery.
-Execution uses the stored binary path and safe-file checks, not the convenience
-link as an authority.
+selection only after success. Removal rejects the selected artifact and the one
+that runs; earlier startup records and activation bundles are history and keep
+no artifact. Removing deletes the artifact's files, unless another installed
+artifact shares its archive, and drops a rollback pointer to it; its record stays
+so that history still names it, and installing it again restores it. A committed
+activation records the selected installation; `artifacts/current` in the node's
+data directory is a relative convenience symlink reconciled from that record
+after startup or recovery. Execution uses the stored binary path and safe-file
+checks, not the convenience link as an authority.
 
 ## Release lines
 
