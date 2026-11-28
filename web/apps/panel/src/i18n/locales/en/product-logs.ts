@@ -318,6 +318,7 @@ export const productLogs = {
     install_step_missing: 'The service started again without installing the staged release; rewrite its unit with systemd install.',
     update_in_progress: 'Another update of the node is in progress.',
     node_offline: 'The node is not connected.',
+    fleet_command_not_found: 'The panel no longer keeps this batch, as after a restart.',
     catalog_timeout: 'GitHub did not answer the catalog refresh in time.',
     catalog_request_failed: 'The panel could not reach GitHub.',
     catalog_rate_limited: 'GitHub’s request limit was reached; try again later or set a GitHub token.',

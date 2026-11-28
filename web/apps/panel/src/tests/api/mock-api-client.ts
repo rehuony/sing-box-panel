@@ -489,8 +489,13 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* (command) {
       const ids = command.node_ids ?? [];
+      yield { command: { id: 'command-1' } };
       for (const id of ids) yield { result: { node_id: id, ok: true } };
       yield { done: { failed: 0, skipped: 0, succeeded: ids.length, total: ids.length } };
+    }),
+    followFleetCommand: vi.fn<ApiClient['followFleetCommand']>(async function* (commandID) {
+      yield { command: { id: commandID } };
+      yield { done: { failed: 0, skipped: 0, succeeded: 0, total: 0 } };
     }),
     streamDashboard: vi.fn<ApiClient['streamDashboard']>(async function* (signal) {
       await new Promise<void>((resolve) => {

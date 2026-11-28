@@ -68,6 +68,7 @@ var routes = []route{
 	{http.MethodGet, "/fleet/status", "getFleetStatus", accessSession, (*Handler).fleetStatus},
 	{http.MethodGet, "/fleet/stream", "streamFleetStatus", accessSession, (*Handler).streamFleetStatus},
 	{http.MethodPost, "/fleet/commands", "runFleetCommand", accessSession, (*Handler).fleetCommands},
+	{http.MethodGet, "/fleet/commands/{commandId}", "followFleetCommand", accessSession, withPathValue("commandId", (*Handler).followFleetCommand)},
 	{http.MethodGet, "/fleet/runtime/history", "listFleetRuntimeHistory", accessSession, (*Handler).fleetRuntimeHistory},
 	{http.MethodGet, "/nodes", "listNodes", accessSession, (*Handler).listNodes},
 	{http.MethodPost, "/nodes", "createNode", accessSession, (*Handler).createNode},

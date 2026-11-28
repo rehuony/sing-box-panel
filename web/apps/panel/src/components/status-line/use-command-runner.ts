@@ -36,7 +36,7 @@ import type { ShellScopeState } from './use-shell-scope';
 
 import { runReboot } from './run-restart';
 import { useSignOut } from './use-sign-out';
-import { batchNames, batchNeedsConfirmation, batchWarning, runBatch } from './run-batch';
+import { batchNames, batchNeedsConfirmation, batchTargets, batchWarning, runBatch } from './run-batch';
 
 const CONFIRM_PROMPT: Prompt = { kind: 'confirm' };
 
@@ -132,24 +132,31 @@ export function useCommandRunner({ items, prompt, scope }: ShellScopeState) {
         break;
       }
       case 'batch': {
-        const nodes = resolveTargets(command.target, items);
+        const matched = resolveTargets(command.target, items);
+        const label = t(`command.batch.action.${command.verb}`);
         if (running) {
           fail(t('command.batch.busy'));
           break;
         }
-        if (nodes.length === 0) {
+        if (matched.length === 0) {
           fail(t('command.batch.noMatch', { target: command.target }));
+          break;
+        }
+        // As on the selection, the action runs only on the matched nodes it fits.
+        const { left, targets: nodes } = batchTargets(command.verb, matched);
+        if (nodes.length === 0) {
+          fail(t('command.batch.noneFit', { action: label }));
           break;
         }
         if (!batchNeedsConfirmation(command.verb, nodes.length)) {
           void runBatch({ action: command.verb, cache, client, nodes, t });
           break;
         }
-        const label = t(`command.batch.action.${command.verb}`);
-        const warning = batchWarning(command.verb, t);
+        const warning = batchWarning(command.verb, nodes.length, t);
         begin(
           logLine('plain', t('command.batch.confirm', { action: label, count: nodes.length, names: batchNames(nodes, t) })),
           ...(warning ? [logLine('warning', warning)] : []),
+          ...(left > 0 ? [logLine('muted', t('command.batch.left', { count: left }))] : []),
         );
         setPending({ action: command.verb, kind: 'batch', nodes });
         break;

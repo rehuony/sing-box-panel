@@ -26,36 +26,6 @@ import type {
   RecentMetrics,
 } from './contracts/observability';
 import type {
-  CatalogRefresh,
-  ConfigurationFile,
-  ConfigurationFileWrite,
-  FleetCommand,
-  FleetCommandResult,
-  FleetCommandSummary,
-  Node as FleetNode,
-  FleetStatus,
-  FleetStreamFrame,
-  LoginInputWritable as LoginInput,
-  NodeEnrollment,
-  NodeUpdate,
-  PanelBackupCreate,
-  PanelBackupInfo,
-  PanelBackupList,
-  PanelRestoreApply,
-  PanelRestorePlan,
-  PanelRestorePlanRequest,
-  PanelRestoreRequested,
-  PanelRestoreStage,
-  PanelRestoreStaged,
-  PanelSettingsSaveResult,
-  PanelSettingsView,
-  PanelSettingsWriteWritable as PanelSettingsWrite,
-  Session,
-  SystemRestart,
-  SystemStatus,
-  SystemUpdate,
-} from './generated';
-import type {
   CreatedSubscriptionToken,
   SubscriptionChannel,
   SubscriptionChannelPage,
@@ -80,6 +50,37 @@ import type {
   SubscriptionTokenPage,
   SubscriptionTokenRotation,
 } from './contracts/subscription';
+import type {
+  CatalogRefresh,
+  ConfigurationFile,
+  ConfigurationFileWrite,
+  FleetCommand,
+  FleetCommandResult,
+  FleetCommandStarted,
+  FleetCommandSummary,
+  Node as FleetNode,
+  FleetStatus,
+  FleetStreamFrame,
+  LoginInputWritable as LoginInput,
+  NodeEnrollment,
+  NodeUpdate,
+  PanelBackupCreate,
+  PanelBackupInfo,
+  PanelBackupList,
+  PanelRestoreApply,
+  PanelRestorePlan,
+  PanelRestorePlanRequest,
+  PanelRestoreRequested,
+  PanelRestoreStage,
+  PanelRestoreStaged,
+  PanelSettingsSaveResult,
+  PanelSettingsView,
+  PanelSettingsWriteWritable as PanelSettingsWrite,
+  Session,
+  SystemRestart,
+  SystemStatus,
+  SystemUpdate,
+} from './generated';
 
 export type {
   AppearanceSettings,
@@ -88,6 +89,7 @@ export type {
   ConfigurationFileWrite,
   FleetCommand,
   FleetCommandResult,
+  FleetCommandStarted,
   FleetCommandSummary,
   Node as FleetNode,
   FleetStatus,
@@ -127,8 +129,11 @@ export * from './contracts/canonical';
 
 export * from './contracts/core';
 
-/** One event of a batch command's stream: a node's result, or the summary that ends it. */
-export type FleetCommandEvent = { result: FleetCommandResult } | { done: FleetCommandSummary };
+/** One event of a batch command's stream: the command's ID, then each node's result, then the summary that ends it. */
+export type FleetCommandEvent
+  = | { command: FleetCommandStarted }
+    | { result: FleetCommandResult }
+    | { done: FleetCommandSummary };
 
 export interface ApiClient {
   /** The node whose resources this client addresses; null for the panel-wide client. */
@@ -230,6 +235,8 @@ export interface ApiClient {
   ) => Promise<SubscriptionNodeList>;
   /** Verifies a stored backup and stages it to restore. */
   stagePanelBackup: (name: string, input: PanelRestoreStage, signal?: AbortSignal) => Promise<PanelRestoreStaged>;
+  /** Follows a batch command again after its stream broke: its ID, its results after the first `after`, its summary. */
+  followFleetCommand: (commandID: string, after: number, signal?: AbortSignal) => AsyncIterable<FleetCommandEvent>;
   listCatalogAssets: (
     filter?: CatalogAssetFilter,
     signal?: AbortSignal,

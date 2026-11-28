@@ -13,6 +13,8 @@ interface FleetViewState {
   tag: string | null;
   /** Where a Shift+click range starts. */
   anchor: string | null;
+  /** Clears the selection and stays in selection mode. */
+  deselectAll: () => void;
   /** The home screen's filters, which the command line sets too. */
   state: FleetStateFilter;
   /** Clears the selection and leaves selection mode. */
@@ -43,6 +45,7 @@ const cleared = { anchor: null, selected: new Set<string>(), selecting: false };
 export const useFleetView = create<FleetViewState>()(set => ({
   anchor: null,
   clearSelection: () => set(cleared),
+  deselectAll: () => set({ anchor: null, selected: new Set() }),
   reset: () => set({ ...cleared, search: '', state: 'all', tag: null, visible: [] }),
   search: '',
   select: ids => set(state => ({ selected: new Set([...state.selected, ...ids]), selecting: true })),

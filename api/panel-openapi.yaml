@@ -989,7 +989,10 @@ paths:
         node at a time instead: it waits for each node to come back reporting
         the panel's version, for at most five minutes, and stops at the first
         failure, reporting the nodes after it as skipped. Problems found
-        before any node runs answer as a problem.
+        before any node runs answer as a problem. The panel keeps the
+        command's outcomes while it runs and for fifteen minutes after, so a
+        client whose stream breaks, such as one reaching the panel through a
+        node the command restarts, follows it again with followFleetCommand.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -1000,17 +1003,48 @@ paths:
       responses:
         "200":
           description: >-
-            Server-sent events: one result event per selected node as it
-            finishes, whose data is a FleetCommandResult, then one done event
-            whose data is a FleetCommandSummary. An ID of no node is reported
-            at once. Heartbeat comments arrive every ten seconds while the
-            batch runs.
+            Server-sent events: one command event whose data is a
+            FleetCommandStarted, then one result event per selected node as
+            it finishes, whose data is a FleetCommandResult and whose ID is
+            its position from 1, then one done event whose data is a
+            FleetCommandSummary. An ID of no node is reported at once.
+            Heartbeat comments arrive every ten seconds while the batch runs.
           content:
             text/event-stream:
               schema: {type: string}
         "409":
           $ref: '#/components/responses/Problem'
         "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /fleet/commands/{commandId}:
+    get:
+      operationId: followFleetCommand
+      description: >-
+        Follows a fleet command that runs or ended in the last fifteen
+        minutes: its command event, its result events after the one
+        Last-Event-ID names, as the number of results already read, or all
+        of them, then its done event. A panel restart forgets every command.
+      parameters:
+        - name: commandId
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 64}
+        - $ref: "#/components/parameters/LastEventID"
+      responses:
+        "200":
+          description: >-
+            Server-sent events as runFleetCommand sends them: the command
+            event, the result events, each with its position from 1 as its
+            ID, and the done event. Heartbeat comments arrive every ten seconds
+            while the batch runs.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        "400":
+          $ref: '#/components/responses/Problem'
+        "404":
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
@@ -2983,6 +3017,18 @@ components:
         title:
           type: string
           description: On failure, the problem title the single-node operation answers with.
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How long the node's command ran on the panel; absent for a node it never ran on, such as an unknown ID or a skipped node.
+    FleetCommandStarted:
+      type: object
+      additionalProperties: false
+      required: [id]
+      description: The data of a fleet command's command event, the ID that follows it again.
+      properties:
+        id: {type: string, minLength: 1, maxLength: 64}
     FleetCommandSummary:
       type: object
       additionalProperties: false

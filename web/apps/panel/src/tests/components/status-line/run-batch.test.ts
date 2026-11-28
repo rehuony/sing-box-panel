@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '@/api/api-client';
 import type { NodeStatus } from '@/utils/fleet-summary';
+import type { BatchReport } from '@/stores/command-session.store';
 
 import i18n from '@/i18n';
 import { deferred } from '@/tests/deferred';
@@ -20,12 +21,17 @@ function fleet(count: number): NodeStatus[] {
 }
 
 function texts() {
-  return useCommandSession.getState().entries.map(entry => entry.text);
+  return useCommandSession.getState().entries.flatMap(entry => entry.kind === 'line' ? [entry.text] : []);
+}
+
+function report(): BatchReport | undefined {
+  return useCommandSession.getState().entries.find((entry): entry is BatchReport => entry.kind === 'batch');
 }
 
 afterEach(() => {
   useCommandSession.getState().reset();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('runBatch', () => {
@@ -47,13 +53,12 @@ describe('runBatch', () => {
     expect(useCommandSession.getState().running).toBe(false);
   });
 
-  it('keeps every node\'s line of a batch larger than the terminal keeps', async () => {
+  it('reports every node of a batch larger than the terminal keeps lines for in one report', async () => {
     const client = createMockApiClient();
     await runBatch({ cache, action: 'restart', client, nodes: fleet(300), t });
-    const lines = texts();
-    expect(lines[0]).toBe('Restart on 300 nodes…');
-    expect(lines.filter(text => text === 'done')).toHaveLength(300);
-    expect(lines.at(-1)).toBe('300 succeeded · 0 failed · 0 skipped');
+    expect(useCommandSession.getState().entries).toHaveLength(1);
+    expect(report()?.outcomes.filter(outcome => outcome.ok)).toHaveLength(300);
+    expect(report()?.summary).toEqual({ failed: 0, skipped: 0, succeeded: 300, total: 300 });
   });
 
   it('leaves a later command\'s result alone and reports in a toast when its own was replaced', async () => {
@@ -76,6 +81,34 @@ describe('runBatch', () => {
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ description: '1 succeeded · 0 failed · 0 skipped', type: 'success' }));
   });
 
+  it('follows the command again after its stream breaks and continues its results', async () => {
+    vi.useFakeTimers();
+    const client = createMockApiClient({
+      runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* () {
+        yield { command: { id: 'command-1' } };
+        yield { result: { node_id: 'node_0', ok: true } };
+        throw new TypeError('network error');
+      }),
+      followFleetCommand: vi.fn<ApiClient['followFleetCommand']>(async function* (commandID) {
+        yield { command: { id: commandID } };
+        yield { result: { node_id: 'node_1', ok: true } };
+        yield { done: { failed: 0, skipped: 0, succeeded: 2, total: 2 } };
+      }),
+    });
+    const batch = runBatch({ cache, action: 'update', client, nodes: fleet(2), t });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(report()).toMatchObject({ lost: true, outcomes: [{ nodeId: 'node_0', ok: true }] });
+    await vi.runAllTimersAsync();
+    await batch;
+    expect(client.followFleetCommand).toHaveBeenCalledWith('command-1', 1, expect.any(AbortSignal));
+    expect(report()).toMatchObject({
+      failure: null,
+      lost: false,
+      outcomes: [{ nodeId: 'node_0', ok: true }, { nodeId: 'node_1', ok: true }],
+      summary: { failed: 0, skipped: 0, succeeded: 2, total: 2 },
+    });
+  });
+
   it('says so when a batch stops before its summary', async () => {
     const add = vi.spyOn(toast, 'add');
     const client = createMockApiClient({
@@ -84,7 +117,7 @@ describe('runBatch', () => {
       }),
     });
     await runBatch({ cache, action: 'restart', client, nodes: fleet(2), t });
-    expect(texts().at(-1)).toBe('the batch stopped reporting before its summary; check each node\'s state');
+    expect(report()).toMatchObject({ failure: 'the batch stopped reporting before its summary; check each node\'s state', summary: null });
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Restart did not report its outcome', type: 'error' }));
   });
 

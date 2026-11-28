@@ -318,6 +318,7 @@ export const productLogs = {
     install_step_missing: '服务重新启动时没有安装暂存的版本，请用 systemd install 重写它的服务单元。',
     update_in_progress: '该节点的另一次升级仍在进行。',
     node_offline: '节点未连接。',
+    fleet_command_not_found: '面板已不再保留这次批量操作，例如面板重启之后。',
     catalog_timeout: 'GitHub 未能在时限内完成版本目录刷新。',
     catalog_request_failed: '面板无法连接 GitHub。',
     catalog_rate_limited: 'GitHub 请求次数已达上限，请稍后重试或配置 GitHub token。',
