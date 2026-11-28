@@ -106,7 +106,7 @@
   --space-2xl: 4rem;
   --form-field-gap: 12px;
   --form-section-gap: 20px;
-  --workspace-content-gap: 16px;
+  --workspace-content-gap: 12px;
   --workspace-row-height: 65px;
   --control-height: 40px;
   --control-height-sm: 32px;
@@ -117,13 +117,13 @@
   --radius-card: 12px;
   --radius-window: 14px;
   --radius-pill: 999px;
-  --shell-edge: 1rem;
+  --shell-edge: 0.75rem;
   --shell-bar-height: 2.5rem;
   --shell-strip-height: 3rem;
   --pane-min-width: 20rem;
   --pane-height: 11.5rem;
-  --candidate-min-width: 16rem;
-  --candidate-height: 5.25rem;
+  --node-card-min-width: 13.5rem;
+  --node-card-height: 8.25rem;
 
   /* Surfaces and motion. */
   --shadow-card: 0 2px 5px -2px oklch(24% 0.015 280 / 6%), 0 10px 24px -18px oklch(24% 0.015 280 / 16%);

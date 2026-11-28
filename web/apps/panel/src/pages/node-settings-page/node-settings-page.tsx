@@ -209,8 +209,9 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
 
 /**
  * What the node reported about itself, each with the action that changes it
- * beside it: its host, system and public address, its version against the
- * panel's release with the update, and its enrollment with re-enrollment.
+ * beside it: its host, system and public address, its version with the
+ * update while the panel's release differs and a failed attempt below it,
+ * and its enrollment with re-enrollment.
  */
 function ProfileCard({ node }: { node: FleetNode }) {
   const { t, i18n } = useTranslation();
@@ -236,9 +237,8 @@ function ProfileCard({ node }: { node: FleetNode }) {
   const pending = update.isPending || reenroll.isPending;
   const error = confirm === 'update' ? update.error : confirm === 'reenroll' ? reenroll.error : null;
   const last = node.last_update;
-  const versionDetail = last && !last.succeeded
-    ? t('node.version.lastFailed', { version: last.version, code: last.code })
-    : node.update_available ? t('node.version.available') : t('node.version.current');
+  // The version stands alone; only a failed update attempt adds a line below it.
+  const updateFailure = last && !last.succeeded ? t('node.version.lastFailed', { version: last.version, code: last.code }) : null;
   const value = 'font-[family-name:var(--font-data)] text-compact';
   // A value's detail sits on a line of its own below it; each line keeps to one line and shows all on hover.
   const stacked = 'flex min-w-0 flex-1 flex-col *:truncate';
@@ -258,7 +258,7 @@ function ProfileCard({ node }: { node: FleetNode }) {
         <div className='flex min-h-10 items-center gap-3'>
           <output className={stacked} id='node-version'>
             <span className={value} title={node.build_version || undefined}>{node.build_version || '—'}</span>
-            <span className={meta} title={versionDetail}>{versionDetail}</span>
+            {updateFailure ? <span className={meta} title={updateFailure}>{updateFailure}</span> : null}
           </output>
           {node.update_available && (
             <Button onClick={() => {

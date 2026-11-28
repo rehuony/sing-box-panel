@@ -4,7 +4,7 @@ import { queryOptions } from '@tanstack/react-query';
 
 import { listInstalledCoreArtifacts } from '@/utils/installed-core-artifacts';
 
-import type { ApiClient, FleetStatus, SubscriptionChannelSummary, SubscriptionSource, SystemStatus } from './api-client';
+import type { ApiClient, FleetStatus, SystemStatus } from './api-client';
 
 import { ApiRequestError } from './api-client';
 
@@ -91,35 +91,14 @@ export const queries = {
   }),
   sources: (client: ApiClient) => queryOptions({
     queryKey: ['sources'], staleTime: 5_000,
-    queryFn: async ({ signal }) => {
-      const items: SubscriptionSource[] = [];
-      let cursor: { created_at: string; id: string } | undefined;
-      do {
-        const page = await client.listSubscriptionSources({
-          limit: 100, beforeID: cursor?.id, beforeTime: cursor?.created_at,
-        }, signal);
-        items.push(...page.items);
-        cursor = page.next;
-        signal.throwIfAborted();
-      } while (cursor && items.length < 10_000);
-      return items;
-    },
+    queryFn: async ({ signal }) => (await client.listSubscriptionSources(signal)).items,
   }),
   channels: (client: ApiClient) => queryOptions({
     queryKey: ['channels'], staleTime: 5_000,
-    queryFn: async ({ signal }) => {
-      const items: SubscriptionChannelSummary[] = [];
-      let cursor: { created_at: string; id: string } | undefined;
-      do {
-        const page = await client.listSubscriptionChannels({
-          limit: 100, beforeID: cursor?.id, beforeTime: cursor?.created_at,
-        }, signal);
-        items.push(...page.items);
-        cursor = page.next;
-        signal.throwIfAborted();
-      } while (cursor && items.length < 10_000);
-      return items;
-    },
+    queryFn: async ({ signal }) => (await client.listSubscriptionChannels(signal)).items,
   }),
-  tokens: (client: ApiClient, page: number, size: number) => queryOptions({ queryKey: ['tokens', page, size], queryFn: ({ signal }) => client.listSubscriptionTokens({ limit: size, offset: (page - 1) * size }, signal), staleTime: 5_000 }),
+  tokens: (client: ApiClient) => queryOptions({
+    queryKey: ['tokens'], staleTime: 5_000,
+    queryFn: async ({ signal }) => (await client.listSubscriptionTokens(signal)).items,
+  }),
 };

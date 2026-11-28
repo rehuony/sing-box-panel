@@ -29,7 +29,16 @@ export function FleetFigures({ figures }: { figures: Figures }) {
         <span className='text-muted-foreground'>{` / ${figures.total}`}</span>
       </KeyFigure>
       <KeyFigure label={t('fleet.figures.rates')} meta={t('fleet.figures.ratesMeta', { value: formatRate(combined, locale) })}>
-        <UpDown download={download} format={value => formatRate(value, locale)} upload={upload} />
+        {/*
+          One line: 20px once the cell holds the widest pair, two rates of 1,023 KB/s, and 16px below; only the size
+          changes, so the line keeps the value line's height.
+        */}
+        <UpDown
+          className='text-(length:--text-base) @min-[20.75rem]/figure:text-(length:--text-xl)'
+          download={download}
+          format={value => formatRate(value, locale)}
+          upload={upload}
+        />
       </KeyFigure>
       <KeyFigure
         label={t('fleet.figures.connections')}

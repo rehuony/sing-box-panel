@@ -136,7 +136,7 @@ describe('inline version library', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('guides first-time enablement to configuration without claiming success', async () => {
+  it('says to save a configuration before first enablement without claiming success', async () => {
     const user = userEvent.setup();
     render(<Toaster />);
     const client = createMockApiClient({
@@ -149,8 +149,6 @@ describe('inline version library', () => {
     expect(await screen.findByText('Save a sing-box configuration in Configuration before enabling or checking a core.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Open configuration' }));
-    expect(await screen.findByText('Configuration editor')).toBeVisible();
   });
   it.each(['running', 'stopped'])('offers disable for the selected version while %s', async (observationState) => {
     const user = userEvent.setup();

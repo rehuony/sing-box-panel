@@ -345,7 +345,7 @@ func TestStrictContentFailuresChangeNothing(t *testing.T) {
 	}
 	stored, err := app.SubscriptionSource(ctx, source.ID)
 	names, _ := poolSummary(t, app)
-	sources, listErr := app.ListSubscriptionSources(ctx, SubscriptionListRequest{})
+	sources, listErr := app.ListSubscriptionSources(ctx)
 	if err != nil || listErr != nil || !stored.UpdatedAt.Equal(source.UpdatedAt) || stored.ContentAt != source.ContentAt ||
 		!slices.Equal(names, []string{"A"}) || len(sources.Items) != 1 {
 		t.Fatalf("a failed change saved something: %+v %v %v", stored, names, err)

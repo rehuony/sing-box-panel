@@ -11,16 +11,27 @@ import (
 )
 
 func (handler *Handler) listSubscriptionChannels(w http.ResponseWriter, request *http.Request) {
-	input, ok := handler.subscriptionListRequest(w, request)
-	if !ok {
+	if !handler.subscriptionReadRequest(w, request) {
 		return
 	}
-	channels, err := handler.services.Subscriptions.ListSubscriptionChannels(request.Context(), input)
+	channels, err := handler.services.Subscriptions.ListSubscriptionChannels(request.Context())
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_channel_list_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, channels)
+}
+
+func (handler *Handler) setSubscriptionChannelOrder(w http.ResponseWriter, request *http.Request) {
+	ids, ok := handler.subscriptionOrderRequest(w, request)
+	if !ok {
+		return
+	}
+	if err := handler.services.Subscriptions.SetSubscriptionChannelOrder(request.Context(), ids); err != nil {
+		writeSubscriptionProblem(w, request, "subscription_channel_order_failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (handler *Handler) createSubscriptionChannel(w http.ResponseWriter, request *http.Request) {

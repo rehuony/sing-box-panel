@@ -69,6 +69,11 @@ export function ruleLine(rule: SubscriptionRule): string {
   return `${kindTypes[rule.kind]},${value}`;
 }
 
+/** A rule as a message names it, without its type: its match value, or a remote rule set's name. */
+export function ruleName(rule: SubscriptionRule): string {
+  return rule.kind === 'remote' ? rule.remote?.name ?? '' : rule.value ?? '';
+}
+
 /** Writes rules as classic rule lines, one per rule in order. */
 export function serializeRules(rules: readonly SubscriptionRule[]): string {
   return rules.map(ruleLine).join('\n');
@@ -138,6 +143,87 @@ export function parseRules(text: string, format: SubscriptionFormat): RuleTextRe
     result.lines.push(line);
   });
   return result;
+}
+
+/**
+ * What a part of a rule line is, which its colour shows: the rule type, a
+ * match value or an address, a remote rule set's name, link and format or
+ * behavior, punctuation and comments, a field the rule drops, or text that
+ * is not a rule line.
+ */
+export type RuleTone = 'type' | 'value' | 'address' | 'name' | 'link' | 'option' | 'mark' | 'dropped' | 'plain';
+
+export interface RuleToken {
+  text: string;
+  tone: RuleTone;
+}
+
+/**
+ * A line of rule text in its parts, read as parseRules reads it; the parts'
+ * texts join back into the line, so they can be drawn under it. A line whose
+ * type is not a rule type is one plain part.
+ */
+export function ruleLineTokens(raw: string): RuleToken[] {
+  const tokens: RuleToken[] = [];
+  const push = (text: string, tone: RuleTone) => {
+    if (text) tokens.push({ text, tone });
+  };
+  let start = raw.length - raw.trimStart().length;
+  let end = raw.trimEnd().length;
+  push(raw.slice(0, start), 'plain');
+  const marker = /^-\s+/.exec(raw.slice(start, end));
+  if (marker) {
+    push(marker[0], 'mark');
+    start += marker[0].length;
+  }
+  const quote = raw[start];
+  const quoted = (quote === '"' || quote === '\'') && end - start > 1 && raw[end - 1] === quote;
+  if (quoted) {
+    push(quote, 'mark');
+    start += 1;
+    end -= 1;
+  }
+  const body = raw.slice(start, end);
+  const content = body.trim();
+  if (content.startsWith('#') || content.startsWith('//')) {
+    push(body, 'mark');
+  } else {
+    const parts = body.split(',');
+    const type = parts[0]!.trim().toUpperCase();
+    let groups: { parts: string[]; tone: RuleTone }[] = [];
+    if (type === 'RULE-SET') {
+      // The link is everything between the name and the trailing fields, as parseRemote reads it.
+      let last = parts.length;
+      const trailing = (accepts: (field: string) => boolean) => {
+        if (last > 3 && accepts(parts[last - 1]!.trim().toLowerCase())) last -= 1;
+      };
+      trailing(field => field === 'no-resolve');
+      trailing(field => (behaviors as readonly string[]).includes(field));
+      trailing(field => (allFormats as readonly string[]).includes(field));
+      groups = [
+        { parts: parts.slice(0, 1), tone: 'type' },
+        { parts: parts.slice(1, 2), tone: 'name' },
+        { parts: parts.slice(2, last), tone: 'link' },
+        ...parts.slice(last).map(part => ({ parts: [part], tone: part.trim().toLowerCase() === 'no-resolve' ? 'dropped' as const : 'option' as const })),
+      ];
+    } else if (Object.hasOwn(typeKinds, type)) {
+      groups = parts.map((part, index) => {
+        let tone: RuleTone = 'dropped';
+        if (index === 0) tone = 'type';
+        else if (index === 1) tone = typeKinds[type] === 'ip_cidr' ? 'address' : 'value';
+        return { parts: [part], tone };
+      });
+    } else {
+      groups = [{ parts: [body], tone: 'plain' }];
+    }
+    groups.filter(group => group.parts.length).forEach((group, index) => {
+      if (index > 0) push(',', 'mark');
+      push(group.parts.join(','), group.tone);
+    });
+  }
+  if (quoted) push(quote, 'mark');
+  push(raw.slice(raw.trimEnd().length), 'plain');
+  return tokens;
 }
 
 /** Removes a YAML list marker and quotes around the line. */

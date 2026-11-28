@@ -357,7 +357,7 @@ describe('managedCollectionsEditor', () => {
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Listen port'), { target: { value: '3080' } });
     await user.click(within(dialog).getByRole('tab', { name: 'JSON' }));
-    const preview = within(dialog).getByLabelText('JSON', { selector: 'pre' });
+    const preview = within(dialog).getByRole('region', { name: 'JSON' });
     expect(preview.textContent).toContain('"listen_port": 3080');
     expect(preview.textContent).toContain('900719925474099312345');
     await user.click(within(dialog).getByRole('button', { name: 'Copy JSON' }));

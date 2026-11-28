@@ -106,9 +106,10 @@ export function AppShell() {
 
   return (
     <div className='flex h-dvh min-h-0 flex-col gap-3 overflow-hidden p-[var(--shell-edge)] max-sm:gap-0 max-sm:p-0'>
+      {/* The region reaches into the window's margin and pads its content back, so its scrollbar runs beside views. */}
       <ScrollArea
-        className='min-h-0 min-w-0 flex-1'
-        viewportClassName='flex flex-col max-sm:p-[var(--shell-edge)]'
+        className='min-h-0 min-w-0 flex-1 sm:-me-[var(--shell-edge)]'
+        contentClassName='flex flex-col max-sm:p-[var(--shell-edge)] sm:pe-[var(--shell-edge)]'
         viewportRef={scrollRef}
       >
         <main className='@container flex min-w-0 flex-1 flex-col outline-none' id='main-content' ref={mainRef} tabIndex={-1}>

@@ -71,7 +71,7 @@ describe('status line', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(line).toBeVisible();
 
-    await user.type(line, 'restart all{Enter}');
+    await user.type(line, 'stop all{Enter}');
     expect(screen.getByRole('textbox', { name: 'Confirm with y' })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(screen.getByRole('log')).toHaveTextContent('cancelled');

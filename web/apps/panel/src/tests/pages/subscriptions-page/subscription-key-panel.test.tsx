@@ -1,47 +1,52 @@
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { toast } from '@shared/components/ui/toast-manager';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { TestRouter } from '@/tests/test-router';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page';
 import { createMockApiClient, testSubscriptionTokens } from '@/tests/api/mock-api-client';
-import { useSubscriptionTokenPage } from '@/pages/subscriptions-page/use-subscription-token-page';
+import { useSubscriptionTokens } from '@/pages/subscriptions-page/use-subscription-tokens';
 import { SubscriptionTokenPanel as TokenPanel } from '@/pages/subscriptions-page/subscription-token-panel';
 
 function SubscriptionTokenPanel() {
-  const list = useSubscriptionTokenPage(true);
-  return <TokenPanel list={list} />;
+  return <TokenPanel list={useSubscriptionTokens(true)} />;
 }
 
 const feedback = vi.spyOn(toast, 'add');
 
-it('jumps between key pages and updates the total after changing page size', async () => {
-  const user = userEvent.setup();
+it('lists every key unpaged, and moves one with the keyboard to save the keys\' order', async () => {
   const keys = Array.from({ length: 12 }, (_, index) => ({ ...testSubscriptionTokens[0], id: `key-${index}`, label: `Key ${index + 1}` }));
-  const client = createMockApiClient({ listSubscriptionTokens: vi.fn(async (filter) => ({
-    items: keys.slice(filter?.offset ?? 0, (filter?.offset ?? 0) + (filter?.limit ?? 10)), total: keys.length,
-  })) });
+  const client = createMockApiClient({ listSubscriptionTokens: vi.fn(async () => ({ items: keys })) });
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  // Rows stack 44px apart; the copy that follows the pointer starts over the first.
+  const rects = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('tbody > tr')) {
+      const index = Array.from(this.parentElement!.children).indexOf(this);
+      return DOMRect.fromRect({ x: 0, y: index * 44, width: 640, height: 44 });
+    }
+    if (this.classList.contains('cursor-grabbing')) return DOMRect.fromRect({ x: 0, y: 0, width: 320, height: 44 });
+    return originalRect.call(this);
+  });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
-  await screen.findByText('Key 1');
-  const input = screen.getByRole('spinbutton', { name: 'Current page' });
-  expect(input).toHaveAccessibleDescription('2 pages in total');
-  await user.clear(input);
-  await user.type(input, '2{Enter}');
-  expect(await screen.findByText('Key 11')).toBeVisible();
-  expect(screen.queryByText('Key 1')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
-  await user.click(screen.getByRole('combobox', { name: 'Items per page' }));
-  await user.click(await screen.findByRole('option', { name: '5 per page' }));
-  await screen.findByText('Key 1');
-  expect(input).toHaveValue(1);
-  expect(input).toHaveAccessibleDescription('3 pages in total');
-  await user.clear(input);
-  await user.type(input, '3{Enter}');
-  await screen.findByText('Key 11');
-  expect(client.listSubscriptionTokens).toHaveBeenLastCalledWith({ limit: 5, offset: 10 }, expect.any(AbortSignal));
+  await screen.findByText('Key 12');
+  expect(screen.queryByRole('spinbutton', { name: 'Current page' })).not.toBeInTheDocument();
+
+  const grip = screen.getByRole('button', { name: 'Reorder Key 1' });
+  grip.focus();
+  fireEvent.keyDown(grip, { key: 'F2', code: 'F2' });
+  await userEvent.setup().keyboard('[ArrowDown]');
+  await waitFor(() => expect(screen.getByText('Position 2 of 12.')).toBeInTheDocument());
+  fireEvent.keyDown(grip, { key: 'F2', code: 'F2' });
+
+  await waitFor(() => expect(client.setSubscriptionTokenOrder).toHaveBeenCalledWith(
+    ['key-1', 'key-0', ...keys.slice(2).map(key => key.id)],
+  ));
+  const names = screen.getAllByRole('button', { name: /^Key \d+$/ }).map(button => button.textContent);
+  expect(names.slice(0, 3)).toEqual(['Key 2', 'Key 1', 'Key 3']);
+  rects.mockRestore();
 });
 
 beforeEach(() => {
@@ -59,8 +64,8 @@ it('opens on rule sets with keys last, without reading keys', () => {
 
 it('reuses pending and completed list requests across tab switches', async () => {
   const user = userEvent.setup();
-  let resolve!: (value: { items: typeof testSubscriptionTokens; total: number }) => void;
-  const pending = new Promise<{ items: typeof testSubscriptionTokens; total: number }>(accept => {
+  let resolve!: (value: { items: typeof testSubscriptionTokens }) => void;
+  const pending = new Promise<{ items: typeof testSubscriptionTokens }>(accept => {
     resolve = accept;
   });
   const client = createMockApiClient({ listSubscriptionTokens: vi.fn(() => pending) });
@@ -68,19 +73,19 @@ it('reuses pending and completed list requests across tab switches', async () =>
     <TestRouter><ApiClientProvider client={client}><SubscriptionsPage /></ApiClientProvider></TestRouter>,
   );
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
-  const signal = vi.mocked(client.listSubscriptionTokens).mock.calls[0][1]!;
+  const signal = vi.mocked(client.listSubscriptionTokens).mock.calls[0][0]!;
   expect(screen.getByRole('status', { name: 'Loading' })).toBeVisible();
   await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
   expect(signal.aborted).toBe(false);
   await user.click(screen.getByRole('tab', { name: 'Key management' }));
   expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(1);
-  await act(async () => resolve({ items: testSubscriptionTokens, total: testSubscriptionTokens.length }));
+  await act(async () => resolve({ items: testSubscriptionTokens }));
   await screen.findByText(testSubscriptionTokens[0].label);
   for (let i = 0; i < 3; i++) {
     await user.click(screen.getByRole('tab', { name: 'Rule sets' }));
     await user.click(screen.getByRole('tab', { name: 'Key management' }));
     expect(screen.getByText(testSubscriptionTokens[0].label)).toBeVisible();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
   }
   expect(client.listSubscriptionTokens).toHaveBeenCalledTimes(1);
   view.unmount();
@@ -181,7 +186,7 @@ it('expires a key after a preset or at a time chosen on its calendar', async () 
 it('shows the key name and quota without a legacy description, inspect or revoke actions', async () => {
   const key = { ...testSubscriptionTokens[0], active: false, download_limit: 2, body_response_count: 2 };
   const client = createMockApiClient({
-    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key], total: 1 }),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key] }),
     getSubscriptionToken: vi.fn().mockResolvedValue(key),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
@@ -227,7 +232,7 @@ it.each([true, false])('rotates an enabled=%s key after confirmation and shows t
   const user = userEvent.setup();
   const key = { ...testSubscriptionTokens[0], enabled, active: enabled };
   const client = createMockApiClient({
-    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key], total: 1 }),
+    listSubscriptionTokens: vi.fn().mockResolvedValue({ items: [key] }),
   });
   render(<TestRouter><ApiClientProvider client={client}><SubscriptionTokenPanel /></ApiClientProvider></TestRouter>);
   await user.click(await screen.findByRole('button', { name: `More for ${key.label}` }));

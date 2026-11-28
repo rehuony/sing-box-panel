@@ -2,6 +2,7 @@ import { Copy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 
 export function ConfigurationJsonPreview({ value }: { value: string }) {
   const { t } = useTranslation();
@@ -20,7 +21,9 @@ export function ConfigurationJsonPreview({ value }: { value: string }) {
           <Copy aria-hidden='true' />
         </Button>
       </div>
-      <pre className='m-0 min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain p-4 font-mono text-xs leading-relaxed whitespace-pre' aria-label={t('configuration.managed.json')} tabIndex={0}>{value}</pre>
+      <ScrollArea className='min-w-0 flex-1' viewportProps={{ 'aria-label': t('configuration.managed.json'), 'role': 'region', 'tabIndex': 0 }}>
+        <pre className='m-0 p-4 font-mono text-xs leading-relaxed whitespace-pre'>{value}</pre>
+      </ScrollArea>
     </div>
   );
 }

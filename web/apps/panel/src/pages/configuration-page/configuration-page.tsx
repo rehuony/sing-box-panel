@@ -124,7 +124,7 @@ export function ConfigurationPage() {
   // card fills the window and the editors scroll inside it, toolbar and action
   // bar in place; below its floor the window scrolls instead.
   return (
-    <div className='@container flex min-h-96 min-w-0 flex-1 flex-col gap-4 [contain:size]'>
+    <div className='@container flex min-h-96 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)] [contain:size]'>
       <h1 className='sr-only'>{t('configuration.title')}</h1>
       <section className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] [--configuration-inset:24px] @max-[40rem]:[--configuration-inset:16px]' aria-label={t('configuration.title')} aria-busy={loading}>
         <Tabs className='min-h-0 flex-1 gap-0' value={editor} onValueChange={setSelectedEditor}>

@@ -125,18 +125,17 @@ type SubscriptionCursor struct {
 type SubscriptionListRequest struct {
 	Cursor *SubscriptionCursor
 	Limit  int
-	Offset int // Token lists also support numbered pages.
 }
 
-type SubscriptionChannelPage struct {
+// SubscriptionChannelList is every channel's summary in the channels' saved
+// order.
+type SubscriptionChannelList struct {
 	Items []SubscriptionChannelSummary `json:"items"`
-	Next  *SubscriptionCursor          `json:"next,omitempty"`
 }
 
-type SubscriptionTokenPage struct {
+// SubscriptionTokenList is every key in its saved order.
+type SubscriptionTokenList struct {
 	Items []SubscriptionToken `json:"items"`
-	Next  *SubscriptionCursor `json:"next,omitempty"`
-	Total int                 `json:"total"`
 }
 
 type CreatedSubscriptionToken struct {

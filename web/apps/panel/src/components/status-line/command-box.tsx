@@ -8,6 +8,7 @@ import { commandHistory, useCommandSession } from '@/stores/command-session.stor
 
 import type { ShellScopeState } from './use-shell-scope';
 
+import { BatchReportView } from './batch-report';
 import { useCommandRunner } from './use-command-runner';
 
 /** Layers that take Escape for themselves while the box is open. */
@@ -138,7 +139,14 @@ export function CommandBox({ id, shell }: { id: string; shell: ShellScopeState }
             <div ref={setMenuContainer} />
           </ScrollArea>
           {entries.length > 0
-            ? <TerminalBuffer className='group-has-[[role=listbox]]:hidden' entries={entries} viewportClassName='px-3 py-2' />
+            ? (
+                <TerminalBuffer
+                  className='group-has-[[role=listbox]]:hidden'
+                  entries={entries}
+                  renderBlock={report => <BatchReportView report={report} />}
+                  contentClassName='px-3 py-2'
+                />
+              )
             : null}
         </div>
       </div>

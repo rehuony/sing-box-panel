@@ -106,7 +106,7 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
             }}
           />
         </CardToolbar>
-        <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
+        <ScrollArea aria-busy={loading} className='flex-1' contentClassName='flex flex-col'>
           <Table>
             <TableHeader>
               <TableRow>

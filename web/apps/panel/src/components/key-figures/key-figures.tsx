@@ -29,13 +29,14 @@ interface KeyFigureProps {
 /** One key figure: its label, its value in the data face and one line of meta. */
 export function KeyFigure({ children, help, label, meta, meter, tone }: KeyFigureProps) {
   return (
-    <div className='flex min-w-0 flex-col gap-1 px-3 py-3 @3xl/figures:px-4'>
+    <div className='@container/figure flex min-w-0 flex-col gap-1 px-3 py-3 @3xl/figures:px-4'>
       <dt className='flex min-w-0 items-center gap-1 text-xs text-muted-foreground'>
         <span className='truncate'>{label}</span>
         {/* The trigger overlaps the line's padding so the label row keeps its height. */}
         {help ? <span className='-my-[calc((var(--control-height-xs)-1rem)/2)] flex'><InfoTooltip label={help}>{help}</InfoTooltip></span> : null}
       </dt>
-      <dd className={cn('flex min-w-0 flex-wrap items-center gap-x-3 font-[family-name:var(--font-data)] text-base font-semibold tabular-nums @3xl/figures:text-xl', tone && toneText[tone])}>
+      {/* The line keeps its height whatever size a value inside takes, so every figure's meta stays level. */}
+      <dd className={cn('flex min-w-0 flex-wrap items-center gap-x-3 font-[family-name:var(--font-data)] text-base leading-6 font-semibold tabular-nums @3xl/figures:text-xl @3xl/figures:leading-7', tone && toneText[tone])}>
         <span className='min-w-0'>{children}</span>
         {meter !== undefined
           ? (

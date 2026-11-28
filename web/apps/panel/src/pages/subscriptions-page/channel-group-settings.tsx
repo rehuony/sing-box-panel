@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Trash2 } from 'lucide-react';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
@@ -264,7 +265,7 @@ export function ChannelGroupSettings({ busy, format, nodes, onApply, onChange, o
             <DialogTitle>{t('channels.groupSettingsTitle')}</DialogTitle>
             <DialogDescription className='sr-only'>{value.name}</DialogDescription>
           </DialogHeader>
-          <div className='-mx-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-6'>
+          <ScrollArea className='-mx-6 min-h-0 flex-1' contentClassName='px-6'>
             <div className='flex min-w-0 flex-col gap-3'>
               <Row htmlFor={`${id}-name`} label={t('channels.groupName')}>
                 <Input autoComplete='off' disabled={busy} id={`${id}-name`} maxLength={128} onChange={(event) => onChange({ ...value, name: event.target.value })} value={value.name} />
@@ -319,7 +320,7 @@ export function ChannelGroupSettings({ busy, format, nodes, onApply, onChange, o
                 </Row>
               </div>
             </section>
-          </div>
+          </ScrollArea>
           <DialogFooter>
             {/* Shaped as Cancel, only its text in danger, so it stays apart without standing out. */}
             {/* Below 520px it keeps its icon alone, square, so the footer stays on one line. */}

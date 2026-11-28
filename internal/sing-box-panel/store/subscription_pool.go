@@ -237,47 +237,7 @@ func ValidateNodeDisplayName(value string) error {
 // SetSubscriptionPoolOrder saves the pool's order. ids must name every node
 // of the pool exactly once.
 func (s *Store) SetSubscriptionPoolOrder(ctx context.Context, ids []string) error {
-	return s.WithTx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM subscription_nodes`)
-		if err != nil {
-			return err
-		}
-		current := map[string]bool{}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			current[id] = true
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(ids) != len(current) {
-			return ErrSubscriptionPoolChanged
-		}
-		for _, id := range ids {
-			if !current[id] {
-				return ErrSubscriptionPoolChanged
-			}
-			delete(current, id)
-		}
-		statement, err := tx.PrepareContext(ctx, `UPDATE subscription_nodes SET position = ? WHERE id = ?`)
-		if err != nil {
-			return err
-		}
-		defer statement.Close()
-		for position, id := range ids {
-			if _, err := statement.ExecContext(ctx, position, id); err != nil {
-				return fmt.Errorf("save subscription node order: %w", err)
-			}
-		}
-		return nil
-	})
+	return s.saveSubscriptionOrder(ctx, "subscription_nodes", ids, ErrSubscriptionPoolChanged, "")
 }
 
 // LoadSubscriptionPoolInputs reads the pool's inputs in one transaction:

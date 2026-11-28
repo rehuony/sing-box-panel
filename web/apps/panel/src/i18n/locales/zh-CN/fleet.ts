@@ -150,10 +150,8 @@ export const node = {
     settings: '设置',
   },
   version: {
-    available: '面板的发布版本更新',
     confirm: '{{name}} 将下载面板的发布版本，校验后替换 {{current}}，然后重启节点。重启会同时重启它的内核，代理会短暂中断。',
     confirmTitle: '升级 {{name}}？',
-    current: '与面板的发布版本一致',
     lastFailed: '升级到 {{version}} 失败（{{code}}）',
     result: {
       restart_required: '{{name}} 已安装 {{version}}，重启节点后生效',

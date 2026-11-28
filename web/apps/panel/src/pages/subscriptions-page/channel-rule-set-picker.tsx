@@ -129,7 +129,7 @@ export function ChannelRuleSetPicker({ busy, exitName, format, onAdd, ruleSets, 
     region = <p className={state}>{t('channels.noRuleSetMatches')}</p>;
   } else {
     region = (
-      <ScrollArea className='h-72 flex-none' viewportClassName='px-1 pb-1'>
+      <ScrollArea className='h-72 flex-none' contentClassName='px-1 pb-1'>
         {free.length > 0 && (
           <div aria-label={t('channels.addRuleSetRoute')} onKeyDown={move} ref={listRef} role='group'>
             {free.map((set, index) => {

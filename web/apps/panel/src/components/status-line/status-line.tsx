@@ -4,6 +4,7 @@ import type { supportedLanguages } from '@shared/i18n/language';
 import { cn } from '@shared/lib/utils';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@shared/components/ui/button';
 import { setAppLanguage } from '@shared/i18n/language';
 import { Spinner } from '@shared/components/ui/spinner';
@@ -25,6 +26,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  X,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -277,20 +279,48 @@ function SignOutAction() {
   );
 }
 
-/** With panes selected on the home screen, the selection takes the scope's and windows' place. */
+/**
+ * In selection mode on the home screen, the selection takes the scope's and
+ * windows' place: leaving selection mode first, where it never scrolls out of
+ * reach, then the count, select all or none of the panes shown and the batch
+ * actions.
+ */
 function Selection({ compact = false, nodes }: { compact?: boolean; nodes: readonly NodeStatus[] }) {
   const { t } = useTranslation();
-  const clearSelection = useFleetView(state => state.clearSelection);
-  const select = useFleetView(state => state.select);
+  const { clearSelection, deselectAll, select } = useFleetView(useShallow(state => ({
+    clearSelection: state.clearSelection,
+    deselectAll: state.deselectAll,
+    select: state.select,
+  })));
+  // Every pane shown is selected, so the toggle selects none instead.
+  const all = useFleetView(state => state.visible.length > 0 && state.visible.every(id => state.selected.has(id)));
   const count = nodes.length;
   return (
     <div aria-label={t('shell.selection.count', { count })} className='flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]' role='group'>
-      <span className='flex-none px-2 whitespace-nowrap text-foreground tabular-nums'>{t('shell.selection.count', { count })}</span>
-      <Button className='font-[family-name:var(--font-body)]' onClick={() => select(useFleetView.getState().visible)} size='xs' variant='ghost'>
-        {t('shell.selection.selectAll')}
-      </Button>
-      <Button className='font-[family-name:var(--font-body)]' onClick={clearSelection} size='xs' variant='ghost'>
-        {t('shell.selection.clear')}
+      <Tooltip>
+        <TooltipTrigger
+          render={(
+            <Button
+              aria-label={t('shell.selection.exit')}
+              className={compact ? 'size-11 flex-none' : 'flex-none'}
+              onClick={clearSelection}
+              size={compact ? 'icon' : 'icon-xs'}
+              variant='ghost'
+            />
+          )}
+        >
+          <X aria-hidden='true' />
+        </TooltipTrigger>
+        <TooltipContent>{t('shell.selection.exit')}</TooltipContent>
+      </Tooltip>
+      <span className='flex-none pr-2 pl-1 whitespace-nowrap text-foreground tabular-nums'>{t('shell.selection.count', { count })}</span>
+      <Button
+        className='font-[family-name:var(--font-body)]'
+        onClick={() => all ? deselectAll() : select(useFleetView.getState().visible)}
+        size='xs'
+        variant='ghost'
+      >
+        {all ? t('shell.selection.selectNone') : t('shell.selection.selectAll')}
       </Button>
       {compact ? null : <Divider />}
       <BatchActions compact={compact} nodes={nodes} />
@@ -298,22 +328,23 @@ function Selection({ compact = false, nodes }: { compact?: boolean; nodes: reado
   );
 }
 
-/** The selected nodes while the home screen is open; elsewhere the selection waits. */
-function useSelectedNodes({ items, scope }: ShellScopeState): NodeStatus[] {
+/** The selected nodes while the home screen is in selection mode, or null; elsewhere the selection waits. */
+function useSelection({ items, scope }: ShellScopeState): NodeStatus[] | null {
   const selected = useFleetView(state => state.selected);
-  if (scope.kind !== 'fleet' || scope.window !== 'nodes' || selected.size === 0) return [];
+  const selecting = useFleetView(state => state.selecting);
+  if (scope.kind !== 'fleet' || scope.window !== 'nodes' || (!selecting && selected.size === 0)) return null;
   return items.filter(item => selected.has(item.node.id));
 }
 
 /** The desktop line: command action, scope, windows, then the fleet readout and the session's and panel's actions. */
 function DesktopLine({ commandId, shell }: { commandId: string; shell: ShellScopeState }) {
   const { cycleTheme, preference } = useTheme();
-  const selection = useSelectedNodes(shell);
+  const selection = useSelection(shell);
   return (
     <div className='flex h-full min-w-0 flex-1 items-center gap-1'>
       <CommandAction controls={commandId} />
       <Divider />
-      {selection.length > 0
+      {selection
         ? <Selection nodes={selection} />
         : (
             <>
@@ -388,7 +419,7 @@ function PhoneBar({ commandId, shell }: { commandId: string; shell: ShellScopeSt
   const { t } = useTranslation();
   const navigate = useNavigate();
   const windows = windowsOf(shell);
-  const selection = useSelectedNodes(shell);
+  const selection = useSelection(shell);
   const item = 'flex h-full min-w-10 flex-1 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground outline-none focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]';
   return (
     <div className='flex h-full min-w-0 flex-1 items-stretch'>
@@ -399,7 +430,7 @@ function PhoneBar({ commandId, shell }: { commandId: string; shell: ShellScopeSt
             </button>
           )
         : null}
-      {selection.length > 0
+      {selection
         ? <div className='flex min-w-0 flex-[4] items-center justify-center'><Selection compact nodes={selection} /></div>
         : (
             <nav aria-label={t('shell.bar.windows')} className='flex min-w-0 flex-[5] items-stretch'>

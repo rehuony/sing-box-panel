@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { useEffect, useId, useRef, useState } from 'react';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import { Field, FieldError, FieldLabel } from '@shared/components/ui/field';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@shared/components/ui/input-group';
@@ -99,7 +100,8 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
       <DialogHeader className='gap-1.5'>
         <DialogTitle>{t(`filesystem.titles.${mode}`)}</DialogTitle>
       </DialogHeader>
-      <div className='flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto'>
+      {/* The body and its list reach into the dialog's padding, so their scrollbars run beside the content. */}
+      <ScrollArea className='-mx-6 min-h-0 max-sm:-mx-5' contentClassName='flex min-w-0 flex-col gap-4 px-6 max-sm:px-5'>
         <div className='grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
           <div className='flex h-(--control-height) min-w-0 items-center gap-1'>
             {editingLocation
@@ -206,8 +208,12 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
           </div>
         </div>
         {data?.fallback && <p className='text-sm text-muted-foreground' role='status'>{t('filesystem.fallback')}</p>}
-        <div ref={entriesContainerRef} tabIndex={-1} role='region' aria-label={t('filesystem.entries')}
-          className='h-[min(240px,35dvh)] shrink-0 overflow-y-auto border-y border-border/60 py-2 outline-none sm:h-[min(320px,45dvh)]' aria-busy={pending}>
+        <ScrollArea
+          className='-mx-6 h-[min(240px,35dvh)] shrink-0 border-y border-border/60 max-sm:-mx-5 sm:h-[min(320px,45dvh)]'
+          contentClassName='px-6 py-2 max-sm:px-5'
+          viewportProps={{ 'aria-busy': pending, 'aria-label': t('filesystem.entries'), 'role': 'region', 'tabIndex': -1 }}
+          viewportRef={entriesContainerRef}
+        >
           {pending
             ? (
                 <div className='flex h-full items-center justify-center gap-2' role='status'>
@@ -263,7 +269,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
                         })}
                       </ul>
                     )}
-        </div>
+        </ScrollArea>
         <ListPagination page={Math.floor((data?.offset ?? 0) / (query.limit ?? 10)) + 1}
           pages={Math.max(1, Math.ceil((data?.total ?? 0) / (query.limit ?? 10)))}
           pageSize={query.limit ?? 10}
@@ -274,7 +280,7 @@ export function ServerPathPicker({ initialValue, mode, open, onSelect }: {
             ...current, path: pending ? current.path : data?.path ?? current.path, limit, offset: 0,
           }))} />
         <p className='sr-only' role='status'>{checking ? t('filesystem.checking') : ''}</p>
-      </div>
+      </ScrollArea>
     </>
   );
 }

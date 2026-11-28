@@ -4,6 +4,8 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CirclePlus, CopyPlus, Link2, MoreHorizontal, Trash2 } from 'lucide-react';
@@ -26,6 +28,7 @@ import type {
 } from '@/api/api-client';
 
 import { queries } from '@/api/queries';
+import { ApiRequestError } from '@/api/api-client';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { SelectField } from '@/components/select-field';
@@ -33,16 +36,19 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { SortContext, SortOverlay } from '@/components/sortable';
 import { useUnsavedChangesContext } from '@/stores/unsaved-changes.store';
 import { StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 
+import { useSavedOrder } from './use-saved-order';
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
 import { emptyChannelConfig } from './channel-policy';
 import { ChannelWorkspace } from './channel-workspace';
 import { ChannelClientTag } from './channel-client-tag';
 import { ChannelLinkPopover } from './channel-link-popover';
 import { SubscriptionContentState } from './subscription-content-state';
+import { SortableTableHead, SortableTableRow } from './sortable-table-row';
 
 /** Where a channel sends what no exit rule matches: DIRECT or REJECT as clients write them, else a group or node. */
 function FinalExit({ exit }: { exit: SubscriptionChannelSummary['final_exit'] }) {
@@ -69,7 +75,14 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const visible = usePageVisible();
   const list = useQuery({ ...queries.channels(client), enabled: active && visible });
   const catalog = useQuery({ ...queries.nodes(client), enabled: active && visible });
-  const channels = list.data ?? [];
+  // Channels keep the order the table was dragged into, saved on the server.
+  const { move, ordered: channels } = useSavedOrder({
+    failed: t('channels.orderSaveFailed'),
+    items: list.data,
+    queryKey: queries.channels(client).queryKey,
+    save: ids => client.setSubscriptionChannelOrder(ids),
+    stale: t('channels.orderStale'),
+  });
   const nodes = catalog.data?.items ?? [];
   const location = useLocation();
   const navigate = useNavigate();
@@ -91,7 +104,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const [name, setName] = useState('');
   const [format, setFormat] = useState<SubscriptionFormat>('sing-box');
   const createProblem = useDialogProblem<'name'>(creating);
-  const [deleting, setDeleting] = useState<Pick<SubscriptionChannel, 'id' | 'name'> | null>(null);
+  const [deleting, setDeleting] = useState<Pick<SubscriptionChannel, 'id' | 'name' | 'updated_at'> | null>(null);
   // The key the last link used, offered first by every channel's link.
   const [linkKey, setLinkKey] = useState('');
   const [flash, setFlash] = useState<string | null>(null);
@@ -107,6 +120,10 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     await cache.invalidateQueries({ queryKey: ['nodes'], refetchType: 'none' });
     await Promise.all([cache.fetchQuery(queries.channels(client)), cache.fetchQuery(queries.nodes(client))]);
   }, [client, cache]);
+  /** Reads the channel list again behind what a write already showed. */
+  const refreshList = useCallback(() => {
+    void cache.invalidateQueries({ queryKey: queries.channels(client).queryKey, exact: true });
+  }, [cache, client]);
   useEffect(() => {
     const controller = new AbortController();
     lifetimeRef.current = controller;
@@ -175,14 +192,21 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
         name: copyName, format: fresh.format, enabled: fresh.enabled, config: fresh.config,
       }, signal);
       if (signal?.aborted) return;
-      await load(signal);
-      if (signal?.aborted) return;
+      // A copy publishes what its original does, so its row shows at once at the end of the order; the list is read
+      // again behind it.
+      const original = channels.find(item => item.id === id);
+      if (original) {
+        cache.setQueryData<SubscriptionChannelSummary[]>(queries.channels(client).queryKey, current => current && [
+          ...current,
+          {
+            ...original, id: created.id, name: created.name, enabled: created.enabled,
+            created_at: created.created_at, updated_at: created.updated_at,
+          },
+        ]);
+      }
+      refreshList();
       setFlash(created.id);
-      toast.add({
-        title: t('channels.duplicated', { name: created.name }),
-        type: 'success',
-        actionProps: { children: t('channels.openChannel'), onClick: () => open(created.id) },
-      });
+      toast.add({ title: t('channels.duplicated', { name: created.name }), type: 'success' });
     });
   }
   async function create() {
@@ -205,7 +229,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       fromListRef.current = true;
       // The form just saved is still dirty until it closes; it must not ask about opening its channel.
       skipGuard(() => void show(value.id));
-      await load(lifetimeRef.current?.signal);
+      refreshList();
       toast.add({ title: t('channels.saved'), type: 'success' });
     } catch (reason) {
       createProblem.report(t('channels.createFailed'), { description: describeRequestError(reason) });
@@ -217,20 +241,27 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
     if (!deleting || busy) return;
     setBusy(true);
     try {
-      const fresh = await client.getSubscriptionChannel(deleting.id, lifetimeRef.current?.signal);
-      await client.deleteSubscriptionChannel(
-        fresh.id,
-        fresh.updated_at,
-        lifetimeRef.current?.signal,
-      );
+      // The version the list or the workspace shows; a channel changed since is refused with 412.
+      await client.deleteSubscriptionChannel(deleting.id, deleting.updated_at, lifetimeRef.current?.signal);
       if (lifetimeRef.current?.signal.aborted) return;
       setDeleting(null);
+      cache.setQueryData<SubscriptionChannelSummary[]>(
+        queries.channels(client).queryKey,
+        current => current?.filter(item => item.id !== deleting.id),
+      );
       // Deleting from its settings leaves the channel's workspace, whose edits went with it.
-      if (shown?.id === fresh.id) skipGuard(() => void show('', true));
-      await load(lifetimeRef.current?.signal);
+      if (shown?.id === deleting.id) skipGuard(() => void show('', true));
+      refreshList();
       toast.add({ title: t('channels.removed'), type: 'success' });
     } catch (reason) {
-      toastFailure(t('channels.removeFailed'), reason);
+      if (reason instanceof ApiRequestError && reason.status === 412) {
+        // The list is read again, so deleting again names the channel's current version.
+        setDeleting(null);
+        refreshList();
+        toast.add({ title: t('channels.deleteStale'), type: 'warning' });
+      } else {
+        toastFailure(t('channels.removeFailed'), reason);
+      }
     } finally {
       setBusy(false);
     }
@@ -238,6 +269,9 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
   const filtered = channels.filter((value) =>
     value.name.toLowerCase().includes(deferredSearch.toLowerCase()),
   );
+  // Channels reorder only as a whole list, not while a search hides some.
+  const sortable = deferredSearch === '';
+  const sortItems = filtered.map(value => ({ id: value.id, label: value.name }));
   return (
     <section className='flex h-full min-h-0 min-w-0 flex-1 flex-col'>
       {error != null && <ErrorNotice error={error} title={t('channels.title')} />}
@@ -282,10 +316,11 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   </div>
                 </ToolbarActions>
                 {/* The list scrolls inside the card under its header; a narrow card scrolls it sideways. */}
-                <div className='flex min-h-0 flex-1 flex-col overflow-auto' aria-busy={list.isPending} ref={listRef}>
+                <ScrollArea aria-busy={list.isPending} className='min-h-0 flex-1' contentClassName='flex flex-col' viewportRef={listRef}>
                   <Table className='min-w-160'>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className='[&>th:nth-child(2)]:ps-1'>
+                        <SortableTableHead />
                         <TableHead>{t('channels.name')}</TableHead>
                         <TableHead className='w-28'>{t('channels.client')}</TableHead>
                         <TableHead className='w-20 text-end'>{t('channels.nodes')}</TableHead>
@@ -295,77 +330,92 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.map((value) => (
-                        <TableRow
-                          className={cn(flash === value.id && 'bg-accent hover:bg-accent')}
-                          data-channel-id={value.id}
-                          interactive
-                          key={value.id}
-                          onClick={(event) => {
-                          // The row opens its channel; its buttons and their floating layers do their own work.
-                            const target = event.target as Element;
-                            if (!event.currentTarget.contains(target) || target.closest('button')) return;
-                            open(value.id);
-                          }}
-                        >
-                          <TableCell>
-                            <button
-                              className='block w-full cursor-pointer truncate text-start font-medium outline-none'
-                              data-row-title=''
-                              onClick={() => open(value.id)}
-                              type='button'
-                            >
-                              {value.name}
-                            </button>
-                          </TableCell>
-                          <TableCell><ChannelClientTag format={value.format} /></TableCell>
-                          <TableCell className={cn(value.node_count === 0 && 'text-[var(--color-warning-text)]')} kind='number'>
-                            {value.node_count}
-                          </TableCell>
-                          <TableCell kind='number'>{value.route_count}</TableCell>
-                          <TableCell className='text-compact'><FinalExit exit={value.final_exit} /></TableCell>
-                          <TableCell kind='actions'>
-                            <ChannelLinkPopover
-                              channel={value}
-                              keyID={linkKey}
-                              onKeyChange={setLinkKey}
-                              trigger={<IconAction className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground' label={t('channels.link')} />}
-                            >
-                              <Link2 aria-hidden='true' />
-                            </ChannelLinkPopover>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger render={<IconAction className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground' label={t('channels.more', { name: value.name })} />}>
-                                <MoreHorizontal aria-hidden='true' />
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align='end' className='w-auto min-w-40'>
-                                <DropdownMenuGroup>
-                                  <DropdownMenuItem onClick={() => open(value.id)}>
-                                    <ArrowUpRight aria-hidden='true' />
-                                    {t('channels.openChannel')}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => void duplicate(value.id)}>
-                                    <CopyPlus aria-hidden='true' />
-                                    {t('channels.duplicate')}
-                                  </DropdownMenuItem>
-                                </DropdownMenuGroup>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuGroup>
-                                  <DropdownMenuItem onClick={() => setDeleting(value)} variant='destructive'>
-                                    <Trash2 aria-hidden='true' />
-                                    {t('channels.remove')}
-                                  </DropdownMenuItem>
-                                </DropdownMenuGroup>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      <SortContext
+                        ended={t('common.orderUpdated')}
+                        instructions={t('common.reorderInstructions')}
+                        items={sortItems}
+                        onMove={move}
+                        renderOverlay={(id) => {
+                          const dragged = channels.find(each => each.id === id);
+                          return dragged ? <SortOverlay detail={dragged.format} name={dragged.name} /> : null;
+                        }}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {filtered.map((value) => (
+                          <SortableTableRow
+                            className={cn(flash === value.id && 'bg-accent hover:bg-accent')}
+                            data-channel-id={value.id}
+                            id={value.id}
+                            interactive
+                            key={value.id}
+                            label={value.name}
+                            sortable={sortable}
+                            onClick={(event) => {
+                              // The row opens its channel; its buttons and their floating layers do their own work.
+                              const target = event.target as Element;
+                              if (!event.currentTarget.contains(target) || target.closest('button')) return;
+                              open(value.id);
+                            }}
+                          >
+                            <TableCell>
+                              <button
+                                className='block w-full cursor-pointer truncate text-start font-medium outline-none'
+                                data-row-title=''
+                                onClick={() => open(value.id)}
+                                type='button'
+                              >
+                                {value.name}
+                              </button>
+                            </TableCell>
+                            <TableCell><ChannelClientTag format={value.format} /></TableCell>
+                            <TableCell className={cn(value.node_count === 0 && 'text-[var(--color-warning-text)]')} kind='number'>
+                              {value.node_count}
+                            </TableCell>
+                            <TableCell kind='number'>{value.route_count}</TableCell>
+                            <TableCell className='text-compact'><FinalExit exit={value.final_exit} /></TableCell>
+                            <TableCell kind='actions'>
+                              <ChannelLinkPopover
+                                channel={value}
+                                keyID={linkKey}
+                                onKeyChange={setLinkKey}
+                                trigger={<IconAction className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground' label={t('channels.link')} />}
+                              >
+                                <Link2 aria-hidden='true' />
+                              </ChannelLinkPopover>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger render={<IconAction className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground' label={t('channels.more', { name: value.name })} />}>
+                                  <MoreHorizontal aria-hidden='true' />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align='end' className='w-auto min-w-40'>
+                                  <DropdownMenuGroup>
+                                    <DropdownMenuItem onClick={() => open(value.id)}>
+                                      <ArrowUpRight aria-hidden='true' />
+                                      {t('channels.openChannel')}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => void duplicate(value.id)}>
+                                      <CopyPlus aria-hidden='true' />
+                                      {t('channels.duplicate')}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuGroup>
+                                    <DropdownMenuItem onClick={() => setDeleting(value)} variant='destructive'>
+                                      <Trash2 aria-hidden='true' />
+                                      {t('channels.remove')}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </SortableTableRow>
+                        ))}
+                      </SortContext>
                     </TableBody>
                   </Table>
                   {list.isPending && !filtered.length
                     ? <SubscriptionContentState loading />
                     : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
-                </div>
+                </ScrollArea>
               </>
             )}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>

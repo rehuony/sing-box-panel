@@ -9,9 +9,9 @@ import { WorkspaceToolbarActions } from '@/components/workspace-toolbar';
 
 import { RuleSetPanel } from './rule-set-panel';
 import { SubscriptionNodePanel } from './subscription-node-panel';
+import { useSubscriptionTokens } from './use-subscription-tokens';
 import { SubscriptionTokenPanel } from './subscription-token-panel';
 import { SubscriptionChannelPanel } from './subscription-channel-panel';
-import { useSubscriptionTokenPage } from './use-subscription-token-page';
 
 const AREAS = ['rules', 'nodes', 'channels', 'tokens'] as const;
 
@@ -24,7 +24,7 @@ export function SubscriptionsPage() {
   const { t } = useTranslation();
   const [area, selectArea] = useHashTab('subscription-', AREAS, 'rules');
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
-  const tokenPage = useSubscriptionTokenPage(area === 'tokens');
+  const tokens = useSubscriptionTokens(area === 'tokens');
 
   // Size containment keeps the areas' content out of the workspace's height, so
   // the window fills it exactly and each area scrolls in its own region.
@@ -48,7 +48,7 @@ export function SubscriptionsPage() {
             <RuleSetPanel active={area === 'rules'} toolbarTarget={toolbarTarget} />
           </TabsContent>
           <TabsContent className='min-h-0 flex-1 overflow-auto' value='channels'><SubscriptionChannelPanel active={area === 'channels'} toolbarTarget={toolbarTarget} /></TabsContent>
-          <TabsContent className='min-h-0 flex-1 overflow-auto' value='tokens'><SubscriptionTokenPanel list={tokenPage} active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
+          <TabsContent className='min-h-0 flex-1 overflow-auto' value='tokens'><SubscriptionTokenPanel list={tokens} active={area === 'tokens'} toolbarTarget={toolbarTarget} /></TabsContent>
         </div>
       </Tabs>
     </div>

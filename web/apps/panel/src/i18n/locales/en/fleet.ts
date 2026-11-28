@@ -150,10 +150,8 @@ export const node = {
     settings: 'Settings',
   },
   version: {
-    available: 'The panel’s release is newer',
     confirm: '{{name}} downloads the panel’s release, verifies it and replaces {{current}}. The node then restarts, which restarts its core and briefly interrupts its proxy.',
     confirmTitle: 'Update {{name}}?',
-    current: 'Matches the panel’s release',
     lastFailed: 'The update to {{version}} failed ({{code}})',
     result: {
       restart_required: '{{name}} installed {{version}}; restart the node to run it',

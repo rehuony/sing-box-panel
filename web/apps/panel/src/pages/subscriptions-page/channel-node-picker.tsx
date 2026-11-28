@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
@@ -11,10 +12,10 @@ import type { ChannelNodeCard } from './channel-node-cards';
 
 import { BUILTIN_EXIT_NAMES } from './channel-exits';
 import { nodeOrigin } from './subscription-node-pool';
-import { ChannelNodeCards } from './channel-node-cards';
 import { ChannelNodeActions } from './channel-node-actions';
 import { reorderVisibleNodes } from './subscription-node-order';
 import { SubscriptionContentState } from './subscription-content-state';
+import { ChannelNodeCards, NodeCardSection } from './channel-node-cards';
 import { createsGroupCycle, groupTypeName, memberKey } from './channel-policy';
 
 interface Props {
@@ -33,12 +34,13 @@ const BUILTINS = ['direct', 'reject'] as const;
 type Candidate = ChannelGroupMember & { node?: SubscriptionNode; group?: ChannelRuleGroup };
 
 /**
- * Picks candidates to add to a group: the built-in exits DIRECT and REJECT,
- * the channel's other groups in their order, then the pool's nodes in pool
- * order. A built-in the client lacks for the group, such as REJECT for
- * sing-box, is left out unless the group holds it; candidates already in the
- * group, disabled or making a cycle stay listed but cannot be chosen. The
- * chosen ones join in the order shown here.
+ * Picks candidates to add to a group, as node cards in three parts under
+ * their headings: the built-in exits DIRECT and REJECT, the channel's other
+ * groups in their order, then the pool's nodes in pool order. A built-in the
+ * client lacks for the group, such as REJECT for sing-box, is left out unless
+ * the group holds it; candidates already in the group, disabled or making a
+ * cycle stay listed but cannot be chosen. The chosen ones join in the order
+ * shown here.
  */
 export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd }: Props) {
   const { t } = useTranslation();
@@ -83,6 +85,12 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
   }, [catalog, chosen, format, group, groups, order, query, t]);
   const count = selected.length;
   const visible = items.map((item) => item.id);
+  // Built-in exits, groups and pool nodes each under their own heading; a candidate moves within its part.
+  const sections = [
+    { key: 'exits', items: items.filter(item => item.builtin) },
+    { key: 'groups', items: items.filter(item => item.group) },
+    { key: 'nodes', items: items.filter(item => !item.builtin && !item.group) },
+  ] as const;
   const toggle = useCallback((id: string) => setSelected(current =>
     current.includes(id) ? current.filter(key => key !== id) : [...current, id]), []);
   function add() {
@@ -130,16 +138,26 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
             </InputGroup>
           </div>
         </div>
-        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain p-0.5 flex flex-col'>
-          <ChannelNodeCards
-            format={format}
-            items={items}
-            onToggle={toggle}
-            onMove={(active, over) => setOrder(reorderVisibleNodes(order, visible, active, over))}
-            onDraggingChange={setDragging}
-          />
+        {/* As in other dialogs, the list reaches into the padding, so its scrollbar runs beside the cards. */}
+        <ScrollArea
+          className='-mx-6 min-h-0 flex-1 max-[600px]:-mx-4'
+          contentClassName='flex flex-col gap-4 px-6 py-0.5 max-[600px]:px-4'
+        >
+          {sections.map(section => section.items.length
+            ? (
+                <NodeCardSection heading={t(`channels.pickerSections.${section.key}`, { count: section.items.length })} key={section.key}>
+                  <ChannelNodeCards
+                    format={format}
+                    items={section.items}
+                    onToggle={toggle}
+                    onMove={(active, over) => setOrder(reorderVisibleNodes(order, visible, active, over))}
+                    onDraggingChange={setDragging}
+                  />
+                </NodeCardSection>
+              )
+            : null)}
           {!items.length && <SubscriptionContentState kind='search' title={t('channels.noMatchingNodes')} />}
-        </div>
+        </ScrollArea>
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>{t('common.cancel')}</Button>
           <Button disabled={!count} onClick={add}>{t('channels.addSelectedNodes', { count })}</Button>

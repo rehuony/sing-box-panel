@@ -6,25 +6,36 @@ import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area';
 /**
  * A scroll region whose scrollbars overlay the content and appear only while
  * it scrolls or the pointer is over them, so they never take layout width;
- * scrolling it to its end never scrolls the page behind it.
+ * scrolling it to its end never scrolls the page behind it. Its content
+ * reports its own size, so the scrollbars follow content that grows or
+ * shrinks while the region keeps its size, as when a view replaces another.
  */
 function ScrollArea({
   className,
   children,
+  contentClassName,
   viewportClassName,
   viewportProps,
   viewportRef,
   ...props
 }: ScrollAreaPrimitive.Root.Props & {
+  /** Classes of the scrolling element itself, such as a height cap or its share of a flex column. */
   viewportClassName?: string;
+  /**
+   * Classes of the content inside it, such as its padding and its children's
+   * layout; the content is at least as tall as the region, so a child can fill it.
+   */
+  contentClassName?: string;
   /** Props of the scrolling element, such as its role, label and scroll handler. */
   viewportProps?: Omit<ScrollAreaPrimitive.Viewport.Props, 'className' | 'ref'>;
   viewportRef?: React.Ref<HTMLDivElement>;
 }) {
   return (
+    // A column, so the viewport fills the region and shrinks to it even when only a maximum
+    // height or a dialog's bounds it, where a percentage height would let the viewport grow.
     <ScrollAreaPrimitive.Root
       data-slot='scroll-area'
-      className={cn('relative min-h-0 overflow-hidden', className)}
+      className={cn('relative flex min-h-0 flex-col overflow-hidden', className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
@@ -32,10 +43,14 @@ function ScrollArea({
         {...viewportProps}
         ref={viewportRef}
         // Overscroll stays inside only along an axis that scrolls, so a region with nothing to
-        // scroll hands the wheel and touch on to the page around it.
-        className={cn('size-full outline-none data-has-overflow-x:overscroll-x-contain data-has-overflow-y:overscroll-y-contain', viewportClassName)}
+        // scroll hands the wheel and touch on to the page around it. As a column the region lets
+        // its content grow to its own height but never below the region's, a height definite
+        // enough for children that fill it or are sized in percentages.
+        className={cn('flex min-h-0 w-full flex-1 flex-col outline-none data-has-overflow-x:overscroll-x-contain data-has-overflow-y:overscroll-y-contain', viewportClassName)}
       >
-        {children}
+        <ScrollAreaPrimitive.Content data-slot='scroll-area-content' className={cn('shrink-0 grow', contentClassName)}>
+          {children}
+        </ScrollAreaPrimitive.Content>
       </ScrollAreaPrimitive.Viewport>
       <ScrollBar orientation='vertical' />
       <ScrollBar orientation='horizontal' />

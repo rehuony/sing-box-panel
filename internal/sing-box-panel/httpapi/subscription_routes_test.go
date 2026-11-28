@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -221,6 +222,89 @@ func TestSubscriptionRuleSetIconsAndOrderPerClient(t *testing.T) {
 	if updated.Code != http.StatusOK || json.Unmarshal(updated.Body.Bytes(), &kept) != nil || kept.Icon != "shield-ban" {
 		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
 	}
+}
+
+func TestSubscriptionSourceChannelAndKeyOrders(t *testing.T) {
+	_, _, handler := newSubscriptionHTTPServices(t, "")
+	for _, resource := range []struct {
+		list, order, changed string
+		create               func(name string) string
+	}{
+		{"/api/v1/subscription/sources", "/api/v1/subscription/source-order", "subscription_sources_changed", func(name string) string {
+			body := `{"name":"` + name + `","kind":"file","filter":{"include":[],"exclude":[]},"content":"socks5://` + strings.ToLower(name) + `.example:1080#` + name + `"}`
+			return createdID(t, authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/sources", body, ""), "id")
+		}},
+		{"/api/v1/subscription/channels", "/api/v1/subscription/channel-order", "subscription_channels_changed", func(name string) string {
+			body := `{"name":"` + name + `","format":"sing-box","config":` + emptyChannelConfig + `,"enabled":true}`
+			return createdID(t, authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/channels", body, ""), "id")
+		}},
+		{"/api/v1/subscription/tokens", "/api/v1/subscription/token-order", "subscription_tokens_changed", func(name string) string {
+			return createdID(t, authenticatedRequest(t, handler, http.MethodPost, "/api/v1/subscription/tokens", `{"label":"`+name+`"}`, ""), "metadata", "id")
+		}},
+	} {
+		t.Run(strings.TrimPrefix(resource.list, "/api/v1/subscription/"), func(t *testing.T) {
+			list := func() ([]string, map[string]string) {
+				t.Helper()
+				response := authenticatedRequest(t, handler, http.MethodGet, resource.list, "", "")
+				var body struct{ Items []json.RawMessage }
+				if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil {
+					t.Fatalf("list status=%d body=%s", response.Code, response.Body.String())
+				}
+				ids, items := []string{}, map[string]string{}
+				for _, raw := range body.Items {
+					var item struct{ ID string }
+					if err := json.Unmarshal(raw, &item); err != nil {
+						t.Fatal(err)
+					}
+					ids, items[item.ID] = append(ids, item.ID), string(raw)
+				}
+				return ids, items
+			}
+			zeta, alpha := resource.create("Zeta"), resource.create("Alpha")
+			// A new item joins the end of the order, not its place by name or time.
+			created, before := list()
+			if !slices.Equal(created, []string{zeta, alpha}) {
+				t.Fatalf("order after creating = %v", created)
+			}
+			saved := authenticatedRequest(t, handler, http.MethodPut, resource.order, `{"ids":["`+alpha+`","`+zeta+`"]}`, "")
+			reordered, after := list()
+			if saved.Code != http.StatusNoContent || !slices.Equal(reordered, []string{alpha, zeta}) {
+				t.Fatalf("save order status=%d body=%s order=%v", saved.Code, saved.Body.String(), reordered)
+			}
+			// Saving the order changes nothing else, updated_at included.
+			if !maps.Equal(before, after) {
+				t.Fatalf("items changed with their order: %v, %v", before, after)
+			}
+			// An order that misses an item, names an unknown one or repeats one is stale.
+			for _, ids := range []string{`["` + alpha + `"]`, `["` + alpha + `","` + zeta + `","missing"]`, `["` + alpha + `","` + alpha + `"]`} {
+				stale := authenticatedRequest(t, handler, http.MethodPut, resource.order, `{"ids":`+ids+`}`, "")
+				if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), resource.changed) {
+					t.Fatalf("stale order %s status=%d body=%s", ids, stale.Code, stale.Body.String())
+				}
+			}
+			if missing := authenticatedRequest(t, handler, http.MethodPut, resource.order, `{}`, ""); missing.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("order without ids status=%d body=%s", missing.Code, missing.Body.String())
+			}
+		})
+	}
+}
+
+// createdID reads the ID at path in a created resource's response.
+func createdID(t *testing.T, response *httptest.ResponseRecorder, path ...string) string {
+	t.Helper()
+	var value any
+	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &value) != nil {
+		t.Fatalf("create status=%d body=%s", response.Code, response.Body.String())
+	}
+	for _, key := range path {
+		object, _ := value.(map[string]any)
+		value = object[key]
+	}
+	id, _ := value.(string)
+	if id == "" {
+		t.Fatalf("created response has no %v: %s", path, response.Body.String())
+	}
+	return id
 }
 
 func TestSubscriptionRuleSetHTTPCRUDAndChannelRoutes(t *testing.T) {

@@ -71,6 +71,8 @@ func (installer fakeArtifactInstaller) Install(context.Context, artifacts.Candid
 	return installer.result, installer.err
 }
 
+func (fakeArtifactInstaller) Remove(coreartifact.SHA256) error { return nil }
+
 func testDigest(t *testing.T, pair string) coreartifact.SHA256 {
 	t.Helper()
 	digest, err := coreartifact.ParseSHA256(strings.Repeat(pair, 32))

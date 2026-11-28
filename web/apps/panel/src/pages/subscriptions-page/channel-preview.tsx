@@ -2,6 +2,7 @@ import { TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
 import {
   Dialog,
@@ -58,27 +59,28 @@ export function ChannelPreview({ preview, error, nodes, onClose }: Props) {
                   <TriangleAlert data-icon='inline-start' className='text-[var(--color-warning-text)]' />
                   {t('channels.previewIssues', { count: issueCount })}
                 </PopoverTrigger>
-                <PopoverContent align='start' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-y-auto overscroll-contain p-0'>
+                <PopoverContent align='start' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-hidden p-0'>
                   <PopoverTitle className='sr-only'>{t('channels.previewIssues', { count: issueCount })}</PopoverTitle>
-                  {failure && (
-                    <div className='grid gap-0.5 border-b px-3 py-2.5'>
-                      <p className='font-medium'>{t('channels.previewFailed')}</p>
-                      <p className='wrap-anywhere text-[var(--color-text-secondary)]'>{failure}</p>
-                    </div>
-                  )}
-                  {groups.length > 0 && <IssueList groups={groups} />}
+                  <ScrollArea>
+                    {failure && (
+                      <div className='grid gap-0.5 border-b px-3 py-2.5'>
+                        <p className='font-medium'>{t('channels.previewFailed')}</p>
+                        <p className='wrap-anywhere text-[var(--color-text-secondary)]'>{failure}</p>
+                      </div>
+                    )}
+                    {groups.length > 0 && <IssueList groups={groups} />}
+                  </ScrollArea>
                 </PopoverContent>
               </Popover>
             )}
           </div>
           <DialogDescription className='sr-only'>{preview?.result.format ?? t('channels.preview')}</DialogDescription>
         </DialogHeader>
-        <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-6 py-0.5'>
+        <ScrollArea className='-mx-6 min-h-0 flex-1' contentClassName='flex flex-col px-6 py-0.5'>
           {preview
-            ? <pre className='m-0 min-h-full overflow-auto rounded-[var(--radius-control)] border-none bg-[var(--color-surface-raised)] p-4 font-mono text-xs leading-[1.7] whitespace-pre text-foreground' key={preview.result.format}>{preview.result.content}</pre>
+            ? <pre className='m-0 flex-1 rounded-[var(--radius-control)] border-none bg-[var(--color-surface-raised)] p-4 font-mono text-xs leading-[1.7] whitespace-pre text-foreground' key={preview.result.format}>{preview.result.content}</pre>
             : <SubscriptionContentState kind='preview' title={t('channels.previewFailed')} />}
-
-        </div>
+        </ScrollArea>
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>
             {t('common.cancel')}

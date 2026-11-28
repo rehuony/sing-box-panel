@@ -60,6 +60,8 @@ type Handler struct {
 	assets    http.Handler
 	startedAt time.Time
 	restart   func(context.Context) error
+	// commands are the fleet commands a client can follow again.
+	commands *fleetCommandRuns
 }
 
 func NewHandler(options HandlerOptions) *Handler {
@@ -80,6 +82,7 @@ func NewHandler(options HandlerOptions) *Handler {
 		assets:    assets,
 		startedAt: startedAt.UTC(),
 		restart:   options.Restart,
+		commands:  newFleetCommandRuns(time.Now),
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -115,8 +116,9 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 		t.Fatalf("idempotent revoke = %+v, err=%v", repeated, err)
 	}
 
-	tokens, err := database.ListSubscriptionTokens(ctx, SubscriptionTokenListFilter{})
-	if err != nil || len(tokens.Items) != 3 || tokens.Items[0].ID != rollbackCandidate.ID {
+	// The replacement holds the rotated key's place; the failed rotation moved nothing.
+	tokens, err := database.ListSubscriptionTokens(ctx)
+	if err != nil || len(tokens) != 3 || tokens[0].ID != rotation.Created.ID || tokens[1].ID != original.ID || tokens[2].ID != rollbackCandidate.ID {
 		t.Fatalf("ordered tokens = %+v, err=%v", tokens, err)
 	}
 	if err := database.DeleteSubscriptionChannel(ctx, channel.ID, channel.UpdatedAt); err != nil {
@@ -130,6 +132,39 @@ func TestSubscriptionTokenHashRotationRevocationExpiryAndGlobalScope(t *testing.
 	}
 	if _, err := database.GetSubscriptionUser(ctx, user.ID); !errors.Is(err, ErrSubscriptionUserNotFound) {
 		t.Fatalf("user survived deletion: %v", err)
+	}
+}
+
+// TestSubscriptionTokenRotationKeepsItsPlace keeps a key where the user put
+// it across a rotation: the replacement takes its place, the revoked key
+// follows it and later keys move down one. The IDs sort against that order,
+// so a tie between positions shows.
+func TestSubscriptionTokenRotationKeepsItsPlace(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	now := time.Date(2026, time.August, 26, 13, 0, 0, 0, time.UTC)
+	for index, id := range []string{"key-z", "key-y", "key-x"} {
+		if _, err := database.CreateSubscriptionToken(ctx, SubscriptionToken{
+			ID: id, Label: id, Enabled: true, TokenSHA256: testTokenDigest(id), CreatedAt: now.Add(time.Duration(index) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.RotateSubscriptionToken(ctx, "key-y", SubscriptionToken{
+		ID: "key-yy", Label: "key-y", Enabled: true, TokenSHA256: testTokenDigest("key-yy"),
+	}, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := database.ListSubscriptionTokens(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, token := range tokens {
+		ids = append(ids, token.ID)
+	}
+	if want := []string{"key-z", "key-yy", "key-y", "key-x"}; !slices.Equal(ids, want) {
+		t.Fatalf("order after rotation = %v, want %v", ids, want)
 	}
 }
 
@@ -170,28 +205,10 @@ func TestSubscriptionNamesAndTokenMetadataAreStrict(t *testing.T) {
 	}
 }
 
-func TestSubscriptionChannelPaginationAndEnabledLimit(t *testing.T) {
+func TestSubscriptionChannelEnabledLimit(t *testing.T) {
 	ctx := testContext(t)
 	database := openTestStore(t, ctx)
 	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
-	for _, id := range []string{"channel-a", "channel-c", "channel-b"} {
-		if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
-			ID: id, Name: id, Format: SubscriptionFormatSingBox,
-			CreatedAt: now,
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	first, err := database.ListSubscriptionChannels(ctx, SubscriptionChannelListFilter{Limit: 2})
-	if err != nil || len(first.Items) != 2 || first.Items[0].ID != "channel-c" ||
-		first.Items[1].ID != "channel-b" || first.Next == nil {
-		t.Fatalf("first page = %+v, err=%v", first, err)
-	}
-	second, err := database.ListSubscriptionChannels(ctx, SubscriptionChannelListFilter{Cursor: first.Next, Limit: 2})
-	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "channel-a" || second.Next != nil {
-		t.Fatalf("second page = %+v, err=%v", second, err)
-	}
-
 	for index := 0; index < MaximumEnabledSubscriptionChannels; index++ {
 		if _, err := database.CreateSubscriptionChannel(ctx, SubscriptionChannel{
 			ID: fmt.Sprintf("enabled-%03d", index), Name: fmt.Sprintf("enabled %03d", index),

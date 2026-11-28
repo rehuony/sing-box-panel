@@ -123,7 +123,8 @@ func (application *Service) MetricsHistory(
 const RecentMetricsWindow = 2 * time.Minute
 
 // RecentMetrics is a node's stored samples of the last RecentMetricsWindow,
-// oldest first, and the parts of it in which no core ran, which hold no
+// oldest first and led by the newest one before it, so a chart's line reaches
+// the window's start, and the parts of it in which no core ran, which hold no
 // samples but are known zero traffic and connections.
 type RecentMetrics struct {
 	From    time.Time             `json:"from"`
@@ -151,13 +152,14 @@ type RecentMetricsSample struct {
 }
 
 // RecentMetrics returns the node's accepted samples of the last
-// RecentMetricsWindow and the spans in which its core did not run. Samples
-// are stored about every ten seconds whatever the node's live sampling, so
-// they are as far apart; a stopped core stores none.
+// RecentMetricsWindow, led by the newest one before it, and the spans in
+// which its core did not run. Samples are stored about every ten seconds
+// whatever the node's live sampling, so they are as far apart; a stopped core
+// stores none.
 func (application *Service) RecentMetrics(ctx context.Context, nodeID string) (RecentMetrics, error) {
 	to := application.now().UTC()
 	from := to.Add(-RecentMetricsWindow)
-	samples, err := application.database.AcceptedTrafficSamplesSince(ctx, nodeID, from)
+	samples, err := application.database.AcceptedTrafficSamplesReaching(ctx, nodeID, from)
 	if err != nil {
 		return RecentMetrics{}, err
 	}

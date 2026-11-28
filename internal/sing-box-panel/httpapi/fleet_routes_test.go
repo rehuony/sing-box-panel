@@ -149,7 +149,7 @@ func (items statusItems) ids() []string {
 
 // serverEvent is one server-sent event.
 type serverEvent struct {
-	name, data string
+	id, name, data string
 }
 
 // readServerEvent returns the next event, skipping comments.
@@ -165,6 +165,8 @@ func readServerEvent(t *testing.T, reader *bufio.Reader) serverEvent {
 		switch {
 		case line == "" && event.name != "":
 			return event
+		case strings.HasPrefix(line, "id: "):
+			event.id = strings.TrimPrefix(line, "id: ")
 		case strings.HasPrefix(line, "event: "):
 			event.name = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
@@ -248,6 +250,14 @@ func TestFleetStreamSendsChangesAndStatusPages(t *testing.T) {
 // and its summary.
 func commandEvents(t *testing.T, router routers.Router, handler *Handler, body string) (map[string]fleetCommandResult, fleetCommandSummary) {
 	t.Helper()
+	_, results, summary := runCommand(t, router, handler, body)
+	return results, summary
+}
+
+// runCommand runs a fleet command and returns its ID, its result events by
+// node and its summary.
+func runCommand(t *testing.T, router routers.Router, handler *Handler, body string) (string, map[string]fleetCommandResult, fleetCommandSummary) {
+	t.Helper()
 	// The contract checks the request; event streams carry their schemas in
 	// event data, decoded below.
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/commands", strings.NewReader(body))
@@ -262,9 +272,21 @@ func commandEvents(t *testing.T, router routers.Router, handler *Handler, body s
 	if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/event-stream") {
 		t.Fatalf("fleet command status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 	}
+	reader := bufio.NewReader(response.Body)
+	var started fleetCommandStarted
+	if event := readServerEvent(t, reader); event.name != "command" || json.Unmarshal([]byte(event.data), &started) != nil || started.ID == "" {
+		t.Fatalf("first event %+v; want the command's ID", event)
+	}
+	results, summary := commandResults(t, reader)
+	return started.ID, results, summary
+}
+
+// commandResults reads result events up to the done event, each result's ID
+// its position from 1.
+func commandResults(t *testing.T, reader *bufio.Reader) (map[string]fleetCommandResult, fleetCommandSummary) {
+	t.Helper()
 	results := map[string]fleetCommandResult{}
 	var summary fleetCommandSummary
-	reader := bufio.NewReader(response.Body)
 	for {
 		event := readServerEvent(t, reader)
 		switch event.name {
@@ -273,6 +295,14 @@ func commandEvents(t *testing.T, router routers.Router, handler *Handler, body s
 			if err := json.Unmarshal([]byte(event.data), &result); err != nil {
 				t.Fatal(err)
 			}
+			if event.id == "" {
+				t.Fatalf("result %+v has no ID to resume after", event)
+			}
+			// A node the command ran on says how long it ran; the time itself varies.
+			if ran := result.Code != "node_not_found" && !result.Skipped; ran != (result.DurationMS != nil) {
+				t.Fatalf("result %+v: duration present = %t, want %t", result, result.DurationMS != nil, ran)
+			}
+			result.DurationMS = nil
 			results[result.NodeID] = result
 		case "done":
 			if err := json.Unmarshal([]byte(event.data), &summary); err != nil {
@@ -333,4 +363,48 @@ func TestFleetCommandsStreamEveryNodesOutcome(t *testing.T) {
 	if !maps.Equal(results, want) || summary != (fleetCommandSummary{Total: 3, Failed: 3}) {
 		t.Fatalf("install results = %+v, summary %+v; want %+v", results, summary, want)
 	}
+}
+
+// A client whose stream broke follows the command again from the results it
+// read; an unknown command or a cursor past its nodes is refused.
+func TestFleetCommandsCanBeFollowedAgain(t *testing.T) {
+	router, handler, _, _, beta := fleetRoutesFixture(t)
+	id, _, summary := runCommand(t, router, handler, `{"action":"stop","node_ids":["`+beta+`","node_missing"]}`)
+
+	// The contract checks the request; the events carry their schemas in their data.
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/fleet/commands/"+id, nil)
+	request.Header.Set("Last-Event-ID", "1")
+	testutil.Authorize(t, handler, request)
+	if err := validateOpenAPIRequestValue(router, request); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("follow status=%d body=%s", response.Code, response.Body.String())
+	}
+	reader := bufio.NewReader(response.Body)
+	if event := readServerEvent(t, reader); event.name != "command" || event.data != mustJSON(t, fleetCommandStarted{ID: id}) {
+		t.Fatalf("first event = %+v; want the command's ID", event)
+	}
+	first := readServerEvent(t, reader)
+	if first.name != "result" || first.id != "2" {
+		t.Fatalf("first event after 1 = %+v; want the second result", first)
+	}
+	if event := readServerEvent(t, reader); event.name != "done" || event.data != mustJSON(t, summary) {
+		t.Fatalf("event after the last result = %+v; want done with %+v", event, summary)
+	}
+
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/fleet/commands/"+id, "", http.StatusBadRequest, true,
+		map[string]string{"Last-Event-ID": "3"})
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/fleet/commands/unknown", "", http.StatusNotFound, true, nil)
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

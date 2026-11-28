@@ -67,7 +67,7 @@ export function NodeOverviewPage() {
   useDashboardSubscription();
   return (
     // The overview fills at least the window; the charts take the room the other cards leave.
-    <div className='@container flex min-w-0 flex-1 flex-col gap-4'>
+    <div className='@container flex min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)]'>
       <h1 className='sr-only'>{t('node.tabs.overview')}</h1>
       <DashboardStatus />
       <DashboardMetrics />
@@ -304,7 +304,7 @@ function DashboardHistory() {
   const totals = useMemo(() => current ? stateTotals(history, start, end) : null, [current, history, start, end]);
   const bar = 'flex h-11 flex-none items-center gap-3 border-b px-4';
   return (
-    <div className='grid flex-none grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-4 @max-[650px]:grid-cols-1'>
+    <div className='grid flex-none grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)] gap-3 @max-[650px]:grid-cols-1'>
       <section
         className={`${card} @container`}
         aria-label={t('dashboard.timeline.title')}

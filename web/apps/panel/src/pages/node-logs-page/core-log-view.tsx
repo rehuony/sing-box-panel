@@ -231,7 +231,7 @@ export function CoreLogView({ lead }: { lead: ReactNode }) {
         </CardToolbar>
         <ScrollArea
           className='flex-1'
-          viewportClassName={cn('flex flex-col', lines.length ? 'px-4 pt-3 pb-4' : 'p-12')}
+          contentClassName={cn('flex flex-col', lines.length ? 'px-4 pt-3 pb-4' : 'p-12')}
           viewportProps={{
             'aria-label': t('productLogs.core'),
             'onScroll': (event) => {

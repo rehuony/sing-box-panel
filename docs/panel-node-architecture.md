@@ -279,17 +279,23 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/fleet/runtime/history` (every node's runtime transitions), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{nodeId}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, backups and restores, the panel log, restarting the panel, authentication |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome) and `/fleet/commands/{commandId}` (following one again), `/fleet/runtime/history` (every node's runtime transitions), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{nodeId}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, backups and restores, the panel log, restarting the panel, authentication |
 | One node | `/nodes/{nodeId}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
 
 A fleet command runs the single-node operation on each selected node, at most
 four at once, records each as its own operation and streams each node's outcome
-as it finishes, then a summary, so progress and partial success are visible; an
+as it finishes, with how long its command ran, then a summary, so progress and partial success are visible; an
 unknown node ID is that node's failure. An update runs one node at a time
 instead: each node must come back reporting the panel's version within five
 minutes, or report why its update failed, before the next starts, and the first
 failure stops the batch, reporting the remaining nodes as skipped. It keeps running when its client
-disconnects, so every selected node receives the command that was confirmed.
+disconnects, so every selected node receives the command that was confirmed. The
+panel keeps each command's outcomes while it runs and for fifteen minutes after,
+in memory, and its stream opens with the command's ID: a browser that reaches the
+panel through a node the command restarts loses its stream as that node's core
+stops, and follows the command again from the outcomes it has once the node is
+back. The Web application offers each action only on the nodes it fits, so an
+offline node never stops an update of the nodes after it.
 Installing a core version picks, for each node, the official catalog archive of
 that version for the node's recorded platform, and caches each platform's
 archive once, when its first node needs it; a node without a recorded platform,

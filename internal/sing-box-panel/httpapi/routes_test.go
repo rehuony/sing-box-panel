@@ -139,6 +139,8 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/sources", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/source-order", `{"ids":["`+source.ID+`"]}`, http.StatusNoContent, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/source-order", `{"ids":[]}`, http.StatusConflict, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/sources/preview",
 		`{"source_id":"`+source.ID+`","filter":{"include":[],"exclude":[]}}`, http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/sources/"+source.ID,
@@ -179,6 +181,10 @@ func TestRepresentativeHTTPResponsesConformToOpenAPI(t *testing.T) {
 	if err := json.Unmarshal(channel.Body.Bytes(), &stored); err != nil {
 		t.Fatal(err)
 	}
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/channels", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/channel-order", `{"ids":["`+stored.ID+`"]}`, http.StatusNoContent, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/tokens", "", http.StatusOK, true, nil)
+	serveConformingRequest(t, router, handler, http.MethodPut, "/api/v1/subscription/token-order", `{"ids":[]}`, http.StatusNoContent, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/channels/"+stored.ID, "", http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodPost, "/api/v1/subscription/channels/"+stored.ID+"/preview", `{}`, http.StatusOK, true, nil)
 	serveConformingRequest(t, router, handler, http.MethodGet, "/api/v1/subscription/rule-sets?client=mihomo", "", http.StatusOK, true, nil)

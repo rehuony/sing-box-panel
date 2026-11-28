@@ -10,6 +10,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -174,6 +176,9 @@ type fleetCommandResult struct {
 	Skipped bool   `json:"skipped,omitempty"`
 	Code    string `json:"code,omitempty"`
 	Title   string `json:"title,omitempty"`
+	// DurationMS is how long the node's command ran, absent for a node it
+	// never ran on.
+	DurationMS *int64 `json:"duration_ms,omitempty"`
 }
 
 // fleetCommandSummary ends a fleet command's stream.
@@ -296,9 +301,16 @@ func (handler *Handler) fleetCommands(w http.ResponseWriter, request *http.Reque
 // batchRunner runs a batch command on nodes and reports each outcome.
 type batchRunner func(context.Context, []fleet.BatchNode, func(context.Context, fleet.Node) error, func(fleet.BatchResult))
 
-// streamBatch runs command on nodes and streams a result event per node as
-// it finishes, then a done event. The batch runs to its end when the client
-// leaves; heartbeats keep an idle connection open meanwhile.
+// fleetCommandStarted is a fleet command's first event, naming it so a
+// client whose stream breaks can follow it again.
+type fleetCommandStarted struct {
+	ID string `json:"id"`
+}
+
+// streamBatch starts command on nodes and follows it: the command event
+// first, then a result event per node as it finishes and the done event. The
+// batch runs to its end when the client leaves, and stays to follow for a
+// while after that.
 func (handler *Handler) streamBatch(w http.ResponseWriter, request *http.Request, nodes []fleet.BatchNode,
 	run batchRunner, command func(context.Context, fleet.Node) error, problem func(error) problemDetails,
 ) {
@@ -307,31 +319,23 @@ func (handler *Handler) streamBatch(w http.ResponseWriter, request *http.Request
 		writeProblem(w, request, http.StatusInternalServerError, "stream_unavailable", "Stream unavailable", "The transport does not support streaming.")
 		return
 	}
-	results := make(chan fleet.BatchResult, len(nodes))
-	go func() {
-		defer close(results)
-		run(request.Context(), nodes, command, func(result fleet.BatchResult) { results <- result })
-	}()
-	// The client keeps reading only while every write succeeds.
-	connected := stream.open() == nil
-	send := func(name string, value any) {
-		if !connected {
-			return
-		}
-		data, err := json.Marshal(value)
-		connected = err == nil && stream.event(name, data) == nil
+	commandRun := handler.commands.start(len(nodes))
+	now := handler.commands.now
+	// When each node's command started, so its outcome says how long it ran.
+	var started sync.Map
+	timed := func(ctx context.Context, node fleet.Node) error {
+		started.Store(node.ID, now())
+		return command(ctx, node)
 	}
-	heartbeat := time.NewTicker(10 * time.Second)
-	defer heartbeat.Stop()
-	summary := fleetCommandSummary{Total: len(nodes)}
-	for {
-		select {
-		case result, more := <-results:
-			if !more {
-				send("done", summary)
-				return
-			}
+	go func() {
+		summary := fleetCommandSummary{Total: len(nodes)}
+		// Each node's outcome is reported once, one at a time.
+		run(context.WithoutCancel(request.Context()), nodes, timed, func(result fleet.BatchResult) {
 			item := fleetCommandResult{NodeID: result.NodeID, OK: result.Err == nil}
+			if at, ok := started.LoadAndDelete(result.NodeID); ok {
+				duration := now().Sub(at.(time.Time)).Milliseconds()
+				item.DurationMS = &duration
+			}
 			switch {
 			case result.Err == nil:
 				summary.Succeeded++
@@ -343,9 +347,80 @@ func (handler *Handler) streamBatch(w http.ResponseWriter, request *http.Request
 				failure := problem(result.Err)
 				item.Code, item.Title = failure.code, failure.title
 			}
-			send("result", item)
+			commandRun.add(item)
+		})
+		commandRun.finish(summary, now())
+	}()
+	followBatch(stream, request, commandRun, 0)
+}
+
+// followFleetCommand streams a fleet command again: its command event, its
+// results after the one Last-Event-ID names, or all of them, then its done
+// event.
+func (handler *Handler) followFleetCommand(w http.ResponseWriter, request *http.Request, id string) {
+	if !handler.fleetRequest(w, request) {
+		return
+	}
+	commandRun := handler.commands.get(id)
+	if commandRun == nil {
+		writeProblem(w, request, http.StatusNotFound, "fleet_command_not_found", "Fleet command not found",
+			"The fleet command is unknown, or it ended too long ago to follow.")
+		return
+	}
+	after := 0
+	if raw := strings.TrimSpace(request.Header.Get("Last-Event-ID")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 || value > commandRun.total {
+			writeProblem(w, request, http.StatusBadRequest, "fleet_command_cursor_invalid", "Fleet command cursor invalid",
+				"Last-Event-ID must be the number of results already read.")
+			return
+		}
+		after = value
+	}
+	stream, ok := newEventStream(request.Context(), w, time.Time{}, maximumSnapshotFrameBytes)
+	if !ok {
+		writeProblem(w, request, http.StatusInternalServerError, "stream_unavailable", "Stream unavailable", "The transport does not support streaming.")
+		return
+	}
+	followBatch(stream, request, commandRun, after)
+}
+
+// followBatch sends the command event, then the command's results after the
+// first after, each with its position as its event ID, then its done event.
+// Heartbeats keep an idle connection open while it runs.
+func followBatch(stream *eventStream, request *http.Request, commandRun *fleetCommandRun, after int) {
+	if stream.open() != nil {
+		return
+	}
+	if data, err := json.Marshal(fleetCommandStarted{ID: commandRun.id}); err != nil || stream.event("command", data) != nil {
+		return
+	}
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+	sent := after
+	for {
+		results, summary, changed := commandRun.since(sent)
+		for _, result := range results {
+			sent++
+			data, err := json.Marshal(result)
+			if err != nil || stream.eventWithID(strconv.Itoa(sent), "result", data) != nil {
+				return
+			}
+		}
+		if summary != nil {
+			if data, err := json.Marshal(summary); err == nil {
+				_ = stream.event("done", data)
+			}
+			return
+		}
+		select {
+		case <-changed:
 		case <-heartbeat.C:
-			connected = connected && stream.heartbeat() == nil
+			if stream.heartbeat() != nil {
+				return
+			}
+		case <-request.Context().Done():
+			return
 		}
 	}
 }

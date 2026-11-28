@@ -59,23 +59,12 @@ type SubscriptionTokenRotation struct {
 	Created SubscriptionToken
 }
 
-type SubscriptionTokenListFilter struct {
-	Cursor *CreatedAtCursor
-	Limit  int
-	Offset int
-}
-
-type SubscriptionTokenPage struct {
-	Items []SubscriptionToken
-	Next  *CreatedAtCursor
-	Total int
-}
-
 const subscriptionTokenColumns = `
     id, user_id, label, token_sha256, enabled, expires_at, revoked_at,
     successful_request_count, body_response_count, bytes_served,
     last_used_at, created_at, download_limit`
 
+// CreateSubscriptionToken stores a new key at the end of the keys' order.
 func (s *Store) CreateSubscriptionToken(
 	ctx context.Context,
 	token SubscriptionToken,
@@ -94,7 +83,7 @@ func (s *Store) CreateSubscriptionToken(
 		if err := ensureTokenIdentityAvailable(ctx, tx, prepared.ID, prepared.TokenSHA256); err != nil {
 			return err
 		}
-		if err := insertSubscriptionToken(ctx, tx, prepared); err != nil {
+		if err := insertSubscriptionToken(ctx, tx, prepared, nil); err != nil {
 			return err
 		}
 		stored, err = getSubscriptionToken(ctx, tx, prepared.ID)
@@ -113,61 +102,32 @@ func (s *Store) GetSubscriptionToken(
 	return getSubscriptionToken(ctx, s.db, tokenID)
 }
 
-func (s *Store) ListSubscriptionTokens(
-	ctx context.Context,
-	filter SubscriptionTokenListFilter,
-) (SubscriptionTokenPage, error) {
-	limit, err := normalizePageLimit(filter.Limit)
+// ListSubscriptionTokens returns every key in its saved order.
+func (s *Store) ListSubscriptionTokens(ctx context.Context) ([]SubscriptionToken, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+subscriptionTokenColumns+` FROM subscription_tokens ORDER BY position, id`)
 	if err != nil {
-		return SubscriptionTokenPage{}, err
-	}
-	if err := validateCreatedAtCursor(filter.Cursor); err != nil {
-		return SubscriptionTokenPage{}, err
-	}
-	if err := validatePageOffset(filter.Offset, filter.Cursor != nil); err != nil {
-		return SubscriptionTokenPage{}, err
-	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return SubscriptionTokenPage{}, err
-	}
-	defer tx.Rollback()
-	var total int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_tokens`).Scan(&total); err != nil {
-		return SubscriptionTokenPage{}, fmt.Errorf("count subscription tokens: %w", err)
-	}
-	query := `SELECT ` + subscriptionTokenColumns + ` FROM subscription_tokens`
-	args := make([]any, 0, 4)
-	if filter.Cursor != nil {
-		query += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
-		cursorTime := formatTime(filter.Cursor.CreatedAt)
-		args = append(args, cursorTime, cursorTime, filter.Cursor.ID)
-	}
-	query += ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
-	args = append(args, limit+1, filter.Offset)
-	rows, err := tx.QueryContext(ctx, query, args...)
-	if err != nil {
-		return SubscriptionTokenPage{}, fmt.Errorf("list subscription tokens: %w", err)
+		return nil, fmt.Errorf("list subscription tokens: %w", err)
 	}
 	defer rows.Close()
-	items := make([]SubscriptionToken, 0, limit+1)
+	tokens := []SubscriptionToken{}
 	for rows.Next() {
 		token, err := scanSubscriptionToken(rows)
 		if err != nil {
-			return SubscriptionTokenPage{}, fmt.Errorf("scan subscription token: %w", err)
+			return nil, fmt.Errorf("scan subscription token: %w", err)
 		}
-		items = append(items, token)
+		tokens = append(tokens, token)
 	}
 	if err := rows.Err(); err != nil {
-		return SubscriptionTokenPage{}, fmt.Errorf("iterate subscription tokens: %w", err)
+		return nil, fmt.Errorf("iterate subscription tokens: %w", err)
 	}
-	page := SubscriptionTokenPage{Items: items, Total: total}
-	if len(items) > limit {
-		page.Items = items[:limit]
-		last := page.Items[len(page.Items)-1]
-		page.Next = &CreatedAtCursor{CreatedAt: last.CreatedAt, ID: last.ID}
-	}
-	return page, tx.Commit()
+	return tokens, nil
+}
+
+// SetSubscriptionTokenOrder saves the keys' order. ids must name every key
+// exactly once; otherwise they changed since they were read and it fails
+// with ErrSubscriptionTokensChanged.
+func (s *Store) SetSubscriptionTokenOrder(ctx context.Context, ids []string) error {
+	return s.saveSubscriptionOrder(ctx, "subscription_tokens", ids, ErrSubscriptionTokensChanged, "")
 }
 
 // FindActiveSubscriptionToken resolves a one-way digest and applies immediate
@@ -212,7 +172,9 @@ func (s *Store) FindActiveSubscriptionToken(
 }
 
 // RotateSubscriptionToken atomically revokes an unrevoked token and inserts
-// its replacement, preserving enablement and usage restrictions.
+// its replacement, preserving enablement and usage restrictions. The
+// replacement takes the rotated key's place in the keys' order and the
+// revoked key follows it directly, so a key keeps its place across rotations.
 func (s *Store) RotateSubscriptionToken(
 	ctx context.Context,
 	oldTokenID string,
@@ -246,12 +208,20 @@ func (s *Store) RotateSubscriptionToken(
 		if err := ensureTokenIdentityAvailable(ctx, tx, prepared.ID, prepared.TokenSHA256); err != nil {
 			return err
 		}
+		var position int64
+		if err := tx.QueryRowContext(ctx, `SELECT position FROM subscription_tokens WHERE id = ?`, oldTokenID).Scan(&position); err != nil {
+			return fmt.Errorf("read rotated subscription token position: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE subscription_tokens SET position = position + 1 WHERE position > ?`, position); err != nil {
+			return fmt.Errorf("make room after rotated subscription token: %w", err)
+		}
 		result, err := tx.ExecContext(
 			ctx,
 			`UPDATE subscription_tokens
-                SET revoked_at = ?
+                SET revoked_at = ?, position = ?
               WHERE id = ? AND revoked_at IS NULL`,
 			formatTime(rotatedAt),
+			position+1,
 			oldTokenID,
 		)
 		if err != nil {
@@ -270,7 +240,7 @@ func (s *Store) RotateSubscriptionToken(
 		if prepared.ExpiresAt == nil {
 			prepared.ExpiresAt = current.ExpiresAt
 		}
-		if err := insertSubscriptionToken(ctx, tx, prepared); err != nil {
+		if err := insertSubscriptionToken(ctx, tx, prepared, &position); err != nil {
 			return err
 		}
 		rotation.Revoked, err = getSubscriptionToken(ctx, tx, oldTokenID)

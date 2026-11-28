@@ -284,17 +284,20 @@ describe('application routes', () => {
     renderRoutes('/nodes', client);
     await screen.findByRole('link', { name: testNode.name });
     await user.keyboard(':');
+    // The node has no core set, so restarting fits it not.
     await user.type(screen.getByRole('combobox', { name: 'Command' }), 'restart all{Enter}');
     const log = screen.getByRole('log');
-    expect(log).toHaveTextContent(`Restart 1 node: ${testNode.name}`);
-    expect(log).toHaveTextContent('Restarting a core briefly drops its connections.');
+    expect(log).toHaveTextContent(/^Restart fits none of these nodes$/);
+    await user.type(screen.getByRole('combobox', { name: 'Command' }), 'stop all{Enter}');
+    expect(log).toHaveTextContent(`Stop 1 node: ${testNode.name}`);
+    expect(log).toHaveTextContent('Proxied connections stop until started again.');
     expect(client.runFleetCommand).not.toHaveBeenCalled();
     await user.type(screen.getByRole('textbox', { name: 'Confirm with y' }), 'y{Enter}');
-    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'restart', node_ids: [testNode.id] }, expect.any(AbortSignal));
+    expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'stop', node_ids: [testNode.id] }, expect.any(AbortSignal));
     await waitFor(() => expect(log).toHaveTextContent('1 succeeded · 0 failed · 0 skipped'));
-    expect(log).toHaveTextContent(`${testNode.name}done`);
+    expect(log).toHaveTextContent(`${testNode.name} stopped`);
     // The answer replaced the question with the batch's own result.
-    expect(log).not.toHaveTextContent('Restart 1 node');
+    expect(log).not.toHaveTextContent(`Stop 1 node: ${testNode.name}`);
   });
 
   it('selects panes without opening them and runs a batch on them after its confirmation', async () => {
@@ -309,15 +312,16 @@ describe('application routes', () => {
     expect(screen.getByRole('button', { name: 'Select', pressed: true })).toBeInTheDocument();
     const actions = screen.getByRole('group', { name: 'Batch actions' });
     await user.click(within(actions).getByRole('button', { name: 'Stop' }));
-    const dialog = await screen.findByRole('alertdialog', { name: 'Stop 1 node?' });
-    expect(dialog).toHaveTextContent('Stopping a core drops its connections until it starts again.');
-    await user.click(within(dialog).getByRole('button', { name: 'Stop 1 node' }));
+    const dialog = await screen.findByRole('alertdialog', { name: `Stop ${testNode.name}?` });
+    expect(dialog).toHaveTextContent('Proxied connections stop until started again.');
+    await user.click(within(dialog).getByRole('button', { name: 'Stop' }));
     expect(client.runFleetCommand).toHaveBeenCalledWith({ action: 'stop', node_ids: [testNode.id] }, expect.any(AbortSignal));
     expect(await screen.findByRole('log')).toHaveTextContent('1 succeeded');
     await user.keyboard('{Escape}');
     expect(screen.getByRole('checkbox', { name: testNode.name, checked: true })).toBeInTheDocument();
-    // Leaving selection mode clears the selection; a click then opens the node again.
-    await user.click(screen.getByRole('button', { name: 'Select', pressed: true }));
+    // A click on blank space beside the panes leaves selection mode and clears it; a click then opens the node.
+    await user.click(screen.getByRole('list', { name: 'Nodes' }));
+    expect(screen.getByRole('button', { name: 'Select', pressed: false })).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: testNode.name }));
     expect(await screen.findByRole('group', { name: `Node ${testNode.name}` })).toBeInTheDocument();
   });

@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { CirclePlus, Layers3, Server, TriangleAlert } from 'lucide-react';
+import { CirclePlus, FileText, Layers3, Link2, Server, TriangleAlert } from 'lucide-react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@shared/components/ui/popover';
 
@@ -21,14 +22,16 @@ import { SelectField } from '@/components/select-field';
 import { usePageVisible } from '@/hooks/use-page-visible';
 import { ToolbarActions } from '@/components/workspace-toolbar';
 import { describeRequestError } from '@/components/error-notice';
-import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
 import { SortContext, useDraggedId, useSortWindow } from '@/components/sortable';
 import { StripAction, StripDivider, StripSearch } from '@/components/title-strip';
+import { Rail, RailCount, RailHeading, RailItem, RailItemOverlay } from '@/components/rail';
 
 import type { IssueItem } from './issue-list';
 import type { SourceDialogMode } from './subscription-source-dialog';
 
 import { IssueList } from './issue-list';
+import { useSavedOrder } from './use-saved-order';
+import { nodeCardGrid } from './node-card-classes';
 import { useSourceRefresh } from './use-source-refresh';
 import { SourceDialogs, SourceRailItem } from './source-rail';
 import { reorderVisibleNodes } from './subscription-node-order';
@@ -80,9 +83,9 @@ function PoolDiagnostics({ diagnostics, publications }: {
         <TriangleAlert aria-hidden='true' className='text-[var(--color-warning)]' data-icon='inline-start' />
         <span className='font-[family-name:var(--font-data)] tabular-nums'>{diagnostics.length}</span>
       </PopoverTrigger>
-      <PopoverContent align='end' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-y-auto overscroll-contain p-0'>
+      <PopoverContent align='end' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-hidden p-0'>
         <PopoverTitle className='sr-only'>{t('subscriptions.pool.diagnostics.title')}</PopoverTitle>
-        <IssueList groups={groups} />
+        <ScrollArea><IssueList groups={groups} /></ScrollArea>
       </PopoverContent>
     </Popover>
   );
@@ -104,7 +107,7 @@ function PoolGrid({ nodes, onOpen, saving, ...handlers }: {
     <ul
       aria-busy={saving || undefined}
       aria-label={t('subscriptions.tabs.nodes')}
-      className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'
+      className={nodeCardGrid}
       data-slot='pool-node-grid'
       ref={ref}
       style={style}
@@ -182,10 +185,17 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
     const placed = new Set(pendingOrder);
     return [...pendingOrder.flatMap(id => byID.get(id) ?? []), ...items.filter(node => !placed.has(node.id))];
   }, [items, pendingOrder]);
-  const sources = useMemo(
-    () => [...sourceList.data ?? []].sort((left, right) => compareText(left.name, right.name)),
-    [sourceList.data],
-  );
+  // Sources keep the order the rail was dragged into, saved on the server.
+  const { move: moveSource, ordered: sources } = useSavedOrder({
+    failed: t('subscriptions.sources.orderSaveFailed'),
+    items: sourceList.data,
+    queryKey: queries.sources(client).queryKey,
+    save: ids => client.setSubscriptionSourceOrder(ids),
+    stale: t('subscriptions.sources.orderStale'),
+  });
+  // A drag in the rail completes a click on the source it ends over; that click is not the user's.
+  const railDraggingRef = useRef(false);
+  const railClickRef = useRef(false);
   // How many pool nodes each origin adds.
   const originCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -204,6 +214,7 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
     && matchesNode(node, query)), [ordered, originValue, protocolValue, query]);
   const byID = useMemo(() => new Map(ordered.map(node => [node.id, node])), [ordered]);
   const sortItems = useMemo(() => shown.map(node => ({ id: node.id, label: node.display_name })), [shown]);
+  const sourceItems = useMemo(() => sources.map(source => ({ id: source.id, label: source.name })), [sources]);
 
   function move(activeID: string, overID: string) {
     if (saving) return;
@@ -224,7 +235,7 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
     content = <SubscriptionContentState kind='search' title={t('subscriptions.pool.noMatch')} />;
   } else {
     content = (
-      <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>
+      <ScrollArea className='min-h-0 flex-1' contentClassName='p-4'>
         <SortContext
           ended={t('channels.nodeDragEnd')}
           instructions={t('subscriptions.pool.dragInstructions')}
@@ -295,35 +306,69 @@ export function SubscriptionNodePanel({ active = true, toolbarTarget }: {
       </ToolbarActions>
       {/* On a phone the rail takes a capped band above the grid. */}
       <div className='grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)] gap-3 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,10.5rem)_minmax(0,1fr)]'>
-        <Rail label={t('subscriptions.pool.originFilter')}>
-          <RailItem
-            current={originValue === ALL_ORIGINS}
-            end={<RailCount>{ordered.length}</RailCount>}
-            icon={<Layers3 />}
-            name={t('subscriptions.pool.allOrigins')}
-            onClick={() => setOrigin(ALL_ORIGINS)}
-          />
-          <RailItem
-            current={originValue === FLEET_ORIGIN}
-            end={<RailCount>{originCounts.get(FLEET_ORIGIN) ?? 0}</RailCount>}
-            icon={<Server />}
-            name={t('subscriptions.pool.fleetOrigin')}
-            onClick={() => setOrigin(FLEET_ORIGIN)}
-          />
-          <RailHeading end={<RailCount>{sources.length}</RailCount>}>{t('subscriptions.pool.sources')}</RailHeading>
-          {sources.map(source => (
-            <SourceRailItem
-              count={originCounts.get(`source:${source.id}`) ?? 0}
-              current={originValue === `source:${source.id}`}
-              key={source.id}
-              onEdit={() => setSourceDialog({ kind: 'edit', source })}
-              onRefresh={() => void refresh(source)}
-              onSelect={() => setOrigin(`source:${source.id}`)}
-              refreshing={refreshing.has(source.id)}
-              source={source}
+        <div
+          className='contents'
+          onClickCapture={(event) => {
+            if (!railClickRef.current) return;
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onKeyDownCapture={(event) => {
+            if (!railDraggingRef.current && event.key !== 'F2') railClickRef.current = false;
+          }}
+          onPointerDownCapture={() => {
+            if (!railDraggingRef.current) railClickRef.current = false;
+          }}
+        >
+          <Rail label={t('subscriptions.pool.originFilter')}>
+            <RailItem
+              current={originValue === ALL_ORIGINS}
+              end={<RailCount>{ordered.length}</RailCount>}
+              icon={<Layers3 />}
+              name={t('subscriptions.pool.allOrigins')}
+              onClick={() => setOrigin(ALL_ORIGINS)}
             />
-          ))}
-        </Rail>
+            <RailItem
+              current={originValue === FLEET_ORIGIN}
+              end={<RailCount>{originCounts.get(FLEET_ORIGIN) ?? 0}</RailCount>}
+              icon={<Server />}
+              name={t('subscriptions.pool.fleetOrigin')}
+              onClick={() => setOrigin(FLEET_ORIGIN)}
+            />
+            <RailHeading end={<RailCount>{sources.length}</RailCount>}>{t('subscriptions.pool.sources')}</RailHeading>
+            <SortContext
+              ended={t('subscriptions.sources.dragEnd')}
+              instructions={t('subscriptions.sources.dragInstructions')}
+              items={sourceItems}
+              onDraggingChange={(dragging) => {
+                railDraggingRef.current = dragging;
+                if (dragging) railClickRef.current = true;
+              }}
+              onMove={moveSource}
+              renderOverlay={(id) => {
+                const source = sources.find(each => each.id === id);
+                return source
+                  ? <RailItemOverlay end={<RailCount>{originCounts.get(`source:${source.id}`) ?? 0}</RailCount>} icon={source.kind === 'url' ? <Link2 /> : <FileText />} name={source.name} />
+                  : null;
+              }}
+              strategy={verticalListSortingStrategy}
+            >
+              {sources.map(source => (
+                <SourceRailItem
+                  count={originCounts.get(`source:${source.id}`) ?? 0}
+                  current={originValue === `source:${source.id}`}
+                  key={source.id}
+                  onEdit={() => setSourceDialog({ kind: 'edit', source })}
+                  onRefresh={() => void refresh(source)}
+                  onSelect={() => setOrigin(`source:${source.id}`)}
+                  refreshing={refreshing.has(source.id)}
+                  sortable
+                  source={source}
+                />
+              ))}
+            </SortContext>
+          </Rail>
+        </div>
         <div className={poolCard}>{content}</div>
       </div>
       <SourceDialogs mode={sourceDialog} onModeChange={setSourceDialog} />

@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import { toast } from '@shared/components/ui/toast-manager';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { TestRouter } from '@/tests/test-router';
@@ -11,7 +11,11 @@ import { SubscriptionsPage } from '@/pages/subscriptions-page/subscriptions-page
 import { createMockApiClient, testSubscriptionRuleSets } from '@/tests/api/mock-api-client';
 
 /** The rail's rule set names, top to bottom. */
-const railNames = () => screen.getAllByRole('button', { description: /F2/ }).map(item => item.querySelector('.font-medium')?.textContent);
+function railNames() {
+  return screen.getAllByRole('button', { description: /F2/ })
+    .filter(item => !item.hasAttribute('data-rule-button'))
+    .map(item => item.querySelector('.font-medium')?.textContent);
+}
 
 beforeEach(() => window.history.replaceState(null, '', '/subscriptions'));
 afterEach(() => vi.restoreAllMocks());
@@ -37,7 +41,7 @@ describe('rule sets', () => {
     const entry = within(editor).getByRole('textbox', { name: 'Add rule' });
     await user.type(entry, 'netflix.com{Enter}');
     expect(feedback).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: 'DOMAIN-SUFFIX,netflix.com is already in this rule set', type: 'warning' }),
+      expect.objectContaining({ title: 'netflix.com is already in this rule set', type: 'warning' }),
     );
     await user.clear(entry);
     await user.type(entry, 'disneyplus.com{Enter}');
@@ -65,7 +69,7 @@ describe('rule sets', () => {
     expect(await screen.findByRole('region', { name: testSubscriptionRuleSets[1].name })).toBeVisible();
   });
 
-  it('removes a rule from the keyboard and puts it back from the toast', async () => {
+  it('removes a rule from the keyboard and names it alone in a toast', async () => {
     const user = userEvent.setup();
     renderRuleSets();
     const feedback = vi.spyOn(toast, 'add');
@@ -78,9 +82,8 @@ describe('rule sets', () => {
     expect(second).toHaveFocus();
     await user.keyboard('{Delete}');
     expect(within(rules).queryByText('streaming')).not.toBeInTheDocument();
-    const undo = feedback.mock.lastCall?.[0].actionProps?.onClick as (() => void) | undefined;
-    act(() => undo?.());
-    expect(within(rules).getByText('streaming')).toBeInTheDocument();
+    // The toast names the rule without its type and carries no action; reverting the draft brings the rule back.
+    expect(feedback).toHaveBeenLastCalledWith({ id: expect.any(String), title: 'Removed streaming', type: 'info' });
   });
 
   it('keeps text with a line it cannot read, and saving says why instead of saving', async () => {
@@ -133,6 +136,38 @@ describe('rule sets', () => {
     await waitFor(() => expect(railNames()).toEqual(['Streaming']));
     expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'The rule set “Games” was not created', type: 'error' }));
     expect(screen.getByRole('region', { name: testSubscriptionRuleSets[0].name })).toBeVisible();
+  });
+
+  it('moves a rule with the keyboard as a draft change and saves the rules in their new order', async () => {
+    const [streaming] = testSubscriptionRuleSets;
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    // Lines stack 36px apart; the copy that follows the pointer starts over the first.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.matches('li[data-rule-key]')) {
+        const index = Array.from(this.parentElement!.querySelectorAll('li[data-rule-key]')).indexOf(this);
+        return DOMRect.fromRect({ x: 0, y: index * 36, width: 480, height: 36 });
+      }
+      if (this.classList.contains('cursor-grabbing')) return DOMRect.fromRect({ x: 0, y: 0, width: 480, height: 36 });
+      return originalRect.call(this);
+    });
+    const client = renderRuleSets();
+    const editor = await screen.findByRole('region', { name: streaming.name });
+    const line = within(editor).getByRole('list', { name: 'Rules' }).querySelector<HTMLElement>('[data-rule-button]')!;
+    line.focus();
+    fireEvent.keyDown(line, { key: 'F2', code: 'F2' });
+    await userEvent.setup().keyboard('[ArrowDown]');
+    await waitFor(() => expect(screen.getByText('Position 2 of 2.')).toBeInTheDocument());
+    fireEvent.keyDown(line, { key: 'F2', code: 'F2' });
+
+    // Dropping edits nothing, and the move waits to be saved like any other change.
+    expect(within(editor).getByRole('list', { name: 'Rules' }).querySelector('input')).toBeNull();
+    expect(within(editor).getByText('1 unsaved change')).toBeInTheDocument();
+    await userEvent.setup().click(within(editor).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(client.updateSubscriptionRuleSet).toHaveBeenCalledWith(
+      streaming.id,
+      { name: streaming.name, icon: streaming.icon, rules: [streaming.rules[1], streaming.rules[0]] },
+      streaming.updated_at,
+    ));
   });
 
   it('moves a rule set with the keyboard and saves the client\'s order', async () => {

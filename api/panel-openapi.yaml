@@ -989,7 +989,10 @@ paths:
         node at a time instead: it waits for each node to come back reporting
         the panel's version, for at most five minutes, and stops at the first
         failure, reporting the nodes after it as skipped. Problems found
-        before any node runs answer as a problem.
+        before any node runs answer as a problem. The panel keeps the
+        command's outcomes while it runs and for fifteen minutes after, so a
+        client whose stream breaks, such as one reaching the panel through a
+        node the command restarts, follows it again with followFleetCommand.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -1000,17 +1003,48 @@ paths:
       responses:
         "200":
           description: >-
-            Server-sent events: one result event per selected node as it
-            finishes, whose data is a FleetCommandResult, then one done event
-            whose data is a FleetCommandSummary. An ID of no node is reported
-            at once. Heartbeat comments arrive every ten seconds while the
-            batch runs.
+            Server-sent events: one command event whose data is a
+            FleetCommandStarted, then one result event per selected node as
+            it finishes, whose data is a FleetCommandResult and whose ID is
+            its position from 1, then one done event whose data is a
+            FleetCommandSummary. An ID of no node is reported at once.
+            Heartbeat comments arrive every ten seconds while the batch runs.
           content:
             text/event-stream:
               schema: {type: string}
         "409":
           $ref: '#/components/responses/Problem'
         "422":
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /fleet/commands/{commandId}:
+    get:
+      operationId: followFleetCommand
+      description: >-
+        Follows a fleet command that runs or ended in the last fifteen
+        minutes: its command event, its result events after the one
+        Last-Event-ID names, as the number of results already read, or all
+        of them, then its done event. A panel restart forgets every command.
+      parameters:
+        - name: commandId
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 64}
+        - $ref: "#/components/parameters/LastEventID"
+      responses:
+        "200":
+          description: >-
+            Server-sent events as runFleetCommand sends them: the command
+            event, the result events, each with its position from 1 as its
+            ID, and the done event. Heartbeat comments arrive every ten seconds
+            while the batch runs.
+          content:
+            text/event-stream:
+              schema: {type: string}
+        "400":
+          $ref: '#/components/responses/Problem'
+        "404":
           $ref: '#/components/responses/Problem'
         default:
           $ref: '#/components/responses/Problem'
@@ -1343,17 +1377,19 @@ paths:
   /subscription/channels:
     get:
       operationId: listSubscriptionChannels
-      parameters:
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
+      description: Every channel in the channels' saved order; a new channel joins the end.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionChannelPage"
+          $ref: "#/components/responses/SubscriptionChannelList"
         default:
           $ref: "#/components/responses/Problem"
     post:
       operationId: createSubscriptionChannel
+      description: >-
+        Creates a channel, which joins the end of the channels' order. The
+        channel is rendered from the current pool and its rule sets first, as
+        a preview of it would be, and one that would not render is refused with
+        the preview's problem.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       requestBody:
@@ -1363,6 +1399,27 @@ paths:
           $ref: "#/components/responses/SubscriptionChannel"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/channel-order:
+    put:
+      operationId: setSubscriptionChannelOrder
+      description: >-
+        Saves the order of the channels. The IDs must be exactly the current
+        channels, each once; otherwise they changed since they were read and the
+        request answers 409. Saving an order changes no channel's updated_at.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionChannelOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The channels changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/channels/{channelId}:
     parameters:
       - $ref: "#/components/parameters/ChannelID"
@@ -1375,6 +1432,11 @@ paths:
           $ref: "#/components/responses/Problem"
     put:
       operationId: updateSubscriptionChannel
+      description: >-
+        Replaces a channel at the version If-Match names. The channel is
+        rendered from the current pool and its rule sets first, as a preview of
+        it would be, and one that would not render is refused with the
+        preview's problem, so saving needs no preview of its own.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/CSRFToken"
@@ -1509,13 +1571,13 @@ paths:
   /subscription/sources:
     get:
       operationId: listSubscriptionSources
-      parameters:
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
+      description: >-
+        Every source in the sources' saved order; a new source joins the end. The
+        order is for display: the pool appends a source's new nodes by the
+        sources' creation time.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionSourcePage"
+          $ref: "#/components/responses/SubscriptionSourceList"
         default:
           $ref: "#/components/responses/Problem"
     post:
@@ -1533,6 +1595,27 @@ paths:
           $ref: "#/components/responses/SubscriptionSource"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/source-order:
+    put:
+      operationId: setSubscriptionSourceOrder
+      description: >-
+        Saves the order of the sources. The IDs must be exactly the current
+        sources, each once; otherwise they changed since they were read and the
+        request answers 409. Saving an order changes no source's updated_at.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionSourceOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The sources changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/sources/preview:
     post:
       operationId: previewSubscriptionSource
@@ -1610,14 +1693,12 @@ paths:
   /subscription/tokens:
     get:
       operationId: listSubscriptionTokens
-      parameters:
-        - $ref: "#/components/parameters/PageOffset"
-        - $ref: "#/components/parameters/BeforeTime"
-        - $ref: "#/components/parameters/BeforeID"
-        - $ref: "#/components/parameters/Limit"
+      description: >-
+        Every key in the keys' saved order. A new key joins the end; a rotation's
+        new key takes the rotated key's place, and the revoked key follows it.
       responses:
         "200":
-          $ref: "#/components/responses/SubscriptionTokenPage"
+          $ref: "#/components/responses/SubscriptionTokenList"
         default:
           $ref: "#/components/responses/Problem"
     post:
@@ -1635,6 +1716,27 @@ paths:
           $ref: "#/components/responses/CreatedSubscriptionToken"
         default:
           $ref: "#/components/responses/Problem"
+  /subscription/token-order:
+    put:
+      operationId: setSubscriptionTokenOrder
+      description: >-
+        Saves the order of the keys. The IDs must be exactly the current
+        keys, each once; otherwise they changed since they were read and the
+        request answers 409. Saving an order changes nothing else about a key.
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscriptionTokenOrder"}
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "409":
+          description: The keys changed since they were read; reload them before saving the order
+          content: {application/problem+json: {schema: {$ref: "#/components/schemas/Problem"}}}
+        default:
+          $ref: '#/components/responses/Problem'
   /subscription/tokens/{tokenId}:
     parameters:
       - $ref: "#/components/parameters/TokenID"
@@ -2058,7 +2160,7 @@ paths:
       - $ref: '#/components/parameters/NodeID'
     get:
       operationId: getRecentMetrics
-      description: The node's accepted stored samples of the last two minutes, oldest first, so a live chart opens with what came before it, and the spans of those two minutes in which the node's runtime history shows no core running, which hold no samples but are known zero traffic and connections. Samples are stored about every ten seconds whatever the node's live sampling. A read failure returns 503 recent_metrics_unavailable.
+      description: The node's accepted stored samples of the last two minutes, oldest first and led by the newest one before them, so a live chart opens with what came before it and its lines reach the window's start, and the spans of those two minutes in which the node's runtime history shows no core running, which hold no samples but are known zero traffic and connections. Samples are stored about every ten seconds whatever the node's live sampling. A read failure returns 503 recent_metrics_unavailable.
       responses:
         "200":
           $ref: "#/components/responses/RecentMetrics"
@@ -2595,30 +2697,30 @@ components:
     SubscriptionUserGrants:
       description: Subscription user and live node grants.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionUserGrants"}}}
-    SubscriptionChannelPage:
-      description: Page of subscription channels.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannelPage"}}}
+    SubscriptionChannelList:
+      description: Subscription channels in their saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannelList"}}}
     SubscriptionChannel:
       description: Subscription channel.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionChannel"}}}
     SubscriptionPreview:
       description: Rendered subscription preview and provenance.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionPreview"}}}
-    SubscriptionSourcePage:
-      description: Page of subscription sources.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourcePage"}}}
+    SubscriptionSourceList:
+      description: Subscription sources in their saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSourceList"}}}
     SubscriptionSource:
       description: Subscription source.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionSource"}}}
     SubscriptionRuleSetList:
-      description: Rule sets in name order.
+      description: Rule sets, each client's in their saved order.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSetList"}}}
     SubscriptionRuleSet:
       description: Rule set.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionRuleSet"}}}
-    SubscriptionTokenPage:
-      description: Page of subscription token metadata.
-      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenPage"}}}
+    SubscriptionTokenList:
+      description: Subscription token metadata in the keys' saved order.
+      content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionTokenList"}}}
     CreatedSubscriptionToken:
       description: Token metadata and plaintext token.
       content: {application/json: {schema: {$ref: "#/components/schemas/CreatedSubscriptionToken"}}}
@@ -2983,6 +3085,18 @@ components:
         title:
           type: string
           description: On failure, the problem title the single-node operation answers with.
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How long the node's command ran on the panel; absent for a node it never ran on, such as an unknown ID or a skipped node.
+    FleetCommandStarted:
+      type: object
+      additionalProperties: false
+      required: [id]
+      description: The data of a fleet command's command event, the ID that follows it again.
+      properties:
+        id: {type: string, minLength: 1, maxLength: 64}
     FleetCommandSummary:
       type: object
       additionalProperties: false
@@ -3950,13 +4064,18 @@ components:
       properties:
         format: {type: string, enum: [sing-box, mihomo, loon]}
         content: {type: string, maxLength: 262144}
-    SubscriptionChannelPage:
+    SubscriptionChannelList:
       type: object
       additionalProperties: false
       required: [items]
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionChannelSummary"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionChannelOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionSourceKind:
       type: string
       enum: [url, file]
@@ -4009,13 +4128,18 @@ components:
         next_refresh_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time, description: Changes only with the settings; send it quoted in If-Match.}
-    SubscriptionSourcePage:
+    SubscriptionSourceList:
       type: object
       additionalProperties: false
       required: [items]
       properties:
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionSource"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionSourceOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionSourcePreviewItem:
       type: object
       additionalProperties: false
@@ -4138,14 +4262,18 @@ components:
         last_used_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
         active: {type: boolean}
-    SubscriptionTokenPage:
+    SubscriptionTokenList:
       type: object
       additionalProperties: false
-      required: [items, total]
+      required: [items]
       properties:
-        total: {type: integer, minimum: 0, description: Total matching records before cursor or offset pagination.}
         items: {type: array, items: {$ref: "#/components/schemas/SubscriptionToken"}}
-        next: {$ref: "#/components/schemas/SubscriptionCursor"}
+    SubscriptionTokenOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids: {type: array, maxItems: 10000, uniqueItems: true, items: {type: string}}
     SubscriptionTokenSecret:
       type: object
       additionalProperties: false

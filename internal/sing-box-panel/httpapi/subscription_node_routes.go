@@ -77,20 +77,11 @@ func (handler *Handler) updateSubscriptionNode(w http.ResponseWriter, request *h
 }
 
 func (handler *Handler) setSubscriptionNodeOrder(w http.ResponseWriter, request *http.Request) {
-	if !handler.subscriptionMutationRequest(w, request) {
+	ids, ok := handler.subscriptionOrderRequest(w, request)
+	if !ok {
 		return
 	}
-	var input struct {
-		IDs []string `json:"ids"`
-	}
-	if !decodeStrictRequest(w, request, 2<<20, &input) {
-		return
-	}
-	if input.IDs == nil {
-		writeSubscriptionInvalid(w, request)
-		return
-	}
-	list, err := handler.services.Subscriptions.SetSubscriptionNodeOrder(request.Context(), input.IDs)
+	list, err := handler.services.Subscriptions.SetSubscriptionNodeOrder(request.Context(), ids)
 	if err != nil {
 		writeSubscriptionProblem(w, request, "subscription_node_order_failed", err)
 		return

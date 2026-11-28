@@ -115,7 +115,7 @@ export function LogEntriesView({ lead, scope }: { lead?: ReactNode; scope: LogSc
       {logs.error != null && <ErrorNotice error={logs.error} title={t('productLogs.unavailable')} />}
       <div className='flex min-h-80 flex-1 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]'>
         {lead != null && <CardToolbar>{controls}</CardToolbar>}
-        <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
+        <ScrollArea aria-busy={loading} className='flex-1' contentClassName='flex flex-col'>
           {/* The time, the level and the event fit a phone without scrolling sideways. */}
           <Table>
             <TableHeader>

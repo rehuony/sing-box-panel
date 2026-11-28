@@ -41,7 +41,7 @@ describe('panel restart', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await reboot;
     expect(usePanelRestart.getState().restarting).toBe(false);
-    expect(useCommandSession.getState().entries.map(entry => [entry.text, entry.tone])).toEqual([
+    expect(useCommandSession.getState().entries.flatMap(entry => entry.kind === 'line' ? [[entry.text, entry.tone]] : [])).toEqual([
       ['Restarting panel…', 'muted'],
       ['Panel restarted', 'success'],
     ]);

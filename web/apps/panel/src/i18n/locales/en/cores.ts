@@ -1,6 +1,6 @@
 export const cores = {
   library: { actionFailed: 'The core action failed', removeFailed: 'The core was not removed', file: 'File', size: 'Size', installedAt: 'Installed on', release: 'View v{{version}} on GitHub', more: 'More actions for {{version}}', version: 'Version', source: 'Source', status: 'Status', actions: 'Actions', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', unknown: 'Status unknown', installed: 'Installed', notInstalled: 'Not installed', download: 'Download', completed: 'Operation completed', running: 'Processing', succeeded: 'Completed', failed: 'Failed', canceled: 'Canceled' },
-  action: { remove: 'Remove', configure: 'Open configuration' },
+  action: { remove: 'Remove' },
   artifact: { changed: 'Version removed.' },
   confirm: {
     action: 'Confirm',

@@ -59,20 +59,13 @@ type CoreArtifactPage struct {
 	Next  *CreatedAtCursor
 }
 
-// CoreArtifactRemovalEligibility explains every current hard reference that
-// prevents safe deletion.
-type CoreArtifactRemovalEligibility struct {
-	Eligible                  bool
-	StartupArtifactReferences int64
-	ActiveBundleReferences    int64
-}
-
 const coreArtifactColumns = `
     id, exact_version, operating_system, architecture, variant, source_kind,
     user_source, repository_id, release_id, asset_id, archive_sha256, binary_sha256, binary_path,
     reported_version, feature_fingerprint_json, created_at`
 
-// UpsertCoreArtifact inserts an immutable identity or returns the existing one.
+// UpsertCoreArtifact inserts an immutable identity or returns the existing
+// one; a removed one is installed again, as of the new creation time.
 func (s *Store) UpsertCoreArtifact(
 	ctx context.Context,
 	artifact CoreArtifact,
@@ -84,13 +77,24 @@ func (s *Store) UpsertCoreArtifact(
 
 	var stored CoreArtifact
 	err = s.WithTx(ctx, func(tx *sql.Tx) error {
-		existing, err := getCoreArtifact(ctx, tx, prepared.ID)
+		existing, removed, err := selectCoreArtifact(ctx, tx, prepared.ID)
 		if err == nil {
 			if !sameCoreArtifactIdentity(existing, prepared) {
 				return fmt.Errorf("%w: %s", ErrCoreArtifactIdentityConflict, prepared.ID)
 			}
-			stored = existing
-			return nil
+			if !removed {
+				stored = existing
+				return nil
+			}
+			if _, err := tx.ExecContext(
+				ctx,
+				`UPDATE core_artifacts SET removed_at = NULL, created_at = ? WHERE id = ?`,
+				formatTime(prepared.CreatedAt), prepared.ID,
+			); err != nil {
+				return fmt.Errorf("reinstall core artifact: %w", err)
+			}
+			stored, err = getCoreArtifact(ctx, tx, prepared.ID)
+			return err
 		}
 		if !errors.Is(err, ErrCoreArtifactNotFound) {
 			return err
@@ -153,7 +157,7 @@ func (s *Store) ListCoreArtifacts(
 		return CoreArtifactPage{}, err
 	}
 
-	clauses := []string{"1 = 1"}
+	clauses := []string{"removed_at IS NULL"}
 	args := make([]any, 0, 12)
 	if filter.ExactVersion != "" {
 		clauses = append(clauses, "exact_version = ?")
@@ -214,22 +218,35 @@ func (s *Store) ListCoreArtifacts(
 	return page, nil
 }
 
+// getCoreArtifact returns an installed core; a removed one is not found.
 func getCoreArtifact(ctx context.Context, q queryRower, artifactID string) (CoreArtifact, error) {
-	artifact, err := scanCoreArtifact(q.QueryRowContext(
-		ctx,
-		`SELECT `+coreArtifactColumns+` FROM core_artifacts WHERE id = ?`,
-		artifactID,
-	))
-	if errors.Is(err, sql.ErrNoRows) {
+	artifact, removed, err := selectCoreArtifact(ctx, q, artifactID)
+	if err == nil && removed {
 		return CoreArtifact{}, fmt.Errorf("%w: %s", ErrCoreArtifactNotFound, artifactID)
 	}
-	if err != nil {
-		return CoreArtifact{}, fmt.Errorf("get core artifact %q: %w", artifactID, err)
-	}
-	return artifact, nil
+	return artifact, err
 }
 
-func scanCoreArtifact(row rowScanner) (CoreArtifact, error) {
+// selectCoreArtifact returns a core's row and whether it was removed.
+func selectCoreArtifact(ctx context.Context, q queryRower, artifactID string) (CoreArtifact, bool, error) {
+	var removedAt sql.NullString
+	artifact, err := scanCoreArtifact(q.QueryRowContext(
+		ctx,
+		`SELECT `+coreArtifactColumns+`, removed_at FROM core_artifacts WHERE id = ?`,
+		artifactID,
+	), &removedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CoreArtifact{}, false, fmt.Errorf("%w: %s", ErrCoreArtifactNotFound, artifactID)
+	}
+	if err != nil {
+		return CoreArtifact{}, false, fmt.Errorf("get core artifact %q: %w", artifactID, err)
+	}
+	return artifact, removedAt.Valid, nil
+}
+
+// scanCoreArtifact reads the core artifact columns, then any extra columns
+// the query selects after them into extra.
+func scanCoreArtifact(row rowScanner, extra ...any) (CoreArtifact, error) {
 	var (
 		artifact           CoreArtifact
 		repositoryID       sql.NullString
@@ -239,7 +256,7 @@ func scanCoreArtifact(row rowScanner) (CoreArtifact, error) {
 		featureFingerprint string
 		createdAt          string
 	)
-	if err := row.Scan(
+	if err := row.Scan(append([]any{
 		&artifact.ID,
 		&artifact.ExactVersion,
 		&artifact.OperatingSystem,
@@ -256,7 +273,7 @@ func scanCoreArtifact(row rowScanner) (CoreArtifact, error) {
 		&artifact.ReportedVersion,
 		&featureFingerprint,
 		&createdAt,
-	); err != nil {
+	}, extra...)...); err != nil {
 		return CoreArtifact{}, err
 	}
 

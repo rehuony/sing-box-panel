@@ -413,6 +413,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     restartRuntime: vi.fn<ApiClient['restartRuntime']>().mockResolvedValue(testRuntimeStatus),
     rollbackRuntime: vi.fn<ApiClient['rollbackRuntime']>(),
     listSubscriptionChannels: vi.fn<ApiClient['listSubscriptionChannels']>().mockResolvedValue({ items: testSubscriptionChannelSummaries }),
+    setSubscriptionChannelOrder: vi.fn<ApiClient['setSubscriptionChannelOrder']>().mockResolvedValue(undefined),
     getSubscriptionChannel: vi.fn<ApiClient['getSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
     createSubscriptionChannel: vi.fn<ApiClient['createSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
     updateSubscriptionChannel: vi.fn<ApiClient['updateSubscriptionChannel']>().mockResolvedValue(testSubscriptionChannels[0]),
@@ -434,6 +435,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     getSubscriptionNode: vi.fn<ApiClient['getSubscriptionNode']>(),
     updateSubscriptionNode: vi.fn<ApiClient['updateSubscriptionNode']>(),
     listSubscriptionSources: vi.fn<ApiClient['listSubscriptionSources']>().mockResolvedValue({ items: testSubscriptionSources }),
+    setSubscriptionSourceOrder: vi.fn<ApiClient['setSubscriptionSourceOrder']>().mockResolvedValue(undefined),
     getSubscriptionSource: vi.fn<ApiClient['getSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
     createSubscriptionSource: vi.fn<ApiClient['createSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
     updateSubscriptionSource: vi.fn<ApiClient['updateSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
@@ -449,9 +451,8 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
       ...testSubscriptionRuleSets.find(set => set.id === id)!, ...input, updated_at: '2026-08-26T08:00:00.000000001Z',
     })),
     deleteSubscriptionRuleSet: vi.fn<ApiClient['deleteSubscriptionRuleSet']>().mockResolvedValue(undefined),
-    listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>().mockResolvedValue({
-      items: testSubscriptionTokens, total: testSubscriptionTokens.length,
-    }),
+    listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>().mockResolvedValue({ items: testSubscriptionTokens }),
+    setSubscriptionTokenOrder: vi.fn<ApiClient['setSubscriptionTokenOrder']>().mockResolvedValue(undefined),
     getSubscriptionTokenSecret: vi.fn<ApiClient['getSubscriptionTokenSecret']>().mockResolvedValue({ token: 'sample-subscription-token' }),
     getSubscriptionToken: vi.fn<ApiClient['getSubscriptionToken']>().mockResolvedValue(testSubscriptionTokens[0]),
     createSubscriptionToken: vi.fn<ApiClient['createSubscriptionToken']>().mockResolvedValue({
@@ -489,8 +490,13 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     }),
     runFleetCommand: vi.fn<ApiClient['runFleetCommand']>(async function* (command) {
       const ids = command.node_ids ?? [];
+      yield { command: { id: 'command-1' } };
       for (const id of ids) yield { result: { node_id: id, ok: true } };
       yield { done: { failed: 0, skipped: 0, succeeded: ids.length, total: ids.length } };
+    }),
+    followFleetCommand: vi.fn<ApiClient['followFleetCommand']>(async function* (commandID) {
+      yield { command: { id: commandID } };
+      yield { done: { failed: 0, skipped: 0, succeeded: 0, total: 0 } };
     }),
     streamDashboard: vi.fn<ApiClient['streamDashboard']>(async function* (signal) {
       await new Promise<void>((resolve) => {

@@ -17,16 +17,8 @@ func (handler *Handler) subscriptionReadRequest(w http.ResponseWriter, request *
 	return ok
 }
 
-func (handler *Handler) subscriptionListRequest(
-	w http.ResponseWriter,
-	request *http.Request,
-	additionalQuery ...string,
-) (subscription.SubscriptionListRequest, bool) {
-	query, ok := strictCoreQuery(w, request, append([]string{"limit", "before_time", "before_id"}, additionalQuery...)...)
-	if !ok {
-		return subscription.SubscriptionListRequest{}, false
-	}
-	offset, ok := optionalPageOffset(w, request)
+func (handler *Handler) subscriptionListRequest(w http.ResponseWriter, request *http.Request) (subscription.SubscriptionListRequest, bool) {
+	query, ok := strictCoreQuery(w, request, "limit", "before_time", "before_id")
 	if !ok {
 		return subscription.SubscriptionListRequest{}, false
 	}
@@ -38,7 +30,25 @@ func (handler *Handler) subscriptionListRequest(
 	if !ok {
 		return subscription.SubscriptionListRequest{}, false
 	}
-	return subscription.SubscriptionListRequest{Cursor: cursor, Limit: limit, Offset: offset}, true
+	return subscription.SubscriptionListRequest{Cursor: cursor, Limit: limit}, true
+}
+
+// subscriptionOrderRequest reads the IDs of a list's order to save.
+func (handler *Handler) subscriptionOrderRequest(w http.ResponseWriter, request *http.Request) ([]string, bool) {
+	if !handler.subscriptionMutationRequest(w, request) {
+		return nil, false
+	}
+	var input struct {
+		IDs []string `json:"ids"`
+	}
+	if !decodeStrictRequest(w, request, 2<<20, &input) {
+		return nil, false
+	}
+	if input.IDs == nil {
+		writeSubscriptionInvalid(w, request)
+		return nil, false
+	}
+	return input.IDs, true
 }
 
 // listCursor parses the before_time and before_id keyset cursor of a list.
@@ -132,6 +142,12 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 		writeProblem(w, request, http.StatusConflict, "subscription_node_name_taken", "Display name taken", "Another node already uses this display name.")
 	case errors.Is(err, store.ErrSubscriptionRuleSetsChanged):
 		writeProblem(w, request, http.StatusConflict, "subscription_rule_sets_changed", "Rule sets changed", "The client's rule sets changed since they were read; reload them and retry.")
+	case errors.Is(err, store.ErrSubscriptionSourcesChanged):
+		writeProblem(w, request, http.StatusConflict, "subscription_sources_changed", "Sources changed", "The sources changed since they were read; reload them and retry.")
+	case errors.Is(err, store.ErrSubscriptionChannelsChanged):
+		writeProblem(w, request, http.StatusConflict, "subscription_channels_changed", "Channels changed", "The channels changed since they were read; reload them and retry.")
+	case errors.Is(err, store.ErrSubscriptionTokensChanged):
+		writeProblem(w, request, http.StatusConflict, "subscription_tokens_changed", "Keys changed", "The keys changed since they were read; reload them and retry.")
 	case errors.Is(err, store.ErrSubscriptionPoolChanged), errors.Is(err, store.ErrSubscriptionPoolInputsChanged):
 		writeProblem(w, request, http.StatusConflict, "subscription_pool_changed", "Node pool changed", "The node pool changed since it was read; reload it and retry.")
 	case errors.Is(err, store.ErrSubscriptionTokenSecretUnavailable):

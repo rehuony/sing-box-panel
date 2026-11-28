@@ -206,7 +206,7 @@ func validateRunnableBundle(ctx context.Context, tx *sql.Tx, bundleID string) er
 		`SELECT startup.state, startup.canonical_revision_id
            FROM activation_bundles AS bundle
            JOIN startup_artifacts AS startup ON startup.id = bundle.startup_artifact_id
-           JOIN core_artifacts AS core ON core.id = startup.core_artifact_id
+           JOIN core_artifacts AS core ON core.id = startup.core_artifact_id AND core.removed_at IS NULL
           WHERE bundle.id = ?`,
 		bundleID,
 	).Scan(&state, &canonicalRevisionID)

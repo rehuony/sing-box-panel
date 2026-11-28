@@ -60,9 +60,15 @@ function NodeLayout({ node }: { node: FleetNode }) {
       {/*
         The bleed keeps a focus ring at the view's edge from being clipped. It
         fits only where the shell's viewport carries the edge padding; anywhere
-        else it would overflow the shell's scroll area sideways.
+        else it would overflow the shell's scroll area sideways. On a desktop
+        the region reaches into the shell's margin, as the shell's own does,
+        so its scrollbar runs beside the view.
       */}
-      <ScrollArea className='flex-1 max-sm:-mx-1' viewportClassName='flex flex-col max-sm:px-1' viewportRef={scrollRef}>
+      <ScrollArea
+        className='flex-1 max-sm:-mx-1 sm:-me-[var(--shell-edge)]'
+        contentClassName='flex flex-col max-sm:px-1 sm:pe-[var(--shell-edge)]'
+        viewportRef={scrollRef}
+      >
         {node.state === 'online' || settings ? <Outlet /> : <NodeUnavailable node={node} />}
       </ScrollArea>
     </div>

@@ -1,3 +1,5 @@
+import type { MouseEvent } from 'react';
+
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -74,6 +76,23 @@ function useEscapeClearsSelection(active: boolean) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [active]);
+}
+
+/** What a click on the home screen acts on rather than leaving selection mode: a pane or a control. */
+const CLICK_TARGETS = 'article, a, button, input, textarea, select, label, [role="button"], [role="tab"], [role="checkbox"], [role="combobox"], [data-slot^="scroll-area-scrollbar"]';
+
+/**
+ * A click on the home screen's blank space, outside the panes and controls,
+ * leaves selection mode and clears the selection. Clicks inside a layer the
+ * screen opened, such as a dialog, and the click that ends a text selection
+ * are not blank space.
+ */
+function leaveSelectionOnBlankClick(event: MouseEvent<HTMLElement>) {
+  const { target } = event;
+  if (!(target instanceof Element) || !event.currentTarget.contains(target) || target.closest(CLICK_TARGETS)) return;
+  if (window.getSelection()?.isCollapsed === false) return;
+  const { clearSelection, selected, selecting } = useFleetView.getState();
+  if (selecting || selected.size > 0) clearSelection();
 }
 
 /**
@@ -168,18 +187,19 @@ export function FleetPage() {
     // On a phone the figures and the card scroll together; elsewhere the card stays and the panes scroll inside it.
     content = figuresScroll
       ? (
-          <ScrollArea className='min-h-0 flex-1' viewportClassName='flex flex-col gap-3'>
+          <ScrollArea className='min-h-0 flex-1' contentClassName='flex flex-col gap-3'>
             {figuresCard}
             <div className={cn(paneCard, 'grow p-4')}>{grid}</div>
           </ScrollArea>
         )
-      : <ScrollArea className='min-h-0 flex-1' viewportClassName='p-4'>{grid}</ScrollArea>;
+      : <ScrollArea className='min-h-0 flex-1' contentClassName='p-4'>{grid}</ScrollArea>;
   }
 
   // Size containment keeps the panes out of the workspace's height, so the
   // screen fills it exactly and the grid scrolls below the strip and figures.
   return (
-    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)] [contain:size]'>
+    // Pointer users leave selection mode by clicking blank space; keyboards use Escape or the strip's toggle.
+    <section className='flex min-h-0 min-w-0 flex-1 flex-col gap-[var(--workspace-content-gap)] [contain:size]' onClick={leaveSelectionOnBlankClick}>
       <h1 className='sr-only'>{t('nav.nodes')}</h1>
       <TitleStrip>
         {/* Filters at the start, then search filling the room between the dividers, then the actions. */}

@@ -173,16 +173,18 @@ func (s *Store) LatestAcceptedTrafficSample(ctx context.Context, nodeID string) 
           ORDER BY sampled_at DESC, id DESC LIMIT 1`, nodeID))
 }
 
-// AcceptedTrafficSamplesSince returns the node's accepted samples taken at or
-// after since, oldest first.
-func (s *Store) AcceptedTrafficSamplesSince(ctx context.Context, nodeID string, since time.Time) ([]TrafficSample, error) {
+// AcceptedTrafficSamplesReaching returns the node's accepted samples taken at
+// or after since, oldest first, led by the newest one taken before it, so a
+// line through them reaches since rather than starting after it.
+func (s *Store) AcceptedTrafficSamplesReaching(ctx context.Context, nodeID string, since time.Time) ([]TrafficSample, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, activation_bundle_id, pid, process_start_token, sampled_at,
                memory_bytes, active_connections, upload_total, download_total,
                upload_delta, download_delta, interval_start, interval_end,
                coverage, accepted, diagnostic_code
-          FROM traffic_samples WHERE node_id = ? AND sampled_at >= ? AND accepted = 1
-          ORDER BY sampled_at ASC, id ASC`, nodeID, formatTime(since))
+          FROM traffic_samples WHERE node_id = ? AND accepted = 1 AND sampled_at >= coalesce(
+               (SELECT max(sampled_at) FROM traffic_samples WHERE node_id = ? AND accepted = 1 AND sampled_at < ?), ?)
+          ORDER BY sampled_at ASC, id ASC`, nodeID, nodeID, formatTime(since), formatTime(since))
 	if err != nil {
 		return nil, fmt.Errorf("query traffic samples: %w", err)
 	}

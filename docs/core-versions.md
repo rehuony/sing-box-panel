@@ -147,7 +147,8 @@ A new node starts with the saved configuration `{}`, so its first installed
 version can be enabled without manually saving an empty document.
 Existing saved configuration is preserved. Installation and version selection
 do not create or rewrite that document. An unexpectedly absent configuration
-returns `409 configuration_not_saved`; the Web notification links to Configuration.
+returns `409 configuration_not_saved`; the Web notification says to save the
+configuration first.
 Selecting while stopped does not start a process. Selecting while running performs
 preflight before replacing the process. A failed preflight retains the old
 selection, running process and saved JSON. Switching never migrates, fills or
@@ -155,12 +156,15 @@ rewrites configuration fields. Start, restart and rollback also check the exact
 version and the configuration snapshot before execution.
 
 Stop retains the selection. Web Disable stops the selected artifact and clears
-selection only after success. Removal rejects artifacts still referenced by
-startup records or activation bundles. A committed activation records the selected
-installation; `artifacts/current` in the node's data directory is a relative
-convenience symlink reconciled from that record after startup or recovery.
-Execution uses the stored binary path and safe-file checks, not the convenience
-link as an authority.
+selection only after success. Removal rejects the selected artifact and the one
+that runs; earlier startup records and activation bundles are history and keep
+no artifact. Removing deletes the artifact's files, unless another installed
+artifact shares its archive, and drops a rollback pointer to it; its record stays
+so that history still names it, and installing it again restores it. A committed
+activation records the selected installation; `artifacts/current` in the node's
+data directory is a relative convenience symlink reconciled from that record
+after startup or recovery. Execution uses the stored binary path and safe-file
+checks, not the convenience link as an authority.
 
 ## Release lines
 

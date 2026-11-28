@@ -40,14 +40,13 @@ describe('channel list', () => {
     expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
   });
 
-  it('links with any active key from every page, reading only the secret of the key it shows', async () => {
+  it('links with any active key, reading only the secret of the key it shows', async () => {
     const user = userEvent.setup();
-    const next = { id: 'last-first-page', created_at: key.created_at };
-    const second = { ...key, id: 'second-page-key', label: 'Second page' };
+    const second = { ...key, id: 'second-key', label: 'Second page' };
     const client = renderChannels(createMockApiClient({
-      listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>(async filter => filter?.beforeID === next.id
-        ? { items: [second], total: 3 }
-        : { items: [{ ...key, active: false, label: 'Unavailable' }, key], next, total: 3 }),
+      listSubscriptionTokens: vi.fn<ApiClient['listSubscriptionTokens']>(async () => ({
+        items: [{ ...key, active: false, label: 'Unavailable' }, key, second],
+      })),
     }));
     await user.click(within(await channelRow()).getByRole('button', { name: 'Subscription link' }));
     const picker = await screen.findByRole('combobox', { name: 'Key' });

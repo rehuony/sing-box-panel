@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { toast } from '@shared/components/ui/toast-manager';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import type { ApiClient, SubscriptionChannel, SubscriptionPreview } from '@/api/api-client';
+import type { ApiClient, SubscriptionChannel } from '@/api/api-client';
 
 import '@/i18n';
 import { deferred } from '@/tests/deferred';
@@ -59,11 +59,11 @@ describe('channel draft', () => {
     await act(() => result.current.save());
     expect(client.updateSubscriptionChannel.mock.calls[1][2]).toBe('updated');
   });
-  it('validates with the native renderer before a CAS save', async () => {
+  it('saves in one CAS request, which the server renders before it stores', async () => {
     const { result, client, onSaved } = mount(channel);
     act(() => result.current.addGroup());
     await act(() => result.current.save());
-    expect(client.previewSubscriptionChannel).toHaveBeenCalledOnce();
+    expect(client.previewSubscriptionChannel).not.toHaveBeenCalled();
     expect(client.updateSubscriptionChannel).toHaveBeenCalledWith(channel.id, expect.objectContaining({
       enabled: channel.enabled,
       config: result.current.config,
@@ -81,30 +81,22 @@ describe('channel draft', () => {
     expect(result.current.busy).toBe(false);
     expect(onSaved).not.toHaveBeenCalled();
   });
-  it('does not persist or discard edits when native validation rejects the draft', async () => {
-    const { result, client } = mount(channel, { previewSubscriptionChannel: vi.fn().mockRejectedValue(new Error('invalid')) });
-    act(() => result.current.addGroup());
-    await act(() => result.current.save());
-    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
-    expect(result.current.config.groups).toHaveLength(1);
-    expect(result.current.dirty).toBe(true);
-  });
-  it('aborts pending validation on unmount and ignores its late success', async () => {
-    const pending = deferred<SubscriptionPreview>();
+  it('aborts a pending save on unmount and ignores its late success', async () => {
+    const pending = deferred<SubscriptionChannel>();
     const { result, client, unmount, onSaved } = mount(channel, {
-      previewSubscriptionChannel: vi.fn().mockReturnValue(pending.promise),
+      updateSubscriptionChannel: vi.fn().mockReturnValue(pending.promise),
     });
     let saving!: Promise<void>;
     act(() => {
       saving = result.current.save();
     });
+    await waitFor(() => expect(client.updateSubscriptionChannel).toHaveBeenCalledOnce());
     unmount();
-    expect(client.previewSubscriptionChannel.mock.calls[0][2]?.aborted).toBe(true);
+    expect(client.updateSubscriptionChannel.mock.calls[0][3]?.aborted).toBe(true);
     await act(async () => {
-      pending.resolve({} as SubscriptionPreview);
+      pending.resolve({ ...channel, updated_at: 'updated' });
       await saving;
     });
-    expect(client.updateSubscriptionChannel).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
   });
   it('previews unsaved templates without persisting them', async () => {

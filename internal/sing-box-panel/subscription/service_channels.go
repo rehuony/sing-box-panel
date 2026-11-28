@@ -15,7 +15,7 @@ func (application *Service) CreateSubscriptionChannel(
 	ctx context.Context,
 	request CreateSubscriptionChannelRequest,
 ) (SubscriptionChannel, error) {
-	config, err := validateSubscriptionChannelConfig(request.Format, request.Config)
+	config, err := application.renderableChannelConfig(ctx, request.Format, request.Config)
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}
@@ -48,29 +48,32 @@ func (application *Service) SubscriptionChannel(
 	return applicationSubscriptionChannel(stored)
 }
 
-func (application *Service) ListSubscriptionChannels(
-	ctx context.Context,
-	request SubscriptionListRequest,
-) (SubscriptionChannelPage, error) {
-	stored, err := application.database.ListSubscriptionChannels(ctx, store.SubscriptionChannelListFilter{
-		Cursor: storeSubscriptionCursor(request.Cursor), Limit: request.Limit,
-	})
+// ListSubscriptionChannels returns every channel's summary in the channels'
+// saved order.
+func (application *Service) ListSubscriptionChannels(ctx context.Context) (SubscriptionChannelList, error) {
+	stored, err := application.database.ListSubscriptionChannels(ctx)
 	if err != nil {
-		return SubscriptionChannelPage{}, err
+		return SubscriptionChannelList{}, err
 	}
 	pool, err := application.database.SubscriptionPool(ctx)
 	if err != nil {
-		return SubscriptionChannelPage{}, err
+		return SubscriptionChannelList{}, err
 	}
 	nodes := channelNodes(pool)
-	page := SubscriptionChannelPage{Items: make([]SubscriptionChannelSummary, len(stored.Items))}
-	for index, channel := range stored.Items {
-		if page.Items[index], err = applicationSubscriptionChannelSummary(channel, nodes); err != nil {
-			return SubscriptionChannelPage{}, err
+	list := SubscriptionChannelList{Items: make([]SubscriptionChannelSummary, len(stored))}
+	for index, channel := range stored {
+		if list.Items[index], err = applicationSubscriptionChannelSummary(channel, nodes); err != nil {
+			return SubscriptionChannelList{}, err
 		}
 	}
-	page.Next = applicationSubscriptionCursor(stored.Next)
-	return page, nil
+	return list, nil
+}
+
+// SetSubscriptionChannelOrder saves the channels' order. ids must name every
+// channel exactly once; otherwise they changed since they were read and it
+// fails with store.ErrSubscriptionChannelsChanged.
+func (application *Service) SetSubscriptionChannelOrder(ctx context.Context, ids []string) error {
+	return application.database.SetSubscriptionChannelOrder(ctx, ids)
 }
 
 // UpdateSubscriptionChannel replaces a channel with its groups, members and
@@ -80,7 +83,7 @@ func (application *Service) UpdateSubscriptionChannel(
 	channelID string,
 	request UpdateSubscriptionChannelRequest,
 ) (SubscriptionChannel, error) {
-	config, err := validateSubscriptionChannelConfig(request.Format, request.Config)
+	config, err := application.renderableChannelConfig(ctx, request.Format, request.Config)
 	if err != nil {
 		return SubscriptionChannel{}, err
 	}

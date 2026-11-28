@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 
 import { cn } from '@shared/lib/utils';
+import { arrayMove } from '@dnd-kit/sortable';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { PencilLine, Save, Undo2 } from 'lucide-react';
@@ -29,7 +30,7 @@ import { RuleSetIconMenu } from './rule-set-icon-menu';
 import { gutterCell, gutterWidth } from './rule-line-style';
 import { RuleEditLine, RuleEntry, RuleList } from './rule-lines';
 import { SubscriptionContentState } from './subscription-content-state';
-import { parseRules, ruleLine, ruleType, serializeRules, withRuleType } from './rule-text';
+import { parseRules, ruleLine, ruleName, ruleType, serializeRules, withRuleType } from './rule-text';
 
 /** What the rail shows of the set being edited. */
 export interface RuleSetDraft {
@@ -62,14 +63,39 @@ function matchRows(
   return rules.map((rule, index) => ({ key: key(index), origin: free.get(ruleLine(rule))?.shift() ?? null, rule }));
 }
 
-function changed(row: Row, saved: readonly SubscriptionRule[]): boolean {
-  return row.origin === null || ruleLine(row.rule) !== ruleLine(saved[row.origin]!);
+/**
+ * Rows moved out of their saved order: the fewest whose removal leaves the
+ * other saved rules in their order, so the longest run that kept it stays.
+ */
+function movedKeys(rows: readonly Row[]): ReadonlySet<number> {
+  const kept = rows.filter(row => row.origin !== null);
+  // The longest run of rising origins: each length's run ending in the smallest origin, and each row's predecessor.
+  const ends: number[] = [];
+  const previous = Array.from<number>({ length: kept.length }).fill(-1);
+  kept.forEach((row, index) => {
+    let low = 0;
+    let high = ends.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (kept[ends[middle]!]!.origin! < row.origin!) low = middle + 1;
+      else high = middle;
+    }
+    if (low > 0) previous[index] = ends[low - 1]!;
+    ends[low] = index;
+  });
+  const staying = new Set<number>();
+  for (let index = ends.at(-1) ?? -1; index >= 0; index = previous[index]!) staying.add(kept[index]!.key);
+  return new Set(kept.flatMap(row => staying.has(row.key) ? [] : [row.key]));
 }
 
-/** Rules added or changed, and saved rules no row holds any more. */
-function countChanges(rows: readonly Row[], saved: readonly SubscriptionRule[]): number {
+function changed(row: Row, saved: readonly SubscriptionRule[], moved: ReadonlySet<number>): boolean {
+  return row.origin === null || moved.has(row.key) || ruleLine(row.rule) !== ruleLine(saved[row.origin]!);
+}
+
+/** Rules added, changed or moved, and saved rules no row holds any more. */
+function countChanges(rows: readonly Row[], saved: readonly SubscriptionRule[], moved: ReadonlySet<number>): number {
   const kept = new Set(rows.flatMap(row => row.origin === null ? [] : [row.origin]));
-  return rows.filter(row => changed(row, saved)).length + saved.length - kept.size;
+  return rows.filter(row => changed(row, saved, moved)).length + saved.length - kept.size;
 }
 
 /** What makes two rules the same: a remote set's name, or a match's kind and value in any case. */
@@ -134,6 +160,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     text === null || (source === text && parsed) ? parsed : parseRules(text, ruleSet.client);
   const textRows = useMemo(() => parsed ? matchRows(parsed.rules, saved, index => index) : null, [parsed, saved]);
   const current = textRows ?? rows;
+  const moved = useMemo(() => movedKeys(current), [current]);
   const rules = useMemo(() => current.map(row => row.rule), [current]);
   const textInvalid = (parsed?.errors.length ?? 0) > 0;
   const trimmed = name.trim();
@@ -143,7 +170,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   } else if (takenNames.some(each => each.toLowerCase() === trimmed.toLowerCase())) {
     nameIssue = t('subscriptions.ruleSets.validation.setNameTaken', { name: trimmed });
   }
-  const changes = useMemo(() => countChanges(current, saved), [current, saved])
+  const changes = useMemo(() => countChanges(current, saved, moved), [current, moved, saved])
     + (trimmed === ruleSet.name ? 0 : 1) + (icon === ruleSet.icon ? 0 : 1);
   const dirty = changes > 0 || textInvalid;
 
@@ -193,7 +220,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   };
   const duplicateText = (rule: SubscriptionRule) => rule.kind === 'remote'
     ? t('subscriptions.ruleSets.validation.nameTaken', { name: rule.remote?.name ?? '' })
-    : t('subscriptions.ruleSets.duplicate', { rule: ruleLine(rule) });
+    : t('subscriptions.ruleSets.duplicate', { rule: ruleName(rule) });
   const notify = (type: 'error' | 'info' | 'success' | 'warning', title: string, description?: string) => toast.add({
     id: NOTICE,
     title: messageLine(title),
@@ -316,7 +343,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     return true;
   }
 
-  /** Removes a rule; the toast that says so puts it back in its place. */
+  /** Removes a rule from the draft and names it in a toast; reverting the draft brings it back. */
   function removeRow(key: number) {
     const index = rows.findIndex(row => row.key === key);
     const row = rows[index];
@@ -324,28 +351,25 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     setRows(rows.filter(each => each.key !== key));
     if (editingKey === key) setEditingKey(null);
     setRefused(null);
-    toast.add({
-      id: NOTICE,
-      title: t('subscriptions.ruleSets.removed', { rule: ruleLine(row.rule) }),
-      type: 'info',
-      actionProps: {
-        children: t('subscriptions.ruleSets.undo'),
-        onClick: () => {
-          setRows(now => now.some(each => each.key === key) ? now : [...now.slice(0, index), row, ...now.slice(index)]);
-          toast.close(NOTICE);
-        },
-      },
-    });
+    toast.add({ id: NOTICE, title: t('subscriptions.ruleSets.removed', { rule: ruleName(row.rule) }), type: 'info' });
+  }
+
+  /** Moves a rule to another's place; the move stays a draft until saved. */
+  function moveRow(key: number, over: number) {
+    const from = rows.findIndex(row => row.key === key);
+    const to = rows.findIndex(row => row.key === over);
+    if (from >= 0 && to >= 0 && from !== to) setRows(arrayMove(rows, from, to));
   }
 
   // The list's lines are memoized, so they get callbacks that stay the same and reach the latest draft.
-  const handlersRef = useRef({ edit: startEdit, remove: removeRow });
+  const handlersRef = useRef({ edit: startEdit, move: moveRow, remove: removeRow });
   useLayoutEffect(() => {
-    handlersRef.current = { edit: startEdit, remove: removeRow };
+    handlersRef.current = { edit: startEdit, move: moveRow, remove: removeRow };
   });
   const onEdit = useCallback((key: number) => handlersRef.current.edit(key), []);
+  const onMove = useCallback((key: number, over: number) => handlersRef.current.move(key, over), []);
   const onRemove = useCallback((key: number) => handlersRef.current.remove(key), []);
-  const isChanged = useCallback((row: Row) => changed(row, saved), [saved]);
+  const isChanged = useCallback((row: Row) => changed(row, saved, moved), [moved, saved]);
 
   useEffect(() => {
     if (!naming) return;
@@ -405,12 +429,12 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
       if (!issues.has(issue.line)) issues.set(issue.line, issue);
     }
     return {
-      changed: new Set(textRows.flatMap((row, index) => changed(row, saved) ? [parsed.lines[index]!] : [])),
+      changed: new Set(textRows.flatMap((row, index) => changed(row, saved, moved) ? [parsed.lines[index]!] : [])),
       errors: new Set(parsed.errors.map(issue => issue.line)),
       issues,
       notes: new Set(parsed.notes.map(issue => issue.line)),
     };
-  }, [parsed, saved, textRows]);
+  }, [moved, parsed, saved, textRows]);
 
   let body;
   if (text !== null && marks) {
@@ -459,7 +483,9 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
           isChanged={isChanged}
           label={t('subscriptions.ruleSets.rules')}
           onEdit={onEdit}
+          onMove={onMove}
           onRemove={onRemove}
+          sortable={!query && editingKey === null}
         />
       );
     }
