@@ -30,11 +30,14 @@ type AuthSession struct {
 	Token       string    `json:"-"`
 }
 
-// Credentials supplies the administrator credentials. WithCredentials holds the
-// shared settings lock until action returns, so a cooperating credential writer
-// cannot interleave a stale snapshot with the creation or reconciliation of a
-// newer session.
+// Credentials supplies the administrator credentials.
 type Credentials interface {
+	// CurrentCredentials returns the saved credentials without the settings
+	// lock; a change by any process takes effect for the next call.
+	CurrentCredentials(ctx context.Context) (email, passwordHash string, err error)
+	// WithCredentials holds the settings lock until action returns, so a
+	// cooperating credential writer cannot interleave a stale snapshot with
+	// the creation or reconciliation of a newer session.
 	WithCredentials(ctx context.Context, action func(email, passwordHash string) error) error
 }
 
@@ -50,11 +53,11 @@ func NewSessions(database *store.Store, credentials Credentials) *Sessions {
 	return &Sessions{database: database, credentials: credentials, now: time.Now, random: rand.Read}
 }
 
-func (app *Sessions) withCredentials(ctx context.Context, action func(email, passwordHash string) error) error {
+func (app *Sessions) available() error {
 	if app.database == nil || app.credentials == nil {
 		return errors.New("authentication storage is unavailable")
 	}
-	return app.credentials.WithCredentials(ctx, action)
+	return nil
 }
 
 // Login verifies the administrator's email and password and issues a new
@@ -63,12 +66,10 @@ func (app *Sessions) withCredentials(ctx context.Context, action func(email, pas
 // requests; the session is created under the lock only if the credentials
 // it verified are still the current ones.
 func (app *Sessions) Login(ctx context.Context, input LoginInput, previous string) (result AuthSession, err error) {
-	var verified [32]byte
-	var adminEmail, passwordHash string
-	err = app.withCredentials(ctx, func(email, hash string) error {
-		adminEmail, passwordHash = email, hash
-		return nil
-	})
+	if err := app.available(); err != nil {
+		return result, err
+	}
+	adminEmail, passwordHash, err := app.credentials.CurrentCredentials(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -80,8 +81,8 @@ func (app *Sessions) Login(ctx context.Context, input LoginInput, previous strin
 	if !matches || emailErr != nil || email != adminEmail {
 		return result, ErrInvalidCredentials
 	}
-	verified = Fingerprint(adminEmail, passwordHash)
-	err = app.withCredentials(ctx, func(adminEmail, passwordHash string) error {
+	verified := Fingerprint(adminEmail, passwordHash)
+	err = app.credentials.WithCredentials(ctx, func(adminEmail, passwordHash string) error {
 		credential := Fingerprint(adminEmail, passwordHash)
 		if credential != verified {
 			// The credentials changed while the password was verified.
@@ -110,22 +111,29 @@ func (app *Sessions) Login(ctx context.Context, input LoginInput, previous strin
 }
 
 // CurrentSession returns the session token names under the current
-// credentials. A session issued under earlier credentials never matches; the
-// next login removes such sessions together with expired ones, so reading a
-// session writes nothing.
+// credentials. A session issued under earlier credentials never matches,
+// because the query requires the fingerprint of the credentials read for this
+// call; the next login removes such sessions together with expired ones, so
+// reading a session writes nothing. Neither the read nor the query holds the
+// settings lock, so the session checks of parallel requests run in parallel; a
+// credential change that lands between them takes effect, like one landing just
+// after the call, from the next call on at the latest.
 func (app *Sessions) CurrentSession(ctx context.Context, token string) (result AuthSession, err error) {
 	if token == "" || len(token) > 128 {
 		return result, store.ErrAuthSessionMissing
 	}
-	err = app.withCredentials(ctx, func(adminEmail, passwordHash string) error {
-		session, err := app.database.AuthSession(ctx, sha256.Sum256([]byte(token)), Fingerprint(adminEmail, passwordHash), app.now())
-		if err != nil {
-			return err
-		}
-		result = AuthSession{Email: adminEmail, DisplayName: "Administrator", CSRFToken: session.CSRFToken, ExpiresAt: session.ExpiresAt}
-		return nil
-	})
-	return result, err
+	if err := app.available(); err != nil {
+		return result, err
+	}
+	adminEmail, passwordHash, err := app.credentials.CurrentCredentials(ctx)
+	if err != nil {
+		return result, err
+	}
+	session, err := app.database.AuthSession(ctx, sha256.Sum256([]byte(token)), Fingerprint(adminEmail, passwordHash), app.now())
+	if err != nil {
+		return result, err
+	}
+	return AuthSession{Email: adminEmail, DisplayName: "Administrator", CSRFToken: session.CSRFToken, ExpiresAt: session.ExpiresAt}, nil
 }
 
 func (app *Sessions) Logout(ctx context.Context, token string) error {

@@ -1,4 +1,4 @@
-import type { Resource } from 'i18next';
+import type { BackendModule, ResourceKey } from 'i18next';
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
@@ -7,6 +7,9 @@ export const LANGUAGE_STORAGE_KEY = 'sing-box-panel.language';
 export const supportedLanguages = ['en', 'zh-CN'] as const;
 
 export type SupportedLanguage = typeof supportedLanguages[number];
+
+/** Reads each language's translations, which the application keeps in a chunk of their own. */
+export type TranslationLoaders = Readonly<Record<SupportedLanguage, () => Promise<ResourceKey>>>;
 
 function isSupportedLanguage(value: string | null | undefined): value is SupportedLanguage {
   return supportedLanguages.includes(value as SupportedLanguage);
@@ -60,24 +63,49 @@ function synchronizeDocumentLanguage(language: string) {
   }
 }
 
+/** Reads a language's translations when i18next first needs them. */
+function translationBackend(loaders: TranslationLoaders): BackendModule {
+  return {
+    type: 'backend',
+    init: () => undefined,
+    read: (language, _namespace, callback) => {
+      if (!isSupportedLanguage(language)) {
+        callback(null, {});
+        return;
+      }
+      loaders[language]().then(
+        translations => callback(null, translations),
+        (reason: unknown) => callback(reason instanceof Error ? reason : String(reason), null),
+      );
+    },
+  };
+}
+
 /**
- * Initializes the application's i18next instance with its resources, in the
- * saved or browser language, and keeps the document language in step.
+ * Initializes the application's i18next instance in the saved or browser
+ * language and keeps the document language in step. Only that language's
+ * translations are read, and another's when the language changes to it;
+ * ready settles once the first language has loaded, so the application
+ * renders after it.
  */
-export function initializeI18n(resources: Resource): typeof i18n {
-  void i18n
+export function initializeI18n(loaders: TranslationLoaders): { i18n: typeof i18n; ready: Promise<unknown> } {
+  const ready = i18n
+    .use(translationBackend(loaders))
     .use(initReactI18next)
     .init({
-      fallbackLng: 'en',
+      // Every language holds every key, which tests and types check, so none falls back to another.
+      fallbackLng: false,
+      // The language is set at once, so t answers as soon as its translations are there.
+      initAsync: false,
       interpolation: { escapeValue: false },
       lng: resolveInitialLanguage(),
+      load: 'currentOnly',
       nonExplicitSupportedLngs: false,
-      resources,
       supportedLngs: [...supportedLanguages],
     });
   i18n.on('languageChanged', synchronizeDocumentLanguage);
   synchronizeDocumentLanguage(i18n.resolvedLanguage ?? i18n.language);
-  return i18n;
+  return { i18n, ready };
 }
 
 /** Changes the application language and remembers the choice. */
@@ -88,5 +116,7 @@ export async function setAppLanguage(language: SupportedLanguage): Promise<void>
   } catch {
     // Language selection still applies when persistence is unavailable.
   }
-  await i18n.changeLanguage(language);
+  // A language whose translations cannot be read is not switched to, so no key shows in their place.
+  await i18n.loadLanguages(language);
+  if (i18n.hasResourceBundle(language, 'translation')) await i18n.changeLanguage(language);
 }

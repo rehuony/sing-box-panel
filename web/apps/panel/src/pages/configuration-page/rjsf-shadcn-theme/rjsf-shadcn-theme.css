@@ -220,9 +220,23 @@
   gap: 8px;
   padding-block: 4px;
 }
-.schema-form__value-row > :first-child {
+.schema-form__value-row > .schema-form__value-field {
   flex: 1;
   min-width: 0;
+}
+/* An orderable array's lines start with their grip, which the line's start keeps room for. */
+.schema-form__array--sortable > .schema-form__list-header,
+.schema-form__array--sortable > .schema-form__array-items > .schema-form__list-row {
+  padding-inline-start: 40px;
+}
+.schema-form__array--sortable > .schema-form__array-items > .schema-form__list-row {
+  position: relative;
+}
+.schema-form__item-grip {
+  position: absolute;
+  inset-inline-start: 6px;
+  top: 50%;
+  translate: 0 -50%;
 }
 .schema-form__value-row .schema-form__field {
   display: block;
@@ -262,6 +276,12 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 4px 12px;
     padding: 12px 0;
+  }
+  .schema-form__array--sortable > .schema-form__array-items > .schema-form__list-row {
+    padding-inline-start: 32px;
+  }
+  .schema-form__item-grip {
+    inset-inline-start: 0;
   }
   .schema-form__array--users[data-credentials] .schema-form__list-row {
     grid-template-columns: minmax(0, 1fr) auto;

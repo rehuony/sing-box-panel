@@ -10,6 +10,7 @@ import { IconAction } from '@/components/icon-action';
 
 import type { SourceContent } from './source-content';
 
+import { pasteFromClipboard } from './clipboard-paste';
 import { pastedContent, readContentFile, webURL } from './source-content';
 
 /**
@@ -23,7 +24,7 @@ export function SourceInput({ describedBy, id, inputRef, invalid, onContent, onE
   url: string;
   onURL: (url: string) => void;
   onContent: (content: SourceContent) => void;
-  /** Says why content could not be taken, in the form's message slot. */
+  /** Says why content could not be taken, which the form reports and marks the field for. */
   onError: (text: string) => void;
   inputRef?: Ref<HTMLInputElement>;
   invalid?: boolean;
@@ -90,11 +91,7 @@ export function SourceInput({ describedBy, id, inputRef, invalid, onContent, onE
       <InputGroupAddon align='inline-end' className='gap-0.5'>
         <IconAction
           label={t('subscriptions.sources.content.paste')}
-          onClick={() => {
-            // The clipboard is absent outside a secure context, and reading it may be refused.
-            const reading = navigator.clipboard?.readText() ?? Promise.reject(new Error('clipboard unavailable'));
-            reading.then(take, () => onError(t('subscriptions.sources.content.clipboardUnavailable')));
-          }}
+          onClick={() => pasteFromClipboard(take, document.getElementById(id))}
           size='icon-xs'
         >
           <ClipboardPaste aria-hidden='true' />

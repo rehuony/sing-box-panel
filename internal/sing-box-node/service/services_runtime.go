@@ -44,6 +44,7 @@ type runtimeIdentityResolver interface {
 }
 
 func newRuntimeServices(
+	ctx context.Context,
 	database *store.Store,
 	commands *Node,
 	dataDir string,
@@ -52,7 +53,11 @@ func newRuntimeServices(
 	if err != nil {
 		return nil, err
 	}
-	if err := logs.SetPolicy(DefaultCoreLogPolicy); err != nil {
+	policy, err := startingCoreLogPolicy(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+	if err := logs.SetPolicy(policy); err != nil {
 		return nil, err
 	}
 	commands.attachCoreLogs(logs)

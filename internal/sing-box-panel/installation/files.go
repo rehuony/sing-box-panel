@@ -17,6 +17,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/pathguard"
 	"github.com/rehuony/sing-box-panel/internal/procctl"
 	"github.com/rehuony/sing-box-panel/internal/selfupdate"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/backup"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/releases"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/settings"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -46,6 +47,7 @@ type Report struct {
 // Known names provide descriptive roles; every entry inside DataDir is in scope.
 var knownDataPaths = []struct{ name, role string }{
 	{"artifact-cache", "verified core archives that nodes install from"},
+	{backup.DirectoryName, "panel backups: scheduled, manual and made before each restore, and a restore staged to apply at the next start"},
 	{"imports", "staged core uploads"},
 	{releases.CacheDir, "verified node release of the panel's version that nodes update from"},
 	{selfupdate.UpdatesDir, "panel updates being received or staged, and the last update's outcome"},

@@ -721,6 +721,7 @@ type ConnectResponse struct {
 	//	*ConnectResponse_Command
 	//	*ConnectResponse_Cancel
 	//	*ConnectResponse_TelemetryControl
+	//	*ConnectResponse_CoreLogPolicy
 	Frame         isConnectResponse_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -808,6 +809,15 @@ func (x *ConnectResponse) GetTelemetryControl() *TelemetryControl {
 	return nil
 }
 
+func (x *ConnectResponse) GetCoreLogPolicy() *CoreLogPolicy {
+	if x != nil {
+		if x, ok := x.Frame.(*ConnectResponse_CoreLogPolicy); ok {
+			return x.CoreLogPolicy
+		}
+	}
+	return nil
+}
+
 type isConnectResponse_Frame interface {
 	isConnectResponse_Frame()
 }
@@ -832,6 +842,11 @@ type ConnectResponse_TelemetryControl struct {
 	TelemetryControl *TelemetryControl `protobuf:"bytes,5,opt,name=telemetry_control,json=telemetryControl,proto3,oneof"`
 }
 
+type ConnectResponse_CoreLogPolicy struct {
+	// Since minor version 3.
+	CoreLogPolicy *CoreLogPolicy `protobuf:"bytes,6,opt,name=core_log_policy,json=coreLogPolicy,proto3,oneof"`
+}
+
 func (*ConnectResponse_Challenge) isConnectResponse_Frame() {}
 
 func (*ConnectResponse_Welcome) isConnectResponse_Frame() {}
@@ -841,6 +856,8 @@ func (*ConnectResponse_Command) isConnectResponse_Frame() {}
 func (*ConnectResponse_Cancel) isConnectResponse_Frame() {}
 
 func (*ConnectResponse_TelemetryControl) isConnectResponse_Frame() {}
+
+func (*ConnectResponse_CoreLogPolicy) isConnectResponse_Frame() {}
 
 type Hello struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
@@ -1030,8 +1047,10 @@ type Welcome struct {
 	// The ID of the newest runtime transition of this node instance that the
 	// panel holds. The node sends the transitions after it, oldest first.
 	RuntimeHistoryAfter int64 `protobuf:"varint,5,opt,name=runtime_history_after,json=runtimeHistoryAfter,proto3" json:"runtime_history_after,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The retention of the node's core log captures. Since minor version 3.
+	CoreLogPolicy *CoreLogPolicy `protobuf:"bytes,6,opt,name=core_log_policy,json=coreLogPolicy,proto3" json:"core_log_policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Welcome) Reset() {
@@ -1097,6 +1116,13 @@ func (x *Welcome) GetRuntimeHistoryAfter() int64 {
 		return x.RuntimeHistoryAfter
 	}
 	return 0
+}
+
+func (x *Welcome) GetCoreLogPolicy() *CoreLogPolicy {
+	if x != nil {
+		return x.CoreLogPolicy
+	}
+	return nil
 }
 
 // Command asks the node to do one thing. A repeated request ID returns the
@@ -1582,6 +1608,72 @@ func (x *TelemetryControl) GetMetricsInterval() *durationpb.Duration {
 	return nil
 }
 
+// CoreLogPolicy is how long the node keeps its core log captures, set in the
+// panel's settings. The panel sends it in Welcome and again when the settings
+// change; the node applies it at once and keeps it across restarts.
+type CoreLogPolicy struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UTC dates kept, including today: 1 to 3650.
+	RetentionDays uint32 `protobuf:"varint,1,opt,name=retention_days,json=retentionDays,proto3" json:"retention_days,omitempty"`
+	// The most files kept, 0 to 1024; 0 keeps any number.
+	MaxFiles uint32 `protobuf:"varint,2,opt,name=max_files,json=maxFiles,proto3" json:"max_files,omitempty"`
+	// The size at which a file rotates: 1 MiB to 1 GiB.
+	MaxFileBytes  uint64 `protobuf:"varint,3,opt,name=max_file_bytes,json=maxFileBytes,proto3" json:"max_file_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CoreLogPolicy) Reset() {
+	*x = CoreLogPolicy{}
+	mi := &file_sbp_node_v1_node_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CoreLogPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CoreLogPolicy) ProtoMessage() {}
+
+func (x *CoreLogPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_sbp_node_v1_node_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CoreLogPolicy.ProtoReflect.Descriptor instead.
+func (*CoreLogPolicy) Descriptor() ([]byte, []int) {
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *CoreLogPolicy) GetRetentionDays() uint32 {
+	if x != nil {
+		return x.RetentionDays
+	}
+	return 0
+}
+
+func (x *CoreLogPolicy) GetMaxFiles() uint32 {
+	if x != nil {
+		return x.MaxFiles
+	}
+	return 0
+}
+
+func (x *CoreLogPolicy) GetMaxFileBytes() uint64 {
+	if x != nil {
+		return x.MaxFileBytes
+	}
+	return 0
+}
+
 // ArtifactIdentity is the immutable identity of one installable core
 // artifact. Digest, platform, variant and reported version all belong to it.
 type ArtifactIdentity struct {
@@ -1605,7 +1697,7 @@ type ArtifactIdentity struct {
 
 func (x *ArtifactIdentity) Reset() {
 	*x = ArtifactIdentity{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[13]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1617,7 +1709,7 @@ func (x *ArtifactIdentity) String() string {
 func (*ArtifactIdentity) ProtoMessage() {}
 
 func (x *ArtifactIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[13]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1630,7 +1722,7 @@ func (x *ArtifactIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactIdentity.ProtoReflect.Descriptor instead.
 func (*ArtifactIdentity) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{13}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ArtifactIdentity) GetId() string {
@@ -1725,7 +1817,7 @@ type ConfigurationRevision struct {
 
 func (x *ConfigurationRevision) Reset() {
 	*x = ConfigurationRevision{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[14]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1737,7 +1829,7 @@ func (x *ConfigurationRevision) String() string {
 func (*ConfigurationRevision) ProtoMessage() {}
 
 func (x *ConfigurationRevision) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[14]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1750,7 +1842,7 @@ func (x *ConfigurationRevision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigurationRevision.ProtoReflect.Descriptor instead.
 func (*ConfigurationRevision) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{14}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ConfigurationRevision) GetRevisionId() string {
@@ -1792,7 +1884,7 @@ type CheckConfiguration struct {
 
 func (x *CheckConfiguration) Reset() {
 	*x = CheckConfiguration{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[15]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +1896,7 @@ func (x *CheckConfiguration) String() string {
 func (*CheckConfiguration) ProtoMessage() {}
 
 func (x *CheckConfiguration) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[15]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +1909,7 @@ func (x *CheckConfiguration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckConfiguration.ProtoReflect.Descriptor instead.
 func (*CheckConfiguration) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{15}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CheckConfiguration) GetConfiguration() *ConfigurationRevision {
@@ -1845,7 +1937,7 @@ type StartRuntime struct {
 
 func (x *StartRuntime) Reset() {
 	*x = StartRuntime{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[16]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1857,7 +1949,7 @@ func (x *StartRuntime) String() string {
 func (*StartRuntime) ProtoMessage() {}
 
 func (x *StartRuntime) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[16]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1870,7 +1962,7 @@ func (x *StartRuntime) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRuntime.ProtoReflect.Descriptor instead.
 func (*StartRuntime) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{16}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *StartRuntime) GetConfiguration() *ConfigurationRevision {
@@ -1888,7 +1980,7 @@ type StopRuntime struct {
 
 func (x *StopRuntime) Reset() {
 	*x = StopRuntime{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[17]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1900,7 +1992,7 @@ func (x *StopRuntime) String() string {
 func (*StopRuntime) ProtoMessage() {}
 
 func (x *StopRuntime) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[17]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1913,7 +2005,7 @@ func (x *StopRuntime) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRuntime.ProtoReflect.Descriptor instead.
 func (*StopRuntime) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{17}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{18}
 }
 
 // RestartRuntime checks the revision with the applied core and replaces the
@@ -1927,7 +2019,7 @@ type RestartRuntime struct {
 
 func (x *RestartRuntime) Reset() {
 	*x = RestartRuntime{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[18]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1939,7 +2031,7 @@ func (x *RestartRuntime) String() string {
 func (*RestartRuntime) ProtoMessage() {}
 
 func (x *RestartRuntime) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[18]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1952,7 +2044,7 @@ func (x *RestartRuntime) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartRuntime.ProtoReflect.Descriptor instead.
 func (*RestartRuntime) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{18}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RestartRuntime) GetConfiguration() *ConfigurationRevision {
@@ -1972,7 +2064,7 @@ type RollbackRuntime struct {
 
 func (x *RollbackRuntime) Reset() {
 	*x = RollbackRuntime{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[19]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1984,7 +2076,7 @@ func (x *RollbackRuntime) String() string {
 func (*RollbackRuntime) ProtoMessage() {}
 
 func (x *RollbackRuntime) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[19]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1997,7 +2089,7 @@ func (x *RollbackRuntime) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackRuntime.ProtoReflect.Descriptor instead.
 func (*RollbackRuntime) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{19}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RollbackRuntime) GetBundleId() string {
@@ -2019,7 +2111,7 @@ type EnableCore struct {
 
 func (x *EnableCore) Reset() {
 	*x = EnableCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[20]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2031,7 +2123,7 @@ func (x *EnableCore) String() string {
 func (*EnableCore) ProtoMessage() {}
 
 func (x *EnableCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[20]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2044,7 +2136,7 @@ func (x *EnableCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableCore.ProtoReflect.Descriptor instead.
 func (*EnableCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{20}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EnableCore) GetConfiguration() *ConfigurationRevision {
@@ -2071,7 +2163,7 @@ type DisableCore struct {
 
 func (x *DisableCore) Reset() {
 	*x = DisableCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[21]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2083,7 +2175,7 @@ func (x *DisableCore) String() string {
 func (*DisableCore) ProtoMessage() {}
 
 func (x *DisableCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[21]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2096,7 +2188,7 @@ func (x *DisableCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableCore.ProtoReflect.Descriptor instead.
 func (*DisableCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{21}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DisableCore) GetArtifactId() string {
@@ -2115,7 +2207,7 @@ type CheckStartup struct {
 
 func (x *CheckStartup) Reset() {
 	*x = CheckStartup{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[22]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2127,7 +2219,7 @@ func (x *CheckStartup) String() string {
 func (*CheckStartup) ProtoMessage() {}
 
 func (x *CheckStartup) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[22]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2140,7 +2232,7 @@ func (x *CheckStartup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckStartup.ProtoReflect.Descriptor instead.
 func (*CheckStartup) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{22}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CheckStartup) GetStartupArtifactId() string {
@@ -2158,7 +2250,7 @@ type GetRuntimeStatus struct {
 
 func (x *GetRuntimeStatus) Reset() {
 	*x = GetRuntimeStatus{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[23]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2170,7 +2262,7 @@ func (x *GetRuntimeStatus) String() string {
 func (*GetRuntimeStatus) ProtoMessage() {}
 
 func (x *GetRuntimeStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[23]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2183,7 +2275,7 @@ func (x *GetRuntimeStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuntimeStatus.ProtoReflect.Descriptor instead.
 func (*GetRuntimeStatus) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{23}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{24}
 }
 
 type InstallCore struct {
@@ -2199,7 +2291,7 @@ type InstallCore struct {
 
 func (x *InstallCore) Reset() {
 	*x = InstallCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[24]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2211,7 +2303,7 @@ func (x *InstallCore) String() string {
 func (*InstallCore) ProtoMessage() {}
 
 func (x *InstallCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[24]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2224,7 +2316,7 @@ func (x *InstallCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallCore.ProtoReflect.Descriptor instead.
 func (*InstallCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{24}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *InstallCore) GetArtifact() *ArtifactIdentity {
@@ -2257,7 +2349,7 @@ type RemoveCore struct {
 
 func (x *RemoveCore) Reset() {
 	*x = RemoveCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[25]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2269,7 +2361,7 @@ func (x *RemoveCore) String() string {
 func (*RemoveCore) ProtoMessage() {}
 
 func (x *RemoveCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[25]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2282,7 +2374,7 @@ func (x *RemoveCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveCore.ProtoReflect.Descriptor instead.
 func (*RemoveCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{25}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RemoveCore) GetArtifactId() string {
@@ -2309,7 +2401,7 @@ type ListCores struct {
 
 func (x *ListCores) Reset() {
 	*x = ListCores{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[26]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2321,7 +2413,7 @@ func (x *ListCores) String() string {
 func (*ListCores) ProtoMessage() {}
 
 func (x *ListCores) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[26]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2334,7 +2426,7 @@ func (x *ListCores) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCores.ProtoReflect.Descriptor instead.
 func (*ListCores) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{26}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListCores) GetBeforeTime() *timestamppb.Timestamp {
@@ -2407,7 +2499,7 @@ type BrowseFilesystem struct {
 
 func (x *BrowseFilesystem) Reset() {
 	*x = BrowseFilesystem{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[27]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2419,7 +2511,7 @@ func (x *BrowseFilesystem) String() string {
 func (*BrowseFilesystem) ProtoMessage() {}
 
 func (x *BrowseFilesystem) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[27]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2432,7 +2524,7 @@ func (x *BrowseFilesystem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BrowseFilesystem.ProtoReflect.Descriptor instead.
 func (*BrowseFilesystem) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{27}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *BrowseFilesystem) GetPath() string {
@@ -2487,7 +2579,7 @@ type ResolveFilesystemPath struct {
 
 func (x *ResolveFilesystemPath) Reset() {
 	*x = ResolveFilesystemPath{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[28]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2499,7 +2591,7 @@ func (x *ResolveFilesystemPath) String() string {
 func (*ResolveFilesystemPath) ProtoMessage() {}
 
 func (x *ResolveFilesystemPath) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[28]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2512,7 +2604,7 @@ func (x *ResolveFilesystemPath) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveFilesystemPath.ProtoReflect.Descriptor instead.
 func (*ResolveFilesystemPath) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{28}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ResolveFilesystemPath) GetPath() string {
@@ -2537,7 +2629,7 @@ type ListCoreLogs struct {
 
 func (x *ListCoreLogs) Reset() {
 	*x = ListCoreLogs{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[29]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2549,7 +2641,7 @@ func (x *ListCoreLogs) String() string {
 func (*ListCoreLogs) ProtoMessage() {}
 
 func (x *ListCoreLogs) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[29]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2562,7 +2654,7 @@ func (x *ListCoreLogs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCoreLogs.ProtoReflect.Descriptor instead.
 func (*ListCoreLogs) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{29}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{30}
 }
 
 type ReadCoreLog struct {
@@ -2577,7 +2669,7 @@ type ReadCoreLog struct {
 
 func (x *ReadCoreLog) Reset() {
 	*x = ReadCoreLog{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[30]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2589,7 +2681,7 @@ func (x *ReadCoreLog) String() string {
 func (*ReadCoreLog) ProtoMessage() {}
 
 func (x *ReadCoreLog) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[30]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2602,7 +2694,7 @@ func (x *ReadCoreLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadCoreLog.ProtoReflect.Descriptor instead.
 func (*ReadCoreLog) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{30}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ReadCoreLog) GetFile() string {
@@ -2635,7 +2727,7 @@ type DeleteCoreLog struct {
 
 func (x *DeleteCoreLog) Reset() {
 	*x = DeleteCoreLog{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[31]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2647,7 +2739,7 @@ func (x *DeleteCoreLog) String() string {
 func (*DeleteCoreLog) ProtoMessage() {}
 
 func (x *DeleteCoreLog) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[31]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2660,7 +2752,7 @@ func (x *DeleteCoreLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteCoreLog.ProtoReflect.Descriptor instead.
 func (*DeleteCoreLog) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{31}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DeleteCoreLog) GetFile() string {
@@ -2679,7 +2771,7 @@ type ClearCoreLog struct {
 
 func (x *ClearCoreLog) Reset() {
 	*x = ClearCoreLog{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[32]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2691,7 +2783,7 @@ func (x *ClearCoreLog) String() string {
 func (*ClearCoreLog) ProtoMessage() {}
 
 func (x *ClearCoreLog) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[32]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2704,7 +2796,7 @@ func (x *ClearCoreLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearCoreLog.ProtoReflect.Descriptor instead.
 func (*ClearCoreLog) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{32}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ClearCoreLog) GetFile() string {
@@ -2728,7 +2820,7 @@ type UpdateNode struct {
 
 func (x *UpdateNode) Reset() {
 	*x = UpdateNode{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[33]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2740,7 +2832,7 @@ func (x *UpdateNode) String() string {
 func (*UpdateNode) ProtoMessage() {}
 
 func (x *UpdateNode) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[33]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2753,7 +2845,7 @@ func (x *UpdateNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateNode.ProtoReflect.Descriptor instead.
 func (*UpdateNode) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{33}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *UpdateNode) GetVersion() string {
@@ -2775,7 +2867,7 @@ type GetCoreSchema struct {
 
 func (x *GetCoreSchema) Reset() {
 	*x = GetCoreSchema{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[34]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2787,7 +2879,7 @@ func (x *GetCoreSchema) String() string {
 func (*GetCoreSchema) ProtoMessage() {}
 
 func (x *GetCoreSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[34]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2800,7 +2892,7 @@ func (x *GetCoreSchema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCoreSchema.ProtoReflect.Descriptor instead.
 func (*GetCoreSchema) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{34}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GetCoreSchema) GetArtifactId() string {
@@ -2832,7 +2924,7 @@ type Result struct {
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[35]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2844,7 +2936,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[35]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2857,7 +2949,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{35}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Result) GetRequestId() string {
@@ -3026,7 +3118,7 @@ type Problem struct {
 
 func (x *Problem) Reset() {
 	*x = Problem{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[36]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3038,7 +3130,7 @@ func (x *Problem) String() string {
 func (*Problem) ProtoMessage() {}
 
 func (x *Problem) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[36]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3051,7 +3143,7 @@ func (x *Problem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Problem.ProtoReflect.Descriptor instead.
 func (*Problem) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{36}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *Problem) GetCode() string {
@@ -3084,7 +3176,7 @@ type CheckOutcome struct {
 
 func (x *CheckOutcome) Reset() {
 	*x = CheckOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[37]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3096,7 +3188,7 @@ func (x *CheckOutcome) String() string {
 func (*CheckOutcome) ProtoMessage() {}
 
 func (x *CheckOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[37]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3109,7 +3201,7 @@ func (x *CheckOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckOutcome.ProtoReflect.Descriptor instead.
 func (*CheckOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{37}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *CheckOutcome) GetStartup() *StartupArtifact {
@@ -3137,7 +3229,7 @@ type StartupArtifact struct {
 
 func (x *StartupArtifact) Reset() {
 	*x = StartupArtifact{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[38]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3149,7 +3241,7 @@ func (x *StartupArtifact) String() string {
 func (*StartupArtifact) ProtoMessage() {}
 
 func (x *StartupArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[38]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3162,7 +3254,7 @@ func (x *StartupArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartupArtifact.ProtoReflect.Descriptor instead.
 func (*StartupArtifact) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{38}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *StartupArtifact) GetId() string {
@@ -3231,7 +3323,7 @@ type RuntimeOutcome struct {
 
 func (x *RuntimeOutcome) Reset() {
 	*x = RuntimeOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[39]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3243,7 +3335,7 @@ func (x *RuntimeOutcome) String() string {
 func (*RuntimeOutcome) ProtoMessage() {}
 
 func (x *RuntimeOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[39]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3256,7 +3348,7 @@ func (x *RuntimeOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeOutcome.ProtoReflect.Descriptor instead.
 func (*RuntimeOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{39}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RuntimeOutcome) GetStatus() *RuntimeStatus {
@@ -3284,7 +3376,7 @@ type RuntimeStatus struct {
 
 func (x *RuntimeStatus) Reset() {
 	*x = RuntimeStatus{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[40]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3296,7 +3388,7 @@ func (x *RuntimeStatus) String() string {
 func (*RuntimeStatus) ProtoMessage() {}
 
 func (x *RuntimeStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[40]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3309,7 +3401,7 @@ func (x *RuntimeStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeStatus.ProtoReflect.Descriptor instead.
 func (*RuntimeStatus) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{40}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *RuntimeStatus) GetEnabledCoreArtifactId() string {
@@ -3398,7 +3490,7 @@ type RunningCore struct {
 
 func (x *RunningCore) Reset() {
 	*x = RunningCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[41]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3410,7 +3502,7 @@ func (x *RunningCore) String() string {
 func (*RunningCore) ProtoMessage() {}
 
 func (x *RunningCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[41]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3423,7 +3515,7 @@ func (x *RunningCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunningCore.ProtoReflect.Descriptor instead.
 func (*RunningCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{41}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *RunningCore) GetPid() int64 {
@@ -3494,7 +3586,7 @@ type CoreOutcome struct {
 
 func (x *CoreOutcome) Reset() {
 	*x = CoreOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[42]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3506,7 +3598,7 @@ func (x *CoreOutcome) String() string {
 func (*CoreOutcome) ProtoMessage() {}
 
 func (x *CoreOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[42]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3519,7 +3611,7 @@ func (x *CoreOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreOutcome.ProtoReflect.Descriptor instead.
 func (*CoreOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{42}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *CoreOutcome) GetInstalled() []*InstalledCore {
@@ -3559,7 +3651,7 @@ type BrowseOutcome struct {
 
 func (x *BrowseOutcome) Reset() {
 	*x = BrowseOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[43]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3571,7 +3663,7 @@ func (x *BrowseOutcome) String() string {
 func (*BrowseOutcome) ProtoMessage() {}
 
 func (x *BrowseOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[43]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3584,7 +3676,7 @@ func (x *BrowseOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BrowseOutcome.ProtoReflect.Descriptor instead.
 func (*BrowseOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{43}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *BrowseOutcome) GetPath() string {
@@ -3656,7 +3748,7 @@ type FilesystemEntry struct {
 
 func (x *FilesystemEntry) Reset() {
 	*x = FilesystemEntry{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[44]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3668,7 +3760,7 @@ func (x *FilesystemEntry) String() string {
 func (*FilesystemEntry) ProtoMessage() {}
 
 func (x *FilesystemEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[44]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3681,7 +3773,7 @@ func (x *FilesystemEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilesystemEntry.ProtoReflect.Descriptor instead.
 func (*FilesystemEntry) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{44}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FilesystemEntry) GetName() string {
@@ -3732,7 +3824,7 @@ type ResolveOutcome struct {
 
 func (x *ResolveOutcome) Reset() {
 	*x = ResolveOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[45]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3744,7 +3836,7 @@ func (x *ResolveOutcome) String() string {
 func (*ResolveOutcome) ProtoMessage() {}
 
 func (x *ResolveOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[45]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3757,7 +3849,7 @@ func (x *ResolveOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveOutcome.ProtoReflect.Descriptor instead.
 func (*ResolveOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{45}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ResolveOutcome) GetPath() string {
@@ -3806,7 +3898,7 @@ type UpdateOutcome struct {
 
 func (x *UpdateOutcome) Reset() {
 	*x = UpdateOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[46]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3818,7 +3910,7 @@ func (x *UpdateOutcome) String() string {
 func (*UpdateOutcome) ProtoMessage() {}
 
 func (x *UpdateOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[46]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3831,7 +3923,7 @@ func (x *UpdateOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateOutcome.ProtoReflect.Descriptor instead.
 func (*UpdateOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{46}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *UpdateOutcome) GetState() UpdateState {
@@ -3859,7 +3951,7 @@ type CoreSchemaOutcome struct {
 
 func (x *CoreSchemaOutcome) Reset() {
 	*x = CoreSchemaOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[47]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3871,7 +3963,7 @@ func (x *CoreSchemaOutcome) String() string {
 func (*CoreSchemaOutcome) ProtoMessage() {}
 
 func (x *CoreSchemaOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[47]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3884,7 +3976,7 @@ func (x *CoreSchemaOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreSchemaOutcome.ProtoReflect.Descriptor instead.
 func (*CoreSchemaOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{47}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CoreSchemaOutcome) GetSchema() []byte {
@@ -3904,7 +3996,7 @@ type CoreLogOutcome struct {
 
 func (x *CoreLogOutcome) Reset() {
 	*x = CoreLogOutcome{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[48]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3916,7 +4008,7 @@ func (x *CoreLogOutcome) String() string {
 func (*CoreLogOutcome) ProtoMessage() {}
 
 func (x *CoreLogOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[48]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3929,7 +4021,7 @@ func (x *CoreLogOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreLogOutcome.ProtoReflect.Descriptor instead.
 func (*CoreLogOutcome) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{48}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *CoreLogOutcome) GetFiles() []*CoreLogFile {
@@ -3958,7 +4050,7 @@ type CoreLogFile struct {
 
 func (x *CoreLogFile) Reset() {
 	*x = CoreLogFile{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[49]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3970,7 +4062,7 @@ func (x *CoreLogFile) String() string {
 func (*CoreLogFile) ProtoMessage() {}
 
 func (x *CoreLogFile) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[49]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3983,7 +4075,7 @@ func (x *CoreLogFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreLogFile.ProtoReflect.Descriptor instead.
 func (*CoreLogFile) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{49}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *CoreLogFile) GetName() string {
@@ -4028,7 +4120,7 @@ type CoreLogChunk struct {
 
 func (x *CoreLogChunk) Reset() {
 	*x = CoreLogChunk{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[50]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4040,7 +4132,7 @@ func (x *CoreLogChunk) String() string {
 func (*CoreLogChunk) ProtoMessage() {}
 
 func (x *CoreLogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[50]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4053,7 +4145,7 @@ func (x *CoreLogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreLogChunk.ProtoReflect.Descriptor instead.
 func (*CoreLogChunk) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{50}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *CoreLogChunk) GetFile() string {
@@ -4116,7 +4208,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[51]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4128,7 +4220,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[51]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4141,7 +4233,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{51}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *Event) GetRequestId() string {
@@ -4230,7 +4322,7 @@ type StateReport struct {
 
 func (x *StateReport) Reset() {
 	*x = StateReport{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[52]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4242,7 +4334,7 @@ func (x *StateReport) String() string {
 func (*StateReport) ProtoMessage() {}
 
 func (x *StateReport) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[52]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4255,7 +4347,7 @@ func (x *StateReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateReport.ProtoReflect.Descriptor instead.
 func (*StateReport) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{52}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *StateReport) GetHost() *Host {
@@ -4321,7 +4413,7 @@ type UpdateAttempt struct {
 
 func (x *UpdateAttempt) Reset() {
 	*x = UpdateAttempt{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[53]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4333,7 +4425,7 @@ func (x *UpdateAttempt) String() string {
 func (*UpdateAttempt) ProtoMessage() {}
 
 func (x *UpdateAttempt) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[53]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4346,7 +4438,7 @@ func (x *UpdateAttempt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAttempt.ProtoReflect.Descriptor instead.
 func (*UpdateAttempt) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{53}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *UpdateAttempt) GetVersion() string {
@@ -4389,7 +4481,7 @@ type Host struct {
 
 func (x *Host) Reset() {
 	*x = Host{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4401,7 +4493,7 @@ func (x *Host) String() string {
 func (*Host) ProtoMessage() {}
 
 func (x *Host) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[54]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4414,7 +4506,7 @@ func (x *Host) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Host.ProtoReflect.Descriptor instead.
 func (*Host) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{54}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *Host) GetHostname() string {
@@ -4458,7 +4550,7 @@ type Bundle struct {
 
 func (x *Bundle) Reset() {
 	*x = Bundle{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4470,7 +4562,7 @@ func (x *Bundle) String() string {
 func (*Bundle) ProtoMessage() {}
 
 func (x *Bundle) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[55]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4483,7 +4575,7 @@ func (x *Bundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Bundle.ProtoReflect.Descriptor instead.
 func (*Bundle) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{55}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *Bundle) GetBundleId() string {
@@ -4556,7 +4648,7 @@ type InstalledCore struct {
 
 func (x *InstalledCore) Reset() {
 	*x = InstalledCore{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4568,7 +4660,7 @@ func (x *InstalledCore) String() string {
 func (*InstalledCore) ProtoMessage() {}
 
 func (x *InstalledCore) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[56]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4581,7 +4673,7 @@ func (x *InstalledCore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstalledCore.ProtoReflect.Descriptor instead.
 func (*InstalledCore) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{56}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *InstalledCore) GetArtifact() *ArtifactIdentity {
@@ -4639,7 +4731,7 @@ type RuntimeTransition struct {
 
 func (x *RuntimeTransition) Reset() {
 	*x = RuntimeTransition{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4651,7 +4743,7 @@ func (x *RuntimeTransition) String() string {
 func (*RuntimeTransition) ProtoMessage() {}
 
 func (x *RuntimeTransition) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[57]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4664,7 +4756,7 @@ func (x *RuntimeTransition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeTransition.ProtoReflect.Descriptor instead.
 func (*RuntimeTransition) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{57}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *RuntimeTransition) GetId() int64 {
@@ -4747,7 +4839,7 @@ type MetricsSample struct {
 
 func (x *MetricsSample) Reset() {
 	*x = MetricsSample{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4759,7 +4851,7 @@ func (x *MetricsSample) String() string {
 func (*MetricsSample) ProtoMessage() {}
 
 func (x *MetricsSample) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[58]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4772,7 +4864,7 @@ func (x *MetricsSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsSample.ProtoReflect.Descriptor instead.
 func (*MetricsSample) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{58}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *MetricsSample) GetSampledAt() *timestamppb.Timestamp {
@@ -4857,7 +4949,7 @@ type TrafficCounters struct {
 
 func (x *TrafficCounters) Reset() {
 	*x = TrafficCounters{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4869,7 +4961,7 @@ func (x *TrafficCounters) String() string {
 func (*TrafficCounters) ProtoMessage() {}
 
 func (x *TrafficCounters) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[59]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4882,7 +4974,7 @@ func (x *TrafficCounters) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrafficCounters.ProtoReflect.Descriptor instead.
 func (*TrafficCounters) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{59}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *TrafficCounters) GetBundleId() string {
@@ -4944,7 +5036,7 @@ type FetchArtifactRequest struct {
 
 func (x *FetchArtifactRequest) Reset() {
 	*x = FetchArtifactRequest{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4956,7 +5048,7 @@ func (x *FetchArtifactRequest) String() string {
 func (*FetchArtifactRequest) ProtoMessage() {}
 
 func (x *FetchArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[60]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4969,7 +5061,7 @@ func (x *FetchArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchArtifactRequest.ProtoReflect.Descriptor instead.
 func (*FetchArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{60}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *FetchArtifactRequest) GetGrant() string {
@@ -4999,7 +5091,7 @@ type FetchArtifactResponse struct {
 
 func (x *FetchArtifactResponse) Reset() {
 	*x = FetchArtifactResponse{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[61]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5011,7 +5103,7 @@ func (x *FetchArtifactResponse) String() string {
 func (*FetchArtifactResponse) ProtoMessage() {}
 
 func (x *FetchArtifactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[61]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5024,7 +5116,7 @@ func (x *FetchArtifactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchArtifactResponse.ProtoReflect.Descriptor instead.
 func (*FetchArtifactResponse) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{61}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *FetchArtifactResponse) GetArtifact() *ArtifactIdentity {
@@ -5063,7 +5155,7 @@ type FetchReleaseRequest struct {
 
 func (x *FetchReleaseRequest) Reset() {
 	*x = FetchReleaseRequest{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[62]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5075,7 +5167,7 @@ func (x *FetchReleaseRequest) String() string {
 func (*FetchReleaseRequest) ProtoMessage() {}
 
 func (x *FetchReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[62]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5088,7 +5180,7 @@ func (x *FetchReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchReleaseRequest.ProtoReflect.Descriptor instead.
 func (*FetchReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{62}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *FetchReleaseRequest) GetFrame() isFetchReleaseRequest_Frame {
@@ -5148,7 +5240,7 @@ type FetchReleaseResponse struct {
 
 func (x *FetchReleaseResponse) Reset() {
 	*x = FetchReleaseResponse{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[63]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5160,7 +5252,7 @@ func (x *FetchReleaseResponse) String() string {
 func (*FetchReleaseResponse) ProtoMessage() {}
 
 func (x *FetchReleaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[63]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5173,7 +5265,7 @@ func (x *FetchReleaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchReleaseResponse.ProtoReflect.Descriptor instead.
 func (*FetchReleaseResponse) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{63}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *FetchReleaseResponse) GetFrame() isFetchReleaseResponse_Frame {
@@ -5249,7 +5341,7 @@ type ReleaseHeader struct {
 
 func (x *ReleaseHeader) Reset() {
 	*x = ReleaseHeader{}
-	mi := &file_sbp_node_v1_node_proto_msgTypes[64]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5261,7 +5353,7 @@ func (x *ReleaseHeader) String() string {
 func (*ReleaseHeader) ProtoMessage() {}
 
 func (x *ReleaseHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_sbp_node_v1_node_proto_msgTypes[64]
+	mi := &file_sbp_node_v1_node_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5274,7 +5366,7 @@ func (x *ReleaseHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseHeader.ProtoReflect.Descriptor instead.
 func (*ReleaseHeader) Descriptor() ([]byte, []int) {
-	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{64}
+	return file_sbp_node_v1_node_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ReleaseHeader) GetVersion() string {
@@ -5339,13 +5431,14 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\x05proof\x18\x02 \x01(\v2\x12.sbp.node.v1.ProofH\x00R\x05proof\x12-\n" +
 	"\x06result\x18\x03 \x01(\v2\x13.sbp.node.v1.ResultH\x00R\x06result\x12*\n" +
 	"\x05event\x18\x04 \x01(\v2\x12.sbp.node.v1.EventH\x00R\x05eventB\a\n" +
-	"\x05frame\"\xb3\x02\n" +
+	"\x05frame\"\xf9\x02\n" +
 	"\x0fConnectResponse\x126\n" +
 	"\tchallenge\x18\x01 \x01(\v2\x16.sbp.node.v1.ChallengeH\x00R\tchallenge\x120\n" +
 	"\awelcome\x18\x02 \x01(\v2\x14.sbp.node.v1.WelcomeH\x00R\awelcome\x120\n" +
 	"\acommand\x18\x03 \x01(\v2\x14.sbp.node.v1.CommandH\x00R\acommand\x12-\n" +
 	"\x06cancel\x18\x04 \x01(\v2\x13.sbp.node.v1.CancelH\x00R\x06cancel\x12L\n" +
-	"\x11telemetry_control\x18\x05 \x01(\v2\x1d.sbp.node.v1.TelemetryControlH\x00R\x10telemetryControlB\a\n" +
+	"\x11telemetry_control\x18\x05 \x01(\v2\x1d.sbp.node.v1.TelemetryControlH\x00R\x10telemetryControl\x12D\n" +
+	"\x0fcore_log_policy\x18\x06 \x01(\v2\x1a.sbp.node.v1.CoreLogPolicyH\x00R\rcoreLogPolicyB\a\n" +
 	"\x05frame\"\xd3\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x128\n" +
@@ -5358,14 +5451,15 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\bpanel_id\x18\x01 \x01(\tR\apanelId\x12\x14\n" +
 	"\x05nonce\x18\x02 \x01(\fR\x05nonce\"%\n" +
 	"\x05Proof\x12\x1c\n" +
-	"\tsignature\x18\x01 \x01(\fR\tsignature\"\x8c\x02\n" +
+	"\tsignature\x18\x01 \x01(\fR\tsignature\"\xd0\x02\n" +
 	"\aWelcome\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12.\n" +
 	"\x13panel_build_version\x18\x02 \x01(\tR\x11panelBuildVersion\x128\n" +
 	"\bprotocol\x18\x03 \x01(\v2\x1c.sbp.node.v1.ProtocolVersionR\bprotocol\x12D\n" +
 	"\x10metrics_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x0fmetricsInterval\x122\n" +
-	"\x15runtime_history_after\x18\x05 \x01(\x03R\x13runtimeHistoryAfter\"\x8c\f\n" +
+	"\x15runtime_history_after\x18\x05 \x01(\x03R\x13runtimeHistoryAfter\x12B\n" +
+	"\x0fcore_log_policy\x18\x06 \x01(\v2\x1a.sbp.node.v1.CoreLogPolicyR\rcoreLogPolicy\"\x8c\f\n" +
 	"\aCommand\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x126\n" +
@@ -5400,7 +5494,11 @@ const file_sbp_node_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\"X\n" +
 	"\x10TelemetryControl\x12D\n" +
-	"\x10metrics_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fmetricsInterval\"\xe5\x02\n" +
+	"\x10metrics_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x0fmetricsInterval\"y\n" +
+	"\rCoreLogPolicy\x12%\n" +
+	"\x0eretention_days\x18\x01 \x01(\rR\rretentionDays\x12\x1b\n" +
+	"\tmax_files\x18\x02 \x01(\rR\bmaxFiles\x12$\n" +
+	"\x0emax_file_bytes\x18\x03 \x01(\x04R\fmaxFileBytes\"\xe5\x02\n" +
 	"\x10ArtifactIdentity\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12@\n" +
 	"\vsource_kind\x18\x02 \x01(\x0e2\x1f.sbp.node.v1.ArtifactSourceKindR\n" +
@@ -5755,7 +5853,7 @@ func file_sbp_node_v1_node_proto_rawDescGZIP() []byte {
 }
 
 var file_sbp_node_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_sbp_node_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
+var file_sbp_node_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_sbp_node_v1_node_proto_goTypes = []any{
 	(ArtifactSourceKind)(0),       // 0: sbp.node.v1.ArtifactSourceKind
 	(MonitoringTier)(0),           // 1: sbp.node.v1.MonitoringTier
@@ -5776,164 +5874,167 @@ var file_sbp_node_v1_node_proto_goTypes = []any{
 	(*Command)(nil),               // 16: sbp.node.v1.Command
 	(*Cancel)(nil),                // 17: sbp.node.v1.Cancel
 	(*TelemetryControl)(nil),      // 18: sbp.node.v1.TelemetryControl
-	(*ArtifactIdentity)(nil),      // 19: sbp.node.v1.ArtifactIdentity
-	(*ConfigurationRevision)(nil), // 20: sbp.node.v1.ConfigurationRevision
-	(*CheckConfiguration)(nil),    // 21: sbp.node.v1.CheckConfiguration
-	(*StartRuntime)(nil),          // 22: sbp.node.v1.StartRuntime
-	(*StopRuntime)(nil),           // 23: sbp.node.v1.StopRuntime
-	(*RestartRuntime)(nil),        // 24: sbp.node.v1.RestartRuntime
-	(*RollbackRuntime)(nil),       // 25: sbp.node.v1.RollbackRuntime
-	(*EnableCore)(nil),            // 26: sbp.node.v1.EnableCore
-	(*DisableCore)(nil),           // 27: sbp.node.v1.DisableCore
-	(*CheckStartup)(nil),          // 28: sbp.node.v1.CheckStartup
-	(*GetRuntimeStatus)(nil),      // 29: sbp.node.v1.GetRuntimeStatus
-	(*InstallCore)(nil),           // 30: sbp.node.v1.InstallCore
-	(*RemoveCore)(nil),            // 31: sbp.node.v1.RemoveCore
-	(*ListCores)(nil),             // 32: sbp.node.v1.ListCores
-	(*BrowseFilesystem)(nil),      // 33: sbp.node.v1.BrowseFilesystem
-	(*ResolveFilesystemPath)(nil), // 34: sbp.node.v1.ResolveFilesystemPath
-	(*ListCoreLogs)(nil),          // 35: sbp.node.v1.ListCoreLogs
-	(*ReadCoreLog)(nil),           // 36: sbp.node.v1.ReadCoreLog
-	(*DeleteCoreLog)(nil),         // 37: sbp.node.v1.DeleteCoreLog
-	(*ClearCoreLog)(nil),          // 38: sbp.node.v1.ClearCoreLog
-	(*UpdateNode)(nil),            // 39: sbp.node.v1.UpdateNode
-	(*GetCoreSchema)(nil),         // 40: sbp.node.v1.GetCoreSchema
-	(*Result)(nil),                // 41: sbp.node.v1.Result
-	(*Problem)(nil),               // 42: sbp.node.v1.Problem
-	(*CheckOutcome)(nil),          // 43: sbp.node.v1.CheckOutcome
-	(*StartupArtifact)(nil),       // 44: sbp.node.v1.StartupArtifact
-	(*RuntimeOutcome)(nil),        // 45: sbp.node.v1.RuntimeOutcome
-	(*RuntimeStatus)(nil),         // 46: sbp.node.v1.RuntimeStatus
-	(*RunningCore)(nil),           // 47: sbp.node.v1.RunningCore
-	(*CoreOutcome)(nil),           // 48: sbp.node.v1.CoreOutcome
-	(*BrowseOutcome)(nil),         // 49: sbp.node.v1.BrowseOutcome
-	(*FilesystemEntry)(nil),       // 50: sbp.node.v1.FilesystemEntry
-	(*ResolveOutcome)(nil),        // 51: sbp.node.v1.ResolveOutcome
-	(*UpdateOutcome)(nil),         // 52: sbp.node.v1.UpdateOutcome
-	(*CoreSchemaOutcome)(nil),     // 53: sbp.node.v1.CoreSchemaOutcome
-	(*CoreLogOutcome)(nil),        // 54: sbp.node.v1.CoreLogOutcome
-	(*CoreLogFile)(nil),           // 55: sbp.node.v1.CoreLogFile
-	(*CoreLogChunk)(nil),          // 56: sbp.node.v1.CoreLogChunk
-	(*Event)(nil),                 // 57: sbp.node.v1.Event
-	(*StateReport)(nil),           // 58: sbp.node.v1.StateReport
-	(*UpdateAttempt)(nil),         // 59: sbp.node.v1.UpdateAttempt
-	(*Host)(nil),                  // 60: sbp.node.v1.Host
-	(*Bundle)(nil),                // 61: sbp.node.v1.Bundle
-	(*InstalledCore)(nil),         // 62: sbp.node.v1.InstalledCore
-	(*RuntimeTransition)(nil),     // 63: sbp.node.v1.RuntimeTransition
-	(*MetricsSample)(nil),         // 64: sbp.node.v1.MetricsSample
-	(*TrafficCounters)(nil),       // 65: sbp.node.v1.TrafficCounters
-	(*FetchArtifactRequest)(nil),  // 66: sbp.node.v1.FetchArtifactRequest
-	(*FetchArtifactResponse)(nil), // 67: sbp.node.v1.FetchArtifactResponse
-	(*FetchReleaseRequest)(nil),   // 68: sbp.node.v1.FetchReleaseRequest
-	(*FetchReleaseResponse)(nil),  // 69: sbp.node.v1.FetchReleaseResponse
-	(*ReleaseHeader)(nil),         // 70: sbp.node.v1.ReleaseHeader
-	(*durationpb.Duration)(nil),   // 71: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 72: google.protobuf.Timestamp
+	(*CoreLogPolicy)(nil),         // 19: sbp.node.v1.CoreLogPolicy
+	(*ArtifactIdentity)(nil),      // 20: sbp.node.v1.ArtifactIdentity
+	(*ConfigurationRevision)(nil), // 21: sbp.node.v1.ConfigurationRevision
+	(*CheckConfiguration)(nil),    // 22: sbp.node.v1.CheckConfiguration
+	(*StartRuntime)(nil),          // 23: sbp.node.v1.StartRuntime
+	(*StopRuntime)(nil),           // 24: sbp.node.v1.StopRuntime
+	(*RestartRuntime)(nil),        // 25: sbp.node.v1.RestartRuntime
+	(*RollbackRuntime)(nil),       // 26: sbp.node.v1.RollbackRuntime
+	(*EnableCore)(nil),            // 27: sbp.node.v1.EnableCore
+	(*DisableCore)(nil),           // 28: sbp.node.v1.DisableCore
+	(*CheckStartup)(nil),          // 29: sbp.node.v1.CheckStartup
+	(*GetRuntimeStatus)(nil),      // 30: sbp.node.v1.GetRuntimeStatus
+	(*InstallCore)(nil),           // 31: sbp.node.v1.InstallCore
+	(*RemoveCore)(nil),            // 32: sbp.node.v1.RemoveCore
+	(*ListCores)(nil),             // 33: sbp.node.v1.ListCores
+	(*BrowseFilesystem)(nil),      // 34: sbp.node.v1.BrowseFilesystem
+	(*ResolveFilesystemPath)(nil), // 35: sbp.node.v1.ResolveFilesystemPath
+	(*ListCoreLogs)(nil),          // 36: sbp.node.v1.ListCoreLogs
+	(*ReadCoreLog)(nil),           // 37: sbp.node.v1.ReadCoreLog
+	(*DeleteCoreLog)(nil),         // 38: sbp.node.v1.DeleteCoreLog
+	(*ClearCoreLog)(nil),          // 39: sbp.node.v1.ClearCoreLog
+	(*UpdateNode)(nil),            // 40: sbp.node.v1.UpdateNode
+	(*GetCoreSchema)(nil),         // 41: sbp.node.v1.GetCoreSchema
+	(*Result)(nil),                // 42: sbp.node.v1.Result
+	(*Problem)(nil),               // 43: sbp.node.v1.Problem
+	(*CheckOutcome)(nil),          // 44: sbp.node.v1.CheckOutcome
+	(*StartupArtifact)(nil),       // 45: sbp.node.v1.StartupArtifact
+	(*RuntimeOutcome)(nil),        // 46: sbp.node.v1.RuntimeOutcome
+	(*RuntimeStatus)(nil),         // 47: sbp.node.v1.RuntimeStatus
+	(*RunningCore)(nil),           // 48: sbp.node.v1.RunningCore
+	(*CoreOutcome)(nil),           // 49: sbp.node.v1.CoreOutcome
+	(*BrowseOutcome)(nil),         // 50: sbp.node.v1.BrowseOutcome
+	(*FilesystemEntry)(nil),       // 51: sbp.node.v1.FilesystemEntry
+	(*ResolveOutcome)(nil),        // 52: sbp.node.v1.ResolveOutcome
+	(*UpdateOutcome)(nil),         // 53: sbp.node.v1.UpdateOutcome
+	(*CoreSchemaOutcome)(nil),     // 54: sbp.node.v1.CoreSchemaOutcome
+	(*CoreLogOutcome)(nil),        // 55: sbp.node.v1.CoreLogOutcome
+	(*CoreLogFile)(nil),           // 56: sbp.node.v1.CoreLogFile
+	(*CoreLogChunk)(nil),          // 57: sbp.node.v1.CoreLogChunk
+	(*Event)(nil),                 // 58: sbp.node.v1.Event
+	(*StateReport)(nil),           // 59: sbp.node.v1.StateReport
+	(*UpdateAttempt)(nil),         // 60: sbp.node.v1.UpdateAttempt
+	(*Host)(nil),                  // 61: sbp.node.v1.Host
+	(*Bundle)(nil),                // 62: sbp.node.v1.Bundle
+	(*InstalledCore)(nil),         // 63: sbp.node.v1.InstalledCore
+	(*RuntimeTransition)(nil),     // 64: sbp.node.v1.RuntimeTransition
+	(*MetricsSample)(nil),         // 65: sbp.node.v1.MetricsSample
+	(*TrafficCounters)(nil),       // 66: sbp.node.v1.TrafficCounters
+	(*FetchArtifactRequest)(nil),  // 67: sbp.node.v1.FetchArtifactRequest
+	(*FetchArtifactResponse)(nil), // 68: sbp.node.v1.FetchArtifactResponse
+	(*FetchReleaseRequest)(nil),   // 69: sbp.node.v1.FetchReleaseRequest
+	(*FetchReleaseResponse)(nil),  // 70: sbp.node.v1.FetchReleaseResponse
+	(*ReleaseHeader)(nil),         // 71: sbp.node.v1.ReleaseHeader
+	(*durationpb.Duration)(nil),   // 72: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 73: google.protobuf.Timestamp
 }
 var file_sbp_node_v1_node_proto_depIdxs = []int32{
 	6,  // 0: sbp.node.v1.EnrollRequest.protocol:type_name -> sbp.node.v1.ProtocolVersion
 	7,  // 1: sbp.node.v1.EnrollRequest.platform:type_name -> sbp.node.v1.Platform
 	12, // 2: sbp.node.v1.ConnectRequest.hello:type_name -> sbp.node.v1.Hello
 	14, // 3: sbp.node.v1.ConnectRequest.proof:type_name -> sbp.node.v1.Proof
-	41, // 4: sbp.node.v1.ConnectRequest.result:type_name -> sbp.node.v1.Result
-	57, // 5: sbp.node.v1.ConnectRequest.event:type_name -> sbp.node.v1.Event
+	42, // 4: sbp.node.v1.ConnectRequest.result:type_name -> sbp.node.v1.Result
+	58, // 5: sbp.node.v1.ConnectRequest.event:type_name -> sbp.node.v1.Event
 	13, // 6: sbp.node.v1.ConnectResponse.challenge:type_name -> sbp.node.v1.Challenge
 	15, // 7: sbp.node.v1.ConnectResponse.welcome:type_name -> sbp.node.v1.Welcome
 	16, // 8: sbp.node.v1.ConnectResponse.command:type_name -> sbp.node.v1.Command
 	17, // 9: sbp.node.v1.ConnectResponse.cancel:type_name -> sbp.node.v1.Cancel
 	18, // 10: sbp.node.v1.ConnectResponse.telemetry_control:type_name -> sbp.node.v1.TelemetryControl
-	6,  // 11: sbp.node.v1.Hello.protocol:type_name -> sbp.node.v1.ProtocolVersion
-	7,  // 12: sbp.node.v1.Hello.platform:type_name -> sbp.node.v1.Platform
-	6,  // 13: sbp.node.v1.Welcome.protocol:type_name -> sbp.node.v1.ProtocolVersion
-	71, // 14: sbp.node.v1.Welcome.metrics_interval:type_name -> google.protobuf.Duration
-	72, // 15: sbp.node.v1.Command.deadline:type_name -> google.protobuf.Timestamp
-	21, // 16: sbp.node.v1.Command.check_configuration:type_name -> sbp.node.v1.CheckConfiguration
-	22, // 17: sbp.node.v1.Command.start_runtime:type_name -> sbp.node.v1.StartRuntime
-	23, // 18: sbp.node.v1.Command.stop_runtime:type_name -> sbp.node.v1.StopRuntime
-	24, // 19: sbp.node.v1.Command.restart_runtime:type_name -> sbp.node.v1.RestartRuntime
-	25, // 20: sbp.node.v1.Command.rollback_runtime:type_name -> sbp.node.v1.RollbackRuntime
-	30, // 21: sbp.node.v1.Command.install_core:type_name -> sbp.node.v1.InstallCore
-	31, // 22: sbp.node.v1.Command.remove_core:type_name -> sbp.node.v1.RemoveCore
-	33, // 23: sbp.node.v1.Command.browse_filesystem:type_name -> sbp.node.v1.BrowseFilesystem
-	34, // 24: sbp.node.v1.Command.resolve_filesystem_path:type_name -> sbp.node.v1.ResolveFilesystemPath
-	36, // 25: sbp.node.v1.Command.read_core_log:type_name -> sbp.node.v1.ReadCoreLog
-	29, // 26: sbp.node.v1.Command.get_runtime_status:type_name -> sbp.node.v1.GetRuntimeStatus
-	26, // 27: sbp.node.v1.Command.enable_core:type_name -> sbp.node.v1.EnableCore
-	27, // 28: sbp.node.v1.Command.disable_core:type_name -> sbp.node.v1.DisableCore
-	28, // 29: sbp.node.v1.Command.check_startup:type_name -> sbp.node.v1.CheckStartup
-	32, // 30: sbp.node.v1.Command.list_cores:type_name -> sbp.node.v1.ListCores
-	35, // 31: sbp.node.v1.Command.list_core_logs:type_name -> sbp.node.v1.ListCoreLogs
-	37, // 32: sbp.node.v1.Command.delete_core_log:type_name -> sbp.node.v1.DeleteCoreLog
-	38, // 33: sbp.node.v1.Command.clear_core_log:type_name -> sbp.node.v1.ClearCoreLog
-	39, // 34: sbp.node.v1.Command.update_node:type_name -> sbp.node.v1.UpdateNode
-	40, // 35: sbp.node.v1.Command.get_core_schema:type_name -> sbp.node.v1.GetCoreSchema
-	71, // 36: sbp.node.v1.TelemetryControl.metrics_interval:type_name -> google.protobuf.Duration
-	0,  // 37: sbp.node.v1.ArtifactIdentity.source_kind:type_name -> sbp.node.v1.ArtifactSourceKind
-	20, // 38: sbp.node.v1.CheckConfiguration.configuration:type_name -> sbp.node.v1.ConfigurationRevision
-	20, // 39: sbp.node.v1.StartRuntime.configuration:type_name -> sbp.node.v1.ConfigurationRevision
-	20, // 40: sbp.node.v1.RestartRuntime.configuration:type_name -> sbp.node.v1.ConfigurationRevision
-	20, // 41: sbp.node.v1.EnableCore.configuration:type_name -> sbp.node.v1.ConfigurationRevision
-	19, // 42: sbp.node.v1.InstallCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
-	72, // 43: sbp.node.v1.ListCores.before_time:type_name -> google.protobuf.Timestamp
-	0,  // 44: sbp.node.v1.ListCores.source_kind:type_name -> sbp.node.v1.ArtifactSourceKind
-	2,  // 45: sbp.node.v1.BrowseFilesystem.mode:type_name -> sbp.node.v1.FilesystemMode
-	2,  // 46: sbp.node.v1.ResolveFilesystemPath.mode:type_name -> sbp.node.v1.FilesystemMode
-	42, // 47: sbp.node.v1.Result.problem:type_name -> sbp.node.v1.Problem
-	43, // 48: sbp.node.v1.Result.check:type_name -> sbp.node.v1.CheckOutcome
-	45, // 49: sbp.node.v1.Result.runtime:type_name -> sbp.node.v1.RuntimeOutcome
-	48, // 50: sbp.node.v1.Result.core:type_name -> sbp.node.v1.CoreOutcome
-	49, // 51: sbp.node.v1.Result.browse:type_name -> sbp.node.v1.BrowseOutcome
-	51, // 52: sbp.node.v1.Result.resolve:type_name -> sbp.node.v1.ResolveOutcome
-	54, // 53: sbp.node.v1.Result.core_log:type_name -> sbp.node.v1.CoreLogOutcome
-	52, // 54: sbp.node.v1.Result.update:type_name -> sbp.node.v1.UpdateOutcome
-	53, // 55: sbp.node.v1.Result.core_schema:type_name -> sbp.node.v1.CoreSchemaOutcome
-	44, // 56: sbp.node.v1.CheckOutcome.startup:type_name -> sbp.node.v1.StartupArtifact
-	3,  // 57: sbp.node.v1.StartupArtifact.state:type_name -> sbp.node.v1.StartupArtifactState
-	72, // 58: sbp.node.v1.StartupArtifact.checked_at:type_name -> google.protobuf.Timestamp
-	72, // 59: sbp.node.v1.StartupArtifact.created_at:type_name -> google.protobuf.Timestamp
-	46, // 60: sbp.node.v1.RuntimeOutcome.status:type_name -> sbp.node.v1.RuntimeStatus
-	47, // 61: sbp.node.v1.RuntimeStatus.running:type_name -> sbp.node.v1.RunningCore
-	72, // 62: sbp.node.v1.RunningCore.started_at:type_name -> google.protobuf.Timestamp
-	62, // 63: sbp.node.v1.CoreOutcome.installed:type_name -> sbp.node.v1.InstalledCore
-	72, // 64: sbp.node.v1.CoreOutcome.next_before_time:type_name -> google.protobuf.Timestamp
-	50, // 65: sbp.node.v1.BrowseOutcome.items:type_name -> sbp.node.v1.FilesystemEntry
-	4,  // 66: sbp.node.v1.UpdateOutcome.state:type_name -> sbp.node.v1.UpdateState
-	55, // 67: sbp.node.v1.CoreLogOutcome.files:type_name -> sbp.node.v1.CoreLogFile
-	56, // 68: sbp.node.v1.CoreLogOutcome.chunk:type_name -> sbp.node.v1.CoreLogChunk
-	72, // 69: sbp.node.v1.CoreLogFile.updated_at:type_name -> google.protobuf.Timestamp
-	58, // 70: sbp.node.v1.Event.state_report:type_name -> sbp.node.v1.StateReport
-	63, // 71: sbp.node.v1.Event.runtime_transition:type_name -> sbp.node.v1.RuntimeTransition
-	64, // 72: sbp.node.v1.Event.metrics_sample:type_name -> sbp.node.v1.MetricsSample
-	60, // 73: sbp.node.v1.StateReport.host:type_name -> sbp.node.v1.Host
-	61, // 74: sbp.node.v1.StateReport.applied:type_name -> sbp.node.v1.Bundle
-	61, // 75: sbp.node.v1.StateReport.rollback:type_name -> sbp.node.v1.Bundle
-	62, // 76: sbp.node.v1.StateReport.installed:type_name -> sbp.node.v1.InstalledCore
-	20, // 77: sbp.node.v1.StateReport.existing_configuration:type_name -> sbp.node.v1.ConfigurationRevision
-	46, // 78: sbp.node.v1.StateReport.runtime:type_name -> sbp.node.v1.RuntimeStatus
-	59, // 79: sbp.node.v1.StateReport.last_update:type_name -> sbp.node.v1.UpdateAttempt
-	72, // 80: sbp.node.v1.UpdateAttempt.finished_at:type_name -> google.protobuf.Timestamp
-	7,  // 81: sbp.node.v1.Host.platform:type_name -> sbp.node.v1.Platform
-	72, // 82: sbp.node.v1.Bundle.applied_at:type_name -> google.protobuf.Timestamp
-	1,  // 83: sbp.node.v1.Bundle.monitoring_tier:type_name -> sbp.node.v1.MonitoringTier
-	19, // 84: sbp.node.v1.InstalledCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
-	72, // 85: sbp.node.v1.InstalledCore.installed_at:type_name -> google.protobuf.Timestamp
-	5,  // 86: sbp.node.v1.RuntimeTransition.status:type_name -> sbp.node.v1.ProcessState
-	72, // 87: sbp.node.v1.RuntimeTransition.occurred_at:type_name -> google.protobuf.Timestamp
-	72, // 88: sbp.node.v1.RuntimeTransition.process_started_at:type_name -> google.protobuf.Timestamp
-	72, // 89: sbp.node.v1.RuntimeTransition.uncertain_since:type_name -> google.protobuf.Timestamp
-	72, // 90: sbp.node.v1.MetricsSample.sampled_at:type_name -> google.protobuf.Timestamp
-	65, // 91: sbp.node.v1.MetricsSample.traffic:type_name -> sbp.node.v1.TrafficCounters
-	19, // 92: sbp.node.v1.FetchArtifactResponse.artifact:type_name -> sbp.node.v1.ArtifactIdentity
-	12, // 93: sbp.node.v1.FetchReleaseRequest.hello:type_name -> sbp.node.v1.Hello
-	14, // 94: sbp.node.v1.FetchReleaseRequest.proof:type_name -> sbp.node.v1.Proof
-	13, // 95: sbp.node.v1.FetchReleaseResponse.challenge:type_name -> sbp.node.v1.Challenge
-	70, // 96: sbp.node.v1.FetchReleaseResponse.header:type_name -> sbp.node.v1.ReleaseHeader
-	97, // [97:97] is the sub-list for method output_type
-	97, // [97:97] is the sub-list for method input_type
-	97, // [97:97] is the sub-list for extension type_name
-	97, // [97:97] is the sub-list for extension extendee
-	0,  // [0:97] is the sub-list for field type_name
+	19, // 11: sbp.node.v1.ConnectResponse.core_log_policy:type_name -> sbp.node.v1.CoreLogPolicy
+	6,  // 12: sbp.node.v1.Hello.protocol:type_name -> sbp.node.v1.ProtocolVersion
+	7,  // 13: sbp.node.v1.Hello.platform:type_name -> sbp.node.v1.Platform
+	6,  // 14: sbp.node.v1.Welcome.protocol:type_name -> sbp.node.v1.ProtocolVersion
+	72, // 15: sbp.node.v1.Welcome.metrics_interval:type_name -> google.protobuf.Duration
+	19, // 16: sbp.node.v1.Welcome.core_log_policy:type_name -> sbp.node.v1.CoreLogPolicy
+	73, // 17: sbp.node.v1.Command.deadline:type_name -> google.protobuf.Timestamp
+	22, // 18: sbp.node.v1.Command.check_configuration:type_name -> sbp.node.v1.CheckConfiguration
+	23, // 19: sbp.node.v1.Command.start_runtime:type_name -> sbp.node.v1.StartRuntime
+	24, // 20: sbp.node.v1.Command.stop_runtime:type_name -> sbp.node.v1.StopRuntime
+	25, // 21: sbp.node.v1.Command.restart_runtime:type_name -> sbp.node.v1.RestartRuntime
+	26, // 22: sbp.node.v1.Command.rollback_runtime:type_name -> sbp.node.v1.RollbackRuntime
+	31, // 23: sbp.node.v1.Command.install_core:type_name -> sbp.node.v1.InstallCore
+	32, // 24: sbp.node.v1.Command.remove_core:type_name -> sbp.node.v1.RemoveCore
+	34, // 25: sbp.node.v1.Command.browse_filesystem:type_name -> sbp.node.v1.BrowseFilesystem
+	35, // 26: sbp.node.v1.Command.resolve_filesystem_path:type_name -> sbp.node.v1.ResolveFilesystemPath
+	37, // 27: sbp.node.v1.Command.read_core_log:type_name -> sbp.node.v1.ReadCoreLog
+	30, // 28: sbp.node.v1.Command.get_runtime_status:type_name -> sbp.node.v1.GetRuntimeStatus
+	27, // 29: sbp.node.v1.Command.enable_core:type_name -> sbp.node.v1.EnableCore
+	28, // 30: sbp.node.v1.Command.disable_core:type_name -> sbp.node.v1.DisableCore
+	29, // 31: sbp.node.v1.Command.check_startup:type_name -> sbp.node.v1.CheckStartup
+	33, // 32: sbp.node.v1.Command.list_cores:type_name -> sbp.node.v1.ListCores
+	36, // 33: sbp.node.v1.Command.list_core_logs:type_name -> sbp.node.v1.ListCoreLogs
+	38, // 34: sbp.node.v1.Command.delete_core_log:type_name -> sbp.node.v1.DeleteCoreLog
+	39, // 35: sbp.node.v1.Command.clear_core_log:type_name -> sbp.node.v1.ClearCoreLog
+	40, // 36: sbp.node.v1.Command.update_node:type_name -> sbp.node.v1.UpdateNode
+	41, // 37: sbp.node.v1.Command.get_core_schema:type_name -> sbp.node.v1.GetCoreSchema
+	72, // 38: sbp.node.v1.TelemetryControl.metrics_interval:type_name -> google.protobuf.Duration
+	0,  // 39: sbp.node.v1.ArtifactIdentity.source_kind:type_name -> sbp.node.v1.ArtifactSourceKind
+	21, // 40: sbp.node.v1.CheckConfiguration.configuration:type_name -> sbp.node.v1.ConfigurationRevision
+	21, // 41: sbp.node.v1.StartRuntime.configuration:type_name -> sbp.node.v1.ConfigurationRevision
+	21, // 42: sbp.node.v1.RestartRuntime.configuration:type_name -> sbp.node.v1.ConfigurationRevision
+	21, // 43: sbp.node.v1.EnableCore.configuration:type_name -> sbp.node.v1.ConfigurationRevision
+	20, // 44: sbp.node.v1.InstallCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
+	73, // 45: sbp.node.v1.ListCores.before_time:type_name -> google.protobuf.Timestamp
+	0,  // 46: sbp.node.v1.ListCores.source_kind:type_name -> sbp.node.v1.ArtifactSourceKind
+	2,  // 47: sbp.node.v1.BrowseFilesystem.mode:type_name -> sbp.node.v1.FilesystemMode
+	2,  // 48: sbp.node.v1.ResolveFilesystemPath.mode:type_name -> sbp.node.v1.FilesystemMode
+	43, // 49: sbp.node.v1.Result.problem:type_name -> sbp.node.v1.Problem
+	44, // 50: sbp.node.v1.Result.check:type_name -> sbp.node.v1.CheckOutcome
+	46, // 51: sbp.node.v1.Result.runtime:type_name -> sbp.node.v1.RuntimeOutcome
+	49, // 52: sbp.node.v1.Result.core:type_name -> sbp.node.v1.CoreOutcome
+	50, // 53: sbp.node.v1.Result.browse:type_name -> sbp.node.v1.BrowseOutcome
+	52, // 54: sbp.node.v1.Result.resolve:type_name -> sbp.node.v1.ResolveOutcome
+	55, // 55: sbp.node.v1.Result.core_log:type_name -> sbp.node.v1.CoreLogOutcome
+	53, // 56: sbp.node.v1.Result.update:type_name -> sbp.node.v1.UpdateOutcome
+	54, // 57: sbp.node.v1.Result.core_schema:type_name -> sbp.node.v1.CoreSchemaOutcome
+	45, // 58: sbp.node.v1.CheckOutcome.startup:type_name -> sbp.node.v1.StartupArtifact
+	3,  // 59: sbp.node.v1.StartupArtifact.state:type_name -> sbp.node.v1.StartupArtifactState
+	73, // 60: sbp.node.v1.StartupArtifact.checked_at:type_name -> google.protobuf.Timestamp
+	73, // 61: sbp.node.v1.StartupArtifact.created_at:type_name -> google.protobuf.Timestamp
+	47, // 62: sbp.node.v1.RuntimeOutcome.status:type_name -> sbp.node.v1.RuntimeStatus
+	48, // 63: sbp.node.v1.RuntimeStatus.running:type_name -> sbp.node.v1.RunningCore
+	73, // 64: sbp.node.v1.RunningCore.started_at:type_name -> google.protobuf.Timestamp
+	63, // 65: sbp.node.v1.CoreOutcome.installed:type_name -> sbp.node.v1.InstalledCore
+	73, // 66: sbp.node.v1.CoreOutcome.next_before_time:type_name -> google.protobuf.Timestamp
+	51, // 67: sbp.node.v1.BrowseOutcome.items:type_name -> sbp.node.v1.FilesystemEntry
+	4,  // 68: sbp.node.v1.UpdateOutcome.state:type_name -> sbp.node.v1.UpdateState
+	56, // 69: sbp.node.v1.CoreLogOutcome.files:type_name -> sbp.node.v1.CoreLogFile
+	57, // 70: sbp.node.v1.CoreLogOutcome.chunk:type_name -> sbp.node.v1.CoreLogChunk
+	73, // 71: sbp.node.v1.CoreLogFile.updated_at:type_name -> google.protobuf.Timestamp
+	59, // 72: sbp.node.v1.Event.state_report:type_name -> sbp.node.v1.StateReport
+	64, // 73: sbp.node.v1.Event.runtime_transition:type_name -> sbp.node.v1.RuntimeTransition
+	65, // 74: sbp.node.v1.Event.metrics_sample:type_name -> sbp.node.v1.MetricsSample
+	61, // 75: sbp.node.v1.StateReport.host:type_name -> sbp.node.v1.Host
+	62, // 76: sbp.node.v1.StateReport.applied:type_name -> sbp.node.v1.Bundle
+	62, // 77: sbp.node.v1.StateReport.rollback:type_name -> sbp.node.v1.Bundle
+	63, // 78: sbp.node.v1.StateReport.installed:type_name -> sbp.node.v1.InstalledCore
+	21, // 79: sbp.node.v1.StateReport.existing_configuration:type_name -> sbp.node.v1.ConfigurationRevision
+	47, // 80: sbp.node.v1.StateReport.runtime:type_name -> sbp.node.v1.RuntimeStatus
+	60, // 81: sbp.node.v1.StateReport.last_update:type_name -> sbp.node.v1.UpdateAttempt
+	73, // 82: sbp.node.v1.UpdateAttempt.finished_at:type_name -> google.protobuf.Timestamp
+	7,  // 83: sbp.node.v1.Host.platform:type_name -> sbp.node.v1.Platform
+	73, // 84: sbp.node.v1.Bundle.applied_at:type_name -> google.protobuf.Timestamp
+	1,  // 85: sbp.node.v1.Bundle.monitoring_tier:type_name -> sbp.node.v1.MonitoringTier
+	20, // 86: sbp.node.v1.InstalledCore.artifact:type_name -> sbp.node.v1.ArtifactIdentity
+	73, // 87: sbp.node.v1.InstalledCore.installed_at:type_name -> google.protobuf.Timestamp
+	5,  // 88: sbp.node.v1.RuntimeTransition.status:type_name -> sbp.node.v1.ProcessState
+	73, // 89: sbp.node.v1.RuntimeTransition.occurred_at:type_name -> google.protobuf.Timestamp
+	73, // 90: sbp.node.v1.RuntimeTransition.process_started_at:type_name -> google.protobuf.Timestamp
+	73, // 91: sbp.node.v1.RuntimeTransition.uncertain_since:type_name -> google.protobuf.Timestamp
+	73, // 92: sbp.node.v1.MetricsSample.sampled_at:type_name -> google.protobuf.Timestamp
+	66, // 93: sbp.node.v1.MetricsSample.traffic:type_name -> sbp.node.v1.TrafficCounters
+	20, // 94: sbp.node.v1.FetchArtifactResponse.artifact:type_name -> sbp.node.v1.ArtifactIdentity
+	12, // 95: sbp.node.v1.FetchReleaseRequest.hello:type_name -> sbp.node.v1.Hello
+	14, // 96: sbp.node.v1.FetchReleaseRequest.proof:type_name -> sbp.node.v1.Proof
+	13, // 97: sbp.node.v1.FetchReleaseResponse.challenge:type_name -> sbp.node.v1.Challenge
+	71, // 98: sbp.node.v1.FetchReleaseResponse.header:type_name -> sbp.node.v1.ReleaseHeader
+	99, // [99:99] is the sub-list for method output_type
+	99, // [99:99] is the sub-list for method input_type
+	99, // [99:99] is the sub-list for extension type_name
+	99, // [99:99] is the sub-list for extension extendee
+	0,  // [0:99] is the sub-list for field type_name
 }
 
 func init() { file_sbp_node_v1_node_proto_init() }
@@ -5953,6 +6054,7 @@ func file_sbp_node_v1_node_proto_init() {
 		(*ConnectResponse_Command)(nil),
 		(*ConnectResponse_Cancel)(nil),
 		(*ConnectResponse_TelemetryControl)(nil),
+		(*ConnectResponse_CoreLogPolicy)(nil),
 	}
 	file_sbp_node_v1_node_proto_msgTypes[10].OneofWrappers = []any{
 		(*Command_CheckConfiguration)(nil),
@@ -5976,7 +6078,7 @@ func file_sbp_node_v1_node_proto_init() {
 		(*Command_UpdateNode)(nil),
 		(*Command_GetCoreSchema)(nil),
 	}
-	file_sbp_node_v1_node_proto_msgTypes[35].OneofWrappers = []any{
+	file_sbp_node_v1_node_proto_msgTypes[36].OneofWrappers = []any{
 		(*Result_Problem)(nil),
 		(*Result_Check)(nil),
 		(*Result_Runtime)(nil),
@@ -5987,17 +6089,17 @@ func file_sbp_node_v1_node_proto_init() {
 		(*Result_Update)(nil),
 		(*Result_CoreSchema)(nil),
 	}
-	file_sbp_node_v1_node_proto_msgTypes[51].OneofWrappers = []any{
+	file_sbp_node_v1_node_proto_msgTypes[52].OneofWrappers = []any{
 		(*Event_StateReport)(nil),
 		(*Event_RuntimeTransition)(nil),
 		(*Event_MetricsSample)(nil),
 	}
-	file_sbp_node_v1_node_proto_msgTypes[58].OneofWrappers = []any{}
-	file_sbp_node_v1_node_proto_msgTypes[62].OneofWrappers = []any{
+	file_sbp_node_v1_node_proto_msgTypes[59].OneofWrappers = []any{}
+	file_sbp_node_v1_node_proto_msgTypes[63].OneofWrappers = []any{
 		(*FetchReleaseRequest_Hello)(nil),
 		(*FetchReleaseRequest_Proof)(nil),
 	}
-	file_sbp_node_v1_node_proto_msgTypes[63].OneofWrappers = []any{
+	file_sbp_node_v1_node_proto_msgTypes[64].OneofWrappers = []any{
 		(*FetchReleaseResponse_Challenge)(nil),
 		(*FetchReleaseResponse_Header)(nil),
 		(*FetchReleaseResponse_Chunk)(nil),
@@ -6008,7 +6110,7 @@ func file_sbp_node_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sbp_node_v1_node_proto_rawDesc), len(file_sbp_node_v1_node_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   65,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

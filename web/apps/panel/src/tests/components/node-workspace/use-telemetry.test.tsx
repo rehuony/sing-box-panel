@@ -160,6 +160,29 @@ describe('useTelemetry', () => {
     expect(result.current.liveTail[2]).not.toHaveProperty('span');
   });
 
+  it('draws a reading that arrives late and spans the next to it, while the current rates wait for a fresh one', async () => {
+    let next!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      next = resolve;
+    });
+    const client = createMockApiClient({
+      streamMetrics: vi.fn(async function* (signal) {
+        // A node sampling every ten seconds sent its last reading six seconds ago.
+        yield { metrics: liveMetrics(0, 200, 6), runtime: testRuntimeStatus };
+        await pending;
+        yield { metrics: liveMetrics(7, 300), runtime: testRuntimeStatus };
+        await waitForAbort(signal);
+      }),
+    });
+    const { result } = renderHook(() => useTelemetry(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.liveTail).toHaveLength(1));
+    expect(result.current.liveTail[0]).toMatchObject({ uploadBytesPerSecond: 200, connections: 2 });
+    expect(result.current.rates.uploadBytesPerSecond).toBeNull();
+    await act(async () => next());
+    expect(result.current.liveTail[1]).toMatchObject({ uploadBytesPerSecond: 300, span: 7000 });
+    expect(result.current.rates.uploadBytesPerSecond).toBe(300);
+  });
+
   it('opens the live window of a stopped core with the known zeros before it', async () => {
     const at = (second: number) => new Date(Date.parse('2026-10-16T00:00:00Z') + second * 1000).toISOString();
     const stopped: RuntimeStatus = { desired_running: false, target_generation: 1, observation_state: 'stopped' };
@@ -235,7 +258,7 @@ describe('useTelemetry', () => {
         <ApiClientProvider client={client}>
           <PanelSettingsContext value={{
             view: { ...view, revision }, error: null, reload: vi.fn(), preview: vi.fn(),
-            accept: vi.fn(), save: client.savePanelSettings,
+            save: client.savePanelSettings,
           }}>
             {children}
           </PanelSettingsContext>

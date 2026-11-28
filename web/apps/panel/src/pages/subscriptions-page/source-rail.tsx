@@ -14,7 +14,7 @@ import { ApiRequestError } from '@/api/api-client';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { RailCount, RailItem } from '@/components/rail';
-import { describeRequestError } from '@/components/error-notice';
+import { toastFailure } from '@/components/error-notice';
 
 import type { SourceDialogMode } from './subscription-source-dialog';
 
@@ -108,7 +108,8 @@ export function SourceDialogs({ mode, onModeChange }: {
     },
     onError: (error) => {
       const stale = error instanceof ApiRequestError && error.status === 412;
-      toast.add({ title: stale ? t('subscriptions.sources.deleteStale') : describeRequestError(error), type: stale ? 'warning' : 'error' });
+      if (stale) toast.add({ title: t('subscriptions.sources.deleteStale'), type: 'warning' });
+      else toastFailure(t('subscriptions.sources.deleteFailed'), error);
       if (stale) setDeleting(null);
     },
     onSettled: () => cache.invalidateQueries({ queryKey: ['sources'] }),

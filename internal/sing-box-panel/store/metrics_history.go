@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,10 +36,13 @@ type MetricsHistoryFilter struct {
 }
 
 type MetricsHistoryBucket struct {
-	From                     time.Time      `json:"from"`
-	To                       time.Time      `json:"to"`
-	UploadBytes              *int64         `json:"upload_bytes"`
-	DownloadBytes            *int64         `json:"download_bytes"`
+	From          time.Time `json:"from"`
+	To            time.Time `json:"to"`
+	UploadBytes   *int64    `json:"upload_bytes"`
+	DownloadBytes *int64    `json:"download_bytes"`
+	// TrafficSeconds is how long the intervals whose deltas the traffic
+	// holds last, so their rate is the traffic over it; nil with no traffic.
+	TrafficSeconds           *float64       `json:"traffic_seconds"`
 	MemoryBytesAverage       *float64       `json:"memory_bytes_avg"`
 	MemoryBytesPeak          *int64         `json:"memory_bytes_peak"`
 	ActiveConnectionsAverage *float64       `json:"active_connections_avg"`
@@ -233,6 +237,11 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		             WHEN start_epoch >= bucket_start - 0.000001 AND end_epoch <= bucket_end + 0.000001
 		             THEN download_delta
 		           END),
+		       SUM(CASE
+		             WHEN start_epoch >= bucket_start - 0.000001 AND end_epoch <= bucket_end + 0.000001
+		                  AND upload_delta IS NOT NULL AND download_delta IS NOT NULL
+		             THEN end_epoch - start_epoch
+		           END),
 		       COUNT(*),
 		       COUNT(CASE WHEN coverage = 'complete' THEN 1 END),
 		       MIN(CASE WHEN coverage = 'complete' THEN MAX(start_epoch, bucket_start) END),
@@ -255,12 +264,13 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		var (
 			index                                int
 			upload, download                     sql.NullInt64
+			trafficSeconds                       sql.NullFloat64
 			evidenceCount, completeIntervalCount int64
 			firstCoveredStart, lastCoveredEnd    sql.NullFloat64
 			coveredSeconds                       sql.NullFloat64
 		)
 		if err := evidenceRows.Scan(
-			&index, &upload, &download, &evidenceCount, &completeIntervalCount,
+			&index, &upload, &download, &trafficSeconds, &evidenceCount, &completeIntervalCount,
 			&firstCoveredStart, &lastCoveredEnd, &coveredSeconds,
 		); err != nil {
 			return MetricsHistory{}, fmt.Errorf("scan metrics interval evidence: %w", err)
@@ -274,6 +284,9 @@ func metricsHistory(ctx context.Context, db metricsHistoryQuery, filter MetricsH
 		}
 		if download.Valid {
 			bucket.DownloadBytes = &download.Int64
+		}
+		if trafficSeconds.Valid {
+			bucket.TrafficSeconds = &trafficSeconds.Float64
 		}
 		if evidenceCount == 0 {
 			continue
@@ -430,7 +443,8 @@ func runtimeIdleSpans(ctx context.Context, db metricsHistoryQuery, nodeID string
 func zeroIdleBucket(bucket *MetricsHistoryBucket) {
 	upload, download, memoryPeak, connectionsPeak := int64(0), int64(0), int64(0), int64(0)
 	memoryAverage, connectionsAverage := float64(0), float64(0)
-	bucket.UploadBytes, bucket.DownloadBytes = &upload, &download
+	seconds := bucket.To.Sub(bucket.From).Seconds()
+	bucket.UploadBytes, bucket.DownloadBytes, bucket.TrafficSeconds = &upload, &download, &seconds
 	bucket.MemoryBytesAverage, bucket.MemoryBytesPeak = &memoryAverage, &memoryPeak
 	bucket.ActiveConnectionsAverage, bucket.ActiveConnectionsPeak = &connectionsAverage, &connectionsPeak
 	bucket.Coverage = CoverageComplete
@@ -476,9 +490,52 @@ func prepareMetricsHistoryFilter(filter MetricsHistoryFilter) (MetricsHistoryFil
 	return filter, bucketCount, nil
 }
 
-// DashboardMetricsHistory reads both ranges and their accepted persistence
-// watermark from one SQLite snapshot, so clients can replace overlapping tails.
-func (s *Store) DashboardMetricsHistory(ctx context.Context, nodeID string, at time.Time) (MetricsHistory, MetricsHistory, *time.Time, error) {
+// DashboardHistory keeps one node's dashboard ranges between reads: the
+// closed buckets of each range and the newest traffic sample and runtime
+// transition the last read saw. Both are only ever appended, each row with a
+// larger ID than every row committed before it, so a later read recomputes
+// only from the earliest instant that the node's rows added since reach, and
+// the open bucket, and keeps the closed buckets before it. Deleting samples
+// or transitions within the ranges, such as by retention or a node's removal,
+// must Reset it. The zero value is empty. It is safe for concurrent use; its
+// reads run one at a time, and readers must not change what they return.
+type DashboardHistory struct {
+	mu     sync.Mutex
+	nodeID string
+	// seen is whether sampleID and transitionID hold a read's newest IDs.
+	seen                   bool
+	sampleID, transitionID int64
+	hour, day              []MetricsHistoryBucket
+}
+
+// Reset makes the next read compute every bucket.
+func (history *DashboardHistory) Reset() {
+	history.mu.Lock()
+	defer history.mu.Unlock()
+	history.reset()
+}
+
+func (history *DashboardHistory) reset() {
+	history.nodeID, history.seen, history.sampleID, history.transitionID = "", false, 0, 0
+	history.hour, history.day = nil, nil
+}
+
+// DashboardMetricsHistory reads the last hour in minute buckets and the last
+// day in five-minute buckets, with their accepted persistence watermark, from
+// one SQLite snapshot, so clients can replace overlapping tails. Each range
+// starts on a whole bucket, so a later read changes only its open bucket and
+// what newly recorded rows reach. A nil history reads every bucket.
+func (s *Store) DashboardMetricsHistory(ctx context.Context, nodeID string, at time.Time, history *DashboardHistory) (MetricsHistory, MetricsHistory, *time.Time, error) {
+	if history == nil {
+		history = &DashboardHistory{}
+	}
+	history.mu.Lock()
+	defer history.mu.Unlock()
+	if history.nodeID != nodeID {
+		history.reset()
+		history.nodeID = nodeID
+	}
+	at = at.UTC()
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
@@ -497,13 +554,100 @@ func (s *Store) DashboardMetricsHistory(ctx context.Context, nodeID string, at t
 		}
 		watermark = &parsed
 	}
-	hour, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-time.Hour), To: at, BucketSeconds: 60})
+	unchangedBefore, sampleID, transitionID, err := history.changes(ctx, tx, at)
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}
-	day, err := metricsHistory(ctx, tx, MetricsHistoryFilter{NodeID: nodeID, From: at.Add(-24 * time.Hour), To: at, BucketSeconds: 300})
+	hour, hourClosed, err := dashboardRange(ctx, tx, nodeID, at, time.Hour, 60, history.hour, unchangedBefore)
 	if err != nil {
 		return MetricsHistory{}, MetricsHistory{}, nil, err
 	}
-	return hour, day, watermark, tx.Commit()
+	day, dayClosed, err := dashboardRange(ctx, tx, nodeID, at, 24*time.Hour, 300, history.day, unchangedBefore)
+	if err != nil {
+		return MetricsHistory{}, MetricsHistory{}, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return MetricsHistory{}, MetricsHistory{}, nil, err
+	}
+	history.seen, history.sampleID, history.transitionID = true, sampleID, transitionID
+	history.hour, history.day = hourClosed, dayClosed
+	return hour, day, watermark, nil
+}
+
+// changes reads the newest sample and transition IDs and the instant before
+// which the node's rows added since the last read change no bucket: the
+// earliest that one of them reaches, at when none was added, and the zero
+// time before a first read.
+func (history *DashboardHistory) changes(ctx context.Context, tx *sql.Tx, at time.Time) (time.Time, int64, int64, error) {
+	if !history.seen {
+		var sampleID, transitionID int64
+		err := tx.QueryRowContext(ctx, `SELECT (SELECT coalesce(MAX(id), 0) FROM traffic_samples),
+		        (SELECT coalesce(MAX(id), 0) FROM runtime_transitions)`).Scan(&sampleID, &transitionID)
+		return time.Time{}, sampleID, transitionID, err
+	}
+	unchangedBefore := at
+	ids := [2]int64{history.sampleID, history.transitionID}
+	// A sample's interval starts before it was taken, and a transition's
+	// uncertainty before it occurred; IDs are the rowids, so each query reads
+	// only the rows added since.
+	for index, query := range []string{
+		`SELECT MAX(id), MIN(CASE WHEN node_id = ? THEN coalesce(interval_start, sampled_at) END)
+		   FROM traffic_samples WHERE id > ?`,
+		`SELECT MAX(id), MIN(CASE WHEN node_id = ? THEN coalesce(uncertain_since, occurred_at) END)
+		   FROM runtime_transitions WHERE id > ?`,
+	} {
+		var newest sql.NullInt64
+		var earliest sql.NullString
+		if err := tx.QueryRowContext(ctx, query, history.nodeID, ids[index]).Scan(&newest, &earliest); err != nil {
+			return time.Time{}, 0, 0, fmt.Errorf("read dashboard history changes: %w", err)
+		}
+		if newest.Valid {
+			ids[index] = newest.Int64
+		}
+		if earliest.Valid {
+			reached, err := parseTime(earliest.String)
+			if err != nil {
+				return time.Time{}, 0, 0, err
+			}
+			unchangedBefore = minTime(unchangedBefore, reached)
+		}
+	}
+	return unchangedBefore, ids[0], ids[1], nil
+}
+
+// dashboardRange reads the span that ends at at in buckets of bucketSeconds
+// from a whole bucket. It keeps the closed buckets of cached that end by
+// unchangedBefore and reads the rest; it returns the range and its closed
+// buckets.
+func dashboardRange(
+	ctx context.Context, db metricsHistoryQuery, nodeID string, at time.Time, span time.Duration, bucketSeconds int64,
+	cached []MetricsHistoryBucket, unchangedBefore time.Time,
+) (MetricsHistory, []MetricsHistoryBucket, error) {
+	bucket := time.Duration(bucketSeconds) * time.Second
+	from := at.Add(-span).Truncate(bucket)
+	result := MetricsHistory{From: from, To: at, BucketSeconds: bucketSeconds}
+	result.Buckets = make([]MetricsHistoryBucket, 0, int((at.Sub(from)+bucket-1)/bucket))
+	if len(cached) > 0 && !cached[0].From.After(from) {
+		// Buckets lie on one grid, so the range's first bucket is a whole
+		// number of buckets after the first cached one.
+		reusable := minTime(at, unchangedBefore)
+		for _, closed := range cached[min(len(cached), int(from.Sub(cached[0].From)/bucket)):] {
+			if !closed.From.Equal(from.Add(time.Duration(len(result.Buckets))*bucket)) || closed.To.After(reusable) {
+				break
+			}
+			result.Buckets = append(result.Buckets, closed)
+		}
+	}
+	if tailFrom := from.Add(time.Duration(len(result.Buckets)) * bucket); tailFrom.Before(at) {
+		tail, err := metricsHistory(ctx, db, MetricsHistoryFilter{NodeID: nodeID, From: tailFrom, To: at, BucketSeconds: bucketSeconds})
+		if err != nil {
+			return MetricsHistory{}, nil, err
+		}
+		result.Buckets = append(result.Buckets, tail.Buckets...)
+	}
+	closed := result.Buckets
+	if last := len(closed) - 1; last >= 0 && closed[last].To.Sub(closed[last].From) < bucket {
+		closed = closed[:last]
+	}
+	return result, closed, nil
 }

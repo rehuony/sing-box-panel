@@ -1,6 +1,12 @@
-import { useState } from 'react';
+import type { TFunction } from 'i18next';
+import type { ComponentProps } from 'react';
+
+import { CSS } from '@dnd-kit/utilities';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { TooltipTrigger } from '@shared/components/ui/tooltip';
+import { useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import {
   Dialog,
   DialogContent,
@@ -9,23 +15,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@shared/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 import {
   ArrowLeft,
   CirclePlus,
   Eye,
-  Gauge,
+  Flag,
+  FlagOff,
   Link2,
   MoreHorizontal,
-  MousePointer2,
   Route,
   Save,
   Settings2,
-  Shuffle,
+  Trash2,
 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import type {
   ChannelNativeTemplate,
+  ChannelRouteExit,
   ChannelRuleGroup,
   SubscriptionChannel,
   SubscriptionFormat,
@@ -34,15 +41,18 @@ import type {
 
 import { IconAction } from '@/components/icon-action';
 import { ErrorNotice } from '@/components/error-notice';
+import { dropSlot, SortContext } from '@/components/sortable';
 import { ToolbarActions } from '@/components/workspace-toolbar';
-import { StripAction, StripDivider } from '@/components/title-strip';
-import { Rail, RailCount, RailHeading, RailItem } from '@/components/rail';
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { StripAction, StripDivider, StripTooltip } from '@/components/title-strip';
+import { Rail, RailCount, RailHeading, RailItem, RailItemOverlay } from '@/components/rail';
 
 import type { ChannelGroupTab } from './channel-group-editor';
 
 import { useExits } from './channel-exits';
 import { ChannelOptions } from './channel-options';
 import { ChannelPreview } from './channel-preview';
+import { GROUP_ICONS } from './channel-group-icons';
 import { useChannelDraft } from './use-channel-draft';
 import { ChannelClientTag } from './channel-client-tag';
 import { ChannelGroupEditor } from './channel-group-editor';
@@ -52,63 +62,95 @@ import { ChannelTemplateEditor } from './channel-template-editor';
 import { ChannelRouteAdd, ChannelRouteList } from './channel-route-list';
 import { defaultGroupHealthCheck, emptyMatch, exitsThrough, groupTypeName, matchedNodes } from './channel-policy';
 
-const groupIcons = { 'select': MousePointer2, 'url-test': Gauge, 'fallback': Shuffle };
+/**
+ * Below 40rem, where the channel's name and its labelled actions no longer
+ * share a line, the actions keep their icons alone, square.
+ */
+const squareAction = '@max-[40rem]/channel-bar:w-(--control-height-sm) @max-[40rem]/channel-bar:px-0';
+const hiddenLabel = '@max-[40rem]/channel-bar:sr-only';
+
+type RailFace = Pick<ComponentProps<typeof RailItemOverlay>, 'end' | 'icon' | 'marker' | 'name' | 'sub'>;
 
 /**
- * A strategy group in the rail: its strategy's icon, its name, marked when it
- * is the final exit, and its members, its strategy and the exit rules through
- * it; settings and a menu that sets or clears the final exit, moves or
- * deletes it take the count's place on hover.
+ * What a strategy group's rail item shows, the same on the copy a drag
+ * carries: its strategy's icon, its name, marked when it is the final exit,
+ * its strategy and the exit rules through it, and its members.
  */
-function GroupRailItem({
-  busy, current, final, first, format, group, last, matched, onDelete, onFinal, onMove, onSelect, onSettings, routes,
-}: {
-  group: ChannelRuleGroup;
-  format: SubscriptionFormat;
-  /** The pool nodes its match takes besides its members. */
-  matched: number;
+function groupFace(t: TFunction, group: ChannelRuleGroup, format: SubscriptionFormat, { final, members, routes }: {
+  /** Whether what no exit rule matches leaves through it. */
+  final: boolean;
+  /** Its members and the pool nodes its match takes. */
+  members: number;
   /** The exit rules that leave through it. */
   routes: number;
+}): RailFace {
+  const Icon = GROUP_ICONS[group.type];
+  return {
+    end: <RailCount>{members}</RailCount>,
+    icon: <Icon />,
+    marker: final
+      ? <span className='flex-none rounded-[var(--radius-pill)] border border-[var(--color-border-strong)] px-1.5 text-2xs leading-4 text-[var(--color-text-secondary)]'>{t('channels.finalExit')}</span>
+      : undefined,
+    name: group.name || t('channels.groupName'),
+    sub: [
+      t('channels.groupSub', { type: groupTypeName(group.type, format), count: routes }),
+      group.enabled ? '' : t('channels.disabled'),
+    ].filter(Boolean).join(' · '),
+  };
+}
+
+/**
+ * A strategy group in the rail, which drags into its place among the groups
+ * from anywhere on it with the mouse or a touch, or with F2 from the
+ * keyboard. Its settings and a menu that sets or clears the final exit or
+ * deletes it take the count's place on hover.
+ */
+function GroupRailItem({ busy, current, face, final, group, onDelete, onFinal, onSelect, onSettings }: {
+  group: ChannelRuleGroup;
+  face: RailFace;
   current: boolean;
   /** Whether what no exit rule matches leaves through it. */
   final: boolean;
-  first: boolean;
-  last: boolean;
   busy: boolean;
   onSelect: () => void;
   onSettings: () => void;
   /** Sets or clears it as the final exit. */
   onFinal: () => void;
-  onMove: (delta: number) => void;
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
+  const reducedMotion = usePrefersReducedMotion();
   const [menuOpen, setMenuOpen] = useState(false);
-  const Icon = groupIcons[group.type];
-  const name = group.name || t('channels.groupName');
-  const sub = [
-    t('channels.groupSub', { type: groupTypeName(group.type, format), count: routes }),
-    group.enabled ? '' : t('channels.disabled'),
-  ].filter(Boolean).join(' · ');
+  const { attributes, isDragging, listeners, setNodeRef, transform, transition }
+    = useSortable({ id: group.id, disabled: busy });
   return (
     <RailItem
+      {...attributes}
+      {...listeners}
+      {...face}
       actions={(
         <>
-          <IconAction aria-haspopup='dialog' disabled={busy} label={t('channels.groupSettings', { name })} onClick={onSettings} size='icon-xs'>
+          <IconAction aria-haspopup='dialog' disabled={busy} label={t('channels.groupSettings', { name: face.name })} onClick={onSettings} size='icon-xs'>
             <Settings2 aria-hidden='true' />
           </IconAction>
           <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
             {/* An open menu keeps its trigger in view after the pointer leaves the item. */}
-            <DropdownMenuTrigger render={<IconAction className='data-popup-open:visible' disabled={busy} label={t('channels.groupMore', { name })} size='icon-xs' />}>
+            <DropdownMenuTrigger render={<IconAction className='data-popup-open:visible' disabled={busy} label={t('channels.groupMore', { name: face.name })} size='icon-xs' />}>
               <MoreHorizontal aria-hidden='true' />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end' className='w-auto min-w-32'>
+            {/* The items run from the shortest label to the longest. */}
+            <DropdownMenuContent align='end' className='w-auto min-w-40'>
               <DropdownMenuGroup>
-                <DropdownMenuItem disabled={first} onClick={() => onMove(-1)}>{t('common.moveUp')}</DropdownMenuItem>
-                <DropdownMenuItem disabled={last} onClick={() => onMove(1)}>{t('common.moveDown')}</DropdownMenuItem>
-                <DropdownMenuItem onClick={onDelete} variant='destructive'>{t('common.delete')}</DropdownMenuItem>
+                <DropdownMenuItem onClick={onDelete} variant='destructive'>
+                  <Trash2 aria-hidden='true' />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
                 {/* A disabled group cannot become an exit; clearing stays available. */}
                 <DropdownMenuItem disabled={!final && !group.enabled} onClick={onFinal}>
+                  {final ? <FlagOff aria-hidden='true' /> : <Flag aria-hidden='true' />}
                   {t(final ? 'channels.clearFinalExit' : 'channels.setFinalExit')}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
@@ -116,16 +158,19 @@ function GroupRailItem({
           </DropdownMenu>
         </>
       )}
+      aria-disabled={undefined}
+      aria-keyshortcuts={busy ? undefined : 'F2'}
+      aria-roledescription={t('channels.sortableGroup')}
+      className='touch-pan-y select-none'
       current={current}
       disabled={busy}
-      end={menuOpen ? null : <RailCount>{group.members.length + matched}</RailCount>}
-      icon={<Icon />}
-      marker={final
-        ? <span className='flex-none rounded-[var(--radius-pill)] border border-[var(--color-border-strong)] px-1.5 text-2xs leading-4 text-[var(--color-text-secondary)]'>{t('channels.finalExit')}</span>
-        : null}
-      name={name}
+      end={menuOpen ? null : face.end}
+      item={{
+        className: isDragging ? dropSlot : undefined,
+        ref: setNodeRef,
+        style: { transform: CSS.Translate.toString(transform), transition: reducedMotion ? undefined : transition },
+      }}
       onClick={onSelect}
-      sub={sub}
     />
   );
 }
@@ -179,11 +224,10 @@ export function ChannelWorkspace({
     setPreview,
     dirty,
     conflict,
-    confirmNavigation,
     render,
     save,
     showPreview,
-    reorder,
+    moveGroup,
     updateGroup,
     setRoutes,
     setDefaultExit,
@@ -191,14 +235,27 @@ export function ChannelWorkspace({
     applyOptions,
   } = useChannelDraft(channel, onSaved);
   const exits = useExits(config.groups, nodes);
+  const draggingRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const groupFaces = config.groups.map((value) => {
+    const final = exitsThrough(config.default_exit, value.id);
+    const face = groupFace(t, value, format, {
+      final,
+      members: value.members.length + matchedNodes(value, nodes).length,
+      routes: config.routes.filter(route => exitsThrough(route.exit, value.id)).length,
+    });
+    return { face, final, group: value };
+  });
   const firstGroup = config.groups.find(value => value.enabled);
+  // New exit rules go to the first enabled group, or out directly without one.
+  const newExit: ChannelRouteExit = firstGroup ? { kind: 'group', id: firstGroup.id } : { kind: 'direct' };
   return (
     <div className='flex h-full min-h-0 min-w-0 flex-col'>
       <ToolbarActions active={active} target={toolbarTarget}>
-        {/* The channel keeps room for its name and client; when narrow, the actions take the next line. */}
-        <div className='flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
-          <div className='flex min-w-[min(100%,12rem)] flex-1 items-center gap-2'>
-            <IconAction disabled={busy} label={t('channels.back')} onClick={() => confirmNavigation(onBack)} variant='flat'>
+        {/* The channel keeps room for its name and client; short of room its actions keep their icons alone. */}
+        <div className='@container/channel-bar flex w-full min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
+          <div className='flex min-w-[min(100%,8rem)] flex-1 items-center gap-2'>
+            <IconAction disabled={busy} label={t('channels.back')} onClick={onBack} variant='flat'>
               <ArrowLeft aria-hidden='true' />
             </IconAction>
             <span className='min-w-0 truncate text-sm font-semibold' title={name}>{name}</span>
@@ -206,62 +263,91 @@ export function ChannelWorkspace({
           </div>
           {/* Actions from looking to changing; saving stands apart after a divider. */}
           <div className='ms-auto flex flex-none items-center gap-2'>
-            <ChannelLinkPopover
-              channel={channel}
-              keyID={linkKey}
-              onKeyChange={onLinkKeyChange}
-              trigger={<Button className='max-sm:w-(--control-height-sm) max-sm:px-0 data-popup-open:bg-[var(--color-hover)]' size='sm' type='button' variant='flat' />}
-            >
-              <Link2 aria-hidden='true' data-icon='inline-start' />
-              <span className='max-sm:sr-only'>{t('channels.link')}</span>
-            </ChannelLinkPopover>
-            <StripAction disabled={busy} icon={<Eye aria-hidden='true' data-icon='inline-start' />} label={t('channels.preview')} onClick={() => void showPreview()} />
-            <StripAction disabled={busy} icon={<Settings2 aria-hidden='true' data-icon='inline-start' />} label={t('channels.distribution')} onClick={() => setOptionsOpen(true)} />
+            <StripTooltip label={t('channels.link')}>
+              <ChannelLinkPopover
+                channel={channel}
+                keyID={linkKey}
+                onKeyChange={onLinkKeyChange}
+                trigger={<TooltipTrigger render={<Button className={`max-sm:w-(--control-height-sm) max-sm:px-0 data-popup-open:bg-[var(--color-hover)] ${squareAction}`} size='sm' type='button' variant='flat' />} />}
+              >
+                <Link2 aria-hidden='true' data-icon='inline-start' />
+                <span className={`max-sm:sr-only ${hiddenLabel}`} data-slot='strip-label'>{t('channels.link')}</span>
+              </ChannelLinkPopover>
+            </StripTooltip>
+            <StripAction className={squareAction} disabled={busy} icon={<Eye aria-hidden='true' data-icon='inline-start' />} label={t('channels.preview')} labelClassName={hiddenLabel} onClick={() => void showPreview()} />
+            <StripAction className={squareAction} disabled={busy} icon={<Settings2 aria-hidden='true' data-icon='inline-start' />} label={t('channels.distribution')} labelClassName={hiddenLabel} onClick={() => setOptionsOpen(true)} />
             <StripDivider />
-            <StripAction disabled={busy || conflict || !dirty} icon={<Save aria-hidden='true' data-icon='inline-start' />} label={t('channels.save')} onClick={() => void save()} />
+            <StripAction className={squareAction} disabled={busy || conflict || !dirty} icon={<Save aria-hidden='true' data-icon='inline-start' />} label={t('channels.save')} labelClassName={hiddenLabel} onClick={() => void save()} />
           </div>
         </div>
       </ToolbarActions>
       {conflict && <ErrorNotice error={t('channels.formatConflict')} />}
       {/* The rail is a column of the channels card, divided by a hairline; on a phone a capped band above. */}
       <div className='grid min-h-0 flex-1 grid-cols-[16rem_minmax(0,1fr)] max-md:grid-cols-1 max-md:grid-rows-[minmax(0,13rem)_minmax(0,1fr)]'>
-        <Rail className='rounded-none border-0 border-e bg-transparent max-md:border-e-0 max-md:border-b' label={t('channels.setup')}>
-          <RailItem
-            current={!group}
-            disabled={busy}
-            end={<RailCount>{config.routes.length}</RailCount>}
-            icon={<Route />}
-            name={t('channels.routes')}
-            onClick={() => setGroupID(null)}
-            sub={t('channels.finalExitSub', { exit: exits.label(config.default_exit) })}
-          />
-          <RailHeading end={(
-            <IconAction disabled={busy} label={t('channels.addGroup')} onClick={addGroup} size='icon-xs'>
-              <CirclePlus aria-hidden='true' />
-            </IconAction>
-          )}>
-            {t('channels.groups')}
-          </RailHeading>
-          {config.groups.map((value, index) => (
-            <GroupRailItem
-              busy={busy}
-              current={group?.id === value.id}
-              final={exitsThrough(config.default_exit, value.id)}
-              first={index === 0}
-              format={format}
-              group={value}
-              key={value.id}
-              last={index === config.groups.length - 1}
-              matched={matchedNodes(value, nodes).length}
-              onDelete={() => requestRemoveGroup(value.id)}
-              onFinal={() => setDefaultExit(exitsThrough(config.default_exit, value.id) ? { kind: 'direct' } : { kind: 'group', id: value.id })}
-              onMove={delta => reorder(index, delta)}
-              onSelect={() => setGroupID(value.id)}
-              onSettings={() => setGroupSettings(structuredClone(value))}
-              routes={config.routes.filter(route => exitsThrough(route.exit, value.id)).length}
+        {/* A drag ends in a click on the group it started from; that click is not the user's. */}
+        <div
+          className='contents'
+          onClickCapture={(event) => {
+            if (!suppressClickRef.current) return;
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onKeyDownCapture={(event) => {
+            if (!draggingRef.current && event.key !== 'F2') suppressClickRef.current = false;
+          }}
+          onPointerDownCapture={() => {
+            if (!draggingRef.current) suppressClickRef.current = false;
+          }}
+        >
+          <Rail className='rounded-none border-0 border-e bg-transparent max-md:border-e-0 max-md:border-b' label={t('channels.setup')}>
+            <RailItem
+              current={!group}
+              disabled={busy}
+              end={<RailCount>{config.routes.length}</RailCount>}
+              icon={<Route />}
+              name={t('channels.routes')}
+              onClick={() => setGroupID(null)}
+              sub={t('channels.finalExitSub', { exit: exits.label(config.default_exit) })}
             />
-          ))}
-        </Rail>
+            <RailHeading end={(
+              <IconAction disabled={busy} label={t('channels.addGroup')} onClick={addGroup} size='icon-xs'>
+                <CirclePlus aria-hidden='true' />
+              </IconAction>
+            )}>
+              {t('channels.groups')}
+            </RailHeading>
+            <SortContext
+              ended={t('channels.groupDragEnd')}
+              instructions={t('channels.groupDragInstructions')}
+              items={groupFaces.map(({ face, group: value }) => ({ id: value.id, label: face.name }))}
+              onDraggingChange={(dragging) => {
+                draggingRef.current = dragging;
+                if (dragging) suppressClickRef.current = true;
+              }}
+              onMove={moveGroup}
+              renderOverlay={(id) => {
+                const dragged = groupFaces.find(({ group: value }) => value.id === id);
+                return dragged ? <RailItemOverlay {...dragged.face} wideEnd /> : null;
+              }}
+              strategy={verticalListSortingStrategy}
+            >
+              {groupFaces.map(({ face, final, group: value }) => (
+                <GroupRailItem
+                  busy={busy}
+                  current={group?.id === value.id}
+                  face={face}
+                  final={final}
+                  group={value}
+                  key={value.id}
+                  onDelete={() => requestRemoveGroup(value.id)}
+                  onFinal={() => setDefaultExit(final ? { kind: 'direct' } : { kind: 'group', id: value.id })}
+                  onSelect={() => setGroupID(value.id)}
+                  onSettings={() => setGroupSettings(structuredClone(value))}
+                />
+              ))}
+            </SortContext>
+          </Rail>
+        </div>
         <div className='flex min-h-0 min-w-0 flex-col'>
           {group
             ? (
@@ -285,9 +371,10 @@ export function ChannelWorkspace({
                     <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{t('channels.routes')}</h2>
                     <ChannelRouteAdd
                       busy={busy}
-                      exit={firstGroup ? { kind: 'group', id: firstGroup.id } : { kind: 'direct' }}
+                      exit={newExit}
+                      exitName={exits.label(newExit)}
                       format={format}
-                      onAdd={route => setRoutes([...config.routes, route])}
+                      onAdd={added => setRoutes([...config.routes, ...added])}
                       routes={config.routes}
                       ruleSets={ruleSets}
                     />
@@ -327,6 +414,10 @@ export function ChannelWorkspace({
           }}
           onChange={setGroupSettings}
           onClose={() => setGroupSettings(null)}
+          onDelete={() => {
+            // A group an exit rule uses is refused with why, its edits kept open.
+            if (requestRemoveGroup(groupSettings.id)) setGroupSettings(null);
+          }}
           value={groupSettings}
         />
       )}

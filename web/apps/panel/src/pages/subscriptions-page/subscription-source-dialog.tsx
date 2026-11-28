@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import type { FormEvent, ReactNode } from 'react';
 
-import { cn } from '@shared/lib/utils';
+import { Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
@@ -20,10 +20,10 @@ import type {
 } from '@/api/api-client';
 
 import { ApiRequestError } from '@/api/api-client';
-import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
 import { InfoTooltip } from '@/components/info-tooltip';
 import { SelectField } from '@/components/select-field';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 
@@ -69,12 +69,6 @@ interface PreviewResult {
   error?: unknown;
   preview?: SubscriptionSourcePreview;
   request: SubscriptionSourcePreviewRequest;
-}
-
-interface Message {
-  text: string;
-  field?: Field;
-  tone: 'danger' | 'warning';
 }
 
 function initialDraft(source: SubscriptionSource | undefined): Draft {
@@ -156,8 +150,9 @@ function FieldRow({ children, help, helpLabel, htmlFor, label, labelId }: {
  * nodes the content holds and the filter keeps, and lists them on request.
  * The server refuses content that does not parse or holds a kept node that
  * does not convert, and names a refused filter rule, which the rule's pill
- * shows; its problem goes to the footer's message slot. An edited source's
- * footer also offers to delete it, which the panel confirms.
+ * shows. A problem goes to one toast that the next replaces and editing
+ * closes, its field marked until it is edited. An edited source's footer
+ * starts with its delete, which the panel confirms.
  */
 export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
   mode: SourceDialogMode;
@@ -175,7 +170,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     exclude: `${id}-exclude`,
     format: `${id}-format`,
     include: `${id}-include`,
-    message: `${id}-message`,
     name: `${id}-name`,
     nodes: `${id}-nodes`,
     refresh: `${id}-refresh`,
@@ -184,7 +178,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
   const source = mode.kind === 'edit' ? mode.source : undefined;
   const [baseline] = useState(() => initialDraft(source));
   const [draft, setDraft] = useState(baseline);
-  const [message, setMessage] = useState<Message | null>(null);
+  const { clear: clearProblem, invalid, report } = useDialogProblem<Field>();
   // The version an edit was read at; a stale save reads the source again and keeps the draft.
   const [version, setVersion] = useState(source?.updated_at ?? '');
   // A new source is a file source once its field holds content, and a URL source otherwise.
@@ -204,7 +198,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
 
   function update(patch: Partial<Draft>) {
     setDraft(current => ({ ...current, ...patch }));
-    if (message) setMessage(null);
+    clearProblem();
   }
 
   const filter = useMemo<SubscriptionSourceFilter>(
@@ -270,17 +264,17 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     },
     onError: (error) => {
       if (error instanceof ApiRequestError && error.status === 412 && source) {
-        setMessage({ text: t('subscriptions.sources.stale'), tone: 'warning' });
+        report(t('subscriptions.sources.stale'), { description: t('subscriptions.sources.staleDetail'), type: 'warning' });
         void client.getSubscriptionSource(source.id).then(fresh => setVersion(fresh.updated_at)).catch(() => undefined);
         return;
       }
-      setMessage({ text: describeSourceError(error, filter, t), tone: 'danger' });
+      report(t('subscriptions.sources.saveFailed'), { description: describeSourceError(error, filter, t) });
     },
   });
 
   /** Says why the form cannot be saved and focuses the field at fault, if one is. */
   function refuse(text: string, field?: Field) {
-    setMessage({ field, text, tone: 'danger' });
+    report(text, { field });
     const target = field ?? (takesContent ? 'content' : 'url');
     // The content field is named by its row's label, which holds the content row's id.
     const element = target === 'content' ? document.querySelector<HTMLElement>(`[aria-labelledby="${ids.content}"]`) : document.getElementById(ids[target]);
@@ -301,7 +295,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
     save.mutate();
   }
 
-  const invalid = (field: Field) => message?.field === field || undefined;
   const intervals = [...new Set([...INTERVALS, draft.refresh])].sort((left, right) => left - right);
   const summary = source
     ? [
@@ -337,7 +330,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                         {source
                           ? (
                               <Input
-                                aria-describedby={ids.message}
                                 aria-invalid={invalid('url')}
                                 autoComplete='off'
                                 className='min-w-48 flex-1 font-[family-name:var(--font-data)]'
@@ -353,12 +345,11 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                           : (
                               <div className='min-w-48 flex-1'>
                                 <SourceInput
-                                  describedBy={ids.message}
                                   id={ids.url}
                                   inputRef={sourceRef}
                                   invalid={invalid('url')}
                                   onContent={next => update({ content: next, url: '' })}
-                                  onError={text => setMessage({ field: 'url', text, tone: 'danger' })}
+                                  onError={text => report(text, { field: 'url' })}
                                   onURL={next => update({ url: next })}
                                   url={draft.url}
                                 />
@@ -383,11 +374,10 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                     <FieldRow label={t(source ? 'subscriptions.sources.field.content' : 'subscriptions.sources.field.source')} labelId={ids.content}>
                       <SourceContentField
                         current={source}
-                        describedBy={ids.message}
                         invalid={invalid('content')}
                         labelId={ids.content}
                         onChange={next => update({ content: next })}
-                        onError={text => setMessage({ field: 'content', text, tone: 'danger' })}
+                        onError={text => report(text, { field: 'content' })}
                         protocols={storedProtocols}
                         value={draft.content}
                       />
@@ -395,7 +385,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                   )}
               <FieldRow htmlFor={ids.name} label={t('subscriptions.sources.field.name')}>
                 <Input
-                  aria-describedby={ids.message}
                   aria-invalid={invalid('name')}
                   autoComplete='off'
                   id={ids.name}
@@ -422,7 +411,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                 label={t('subscriptions.sources.field.include')}
               >
                 <SourceRuleInput
-                  describedBy={ids.message}
                   id={ids.include}
                   invalidRules={refusedRules('include')}
                   onChange={rules => update({ include: rules })}
@@ -431,7 +419,6 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
               </FieldRow>
               <FieldRow htmlFor={ids.exclude} label={t('subscriptions.sources.field.exclude')}>
                 <SourceRuleInput
-                  describedBy={ids.message}
                   id={ids.exclude}
                   invalidRules={refusedRules('exclude')}
                   onChange={rules => update({ exclude: rules })}
@@ -459,18 +446,21 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
             </div>
           </div>
           <DialogFooter className='flex-nowrap'>
-            <p
-              className={cn('min-h-5 min-w-0 flex-1 truncate text-compact', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
-              id={ids.message}
-              role='status'
-              title={message ? messageLine(message.text) : undefined}
-            >
-              {message ? messageLine(message.text) : null}
-            </p>
-            <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
+            {/* Shaped as Cancel, only its text in danger; below 520px its icon alone keeps the footer on one line. */}
             {source && onDelete
-              ? <Button onClick={() => onDelete(source)} type='button' variant='destructive'>{t('subscriptions.sources.deleteTitle')}</Button>
+              ? (
+                  <Button
+                    className='me-auto text-[var(--color-danger-text)] hover:border-[var(--color-danger-border)] hover:text-[var(--color-danger-text)] max-[520px]:w-(--control-height) max-[520px]:px-0'
+                    onClick={() => onDelete(source)}
+                    type='button'
+                    variant='outline'
+                  >
+                    <Trash2 aria-hidden='true' data-icon='inline-start' />
+                    <span className='max-[520px]:sr-only'>{t('subscriptions.sources.deleteTitle')}</span>
+                  </Button>
+                )
               : null}
+            <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button aria-busy={save.isPending || undefined} type='submit'>{t('subscriptions.sources.save')}</Button>
           </DialogFooter>
         </form>

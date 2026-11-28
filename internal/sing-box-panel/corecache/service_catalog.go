@@ -19,7 +19,9 @@ import (
 const maximumCatalogBytes = 64 << 20
 
 type catalogRefresher interface {
-	Refresh(context.Context, string) (RefreshResult, error)
+	// Refresh brings the previous catalog, nil when there is none, up to date
+	// and returns the whole catalog.
+	Refresh(ctx context.Context, validator string, previous *Catalog) (RefreshResult, error)
 }
 
 type CatalogSnapshot struct {
@@ -84,35 +86,98 @@ type CatalogRefreshOptions struct {
 	Force bool `json:"force"`
 }
 
-func (application *Service) RefreshCatalog(ctx context.Context, options CatalogRefreshOptions) (result CatalogSnapshot, operationErr error) {
+// catalogRefresh is a running catalog refresh and, once done is closed, its
+// outcome.
+type catalogRefresh struct {
+	done     chan struct{}
+	snapshot CatalogSnapshot
+	err      error
+}
+
+// RefreshCatalog refreshes the catalog from GitHub. Unless options.Force is
+// set, it returns the stored catalog while the next scheduled refresh is not
+// due.
+func (application *Service) RefreshCatalog(ctx context.Context, options CatalogRefreshOptions) (CatalogSnapshot, error) {
+	if !options.Force {
+		snapshot, due, err := application.refreshDue(ctx)
+		if err != nil || !due {
+			return snapshot, err
+		}
+	}
+	return application.joinRefresh(ctx, application.refreshCatalog)
+}
+
+// refreshDue reports whether the scheduled refresh is due and, when it is
+// not, returns the stored catalog.
+func (application *Service) refreshDue(ctx context.Context) (CatalogSnapshot, bool, error) {
+	currentSettings, err := application.catalogSettings(ctx)
+	if err != nil {
+		return CatalogSnapshot{}, false, err
+	}
+	if currentSettings.CatalogRefreshIntervalHours <= 0 {
+		return CatalogSnapshot{}, true, nil
+	}
+	state, err := application.database.CatalogState(ctx)
+	if errors.Is(err, store.ErrCatalogStateNotFound) {
+		return CatalogSnapshot{}, true, nil
+	}
+	if err != nil {
+		return CatalogSnapshot{}, false, err
+	}
+	interval := time.Duration(currentSettings.CatalogRefreshIntervalHours) * time.Hour
+	if !application.now().UTC().Before(state.RefreshedAt.Add(interval)) {
+		return CatalogSnapshot{}, true, nil
+	}
+	snapshot, err := application.Catalog(ctx)
+	if err != nil {
+		return CatalogSnapshot{}, false, err
+	}
+	snapshot.NotModified = true
+	snapshot.Diagnostics = append(snapshot.Diagnostics, Diagnostic{
+		Step: StepReleases, Severity: DiagnosticInfo, Code: "refresh_not_due",
+		Message: "the next scheduled official catalog refresh is not due yet",
+	})
+	return snapshot, false, nil
+}
+
+// joinRefresh runs refresh, or joins the refresh already running, apart
+// from ctx: ctx bounds only how long the caller waits. A browser that stops
+// waiting therefore leaves the refresh to finish and record its outcome, and
+// a caller that arrives meanwhile shares that outcome instead of starting
+// another refresh.
+func (application *Service) joinRefresh(ctx context.Context, refresh func(context.Context) (CatalogSnapshot, error)) (CatalogSnapshot, error) {
+	application.refreshMu.Lock()
+	running := application.refreshing
+	if running == nil {
+		running = &catalogRefresh{done: make(chan struct{})}
+		application.refreshing = running
+		go func() {
+			running.snapshot, running.err = refresh(context.WithoutCancel(ctx))
+			application.refreshMu.Lock()
+			application.refreshing = nil
+			application.refreshMu.Unlock()
+			close(running.done)
+		}()
+	}
+	application.refreshMu.Unlock()
+	select {
+	case <-running.done:
+		return running.snapshot, running.err
+	case <-ctx.Done():
+		return CatalogSnapshot{}, ctx.Err()
+	}
+}
+
+// refreshCatalog loads the catalog from GitHub with the token in the panel
+// settings and records the outcome in the panel log.
+func (application *Service) refreshCatalog(ctx context.Context) (result CatalogSnapshot, operationErr error) {
+	startedAt := time.Now()
 	defer func() {
-		application.telemetry.RecordOperation(ctx, "catalog.refresh", "Catalog refresh", operationErr, telemetry.OperationLogContext{})
+		application.telemetry.RecordOperation(ctx, "catalog.refresh", "Catalog refresh", operationErr, telemetry.OperationLogContext{StartedAt: startedAt})
 	}()
-	application.catalogMu.Lock()
-	defer application.catalogMu.Unlock()
 	currentSettings, err := application.catalogSettings(ctx)
 	if err != nil {
 		return CatalogSnapshot{}, err
-	}
-	if !options.Force && currentSettings.CatalogRefreshIntervalHours > 0 {
-		state, stateErr := application.database.CatalogState(ctx)
-		if stateErr == nil && application.now().UTC().Before(
-			state.RefreshedAt.Add(time.Duration(currentSettings.CatalogRefreshIntervalHours)*time.Hour),
-		) {
-			snapshot, catalogErr := application.Catalog(ctx)
-			if catalogErr != nil {
-				return CatalogSnapshot{}, catalogErr
-			}
-			snapshot.NotModified = true
-			snapshot.Diagnostics = append(snapshot.Diagnostics, Diagnostic{
-				Step: StepReleases, Severity: DiagnosticInfo, Code: "refresh_not_due",
-				Message: "the next scheduled official catalog refresh is not due yet",
-			})
-			return snapshot, nil
-		}
-		if stateErr != nil && !errors.Is(stateErr, store.ErrCatalogStateNotFound) {
-			return CatalogSnapshot{}, stateErr
-		}
 	}
 	client, err := NewGitHubClient(ClientOptions{Token: currentSettings.Token})
 	if err != nil {
@@ -133,24 +198,18 @@ func (application *Service) refreshCatalogWith(ctx context.Context, client catal
 		return CatalogSnapshot{}, err
 	}
 	validator := ""
+	var previousCatalog *Catalog
 	if previous != nil {
-		validator = previous.Validator
+		// A stored catalog that no longer decodes is rebuilt from GitHub.
+		if decoded, err := decodeCatalog(previous.Catalog); err == nil {
+			validator, previousCatalog = previous.Validator, &decoded
+		}
 	}
-	result, err := client.Refresh(ctx, validator)
+	result, err := client.Refresh(ctx, validator, previousCatalog)
 	if err != nil {
 		return CatalogSnapshot{}, err
 	}
 	currentCatalog := result.Catalog
-	if result.NotModified {
-		if previous == nil {
-			return CatalogSnapshot{}, errors.New("upstream returned not-modified without a local catalog")
-		}
-		currentCatalog, err = decodeCatalog(previous.Catalog)
-		if err != nil {
-			return CatalogSnapshot{}, err
-		}
-		result.ETag = previous.Validator
-	}
 	if err := validateCatalog(currentCatalog); err != nil {
 		return CatalogSnapshot{}, err
 	}

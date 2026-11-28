@@ -91,53 +91,48 @@ func TestStableVersionAndAssetClassification(t *testing.T) {
 	}
 }
 
-func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
+func TestGitHubRefreshReadsSupportedStableReleasesFromTags(t *testing.T) {
 	t.Parallel()
 	apiDigest := digest(t, "11")
-	pageOne := `[
-		{"id":101,"tag_name":"v1.13.19","draft":false,"prerelease":false,"unknown":"accepted","assets":[
+	// GitHub lists tags newest version first. The second page holds no tag of
+	// a supported line, so it ends discovery although GitHub has more pages.
+	pageOne := `[{"name":"v1.14.2-beta.1"},{"name":"v1.14.1"},{"name":"v1.13.19"},{"name":"v1.13.18"}]`
+	pageTwo := `[{"name":"v1.13.0-beta.2"},{"name":"v1.12.3"},{"name":"latest"}]`
+	releaseOne := `{"id":107,"tag_name":"v1.14.1","draft":false,"prerelease":false,"assets":[{"id":1006,"name":"sing-box-1.14.1-linux-amd64-musl.tar.gz","size":104,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64-musl.tar.gz"}]}`
+	releaseTwo := `{"id":101,"tag_name":"v1.13.19","draft":false,"prerelease":false,"unknown":"accepted","assets":[
 		{"id":1001,"name":"sing-box-1.13.19-linux-amd64-musl.tar.gz","size":100,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
 		{"id":1002,"name":"sing-box-1.13.19-linux-arm64-musl.tar.gz","size":101,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64-musl.tar.gz","digest":"invalid-upstream-digest"},
-		{"id":1003,"name":"sing-box-1.13.19-linux-amd64-glibc.tar.gz","size":102,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-glibc.tar.gz","digest":"sha256:` + apiDigest.String() + `"},
-		{"id":1004,"name":"sing-box-1.13.19-windows-amd64.zip","size":103,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-windows-amd64.zip","digest":"sha256:` + apiDigest.String() + `"}
-      ]},
-      {"id":102,"tag_name":"v1.14.0-beta.1","draft":false,"prerelease":true,"assets":[]}
-    ]`
-	pageTwo := `[
-      {"id":103,"tag_name":"v1.13.18","draft":false,"prerelease":false,"assets":[{"id":1005,"name":"sing-box-1.13.18-linux-amd64-musl.tar.gz","size":102,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.18/sing-box-1.13.18-linux-amd64-musl.tar.gz","digest":"sha256:` + apiDigest.String() + `"}]},
-      {"id":106,"tag_name":"v1.12.3","draft":false,"prerelease":false,"assets":[]},
-      {"id":104,"tag_name":"latest","draft":false,"prerelease":false,"assets":[]},
-      {"id":105,"tag_name":"v1.11.0","draft":true,"prerelease":false,"assets":[]}
-    ]`
-	pageHeaders := make(http.Header)
-	pageHeaders.Set("ETag", `W/"new-page-1"`)
-	pageHeaders.Set("Link", `<https://api.github.com/next>; rel="next"`)
-	pageTwoHeaders := make(http.Header)
-	pageTwoHeaders.Set("ETag", `W/"new-page-2"`)
+		{"id":1003,"name":"sing-box-1.13.19-linux-amd64-glibc.tar.gz","size":102,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-glibc.tar.gz"},
+		{"id":1004,"name":"sing-box-1.13.19-windows-amd64.zip","size":103,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-windows-amd64.zip"}
+	]}`
 	doer := &queueDoer{responses: []*http.Response{
-		jsonResponse(http.StatusOK, pageOne, pageHeaders),
-		jsonResponse(http.StatusOK, pageTwo, pageTwoHeaders),
+		jsonResponse(http.StatusOK, pageOne, tagPageHeaders(`W/"tags-1"`, true)),
+		jsonResponse(http.StatusOK, pageTwo, tagPageHeaders(`W/"tags-2"`, true)),
 		jsonResponse(http.StatusOK, `{"id":509091576,"full_name":"SagerNet/sing-box"}`, nil),
+		jsonResponse(http.StatusOK, releaseOne, nil),
+		jsonResponse(http.StatusOK, releaseTwo, nil),
 	}}
 	client, err := NewGitHubClient(ClientOptions{HTTP: doer, Token: "secret-token"})
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
-	result, err := client.Refresh(context.Background(), "")
+	result, err := client.Refresh(context.Background(), "", nil)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	if result.NotModified || result.ETag == "" || result.Catalog.RepositoryID != OfficialRepositoryID {
+	if result.NotModified || result.Catalog.RepositoryID != OfficialRepositoryID {
 		t.Fatalf("refresh metadata = %+v", result)
 	}
-	pageETags, err := client.decodePageValidator(result.ETag)
-	if err != nil || len(pageETags) != 2 || pageETags[0] != `W/"new-page-1"` || pageETags[1] != `W/"new-page-2"` {
-		t.Fatalf("page validator = (%q, %v)", pageETags, err)
+	pageETags, err := client.decodeTagValidator(result.ETag)
+	if err != nil || len(pageETags) != 2 || pageETags[0] != `W/"tags-1"` || pageETags[1] != `W/"tags-2"` {
+		t.Fatalf("tag validator = (%q, %v)", pageETags, err)
 	}
-	if len(result.Catalog.Releases) != 2 || result.Catalog.Releases[0].Version.String() != "1.13.19" || result.Catalog.Releases[1].Version.String() != "1.13.18" {
+	// 1.13.18 lies before the first supported line and prereleases stay out,
+	// so only the two supported stable tags have their releases read.
+	if len(result.Catalog.Releases) != 2 || result.Catalog.Releases[0].Version.String() != "1.14.1" || result.Catalog.Releases[1].Version.String() != "1.13.19" {
 		t.Fatalf("filtered releases = %+v", result.Catalog.Releases)
 	}
-	assets := result.Catalog.Releases[0].Assets
+	assets := result.Catalog.Releases[1].Assets
 	if len(assets) != 2 {
 		t.Fatalf("stable musl Linux assets = %d, want 2", len(assets))
 	}
@@ -154,51 +149,75 @@ func TestGitHubRefreshFiltersPaginatesAndResolvesDigests(t *testing.T) {
 		}
 	}
 	requests := doer.Requests()
-	if len(requests) != 3 {
-		t.Fatalf("request count = %d, want 3", len(requests))
+	if len(requests) != 5 {
+		t.Fatalf("request count = %d, want two tag pages, the repository and two releases", len(requests))
 	}
-	if got := requests[0].Header.Get("If-None-Match"); got != "" {
-		t.Fatalf("first request If-None-Match = %q, want empty", got)
+	if requests[0].URL.Path != "/repos/SagerNet/sing-box/tags" || !strings.Contains(requests[0].URL.RawQuery, "per_page=100") ||
+		requests[0].Header.Get("If-None-Match") != "" {
+		t.Fatalf("first tag request = %s %v", requests[0].URL, requests[0].Header)
 	}
-	if got := requests[1].Header.Get("If-None-Match"); got != "" {
-		t.Fatalf("second request If-None-Match = %q, want empty", got)
+	if requests[3].URL.Path != "/repos/SagerNet/sing-box/releases/tags/v1.14.1" || requests[4].URL.Path != "/repos/SagerNet/sing-box/releases/tags/v1.13.19" {
+		t.Fatalf("release requests = %s, %s", requests[3].URL.Path, requests[4].URL.Path)
 	}
 	if got := requests[0].Header.Get("Authorization"); got != "Bearer secret-token" {
 		t.Fatalf("Authorization = %q", got)
 	}
 }
 
-func TestGitHubRefreshNotModifiedAvoidsOtherRequests(t *testing.T) {
+func TestGitHubRefreshReadsNothingMoreWhileNoStableTagChanged(t *testing.T) {
 	t.Parallel()
-	previous, err := encodePageValidator([]string{`W/"same"`})
+	previous := &Catalog{RepositoryID: OfficialRepositoryID, Releases: []Release{
+		storedRelease(t, 107, "1.14.1", coreartifact.ArchitectureAMD64, coreartifact.ArchitectureARM64),
+	}}
+	validator, err := encodeTagValidator([]string{`W/"same"`})
 	if err != nil {
-		t.Fatalf("encodePageValidator: %v", err)
+		t.Fatalf("encodeTagValidator: %v", err)
 	}
-	headers := make(http.Header)
-	headers.Set("ETag", `W/"same"`)
+	notModified := make(http.Header)
+	notModified.Set("ETag", `W/"same"`)
 	doer := &queueDoer{responses: []*http.Response{
-		{
-			StatusCode: http.StatusNotModified,
-			Header:     headers,
-			Body:       io.NopCloser(strings.NewReader("")),
-		},
-		jsonResponse(http.StatusOK, `[]`, nil),
-		jsonResponse(http.StatusOK, `{"id":509091576,"full_name":"SagerNet/sing-box"}`, nil),
+		{StatusCode: http.StatusNotModified, Header: notModified, Body: io.NopCloser(strings.NewReader(""))},
 	}}
 	client, err := NewGitHubClient(ClientOptions{HTTP: doer})
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
-	result, err := client.Refresh(context.Background(), previous)
+	result, err := client.Refresh(context.Background(), validator, previous)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	if !result.NotModified || result.ETag != previous || result.Catalog.RepositoryID != OfficialRepositoryID || len(doer.Requests()) != 3 {
-		t.Fatalf("not-modified result = %+v, requests = %d", result, len(doer.Requests()))
-	}
 	requests := doer.Requests()
-	if requests[0].Header.Get("If-None-Match") != `W/"same"` || requests[1].Header.Get("If-None-Match") != "" {
-		t.Fatalf("conditional page requests were not scoped correctly")
+	if !result.NotModified || result.ETag != validator || len(result.Catalog.Releases) != 1 || len(requests) != 1 ||
+		requests[0].Header.Get("If-None-Match") != `W/"same"` {
+		t.Fatalf("unchanged tags: result = %+v, requests = %d", result, len(requests))
+	}
+
+	// A new prerelease tag changes the page but no stable release: the tags
+	// are read again, and neither the repository nor a release.
+	changed := `[{"name":"v1.15.0-alpha.1"},{"name":"v1.14.1"}]`
+	doer = &queueDoer{responses: []*http.Response{
+		jsonResponse(http.StatusOK, changed, tagPageHeaders(`W/"changed"`, false)),
+		jsonResponse(http.StatusOK, changed, tagPageHeaders(`W/"changed"`, false)),
+	}}
+	client, err = NewGitHubClient(ClientOptions{HTTP: doer})
+	if err != nil {
+		t.Fatalf("NewGitHubClient: %v", err)
+	}
+	result, err = client.Refresh(context.Background(), validator, previous)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	pageETags, _ := client.decodeTagValidator(result.ETag)
+	if !result.NotModified || len(pageETags) != 1 || pageETags[0] != `W/"changed"` || len(doer.Requests()) != 2 {
+		t.Fatalf("prerelease tag: result = %+v, requests = %d", result, len(doer.Requests()))
+	}
+
+	// A validator of an earlier refresh names release pages; it is ignored
+	// rather than failing every refresh of a panel that stored one.
+	for _, earlier := range []string{"sbp-github-pages-v1.e30", "sbp-github-pages-v3.e30"} {
+		if pages, err := client.decodeTagValidator(earlier); err != nil || pages != nil {
+			t.Fatalf("decodeTagValidator(%q) = (%q, %v), want it ignored", earlier, pages, err)
+		}
 	}
 }
 
@@ -236,42 +255,54 @@ func TestOfficialCatalogKeepsOnlyOneMuslAssetPerArchitecture(t *testing.T) {
 	}
 }
 
-func TestGitHubRefreshDetectsChangeOutsideFirstPage(t *testing.T) {
+func TestGitHubRefreshReadsOnlyNewAndIncompleteReleases(t *testing.T) {
 	t.Parallel()
-	previous, err := encodePageValidator([]string{`W/"page-1"`, `W/"old-page-2"`})
-	if err != nil {
-		t.Fatalf("encodePageValidator: %v", err)
-	}
-	pageOneNotModifiedHeaders := make(http.Header)
-	pageOneNotModifiedHeaders.Set("ETag", `W/"page-1"`)
-	pageOneFullHeaders := make(http.Header)
-	pageOneFullHeaders.Set("ETag", `W/"page-1"`)
-	pageOneFullHeaders.Set("Link", `<https://api.github.com/next>; rel="next"`)
-	pageTwoHeaders := make(http.Header)
-	pageTwoHeaders.Set("ETag", `W/"new-page-2"`)
-	changedPage := `[{"id":301,"tag_name":"v1.2.3","draft":false,"prerelease":false,"assets":[{"id":1008,"name":"sing-box-1.2.3-linux-arm64-musl.tar.gz","size":100,"browser_download_url":"https://github.com/SagerNet/sing-box/releases/download/v1.2.3/sing-box-1.2.3-linux-arm64-musl.tar.gz"}]}]`
+	both := []coreartifact.Architecture{coreartifact.ArchitectureAMD64, coreartifact.ArchitectureARM64}
+	previous := &Catalog{RepositoryID: OfficialRepositoryID, Releases: []Release{
+		storedRelease(t, 107, "1.14.1", both...),
+		storedRelease(t, 105, "1.13.20", both...),
+		// Its arm64 package was not uploaded when it was read.
+		storedRelease(t, 101, "1.13.19", coreartifact.ArchitectureAMD64),
+	}}
+	// v1.14.3 is tagged before its release is published, and v1.13.20 is gone.
+	tags := `[{"name":"v1.14.3"},{"name":"v1.14.2"},{"name":"v1.14.1"},{"name":"v1.13.19"}]`
 	doer := &queueDoer{responses: []*http.Response{
-		{StatusCode: http.StatusNotModified, Header: pageOneNotModifiedHeaders, Body: io.NopCloser(strings.NewReader(""))},
-		jsonResponse(http.StatusOK, changedPage, pageTwoHeaders),
-		jsonResponse(http.StatusOK, `[]`, pageOneFullHeaders),
-		jsonResponse(http.StatusOK, changedPage, pageTwoHeaders),
+		jsonResponse(http.StatusOK, tags, tagPageHeaders(`W/"tags"`, false)),
 		jsonResponse(http.StatusOK, `{"id":509091576,"full_name":"SagerNet/sing-box"}`, nil),
+		jsonResponse(http.StatusNotFound, `{"message":"Not Found"}`, nil),
+		jsonResponse(http.StatusOK, githubReleaseJSON(109, "1.14.2", "amd64", "arm64"), nil),
+		jsonResponse(http.StatusOK, githubReleaseJSON(101, "1.13.19", "amd64", "arm64"), nil),
 	}}
 	client, err := NewGitHubClient(ClientOptions{HTTP: doer})
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
-	result, err := client.Refresh(context.Background(), previous)
+	result, err := client.Refresh(context.Background(), "", previous)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	if result.NotModified || len(result.Catalog.Releases) != 1 || result.Catalog.Releases[0].Version.String() != "1.2.3" {
-		t.Fatalf("second-page change was not loaded: %+v", result)
+	versions := make([]string, 0, len(result.Catalog.Releases))
+	for _, release := range result.Catalog.Releases {
+		versions = append(versions, fmt.Sprintf("%s:%d", release.Version, len(release.Assets)))
 	}
-	requests := doer.Requests()
-	if len(requests) != 5 || requests[0].Header.Get("If-None-Match") != `W/"page-1"` ||
-		requests[1].Header.Get("If-None-Match") != `W/"old-page-2"` || requests[2].Header.Get("If-None-Match") != "" {
-		t.Fatalf("unexpected conditional/full request sequence")
+	if result.NotModified || strings.Join(versions, ",") != "1.14.2:2,1.14.1:2,1.13.19:2" {
+		t.Fatalf("catalog = %v, not modified = %t", versions, result.NotModified)
+	}
+	paths := make([]string, 0, len(doer.Requests()))
+	for _, request := range doer.Requests() {
+		paths = append(paths, request.URL.Path)
+	}
+	want := "/repos/SagerNet/sing-box/tags,/repos/SagerNet/sing-box,/repos/SagerNet/sing-box/releases/tags/v1.14.3," +
+		"/repos/SagerNet/sing-box/releases/tags/v1.14.2,/repos/SagerNet/sing-box/releases/tags/v1.13.19"
+	if strings.Join(paths, ",") != want {
+		t.Fatalf("requests = %v", paths)
+	}
+	found := false
+	for _, diagnostic := range result.Diagnostics {
+		found = found || diagnostic.Code == "release_not_published"
+	}
+	if !found {
+		t.Fatalf("diagnostics = %+v, want the unpublished release noted", result.Diagnostics)
 	}
 }
 
@@ -286,7 +317,7 @@ func TestGitHubRefreshRejectsNotModifiedWithoutCacheValidator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
-	if _, err := client.Refresh(context.Background(), ""); err == nil {
+	if _, err := client.Refresh(context.Background(), "", nil); err == nil {
 		t.Fatalf("Refresh accepted 304 without a prior ETag")
 	}
 }
@@ -295,13 +326,13 @@ func TestGitHubRefreshRejectsDuplicateJSONAndHidesCredentials(t *testing.T) {
 	t.Parallel()
 	t.Run("duplicate JSON", func(t *testing.T) {
 		doer := &queueDoer{responses: []*http.Response{
-			jsonResponse(http.StatusOK, `[{"id":1,"id":2,"tag_name":"v1.0.0","draft":false,"prerelease":false,"assets":[]}]`, nil),
+			jsonResponse(http.StatusOK, `[{"name":"v1.14.0","name":"v1.14.1"}]`, nil),
 		}}
 		client, err := NewGitHubClient(ClientOptions{HTTP: doer})
 		if err != nil {
 			t.Fatalf("NewGitHubClient: %v", err)
 		}
-		if _, err := client.Refresh(context.Background(), ""); err == nil {
+		if _, err := client.Refresh(context.Background(), "", nil); err == nil {
 			t.Fatalf("Refresh accepted duplicate JSON keys")
 		}
 	})
@@ -313,7 +344,7 @@ func TestGitHubRefreshRejectsDuplicateJSONAndHidesCredentials(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewGitHubClient: %v", err)
 		}
-		_, err = client.Refresh(context.Background(), "")
+		_, err = client.Refresh(context.Background(), "", nil)
 		if err == nil || strings.Contains(err.Error(), "secret-token") {
 			t.Fatalf("safe error = %v", err)
 		}
@@ -331,23 +362,19 @@ func TestGitHubRefreshPropagatesCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = client.Refresh(ctx, "")
+	_, err = client.Refresh(ctx, "", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Refresh cancellation error = %v, want context.Canceled", err)
 	}
 }
 
-func TestGitHubRefreshSupportsMoreThanThirtyReleasePages(t *testing.T) {
+func TestGitHubRefreshSupportsMoreThanThirtyTagPages(t *testing.T) {
 	t.Parallel()
 
 	responses := make([]*http.Response, 0, 32)
 	for page := 1; page <= 31; page++ {
-		headers := make(http.Header)
-		headers.Set("ETag", `"page-`+fmt.Sprint(page)+`"`)
-		if page < 31 {
-			headers.Set("Link", `<https://api.github.com/next>; rel="next"`)
-		}
-		responses = append(responses, jsonResponse(http.StatusOK, `[]`, headers))
+		body := fmt.Sprintf(`[{"name":"v1.14.0-alpha.%d"}]`, page)
+		responses = append(responses, jsonResponse(http.StatusOK, body, tagPageHeaders(`"page-`+fmt.Sprint(page)+`"`, page < 31)))
 	}
 	responses = append(responses, jsonResponse(http.StatusOK, `{"id":509091576,"full_name":"SagerNet/sing-box"}`, nil))
 	doer := &queueDoer{responses: responses}
@@ -355,15 +382,11 @@ func TestGitHubRefreshSupportsMoreThanThirtyReleasePages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
-	if _, err := client.Refresh(context.Background(), ""); err != nil {
+	if _, err := client.Refresh(context.Background(), "", nil); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	requests := doer.Requests()
-	if len(requests) != 32 {
-		t.Fatalf("requests = %d, want 31 release pages plus repository", len(requests))
-	}
-	if !strings.Contains(requests[0].URL.RawQuery, "per_page=50") {
-		t.Fatalf("release query = %q, want per_page=50", requests[0].URL.RawQuery)
+	if requests := doer.Requests(); len(requests) != 32 {
+		t.Fatalf("requests = %d, want 31 tag pages plus repository", len(requests))
 	}
 }
 
@@ -372,10 +395,11 @@ func TestGitHubRefreshEnforcesAggregateBodyBudget(t *testing.T) {
 
 	headers := make(http.Header)
 	headers.Set("Link", `<https://api.github.com/next>; rel="next"`)
-	body := "[" + strings.Repeat(" ", 76) + "]"
+	tag := `{"name":"v1.14.0-alpha.1"}`
+	body := "[" + tag + strings.Repeat(" ", 76-len(tag)) + "]"
 	doer := &queueDoer{responses: []*http.Response{
 		jsonResponse(http.StatusOK, body, headers),
-		jsonResponse(http.StatusOK, body, nil),
+		jsonResponse(http.StatusOK, body, headers),
 	}}
 	client, err := NewGitHubClient(ClientOptions{
 		HTTP: doer, MaximumBytesPerPage: 100, MaximumTotalBytes: 150,
@@ -383,10 +407,58 @@ func TestGitHubRefreshEnforcesAggregateBodyBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGitHubClient: %v", err)
 	}
-	_, err = client.Refresh(context.Background(), "")
+	_, err = client.Refresh(context.Background(), "", nil)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Code != "total_body_too_large" {
 		t.Fatalf("Refresh error = %v, want total_body_too_large", err)
+	}
+}
+
+func TestCatalogFailuresNameTheirCauseForThePanelLog(t *testing.T) {
+	t.Parallel()
+	refresh := func(doer HTTPDoer) error {
+		client, err := NewGitHubClient(ClientOptions{HTTP: doer})
+		if err != nil {
+			t.Fatalf("NewGitHubClient: %v", err)
+		}
+		_, err = client.Refresh(context.Background(), "", nil)
+		return err
+	}
+	tests := []struct {
+		name    string
+		err     error
+		code    string
+		message string
+	}{
+		{
+			name:    "GitHub status",
+			err:     refresh(&queueDoer{responses: []*http.Response{jsonResponse(http.StatusBadGateway, `{}`, nil)}}),
+			code:    "catalog_http_status",
+			message: "catalog tags failed (http_status, HTTP 502)",
+		},
+		{
+			name: "timeout",
+			err: refresh(doerFunc(func(*http.Request) (*http.Response, error) {
+				return nil, fmt.Errorf("read: %w", context.DeadlineExceeded)
+			})),
+			code:    "catalog_timeout",
+			message: "catalog tags failed (timeout)",
+		},
+		{
+			name:    "download status",
+			err:     &DownloadError{Code: "http_status", Status: http.StatusNotFound},
+			code:    "download_http_status",
+			message: "download artifact: http_status (HTTP 404)",
+		},
+	}
+	for _, test := range tests {
+		code, message, ok := ClassifyOperationFailure(test.err)
+		if !ok || code != test.code || message != test.message {
+			t.Fatalf("%s: ClassifyOperationFailure(%v) = (%q, %q, %t), want (%q, %q)", test.name, test.err, code, message, ok, test.code, test.message)
+		}
+	}
+	if _, _, ok := ClassifyOperationFailure(errors.New("https://example.test/?token=secret")); ok {
+		t.Fatal("an unknown error was classified")
 	}
 }
 
@@ -440,4 +512,44 @@ func exactVersion(t *testing.T, value string) coreartifact.ExactVersion {
 		t.Fatalf("ParseExactVersion: %v", err)
 	}
 	return parsed
+}
+
+// tagPageHeaders gives a tag page its ETag and, when more pages follow, a
+// link to the next.
+func tagPageHeaders(etag string, next bool) http.Header {
+	headers := make(http.Header)
+	headers.Set("ETag", etag)
+	if next {
+		headers.Set("Link", `<https://api.github.com/next>; rel="next"`)
+	}
+	return headers
+}
+
+// storedRelease is a catalog release of version with a musl package for each
+// architecture.
+func storedRelease(t *testing.T, id int64, version string, architectures ...coreartifact.Architecture) Release {
+	t.Helper()
+	release := Release{ID: id, Tag: "v" + version, Version: exactVersion(t, version)}
+	for index, architecture := range architectures {
+		name := "sing-box-" + version + "-linux-" + string(architecture) + "-musl.tar.gz"
+		release.Assets = append(release.Assets, Asset{
+			RepositoryID: OfficialRepositoryID, ReleaseID: id, AssetID: id*10 + int64(index), Name: name,
+			DownloadURL: "https://github.com/SagerNet/sing-box/releases/download/v" + version + "/" + name,
+			Size:        100, Version: release.Version, OperatingSystem: coreartifact.OperatingSystemLinux,
+			Architecture: architecture, Variant: coreartifact.VariantMusl,
+		})
+	}
+	return release
+}
+
+// githubReleaseJSON is GitHub's release of version with a musl package for
+// each architecture.
+func githubReleaseJSON(id int64, version string, architectures ...string) string {
+	assets := make([]string, 0, len(architectures))
+	for index, architecture := range architectures {
+		name := "sing-box-" + version + "-linux-" + architecture + "-musl.tar.gz"
+		assets = append(assets, fmt.Sprintf(`{"id":%d,"name":%q,"size":100,"browser_download_url":%q}`,
+			id*10+int64(index), name, "https://github.com/SagerNet/sing-box/releases/download/v"+version+"/"+name))
+	}
+	return fmt.Sprintf(`{"id":%d,"tag_name":"v%s","draft":false,"prerelease":false,"assets":[%s]}`, id, version, strings.Join(assets, ","))
 }

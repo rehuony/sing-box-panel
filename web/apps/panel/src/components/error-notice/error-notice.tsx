@@ -1,4 +1,5 @@
 import { useEffect, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@shared/components/ui/toast-manager';
 
 import { describeRequestError } from './error-notice.utils';
@@ -9,9 +10,12 @@ export interface ErrorNoticeProps {
   title?: string;
 }
 
-export function ErrorNotice({ error, title, id }: ErrorNoticeProps) {
+export function ErrorNotice({ error, title: given, id }: ErrorNoticeProps) {
+  const { t } = useTranslation();
   const toastId = useId();
   const message = error == null || error === '' ? '' : describeRequestError(error);
+  // A message the page wrote is short enough to title itself; a request's reason goes under a short title.
+  const title = given ?? (typeof error === 'string' ? undefined : t('common.requestFailedTitle'));
 
   useEffect(() => {
     if (!message) return;

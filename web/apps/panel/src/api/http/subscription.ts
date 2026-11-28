@@ -110,6 +110,11 @@ export function createSubscriptionHttpApi(context: HttpApiContext) {
     listSubscriptionRuleSets(client, signal) {
       return request<SubscriptionRuleSetList>(fetcher, `${baseUrl}/subscription/rule-sets${buildQuery({ client })}`, { method: 'GET', signal });
     },
+    setSubscriptionRuleSetOrder(client, ids, signal) {
+      return request<void>(fetcher, `${baseUrl}/subscription/rule-set-order`, {
+        method: 'PUT', body: JSON.stringify({ client, ids }), headers: writeJSONHeaders(), signal,
+      });
+    },
     createSubscriptionRuleSet(input, signal) {
       return request<SubscriptionRuleSet>(fetcher, `${baseUrl}/subscription/rule-sets`, {
         method: 'POST', body: JSON.stringify(input), headers: writeJSONHeaders(), signal,

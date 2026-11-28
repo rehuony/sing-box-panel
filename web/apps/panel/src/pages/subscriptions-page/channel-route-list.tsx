@@ -1,17 +1,17 @@
 import type { SyntheticEvent } from 'react';
-import type { DraggableSyntheticListeners } from '@dnd-kit/core';
+import type { DraggableSyntheticListeners, KeyboardCodes } from '@dnd-kit/core';
 
 import { cn } from '@shared/lib/utils';
 import { CSS } from '@dnd-kit/utilities';
 import { createPortal } from 'react-dom';
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
-import { Check, CirclePlus, GripVertical, Layers3, PencilLine, Trash2 } from 'lucide-react';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { closestCenter, DndContext, DragOverlay } from '@dnd-kit/core';
+import { CirclePlus, GripVertical, Link2, ListFilter, PencilLine, Trash2 } from 'lucide-react';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@shared/components/ui/dropdown-menu';
 
 import type {
@@ -24,17 +24,18 @@ import type {
   SubscriptionRuleSet,
 } from '@/api/api-client';
 
-import { compareText } from '@/utils/compare-text';
 import { IconAction } from '@/components/icon-action';
+import { InfoTooltip } from '@/components/info-tooltip';
 import { SelectField } from '@/components/select-field';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
+import { dropSlot, showGrabbing, useSortSensors, useSortWindow } from '@/components/sortable';
 
 import { ruleType } from './rule-text';
 import { RuleEditor } from './rule-editor';
-import { dropSlot, showGrabbing } from './drag-slot';
 import { exitValue, parseExit, useExits } from './channel-exits';
+import { ChannelRuleSetPicker } from './channel-rule-set-picker';
 import { SubscriptionContentState } from './subscription-content-state';
-import { exitsThrough, routeRuleSet, unusableRemote } from './channel-policy';
+import { exitsThrough, loonAheadOf, routeRuleSet, unusableRemote } from './channel-policy';
 
 /**
  * A row's cells: grip, position, what it matches, its actions and its exit,
@@ -48,6 +49,8 @@ const actionsCell = 'flex justify-end gap-0.5 sm:col-start-4 sm:row-start-1 max-
 const secondary = 'text-xs text-[var(--color-text-secondary)]';
 const danger = 'text-xs text-[var(--color-danger-text)]';
 const positionCell = 'text-end font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums sm:pe-2';
+/** A row's grip picks it up and drops it with F2, Space or Enter; Escape cancels. */
+const routeKeys: KeyboardCodes = { start: ['F2', 'Space', 'Enter'], end: ['F2', 'Space', 'Enter'], cancel: ['Escape'] };
 
 /**
  * A row's pointer listeners, which start a drag from anywhere on the row but
@@ -71,53 +74,35 @@ function ownRemoteNames(routes: readonly ChannelRoute[], except?: string): strin
 }
 
 /**
- * Adds exit rules: one of the client's rule sets, each once a channel, or a
- * rule of the channel's own. New rules are enabled and take the given exit.
+ * Adds exit rules: the client's rule sets, each once a channel, or a rule of
+ * the channel's own. New rules are enabled and take the given exit.
  */
-export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }: {
+export function ChannelRouteAdd({ busy, exit, exitName, format, onAdd, routes, ruleSets }: {
   busy: boolean;
-  /** The exit new rules take. */
+  /** The exit new rules take, and its name. */
   exit: ChannelRouteExit;
+  exitName: string;
   format: SubscriptionFormat;
   routes: readonly ChannelRoute[];
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
-  onAdd: (route: ChannelRoute) => void;
+  onAdd: (routes: ChannelRoute[]) => void;
 }) {
   const { t } = useTranslation();
   const [adding, setAdding] = useState<{ remote: boolean } | null>(null);
-  const sets = (ruleSets ?? []).filter(set => set.client === format);
-  sets.sort((left, right) => compareText(left.name, right.name));
   const used = new Set(routes.flatMap(route => route.rule_set_id === undefined ? [] : [route.rule_set_id]));
-  function add(match: { rule_set_id: string } | { rule: SubscriptionRule }) {
-    onAdd({ id: crypto.randomUUID(), enabled: true, ...match, exit });
-  }
-  let setItems;
-  if (ruleSets === undefined) {
-    setItems = <DropdownMenuItem disabled>{t('common.loading')}</DropdownMenuItem>;
-  } else if (!sets.length) {
-    setItems = <DropdownMenuItem disabled>{t('channels.noClientRuleSets', { client: format })}</DropdownMenuItem>;
-  } else {
-    setItems = sets.map(set => (
-      // A set the channel already routes stays listed, disabled, its check in place of its rule count.
-      <DropdownMenuItem disabled={used.has(set.id)} key={set.id} onClick={() => add({ rule_set_id: set.id })}>
-        <span className='min-w-0 flex-1 break-words'>{set.name}</span>
-        {used.has(set.id)
-          ? <Check aria-label={t('channels.alreadyAdded')} />
-          : <span className='flex-none font-[family-name:var(--font-data)] text-xs text-[var(--color-text-faint)] tabular-nums'>{set.rules.length}</span>}
-      </DropdownMenuItem>
-    ));
+  function route(match: { rule_set_id: string } | { rule: SubscriptionRule }): ChannelRoute {
+    return { id: crypto.randomUUID(), enabled: true, ...match, exit };
   }
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger render={<Button aria-label={t('channels.addRuleSetRoute')} className='max-sm:w-(--control-height-sm) max-sm:px-0' disabled={busy} size='sm' variant='flat' />}>
-          <Layers3 aria-hidden='true' data-icon='inline-start' />
-          <span className='max-sm:sr-only'>{t('channels.addRuleSetRoute')}</span>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end' className='w-auto max-w-80 min-w-40'>
-          <DropdownMenuGroup>{setItems}</DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ChannelRuleSetPicker
+        busy={busy}
+        exitName={exitName}
+        format={format}
+        onAdd={ids => onAdd(ids.map(id => route({ rule_set_id: id })))}
+        ruleSets={ruleSets}
+        used={used}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button aria-label={t('channels.addCustomRule')} className='max-sm:w-(--control-height-sm) max-sm:px-0' disabled={busy} size='sm' variant='flat' />}>
           <CirclePlus aria-hidden='true' data-icon='inline-start' />
@@ -125,8 +110,14 @@ export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }:
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-auto min-w-40'>
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => setAdding({ remote: false })}>{t('channels.matchRule')}</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setAdding({ remote: true })}>{t('channels.remoteRule')}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAdding({ remote: false })}>
+              <ListFilter aria-hidden='true' />
+              {t('channels.matchRule')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAdding({ remote: true })}>
+              <Link2 aria-hidden='true' />
+              {t('channels.remoteRule')}
+            </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -136,7 +127,7 @@ export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }:
               client={format}
               onClose={() => setAdding(null)}
               onSave={(rule) => {
-                add({ rule });
+                onAdd([route({ rule })]);
                 setAdding(null);
               }}
               remote={adding.remote}
@@ -149,14 +140,24 @@ export function ChannelRouteAdd({ busy, exit, format, onAdd, routes, ruleSets }:
   );
 }
 
-/** What a route matches: a rule set's name over its rule count, or an own rule's value over its kind. */
-function RouteMatch({ format, route, ruleSets }: {
+/**
+ * What a route matches: a rule set's name over its rule count, or an own
+ * rule's value over its kind. A rule the client matches ahead of earlier ones
+ * ends its name in a warning sign that names them.
+ */
+function RouteMatch({ aheadOf, format, route, ruleSets }: {
   route: ChannelRoute;
   format: SubscriptionFormat;
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
+  /** The positions of the earlier rules the client matches this one ahead of. */
+  aheadOf?: readonly number[];
 }) {
   const { t } = useTranslation();
   const off = route.enabled ? '' : ` · ${t('channels.disabled')}`;
+  const ahead = aheadOf?.length
+    ? t('channels.loonAheadOf', { count: aheadOf.length, positions: aheadOf.join(t('channels.positionSeparator')) })
+    : '';
+  const mark = ahead ? <InfoTooltip className='-my-1 flex-none' label={ahead} tone='warning'>{ahead}</InfoTooltip> : null;
   if (route.rule_set_id !== undefined) {
     const set = routeRuleSet(route, ruleSets, format);
     const known = ruleSets?.find(value => value.id === route.rule_set_id);
@@ -165,7 +166,10 @@ function RouteMatch({ format, route, ruleSets }: {
     else if (ruleSets) detail = <p className={danger}>{t('channels.routeRuleSetMissing', { client: format })}</p>;
     return (
       <div className='min-w-0 max-sm:col-span-2'>
-        <p className='text-sm break-words'>{known?.name ?? (ruleSets ? route.rule_set_id : EM_DASH)}</p>
+        <p className='flex min-w-0 items-center gap-1 text-sm'>
+          <span className='min-w-0 break-words'>{known?.name ?? (ruleSets ? route.rule_set_id : EM_DASH)}</span>
+          {mark}
+        </p>
         {detail}
       </div>
     );
@@ -175,7 +179,10 @@ function RouteMatch({ format, route, ruleSets }: {
   const unusable = unusableRemote(rule, format);
   return (
     <div className='min-w-0 max-sm:col-span-2' title={rule?.remote?.url}>
-      <p className='font-[family-name:var(--font-data)] text-compact break-all'>{(rule?.kind === 'remote' ? rule.remote?.name : rule?.value) ?? EM_DASH}</p>
+      <p className='flex min-w-0 items-center gap-1'>
+        <span className='min-w-0 font-[family-name:var(--font-data)] text-compact break-all'>{(rule?.kind === 'remote' ? rule.remote?.name : rule?.value) ?? EM_DASH}</span>
+        {mark}
+      </p>
       <p className={unusable ? danger : secondary}>
         {t('channels.routeCustom', { kind })}
         {unusable ? ` · ${t('channels.routeFormatUnusable', { client: format, format: rule!.remote!.format })}` : off}
@@ -184,8 +191,9 @@ function RouteMatch({ format, route, ruleSets }: {
   );
 }
 
-function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, route, ruleSets, sortable }: {
+function RouteRow({ aheadOf, busy, choices, format, index, onEdit, onExit, onRemove, route, ruleSets, sortable }: {
   route: ChannelRoute;
+  aheadOf?: readonly number[];
   /** Its position among all the channel's routes. */
   index: number;
   sortable: boolean;
@@ -199,8 +207,9 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
 }) {
   const { t } = useTranslation();
   const reducedMotion = usePrefersReducedMotion();
+  // While the channel saves the list's sensors start no drag, so saving re-registers no row.
   const { attributes, isDragging, listeners, setActivatorNodeRef, setNodeRef, transform, transition }
-    = useSortable({ id: route.id, disabled: !sortable || busy });
+    = useSortable({ id: route.id, disabled: !sortable });
   const position = index + 1;
   const draggable = sortable && !busy;
   return (
@@ -223,7 +232,7 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
               <button
                 {...attributes}
                 aria-label={t('channels.moveRoute', { position })}
-                className='flex size-7 cursor-grab touch-none items-center justify-center rounded-[var(--radius-control)] text-[var(--color-text-faint)] outline-none group-hover/route:text-[var(--color-text-secondary)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-default'
+                className='flex size-7 cursor-grab touch-none items-center justify-center rounded-[var(--radius-control)] text-[var(--color-text-faint)] outline-none group-hover/route:text-[var(--color-text-secondary)] hover:text-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--ring)] disabled:cursor-default'
                 data-route-grip=''
                 disabled={busy}
                 onKeyDown={listeners?.onKeyDown as ((event: SyntheticEvent) => void) | undefined}
@@ -236,7 +245,7 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
           : null}
       </span>
       <span className={positionCell}>{position}</span>
-      <RouteMatch format={format} route={route} ruleSets={ruleSets} />
+      <RouteMatch aheadOf={aheadOf} format={format} route={route} ruleSets={ruleSets} />
       <SelectField
         aria-label={t('channels.routeExit', { position })}
         className={exitCell}
@@ -262,8 +271,9 @@ function RouteRow({ busy, choices, format, index, onEdit, onExit, onRemove, rout
 }
 
 /** The copy of a row the pointer carries: lifted with the panel shadow, inert. */
-function RouteRowOverlay({ choices, format, index, route, ruleSets }: {
+function RouteRowOverlay({ aheadOf, choices, format, index, route, ruleSets }: {
   route: ChannelRoute;
+  aheadOf?: readonly number[];
   index: number;
   format: SubscriptionFormat;
   ruleSets: readonly SubscriptionRuleSet[] | undefined;
@@ -279,7 +289,7 @@ function RouteRowOverlay({ choices, format, index, route, ruleSets }: {
         <span className='flex size-7 items-center justify-center text-foreground'><GripVertical className='size-4' /></span>
       </span>
       <span className={positionCell}>{index + 1}</span>
-      <RouteMatch format={format} route={route} ruleSets={ruleSets} />
+      <RouteMatch aheadOf={aheadOf} format={format} route={route} ruleSets={ruleSets} />
       <SelectField className={exitCell} items={choices} onValueChange={() => undefined} value={exitValue(route.exit)} />
       <span className={cn(actionsCell, 'max-sm:hidden')} />
     </div>
@@ -288,9 +298,10 @@ function RouteRowOverlay({ choices, format, index, route, ruleSets }: {
 
 /**
  * A channel's exit rules as one block of rows in matching order, sorted by
- * dragging. Filtered to the rules that leave through a group, the rows keep
- * their positions in the whole list but do not sort. The final exit, which
- * takes what no rule matches, is set on a group in the rail.
+ * dragging; a long list draws the rows near its view and the one dragged.
+ * Filtered to the rules that leave through a group, the rows keep their
+ * positions in the whole list but do not sort. The final exit, which takes
+ * what no rule matches, is set on a group in the rail.
  */
 export function ChannelRouteList({
   busy, config, format, groupID, nodes, onRoutesChange, ruleSets,
@@ -312,18 +323,14 @@ export function ChannelRouteList({
   const [dragged, setDragged] = useState<string | null>(null);
   // A drag cut short by leaving the view must not leave the hand closed.
   useEffect(() => () => showGrabbing(false), []);
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-      keyboardCodes: { start: ['F2', 'Space', 'Enter'], end: ['F2', 'Space', 'Enter'], cancel: ['Escape'] },
-    }),
-  );
-  const shown = routes.flatMap((route, index) =>
-    groupID === undefined || exitsThrough(route.exit, groupID) ? [{ index, route }] : []);
+  const sensors = useSortSensors(busy, routeKeys);
+  const shown = useMemo(() => routes.flatMap((route, index) =>
+    groupID === undefined || exitsThrough(route.exit, groupID) ? [{ index, route }] : []), [groupID, routes]);
+  const ids = useMemo(() => shown.map(({ route }) => route.id), [shown]);
+  const { ref, slots, style } = useSortWindow(ids, dragged);
   const position = (id: string | number) => routes.findIndex(route => route.id === id) + 1;
   const draggedRow = dragged === null ? undefined : shown.find(({ route }) => route.id === dragged);
+  const ahead = useMemo(() => loonAheadOf(routes, ruleSets, format), [format, routes, ruleSets]);
   const replace = (id: string, next: Partial<ChannelRoute>) =>
     onRoutesChange(routes.map(route => route.id === id ? { ...route, ...next } : route));
 
@@ -334,12 +341,15 @@ export function ChannelRouteList({
             <ScrollArea className='min-h-0 flex-1'>
               <DndContext
                 accessibility={{
+                  // The live region sits in the body, so a dialog around the list still hides behind a nested one,
+                  // and no announcement lands inside a table's markup.
+                  container: document.body,
                   screenReaderInstructions: { draggable: t('channels.routeDragInstructions') },
                   announcements: {
                     onDragStart: ({ active }) => t('channels.routeDragStart', { position: position(active.id) }),
-                    onDragOver: ({ over }) => over ? t('channels.nodeDragPosition', { position: position(over.id), count: routes.length }) : undefined,
+                    onDragOver: ({ over }) => over ? t('common.dragPosition', { position: position(over.id), count: routes.length }) : undefined,
                     onDragEnd: () => t('channels.routeDragEnd'),
-                    onDragCancel: () => t('channels.nodeDragCancel'),
+                    onDragCancel: () => t('common.dragCancel'),
                   },
                 }}
                 collisionDetection={closestCenter}
@@ -360,23 +370,28 @@ export function ChannelRouteList({
                 }}
                 sensors={sensors}
               >
-                <SortableContext items={shown.map(({ route }) => route.id)} strategy={verticalListSortingStrategy}>
-                  <ol aria-label={t('channels.routes')}>
-                    {shown.map(({ index, route }) => (
-                      <RouteRow
-                        busy={busy}
-                        choices={exits.choices(route.exit)}
-                        format={format}
-                        index={index}
-                        key={route.id}
-                        onEdit={() => setEditing(route)}
-                        onExit={exit => replace(route.id, { exit })}
-                        onRemove={() => onRoutesChange(routes.filter(value => value.id !== route.id))}
-                        route={route}
-                        ruleSets={ruleSets}
-                        sortable={groupID === undefined}
-                      />
-                    ))}
+                <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+                  <ol aria-label={t('channels.routes')} ref={ref} style={style}>
+                    {slots.map((slot) => {
+                      if (typeof slot !== 'number') return <li key='gap' {...slot} />;
+                      const { index, route } = shown[slot]!;
+                      return (
+                        <RouteRow
+                          aheadOf={ahead.get(route.id)}
+                          busy={busy}
+                          choices={exits.choices(route.exit)}
+                          format={format}
+                          index={index}
+                          key={route.id}
+                          onEdit={() => setEditing(route)}
+                          onExit={exit => replace(route.id, { exit })}
+                          onRemove={() => onRoutesChange(routes.filter(value => value.id !== route.id))}
+                          route={route}
+                          ruleSets={ruleSets}
+                          sortable={groupID === undefined}
+                        />
+                      );
+                    })}
                   </ol>
                 </SortableContext>
                 {createPortal(
@@ -384,6 +399,7 @@ export function ChannelRouteList({
                     {draggedRow
                       ? (
                           <RouteRowOverlay
+                            aheadOf={ahead.get(draggedRow.route.id)}
                             choices={exits.choices(draggedRow.route.exit)}
                             format={format}
                             index={draggedRow.index}

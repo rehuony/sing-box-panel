@@ -152,8 +152,8 @@ func TestHelpSectionOrder(t *testing.T) {
 			if !strings.HasPrefix(flags, "  -h, --help ") {
 				t.Fatalf("help must be the first local flag:\n%s", flags)
 			}
-			if !strings.Contains(stdout, "-o, --output format") {
-				t.Fatalf("help is missing the lowercase output shorthand:\n%s", stdout)
+			if !strings.Contains(stdout, "-f, --format format") {
+				t.Fatalf("help is missing the lowercase format shorthand:\n%s", stdout)
 			}
 			previous := -1
 			for _, section := range []struct {
@@ -216,12 +216,12 @@ func TestHelpFlagsKeepStableOrder(t *testing.T) {
 
 func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
 	for _, args := range [][]string{
-		{"--output=json", "config", "verify"},
-		{"config", "--output=json", "verify"},
-		{"config", "verify", "--output=json"},
-		{"-o", "json", "config", "verify"},
-		{"config", "-o=json", "verify"},
-		{"config", "verify", "-o", "json"},
+		{"--format=json", "config", "verify"},
+		{"config", "--format=json", "verify"},
+		{"config", "verify", "--format=json"},
+		{"-f", "json", "config", "verify"},
+		{"config", "-f=json", "verify"},
+		{"config", "verify", "-f", "json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -242,11 +242,11 @@ func TestGlobalFlagsCombineWithSubcommands(t *testing.T) {
 
 func TestOutputShorthand(t *testing.T) {
 	for _, format := range []string{"text", "json", "jsonl"} {
-		want, stderr, err := execute(t, "version", "--output="+format)
+		want, stderr, err := execute(t, "version", "--format="+format)
 		if err != nil || stderr != "" {
 			t.Fatalf("long flag error=%v stderr=%q", err, stderr)
 		}
-		for _, args := range [][]string{{"-o", format, "version"}, {"version", "-o=" + format}} {
+		for _, args := range [][]string{{"-f", format, "version"}, {"version", "-f=" + format}} {
 			t.Run(strings.Join(args, " "), func(t *testing.T) {
 				stdout, stderr, err := execute(t, args...)
 				if err != nil || stderr != "" || stdout != want {
@@ -259,11 +259,11 @@ func TestOutputShorthand(t *testing.T) {
 
 func TestOutputShorthandRejectsInvalidFormat(t *testing.T) {
 	for _, args := range [][]string{
-		{"-o", "yaml", "version"}, {"version", "-o=yaml"}, {"--output=yaml", "version"},
+		{"-f", "yaml", "version"}, {"version", "-f=yaml"}, {"--format=yaml", "version"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			stdout, _, err := execute(t, args...)
-			if cliui.ExitCode(err) != 2 || stdout != "" || !strings.Contains(err.Error(), "output must be text, json, or jsonl") {
+			if cliui.ExitCode(err) != 2 || stdout != "" || !strings.Contains(err.Error(), "format must be text, json, or jsonl") {
 				t.Fatalf("invalid output stdout=%q error=%v", stdout, err)
 			}
 		})
@@ -301,13 +301,13 @@ func TestVersionOutputFormats(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Build: info})
-			root.SetArgs([]string{"version", "--output=" + format})
+			root.SetArgs([]string{"version", "--format=" + format})
 			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {
 				t.Fatalf("error=%v stderr=%q", err, stderr.String())
 			}
 			want := "sing-box-panel " + info.Version + "\n"
 			if format != "text" {
-				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26","protocol":"1.2"}` + "\n"
+				want = `{"version":"v1.2.3-rc.1+build.5","commit":"abc","date":"2026-08-26","protocol":"1.3"}` + "\n"
 			}
 			if stdout.String() != want {
 				t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -327,7 +327,7 @@ func TestInitAndConfigVerify(t *testing.T) {
 	if stderr != "" || !strings.Contains(stdout, "settings created") {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
-	stdout, stderr, err = execute(t, "config", "verify", "--config", path, "--output=json")
+	stdout, stderr, err = execute(t, "config", "verify", "--config", path, "--format=json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ var visibleLeafCapabilities = []string{
 	"server start", "server stop", "server status",
 	"config init", "config show", "config get", "config set", "config verify",
 	"node add", "node list", "node enroll", "node rename", "node remove",
-	"system df", "system prune",
+	"system backup", "system df", "system prune", "system restore",
 	"systemd install", "systemd uninstall", "systemd status", "systemd start", "systemd stop", "systemd restart", "systemd logs",
 	"completion bash", "completion zsh", "completion fish",
 }
@@ -495,7 +495,7 @@ func TestInitReportsCreatedCredentialsWhenStorageFails(t *testing.T) {
 				t.Fatal(err)
 			}
 			path := filepath.Join(directory, "setting.json")
-			stdout, stderr, err := execute(t, "init", "--config", path, "-o", format)
+			stdout, stderr, err := execute(t, "init", "--config", path, "-f", format)
 			if err == nil || stdout != "" {
 				t.Fatal("failed storage initialization claimed success")
 			}
@@ -507,7 +507,7 @@ func TestInitReportsCreatedCredentialsWhenStorageFails(t *testing.T) {
 			if strings.Contains(stderr, "is running") {
 				t.Fatal("initialization claimed service readiness")
 			}
-			_, stderr, err = execute(t, "init", "--config", path, "-o", format)
+			_, stderr, err = execute(t, "init", "--config", path, "-f", format)
 			if err == nil || stderr != "" {
 				t.Fatal("retry repeated credentials or overwrote configuration")
 			}

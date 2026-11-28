@@ -128,7 +128,10 @@ function DialogFooter({
   ...props
 }: React.ComponentProps<'div'> & {
   showCloseButton?: boolean;
-  /** Why the dialog cannot go on, in one line kept in place so nothing moves when it appears. */
+  /**
+   * A note, such as progress or what a choice changes, in one line kept in
+   * place so nothing moves when it appears; problems go to a toast.
+   */
   message?: React.ReactNode;
 }) {
   const { t } = useTranslation();
@@ -144,7 +147,7 @@ function DialogFooter({
     >
       {message === undefined
         ? null
-        : <p className='me-auto min-w-0 flex-1 truncate text-compact text-[var(--color-danger-text)]' role='status' title={typeof message === 'string' && message ? message : undefined}>{message}</p>}
+        : <p className='me-auto min-w-0 flex-1 truncate text-compact text-muted-foreground' role='status' title={typeof message === 'string' && message ? message : undefined}>{message}</p>}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant='outline' />}>
           {t('common.cancel')}

@@ -121,8 +121,8 @@ describe('panel settings draft', () => {
     expect(result.current.draft.password).toBe('');
     expect(result.current.draft.saving).toBe(false);
   });
-  it('counts changed rows and accepts restored settings atomically', async () => {
-    const { result, initial } = await mount();
+  it('counts changed rows', async () => {
+    const { result } = await mount();
     act(() => {
       result.current.draft.updateService('base_path', '/draft');
       result.current.draft.setGithub('pending-token');
@@ -130,13 +130,5 @@ describe('panel settings draft', () => {
       result.current.draft.setPassword('draft-password-123');
     });
     expect([...result.current.draft.changed].sort()).toEqual(['admin-email', 'base-path', 'github-token', 'new-password']);
-    const restored = { ...initial, revision: initial.revision + 1, service: { ...initial.service, base_path: '/restored' } };
-    await act(() => result.current.draft.restored(restored));
-    await waitFor(() => expect(result.current.settings.view).toEqual(restored));
-    expect(result.current.draft.service).toEqual(restored.service);
-    expect(result.current.draft.email).toBe(restored.admin_email);
-    expect(result.current.draft.password).toBe('');
-    expect(result.current.draft.github).toBe('');
-    expect(result.current.draft.changed.size).toBe(0);
   });
 });

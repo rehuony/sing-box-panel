@@ -10,10 +10,8 @@ export interface TrendChartData {
   from: number | undefined;
 }
 
-/** How far back the live charts reach from their newest sample. */
-const LIVE_WINDOW = 120_000;
-/** The shortest span a live chart shows, so its first samples are not stretched across the width. */
-const LIVE_MINIMUM_SPAN = 10_000;
+/** How far back the live charts reach: their window is always this long. */
+export const LIVE_WINDOW = 120_000;
 
 /**
  * The longest step a live line spans: two and a half times the stream's
@@ -29,17 +27,21 @@ function gapLimit(times: number[]): number {
 
 /**
  * The live tail's last two minutes as aligned series, broken across
- * collection gaps. A step to or from a stored sample may also reach one and a
- * half of that sample's own span, so the stored samples a window opens with,
- * about ten seconds apart, join each other and the stream's first reading
- * while the stream's own readings keep their limit. The span starts at the oldest sample it keeps, so no blank
- * strip leads the lines, whether the page opened moments ago or the window's
- * first sample falls a few seconds after its start.
+ * collection gaps, with the reading before them, so the lines run off the
+ * window's start rather than starting inside it. A step to or from a point
+ * may also reach one and a half of the span its rates cover, so the stored
+ * samples a window opens with, about ten seconds apart, join each other and
+ * the stream's first readings while the stream's own readings keep their
+ * limit. A break sits midway between its two points, so the cursor at either
+ * one shows its values. The span is always LIVE_WINDOW, ending at the newest
+ * sample, so the chart never rescales as old samples leave; `first` is the
+ * index of the first time inside it.
  */
 function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | null)[]) {
   const to = tail.at(-1)?.at;
-  const recent = tail.filter(point => to === undefined || point.at >= to - LIVE_WINDOW);
-  const from = to === undefined || recent[0] === undefined ? undefined : Math.min(recent[0].at, to - LIVE_MINIMUM_SPAN);
+  const from = to === undefined ? undefined : to - LIVE_WINDOW;
+  const start = from === undefined ? 0 : tail.findIndex(point => point.at >= from);
+  const recent = tail.slice(Math.max(0, start - 1));
   const limit = gapLimit(recent.map(point => point.at));
   const times: number[] = [];
   const series = pick.map(() => [] as (number | null)[]);
@@ -47,26 +49,33 @@ function liveSeries(tail: LivePoint[], pick: ((point: LivePoint) => number | nul
   for (const point of recent) {
     const allowed = Math.max(limit, 1.5 * Math.max(point.span ?? 0, last?.span ?? 0));
     if (last !== undefined && point.at - last.at > allowed) {
-      times.push(point.at - 1);
+      times.push((last.at + point.at) / 2);
       for (const values of series) values.push(null);
     }
     times.push(point.at);
     pick.forEach((value, index) => series[index]!.push(value(point)));
     last = point;
   }
-  return { times, series, from, to };
+  const first = from === undefined ? 0 : Math.max(0, times.findIndex(time => time >= from));
+  return { times, series, from, to, first };
 }
 
 export function liveTrafficChartData(tail: LivePoint[]): TrendChartData {
-  const { times, series: [down = [], up = []], from, to } = liveSeries(tail, [
+  const { times, series: [down = [], up = []], from, to, first } = liveSeries(tail, [
     point => point.downloadBytesPerSecond, point => point.uploadBytesPerSecond,
   ]);
-  return { data: [times, down, up], unit: scaleTrafficRates(down, up), from, to };
+  return { data: [times, down, up], unit: scaleTrafficRates(down, up, first), from, to };
 }
 
 export function liveConnectionsChartData(tail: LivePoint[]): TrendChartData {
   const { times, series: [connections = []], from, to } = liveSeries(tail, [point => point.connections]);
   return { data: [times, connections], unit: null, from, to };
+}
+
+/** A bucket's traffic as a rate over the time its intervals cover, which may be less than the bucket. */
+function bucketRate(bytes: number | null, bucket: MetricsHistory['buckets'][number]): number | null {
+  const seconds = bucket.traffic_seconds;
+  return bytes === null || seconds === null || seconds <= 0 ? null : bytes / seconds;
 }
 
 // Historical traffic uses bucket averages only. Connections can still join the
@@ -78,30 +87,35 @@ export function trendChartData(history: MetricsHistory | null, kind: 'traffic' |
     .reduce((latest, bucket) => Math.max(latest, Date.parse(bucket.to)), Number.NEGATIVE_INFINITY);
   const through = Math.max(watermark ? Date.parse(watermark) : Number.NEGATIVE_INFINITY, idleThrough);
   const from = history ? Date.parse(history.from) : undefined;
+  // The newest bucket fills until the range's end and is left out until it has a value.
+  const all = history?.buckets ?? [];
+  const newest = all.at(-1);
+  const filling = newest !== undefined
+    && Date.parse(newest.to) - Date.parse(newest.from) < history!.bucket_seconds * 1000
+    && (kind === 'connections'
+      ? newest.active_connections_avg === null
+      : bucketRate(newest.download_bytes, newest) === null);
+  const known = filling ? all.slice(0, -1) : all;
   const live = kind === 'connections'
     ? tail.filter(point => point.at > through && (from === undefined || point.at >= from))
     : [];
   const first = live[0]?.at ?? Number.POSITIVE_INFINITY;
   const boundary = live.length && Number.isFinite(through) ? through : Number.POSITIVE_INFINITY;
-  const buckets = (history?.buckets ?? []).filter(bucket => Number.isFinite(boundary)
+  const buckets = known.filter(bucket => Number.isFinite(boundary)
     ? Date.parse(bucket.from) < boundary
     : Date.parse(bucket.to) < first);
   const times = buckets.map(bucket => Math.min(Date.parse(bucket.to), boundary));
   const down = buckets.map(bucket => kind === 'connections'
     ? bucket.active_connections_avg
-    : bucket.download_bytes === null
-      ? null
-      : bucket.download_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000));
-  const up = buckets.map(bucket => bucket.upload_bytes === null
-    ? null
-    : bucket.upload_bytes / ((Date.parse(bucket.to) - Date.parse(bucket.from)) / 1000));
+    : bucketRate(bucket.download_bytes, bucket));
+  const up = buckets.map(bucket => bucketRate(bucket.upload_bytes, bucket));
   if (live.length) {
     const limit = gapLimit(live.map(point => point.at));
     for (const point of live) {
       const previous = times.at(-1);
       // Null samples preserve reconnects, restarts and unavailable metrics.
       if (previous !== undefined && point.at - previous > limit) {
-        times.push(point.at - 1);
+        times.push((previous + point.at) / 2);
         down.push(null);
       }
       times.push(point.at);
@@ -117,11 +131,16 @@ export function trendChartData(history: MetricsHistory | null, kind: 'traffic' |
   };
 }
 
-function scaleTrafficRates(down: (number | null)[], up: (number | null)[]): string {
+/**
+ * Picks the unit the rates read best in and scales them to it. The peak comes
+ * from the values from first on, the ones in view, so a reading before the
+ * window does not choose the unit.
+ */
+function scaleTrafficRates(down: (number | null)[], up: (number | null)[], first = 0): string {
   const units = ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s', 'PB/s'];
   let peak = 0;
   for (const series of [down, up]) {
-    for (const value of series) peak = Math.max(peak, value ?? 0);
+    for (const value of series.slice(first)) peak = Math.max(peak, value ?? 0);
   }
   let index = 0;
   while (peak >= 1024 && index < units.length - 1) {
@@ -141,7 +160,8 @@ function scaleTrafficRates(down: (number | null)[], up: (number | null)[]): stri
  * Whether a time label centred at position, in pixels from the plot's left
  * edge, fits between the vertical axis's labels and the chart's right edge.
  * A label that would not is left out, so the first tick never runs into the
- * vertical axis's zero.
+ * vertical axis's zero. Live charts keep every label and clip them at the
+ * plot's edges instead, so a label slides out as the window steps.
  */
 export function timeLabelFits(label: string, position: number, width: number, endPadding: number): boolean {
   // The axis sets 11px numerals, about six and a half pixels a character.

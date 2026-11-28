@@ -134,7 +134,7 @@ export function ConfigurationPage() {
                 ? (
                     <Tooltip>
                       <TooltipTrigger
-                        render={<span className='inline-flex rounded-[var(--radius-control)]' tabIndex={0} />}
+                        render={<span className='inline-flex rounded-[var(--radius-control)]' />}
                       >
                         <TabsTrigger disabled value='visual'>{t('configuration.file.visual')}</TabsTrigger>
                       </TooltipTrigger>

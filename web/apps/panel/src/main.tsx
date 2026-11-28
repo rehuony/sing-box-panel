@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router-dom';
 import { CSPProvider } from '@shared/components/ui/csp-provider';
 
-import i18n from '@/i18n';
 import { App } from '@/app';
+import i18n, { i18nReady } from '@/i18n';
 import { AppRoutes } from '@/routes/app.routes';
 import { RootRouteError } from '@/components/route-error';
 import { createHttpApiClient } from '@/api/http-api-client';
@@ -19,12 +19,10 @@ const configuredBasePath
     .replace(/\/$/, '') ?? '';
 const basePath = configuredBasePath === '__SBP_BASE_PATH__' ? '' : configuredBasePath;
 
-if (rootElement === null) {
-  throw new Error(i18n.t('bootstrap.rootMissing'));
-}
-const applicationRoot = rootElement;
-
 function bootstrap() {
+  if (rootElement === null) {
+    throw new Error(i18n.t('bootstrap.rootMissing'));
+  }
   const apiClient = createHttpApiClient({ baseUrl: `${basePath}/api/v1` });
   const router = createBrowserRouter([
     {
@@ -35,11 +33,12 @@ function bootstrap() {
     },
   ], { basename: basePath || undefined });
 
-  createRoot(applicationRoot).render(
+  createRoot(rootElement).render(
     <StrictMode>
       <CSPProvider><App apiClient={apiClient} router={router} /></CSPProvider>
     </StrictMode>,
   );
 }
 
-bootstrap();
+// The first render waits for the language's translations, so no key shows in their place.
+void i18nReady.then(bootstrap);

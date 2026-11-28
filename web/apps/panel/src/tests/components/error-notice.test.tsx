@@ -25,17 +25,19 @@ describe('error notifications', () => {
   it('keeps errors outside page flow, deduplicates repeated failures and closes on recovery', async () => {
     const addToast = vi.spyOn(toast, 'add');
     const { rerender } = render(<Notification message='Connection failed' />);
-    const notice = await screen.findByText('Connection failed', { selector: '[data-slot="toast-title"]' });
+    // A request's reason sits under a short title, not in it.
+    const notice = await screen.findByText('Connection failed', { selector: '[data-slot="toast-description"]' });
     expect(notice.closest('[data-slot="toast"]')).toHaveAttribute('data-type', 'error');
+    expect(screen.getByText('Request failed', { selector: '[data-slot="toast-title"]' })).toBeInTheDocument();
     expect(screen.getByTestId('content').children).toHaveLength(1);
     expect(screen.getByTestId('content')).not.toHaveTextContent('Connection failed');
     rerender(<Notification message='Connection failed' />);
     expect(addToast).toHaveBeenCalledTimes(1);
-    rerender(<Notification message='Request failed' />);
-    expect(await screen.findByText('Request failed', { selector: '[data-slot="toast-title"]' })).toBeInTheDocument();
+    rerender(<Notification message='Connection reset' />);
+    expect(await screen.findByText('Connection reset', { selector: '[data-slot="toast-description"]' })).toBeInTheDocument();
     expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(1);
     rerender(<Notification message={null} />);
-    await waitFor(() => expect(screen.queryByText('Request failed', { selector: '[data-slot="toast-title"]' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Connection reset', { selector: '[data-slot="toast-description"]' })).not.toBeInTheDocument());
     addToast.mockRestore();
   });
 

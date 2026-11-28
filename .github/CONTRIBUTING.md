@@ -10,9 +10,10 @@ not through a public issue or pull request.
 
 ## Before Opening an Issue
 
-Search existing issues first. Use the Bug report, Feature request, or Question
-form and remove management tokens, subscription tokens, configuration secrets,
-private paths, and personal data from all examples and logs.
+Search existing issues first. Use the Bug report, Feature request, or Usage
+question form and remove passwords, session cookies, enrollment codes,
+subscription tokens, configuration secrets, private paths, and personal data
+from all examples and logs.
 
 Open an issue before a large behavioral, compatibility, dependency, or
 architectural change so the intended contract can be agreed before substantial
@@ -67,8 +68,8 @@ The daily root targets are `deps` (locked dependencies), `build` (both local
 binaries), `check` (ordinary validation), and `fmt` (Go formatting). Plain `make`
 lists every target with its usage. To narrow validation, use `make check-backend` for Go
 formatting, modules, vet, and tests; `make check-frontend` for Web build, types, lint,
-tests, and notices; or `make check-contracts` for shell, installer, protocol
-lint and generated-code, and OpenAPI checks. Web package scripts prepare their generated inputs
+tests, and notices; or `make check-contracts` for shell, installer, cleanup,
+protocol lint and generated-code, and OpenAPI checks. Web package scripts prepare their generated inputs
 before typechecking, testing, or building. `make check` shares one Web generation,
 typecheck and production build across its checks; `check-frontend` then runs lint,
 all Vitest projects and the notices check.

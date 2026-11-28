@@ -64,12 +64,12 @@ func TestPanelSettingsRemovedFieldsDoNotRoundTrip(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatal(response.Body.String())
 	}
-	backup, err := app.Settings.ExportPanelBackup(t.Context())
+	saved, err := app.Settings.SavedDocument(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, field := range []string{`"author"`, `"provider"`, `"retention_days"`, `"secure_cookie"`} {
-		if bytes.Contains(backup.PanelSettings, []byte(field)) {
+		if bytes.Contains(saved, []byte(field)) {
 			t.Fatalf("settings save regenerated %s", field)
 		}
 	}

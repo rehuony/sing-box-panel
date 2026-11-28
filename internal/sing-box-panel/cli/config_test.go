@@ -40,7 +40,7 @@ func TestPanelConfigShowPreservesBytes(t *testing.T) {
 				if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 					t.Fatal(err)
 				}
-				out, err := runPanelConfig(t, t.Context(), path, nil, "show", "-o", format)
+				out, err := runPanelConfig(t, t.Context(), path, nil, "show", "-f", format)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -92,14 +92,14 @@ func TestPanelConfigFileOperationsDoNotOpenStorage(t *testing.T) {
 					t.Fatal(err)
 				}
 				path := filepath.Join(dir, "config", "setting.json")
-				out, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(data), "set", "--file", "-", "-o", format)
+				out, err := runPanelConfig(t, t.Context(), path, bytes.NewReader(data), "set", "--file", "-", "-f", format)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if format != "text" && !strings.Contains(out, `"saved":true`) {
 					t.Fatal(out)
 				}
-				out, err = runPanelConfig(t, t.Context(), path, nil, "verify", "-o", format)
+				out, err = runPanelConfig(t, t.Context(), path, nil, "verify", "-f", format)
 				if err != nil {
 					t.Fatalf("verify probed storage: %v", err)
 				}
@@ -244,7 +244,7 @@ func TestPanelConfigSetField(t *testing.T) {
 				{[]string{"set", "github.token", "--stdin"}, "  12345  \r\n"},
 				{[]string{"set", "subscription.private_source_cidrs", `["10.0.0.0/8"]`}, ""},
 			} {
-				out, err := runPanelConfig(t, t.Context(), path, strings.NewReader(tc.input), append(tc.args, "-o", format)...)
+				out, err := runPanelConfig(t, t.Context(), path, strings.NewReader(tc.input), append(tc.args, "-f", format)...)
 				if err != nil || out == "" || (format != "text" && !strings.Contains(out, `"saved":true`)) {
 					t.Fatalf("set field %v: %q, %v", tc.args, out, err)
 				}
@@ -271,7 +271,7 @@ func TestPanelConfigSetField(t *testing.T) {
 				{"set", "/server/port", "9090"}, {"set", "/auth/password", testutil.ChangedPassword},
 				{"set", "server.port", ""}, {"set", "auth.password", ""},
 			} {
-				out, err := runPanelConfig(t, t.Context(), path, nil, append(args, "-o", format)...)
+				out, err := runPanelConfig(t, t.Context(), path, nil, append(args, "-f", format)...)
 				if cliui.ExitCode(err) != 3 || out != "" || strings.Contains(err.Error(), "secret") {
 					t.Fatalf("invalid field edit leaked input or succeeded: %q, %v", out, err)
 				}
@@ -302,7 +302,7 @@ func TestPanelConfigGetField(t *testing.T) {
 	} {
 		for _, format := range []string{"text", "json", "jsonl"} {
 			t.Run(tc.field+"/"+format, func(t *testing.T) {
-				out, err := runPanelConfig(t, t.Context(), path, nil, "get", tc.field, "-o", format)
+				out, err := runPanelConfig(t, t.Context(), path, nil, "get", tc.field, "-f", format)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -388,7 +388,7 @@ func TestPanelConfigInitOnlyGeneratesSettings(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data-home"))
 			path := filepath.Join(root, "config", "setting.json")
-			out, err := runPanelConfig(t, t.Context(), path, nil, "init", "-o", format)
+			out, err := runPanelConfig(t, t.Context(), path, nil, "init", "-f", format)
 			if err != nil {
 				t.Fatal(err)
 			}

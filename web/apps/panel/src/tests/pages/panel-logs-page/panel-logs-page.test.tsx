@@ -23,44 +23,53 @@ function show(client = createMockApiClient(), url = '/logs') {
 }
 
 describe('panel logs', () => {
-  it('lists panel activity in five columns with details and paginates', async () => {
+  it('lists panel activity in pages of 50 whose lines open their details from anywhere', async () => {
     const item: LogEntry = {
-      id: 'log_1',
-      time: '2026-09-19T00:00:00Z',
-      source: 'panel',
-      level: 'info',
-      code: 'Catalog refreshed',
-      message: 'Catalog refreshed',
-      metadata: {},
+      id: 'log_1', time: '2026-09-19T00:00:00Z', source: 'panel', level: 'error',
+      code: 'future.refresh.failed', message: 'Refresh failed', metadata: { error_code: 'catalog_timeout' },
     };
-    const client = show(
-      createMockApiClient({
-        listPanelLogs: vi
-          .fn()
-          .mockResolvedValueOnce({ items: [item], total: 11 })
-          .mockResolvedValue({ items: [item], total: 11 }),
-      }),
+    const listPanelLogs = vi.fn().mockResolvedValue({ items: [item], total: 120 });
+    const client = show(createMockApiClient({ listPanelLogs }));
+    const level = await screen.findByRole('cell', { name: 'ERROR' });
+    expect(screen.getByRole('button', { name: 'Refresh failed · GitHub did not answer the catalog refresh in time' })).toBeVisible();
+    expect(listPanelLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 50, offset: 0 }), expect.any(AbortSignal),
     );
-    expect(await screen.findByRole('cell', { name: 'INFO' })).toBeVisible();
-
-    expect(screen.getByRole('button', { name: 'View details: Catalog refreshed' })).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(level);
+    expect(screen.getByRole('dialog', { name: 'Log details' })).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // Details a press opened leave focus out of the list.
+    expect(screen.getByRole('table')).not.toContainElement(document.activeElement as HTMLElement);
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
-    await waitFor(() =>
-      expect(client.listPanelLogs).toHaveBeenCalledWith(
-        expect.objectContaining({ offset: 10 }),
-        expect.any(AbortSignal),
-      ),
-    );
+    await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 50, offset: 50 }), expect.any(AbortSignal),
+    ));
     await userEvent.click(screen.getByRole('combobox', { name: 'Items per page' }));
-    await userEvent.keyboard('[ArrowDown]');
-    await userEvent.click(await screen.findByRole('option', { name: '50 per page' }));
-    await waitFor(() =>
-      expect(client.listPanelLogs).toHaveBeenLastCalledWith(
-        expect.objectContaining({ limit: 50, offset: 0 }),
-        expect.any(AbortSignal),
-      ),
-    );
+    await userEvent.click(await screen.findByRole('option', { name: '10 per page' }));
+    await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 10, offset: 0 }), expect.any(AbortSignal),
+    ));
+  });
+  it('keeps the list one Tab stop that the arrow keys move through and Enter opens', async () => {
+    const user = userEvent.setup();
+    const entry = (id: string, message: string): LogEntry => ({
+      id, time: '2026-09-19T00:00:00Z', source: 'panel', level: 'info', code: id, message, metadata: {},
+    });
+    show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({
+      items: [entry('first', 'First event'), entry('second', 'Second event')], total: 2,
+    }) }));
+    const first = await screen.findByRole('button', { name: 'First event' });
+    const second = screen.getByRole('button', { name: 'Second event' });
+    expect([first.tabIndex, second.tabIndex]).toEqual([0, -1]);
+    first.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(second).toHaveFocus();
+    expect([first.tabIndex, second.tabIndex]).toEqual([-1, 0]);
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('dialog', { name: 'Log details' })).toBeVisible();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(second).toHaveFocus());
   });
   it('returns to the last valid log page when records disappear during a jump', async () => {
     const item: LogEntry = {
@@ -68,16 +77,16 @@ describe('panel logs', () => {
       code: 'retained', message: 'Retained event', metadata: {},
     };
     const client = show(createMockApiClient({ listPanelLogs: vi.fn()
-      .mockResolvedValueOnce({ items: [item], total: 30 })
-      .mockResolvedValueOnce({ items: [], total: 12 })
-      .mockResolvedValue({ items: [item], total: 12 }),
+      .mockResolvedValueOnce({ items: [item], total: 130 })
+      .mockResolvedValueOnce({ items: [], total: 62 })
+      .mockResolvedValue({ items: [item], total: 62 }),
     }));
     await screen.findByText('Retained event');
     const input = screen.getByRole('spinbutton', { name: 'Current page' });
     fireEvent.change(input, { target: { value: '3' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ offset: 10 }), expect.any(AbortSignal),
+      expect.objectContaining({ offset: 50 }), expect.any(AbortSignal),
     ));
     expect(await screen.findByText('Retained event')).toBeVisible();
     expect(input).toHaveValue(2);
@@ -141,6 +150,6 @@ describe('panel logs', () => {
     expect(client.clearPanelLogs).toHaveBeenCalledExactlyOnceWith({ panel: true });
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Cleared 3 log entries, freed 12 KB', type: 'success' }));
-    expect(await screen.findByRole('cell', { name: 'Logs cleared' })).toBeVisible();
+    expect(await screen.findByRole('cell', { name: 'Logs cleared · 3 deleted · 12 KB freed' })).toBeVisible();
   });
 });

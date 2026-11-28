@@ -203,3 +203,66 @@ func TestRecentMetricsReturnsTheLastTwoMinutesAsRates(t *testing.T) {
 		}
 	}
 }
+
+// TestLiveRatesSurviveRepeatedAndMissingReadings keeps a live rate when the
+// node reports one reading twice, and derives the next rate across a sample
+// that carried no traffic.
+func TestLiveRatesSurviveRepeatedAndMissingReadings(t *testing.T) {
+	ctx := t.Context()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	start := time.Date(2026, time.June, 10, 12, 0, 0, 0, time.UTC)
+	now := start
+	records := New(database, nil, Options{Now: func() time.Time { return now }})
+	nodeID := testutil.CreateNode(t, database, "edge")
+	node, err := database.Node(ctx, nodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := func(seconds int, traffic *NodeTraffic) {
+		t.Helper()
+		now = start.Add(time.Duration(seconds) * time.Second)
+		if err := records.RecordNodeSample(ctx, nodeID, "instance", NodeSample{SampledAt: now, Traffic: traffic}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reading := func(upload, download int64) *NodeTraffic {
+		return &NodeTraffic{ActivationBundleID: "bundle", PID: 7, ProcessStartToken: "start", UploadTotal: upload, DownloadTotal: download}
+	}
+	rates := func() (any, any) {
+		t.Helper()
+		metrics, err := records.NodeMetrics(ctx, node, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		live := metrics.LiveSample
+		if live == nil {
+			return nil, nil
+		}
+		if live.UploadBytesPerSecond == nil || live.DownloadBytesPerSecond == nil {
+			return "none", "none"
+		}
+		return *live.UploadBytesPerSecond, *live.DownloadBytesPerSecond
+	}
+
+	record(0, reading(0, 0))
+	record(1, reading(100, 200))
+	now = start.Add(1500 * time.Millisecond)
+	if err := records.RecordNodeSample(ctx, nodeID, "instance", NodeSample{SampledAt: start.Add(time.Second), Traffic: reading(100, 200)}); err != nil {
+		t.Fatal(err)
+	}
+	if upload, download := rates(); upload != 100.0 || download != 200.0 {
+		t.Fatalf("rates after a repeated reading = %v/%v; want 100/200", upload, download)
+	}
+	record(2, nil)
+	if upload, download := rates(); upload != nil || download != nil {
+		t.Fatalf("rates after a sample without traffic = %v/%v; want no live sample", upload, download)
+	}
+	record(3, reading(300, 600))
+	if upload, download := rates(); upload != 100.0 || download != 200.0 {
+		t.Fatalf("rates across the missing reading = %v/%v; want 100/200", upload, download)
+	}
+}

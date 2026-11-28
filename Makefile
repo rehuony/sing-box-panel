@@ -18,7 +18,7 @@ help:
 	@echo "  make check                       - Run every required check (backend + frontend + contracts)"
 	@echo "  make check-backend               - Go formatting, modules, vet and tests"
 	@echo "  make check-frontend              - Web lint, tests and third-party notices"
-	@echo "  make check-contracts             - Shell, installer, protobuf and OpenAPI contracts"
+	@echo "  make check-contracts             - Shell, installer, cleanup, protobuf and OpenAPI contracts"
 	@echo "  make test                        - Run Go and Web tests"
 	@echo "  make test-backend                - Run Go tests only"
 	@echo "  make test-frontend               - Run Web tests only"

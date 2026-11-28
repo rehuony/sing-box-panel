@@ -6,7 +6,6 @@ export interface PanelSettingsContextValue {
   reload: () => void;
   error: string | null;
   view: PanelSettingsView | null;
-  accept: (view: PanelSettingsView) => Promise<void>;
   preview: (value: Partial<AppearanceSettings> | null) => void;
   save: (input: PanelSettingsWrite) => Promise<PanelSettingsSaveResult>;
 }

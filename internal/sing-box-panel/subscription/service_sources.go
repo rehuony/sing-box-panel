@@ -312,10 +312,16 @@ func (application *Service) RefreshSubscriptionSource(ctx context.Context, sourc
 	if source.Kind != store.SubscriptionSourceURL {
 		return SubscriptionSource{}, ErrSourceKindMismatch
 	}
-	return application.refreshSource(ctx, source)
+	if err := application.refreshSource(ctx, source); err != nil {
+		return SubscriptionSource{}, err
+	}
+	application.PoolInputsChanged(ctx)
+	return application.SubscriptionSource(ctx, source.ID)
 }
 
-func (application *Service) refreshSource(ctx context.Context, source store.SubscriptionSource) (SubscriptionSource, error) {
+// refreshSource fetches a URL source and saves its content when it reads, or
+// records why not. The caller synchronizes the pool.
+func (application *Service) refreshSource(ctx context.Context, source store.SubscriptionSource) error {
 	content, err := application.fetchSource(ctx, source.URL)
 	var reading SourceReading
 	if err == nil {
@@ -328,29 +334,32 @@ func (application *Service) refreshSource(ctx context.Context, source store.Subs
 	next := nextRefresh(source.RefreshMinutes, now)
 	if err != nil {
 		if ctx.Err() != nil {
-			return SubscriptionSource{}, err
+			return err
 		}
 		if _, recordErr := application.database.RecordSubscriptionSourceFailure(ctx, source.ID, sourceErrorCode(err), now, next); recordErr != nil {
-			return SubscriptionSource{}, errors.Join(err, recordErr)
+			return errors.Join(err, recordErr)
 		}
-		return SubscriptionSource{}, err
+		return err
 	}
-	if _, err := application.database.ReplaceSubscriptionSourceContent(ctx, store.SubscriptionSourceContentUpdate{
+	_, err = application.database.ReplaceSubscriptionSourceContent(ctx, store.SubscriptionSourceContentUpdate{
 		ID: source.ID, Content: content, ContentFormat: string(reading.Format), At: now, NextRefreshAt: next,
-	}); err != nil {
-		return SubscriptionSource{}, err
-	}
-	application.PoolInputsChanged(ctx)
-	return application.SubscriptionSource(ctx, source.ID)
+	})
+	return err
 }
 
 // RefreshDueSubscriptionSources refreshes every URL source whose next
-// refresh is due.
+// refresh is due, then synchronizes the pool once for all of them.
 func (application *Service) RefreshDueSubscriptionSources(ctx context.Context) error {
 	due, err := application.database.DueSubscriptionSources(ctx, application.now().UTC())
 	if err != nil {
 		return err
 	}
+	refreshed := false
+	defer func() {
+		if refreshed {
+			application.PoolInputsChanged(ctx)
+		}
+	}()
 	for _, id := range due {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -359,7 +368,8 @@ func (application *Service) RefreshDueSubscriptionSources(ctx context.Context) e
 		if err != nil {
 			continue
 		}
-		_, err = application.refreshSource(ctx, source)
+		err = application.refreshSource(ctx, source)
+		refreshed = refreshed || err == nil
 		application.telemetry.RecordOperation(ctx, "subscription.refresh", "Subscription source refresh", err, telemetry.OperationLogContext{})
 	}
 	return nil
@@ -456,15 +466,9 @@ func (application *Service) fetchSource(ctx context.Context, url string) ([]byte
 // ensurePoolCapacity fails when sourceID contributing kept nodes, in place
 // of its current ones, would grow the pool beyond its limit.
 func (application *Service) ensurePoolCapacity(ctx context.Context, sourceID string, kept int) error {
-	pool, err := application.database.SubscriptionPool(ctx)
+	others, err := application.database.CountSubscriptionPoolNodes(ctx, sourceID)
 	if err != nil {
 		return err
-	}
-	others := 0
-	for _, node := range pool {
-		if sourceID == "" || node.SourceID != sourceID {
-			others++
-		}
 	}
 	if others+kept > MaximumNodes {
 		return fmt.Errorf("%w: the pool would hold more than %d nodes", store.ErrSubscriptionLimitExceeded, MaximumNodes)

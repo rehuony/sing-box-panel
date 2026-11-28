@@ -26,7 +26,7 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
 }
 
 /** A bar's trigger: compact, no border or fill at rest; `data-active` marks a choice that filters. */
-const flatTrigger = 'h-(--control-height-sm) rounded-[var(--radius-control)] border-transparent bg-transparent px-2.5 py-1 text-compact text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-placeholder:text-[var(--color-text-secondary)] data-popup-open:bg-[var(--color-surface-raised)] data-[active=true]:bg-accent data-[active=true]:text-foreground md:text-compact dark:bg-transparent';
+const flatTrigger = 'h-(--control-height-sm) rounded-[var(--radius-control)] border-transparent bg-transparent px-2.5 py-1 text-compact text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] focus-visible:border-primary data-placeholder:text-[var(--color-text-secondary)] data-popup-open:bg-[var(--color-surface-raised)] data-[active=true]:bg-accent data-[active=true]:text-foreground md:text-compact dark:bg-transparent';
 
 function SelectTrigger({
   className,
@@ -44,7 +44,7 @@ function SelectTrigger({
       data-size={size}
       data-variant={variant}
       className={cn(
-        'group/select-trigger flex h-(--control-height) min-w-0 w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-[var(--color-field)] px-3 py-2 text-base font-normal whitespace-nowrap transition-colors outline-hidden select-none focus-visible:outline-1 focus-visible:outline-solid focus-visible:outline-input-focus focus-visible:-outline-offset-1 aria-invalid:focus-visible:outline-destructive disabled:cursor-default disabled:bg-[var(--color-surface-raised)] disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:block md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        'group/select-trigger flex h-(--control-height) min-w-0 w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-[var(--color-field)] px-3 py-2 text-base font-normal whitespace-nowrap transition-colors outline-hidden select-none focus-visible:border-primary aria-invalid:focus-visible:border-destructive disabled:cursor-default disabled:bg-[var(--color-surface-raised)] disabled:opacity-50 aria-invalid:border-destructive data-placeholder:text-muted-foreground data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:block md:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
         variant === 'flat' && flatTrigger,
         className,
       )}

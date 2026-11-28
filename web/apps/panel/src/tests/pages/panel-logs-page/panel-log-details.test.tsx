@@ -7,9 +7,9 @@ import type { LogEntry } from '@/api/api-client';
 
 import i18n from '@/i18n';
 import { TestRouter } from '@/tests/test-router';
-import { matchingEventCodes } from '@/components/panel-log';
 import { ApiClientProvider } from '@/api/api-client-context';
 import { createMockApiClient } from '@/tests/api/mock-api-client';
+import { logContext, matchingEventCodes } from '@/components/panel-log';
 import { PanelLogsPage } from '@/pages/panel-logs-page/panel-logs-page';
 
 const item: LogEntry = {
@@ -52,8 +52,11 @@ describe('panel log presentation and details', () => {
     show(createMockApiClient({
       listPanelLogs: vi.fn().mockResolvedValue({ items: [record], total: 1 }),
     }));
-    const trigger = await screen.findByRole('button', { name: 'View details: Core start operation completed' });
-    await user.click(trigger);
+    // The line names the event and adds what its context records, here its duration.
+    const trigger = await screen.findByRole('button', { name: 'Core start operation completed · 0 ms' });
+    // Details the keyboard opened return focus to their line.
+    trigger.focus();
+    await user.keyboard('{Enter}');
     const dialog = screen.getByRole('dialog', { name: 'Log details' });
     expect(within(dialog).getByText('0', { exact: true })).toBeVisible();
     expect(within(dialog).getByText('false', { exact: true })).toBeVisible();
@@ -81,7 +84,8 @@ describe('panel log presentation and details', () => {
       .mockResolvedValueOnce({ items: [item], total: 1 })
       .mockResolvedValue({ items: [{ ...item, id: 'log:new', code: 'future.event', message: 'New event' }], total: 1 }) });
     show(client);
-    await userEvent.click(await screen.findByRole('button', { name: /View details:/ }));
+    (await screen.findByRole('button', { name: 'Core start operation completed' })).focus();
+    await userEvent.keyboard('{Enter}');
     await act(() => vi.advanceTimersByTimeAsync(5000));
     const dialog = screen.getByRole('dialog');
     expect(dialog.querySelector('pre')).toHaveTextContent('Core start completed');
@@ -99,7 +103,7 @@ describe('panel log presentation and details', () => {
     show(createMockApiClient({ listPanelLogs: vi.fn().mockResolvedValue({ items: [{
       ...item, code: 'future.event', message, metadata: { error_code: 'future_error', error },
     }], total: 1 }) }));
-    await userEvent.click(await screen.findByRole('button', { name: /View details:/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Unrecognized event/ }));
     const dialog = screen.getByRole('dialog');
     await waitFor(() => expect(within(dialog).getByRole('heading', { name: 'Log details' })).toHaveFocus());
     expect(JSON.parse(dialog.querySelector('pre')!.textContent!)).toHaveProperty('message', message);
@@ -114,7 +118,7 @@ describe('panel log presentation and details', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
     const notify = vi.spyOn(toast, 'add');
     show();
-    await user.click(await screen.findByRole('button', { name: /View details:/ }));
+    await user.click(await screen.findByRole('button', { name: 'Core start operation completed' }));
     expect(screen.getByText('No additional context was recorded.')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Copy log' }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Could not copy the log', type: 'error' })));
@@ -127,10 +131,11 @@ describe('panel log presentation and details', () => {
       ...item, code: 'runtime.start.failed', message: 'Core start failed', level: 'error',
       metadata: { error_code: 'core_not_enabled', error: 'core is not enabled', file: 'not-the-reason' },
     }], total: 1 }) }));
-    expect(await screen.findByRole('cell', { name: '核心启动操作失败' })).toBeVisible();
+    // The line gives the failure's reason in the interface's language; the details keep the code.
+    const trigger = await screen.findByRole('button', { name: '核心启动操作失败 · 请先启用核心版本 · not-the-reason' });
     expect(screen.queryByText('请先启用核心版本。')).not.toBeInTheDocument();
     expect(screen.queryByText('not-the-reason')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /查看详情:/ }));
+    await userEvent.click(trigger);
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('请先启用核心版本。')).toBeVisible();
     expect(within(dialog).queryByRole('region', { name: '原始消息' })).not.toBeInTheDocument();
@@ -138,14 +143,25 @@ describe('panel log presentation and details', () => {
     expect(within(dialog).getByText('core_not_enabled')).toBeVisible();
   });
 
+  it('names a line\'s node, a development build and an attempt in its context line', () => {
+    const t = i18n.getFixedT('en');
+    const names = new Map([['node_edge', 'edge']]);
+    const nodeName = (id: string) => names.get(id);
+    expect(logContext({ node_id: 'node_edge', version: 'v0.5.5-0.20261127081723-5bbdd30786c1+dirty' }, t, { nodeName }))
+      .toBe('edge · v0.5.5 · 5bbdd30+dirty');
+    // A node the fleet no longer lists reads by the start of its ID; a node's own log names none.
+    expect(logContext({ node_id: 'node_03f56f02342f2b19' }, t, { nodeName })).toBe('03f56f02');
+    expect(logContext({ node_id: 'node_edge', attempt: 2, maximum_attempts: 5, duration_ms: 16_960 }, t, {})).toBe('attempt 2 of 5 · 17.0 s');
+  });
+
   it('searches translated names on the server and resets numbered pagination', async () => {
     const client = show(createMockApiClient({
-      listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 21 }),
+      listPanelLogs: vi.fn().mockResolvedValue({ items: [item], total: 101 }),
     }));
     await screen.findByText('Core start operation completed');
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ offset: 10 }), expect.any(AbortSignal),
+      expect.objectContaining({ offset: 50 }), expect.any(AbortSignal),
     ));
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '核心启动' } });
     await waitFor(() => expect(client.listPanelLogs).toHaveBeenLastCalledWith(expect.objectContaining({

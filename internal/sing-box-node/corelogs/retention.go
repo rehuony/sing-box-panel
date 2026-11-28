@@ -9,13 +9,28 @@ import (
 // SetPolicy updates the writer and enforces retention without truncating files.
 // A cleanup error does not undo the new policy; the next cleanup retries it.
 func (f *Files) SetPolicy(policy Policy) error {
-	if policy.RetentionDays < 1 || policy.RetentionDays > 3650 || policy.MaxFiles < 0 || policy.MaxFiles > 1024 || policy.MaxFileBytes < 1<<20 || policy.MaxFileBytes > 1024<<20 {
-		return errors.New("invalid core log policy")
+	if err := policy.Validate(); err != nil {
+		return err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.policy = policy
 	return f.pruneLocked()
+}
+
+// Policy returns the policy in effect.
+func (f *Files) Policy() Policy {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.policy
+}
+
+// Validate reports a policy outside the limits the panel's settings allow.
+func (policy Policy) Validate() error {
+	if policy.RetentionDays < 1 || policy.RetentionDays > 3650 || policy.MaxFiles < 0 || policy.MaxFiles > 1024 || policy.MaxFileBytes < 1<<20 || policy.MaxFileBytes > 1024<<20 {
+		return errors.New("invalid core log policy")
+	}
+	return nil
 }
 
 func (f *Files) pruneLocked() error {

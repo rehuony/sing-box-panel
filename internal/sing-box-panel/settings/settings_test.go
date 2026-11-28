@@ -66,8 +66,8 @@ func TestInitializeAndLoad(t *testing.T) {
 	if len(loaded.Subscription.PrivateSourceCIDRs) != 0 {
 		t.Fatal("initialized private source allowlist must be empty")
 	}
-	if loaded.Traffic.SampleRetentionDays != 90 {
-		t.Fatalf("initialized sample retention = %d, want 90", loaded.Traffic.SampleRetentionDays)
+	if loaded.Traffic.SampleRetentionDays != 7 {
+		t.Fatalf("initialized sample retention = %d, want 7", loaded.Traffic.SampleRetentionDays)
 	}
 	if _, err := Initialize(path, false); err == nil {
 		t.Fatal("Initialize() unexpectedly overwrote settings")

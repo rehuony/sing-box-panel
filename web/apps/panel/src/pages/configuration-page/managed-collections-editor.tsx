@@ -6,15 +6,14 @@ import { useMemo, useRef, useState } from 'react';
 import { Badge } from '@shared/components/ui/badge';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
-import { Field, FieldError, FieldGroup, FieldLabel } from '@shared/components/ui/field';
 import {
-  ArrowDown,
-  ArrowUp,
   CircleAlert,
   Plus,
   Trash2,
   Wrench,
 } from 'lucide-react';
+import { arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@shared/components/ui/field';
 import {
   Dialog,
   DialogClose,
@@ -48,6 +47,7 @@ import {
 import type { JsonObject } from '@/api/api-client';
 
 import { RegionState } from '@/components/region-state';
+import { SortContext, SortOverlay } from '@/components/sortable';
 
 import type { CanonicalDraft } from './use-canonical-configuration';
 import type { ConfigurationSchemaResolution } from './use-configuration-schema';
@@ -63,7 +63,7 @@ import {
   schemaProperties,
   uiSchemaFromPanel,
 } from './schema-ui';
-import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListRow, ConfigurationListSummary, ConfigurationListText } from './configuration-list';
+import { ConfigurationList, ConfigurationListActions, ConfigurationListAddButton, ConfigurationListAddRow, ConfigurationListCell, ConfigurationListSummary, ConfigurationListText, SortableConfigurationListRow } from './configuration-list';
 
 type ManagedCollection = 'endpoints' | 'inbounds' | 'outbounds' | 'services';
 
@@ -186,15 +186,13 @@ function nextIdentifier(
 }
 
 interface EntryRowProps {
+  /** The entry's place, which the sort context knows it by. */
+  id: string;
   entry: EntryView;
   disabled: boolean;
-  canMoveUp: boolean;
   onEdit: () => void;
-  canMoveDown: boolean;
   onDelete: () => void;
-  onMoveUp: () => void;
   onRepair: () => void;
-  onMoveDown: () => void;
   collection: ManagedCollection;
 }
 
@@ -202,10 +200,7 @@ function EntryRow({
   disabled,
   entry,
   collection,
-  canMoveUp,
-  canMoveDown,
-  onMoveUp,
-  onMoveDown,
+  id,
   onDelete,
   onEdit,
   onRepair,
@@ -213,7 +208,7 @@ function EntryRow({
   const { t } = useTranslation();
   const details = entryDetails(entry.value, collection);
   return (
-    <ConfigurationListRow>
+    <SortableConfigurationListRow disabled={disabled} id={id} name={entry.tag}>
       <ConfigurationListCell>
         <ConfigurationListText title={entry.tag}>{entry.tag}</ConfigurationListText>
       </ConfigurationListCell>
@@ -234,15 +229,13 @@ function EntryRow({
       <ConfigurationListCell>
         <ConfigurationListActions>
           <Button disabled={disabled} onClick={onEdit} size='sm' type='button' variant='ghost'>{t('common.edit')}</Button>
-          <Button aria-label={t('configuration.general.moveUp', { name: entry.tag })} title={t('common.moveUp')} disabled={disabled || !canMoveUp} onClick={onMoveUp} size='icon-sm' type='button' variant='ghost'><ArrowUp aria-hidden='true' /></Button>
-          <Button aria-label={t('configuration.general.moveDown', { name: entry.tag })} title={t('common.moveDown')} disabled={disabled || !canMoveDown} onClick={onMoveDown} size='icon-sm' type='button' variant='ghost'><ArrowDown aria-hidden='true' /></Button>
           {!entry.valid && (
             <Button aria-label={t('configuration.managed.repair')} title={t('configuration.managed.repair')} disabled={disabled} onClick={onRepair} size='icon-sm' type='button' variant='ghost'><Wrench aria-hidden='true' /></Button>
           )}
           <Button aria-label={t('common.delete')} title={t('common.delete')} className='text-[var(--color-danger)]' disabled={disabled} onClick={onDelete} size='icon-sm' type='button' variant='ghost'><Trash2 aria-hidden='true' /></Button>
         </ConfigurationListActions>
       </ConfigurationListCell>
-    </ConfigurationListRow>
+    </SortableConfigurationListRow>
   );
 }
 
@@ -302,12 +295,10 @@ export function ManagedCollectionsEditor({
     }));
   }
 
-  function move(index: number, delta: -1 | 1) {
-    const target = index + delta;
-    if (disabled || index < 0 || index >= items.length || target < 0 || target >= items.length) return;
-    const next = [...items];
-    [next[index], next[target]] = [next[target], next[index]];
-    replace(next);
+  /** Moves an entry to another's place, as a drag drops it. */
+  function move(from: number, to: number) {
+    if (disabled || from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
+    replace(arrayMove(items, from, to));
   }
 
   function repair(index: number) {
@@ -389,6 +380,7 @@ export function ManagedCollectionsEditor({
         : (
             <ConfigurationList
               aria-label={t(`configuration.managed.collection.${activeCollection}`)}
+              sortable
               labels={[
                 t('configuration.fields.tag'),
                 t('configuration.fields.type'),
@@ -396,20 +388,31 @@ export function ManagedCollectionsEditor({
                 t('common.actions'),
               ]}
             >
-              {views.map((entry, index) => (
-                <EntryRow
-                  disabled={disabled} entry={entry} collection={activeCollection}
-                  canMoveUp={index > 0} canMoveDown={index < views.length - 1}
-                  onMoveUp={() => move(index, -1)} onMoveDown={() => move(index, 1)}
-                  key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
-                  onDelete={() => setDeletingIndex(index)}
-                  onEdit={() => {
-                    setEditing({ index, draft: { [activeCollection]: [items[index]] } });
-                    setEditOpen(true);
-                  }}
-                  onRepair={() => repair(index)}
-                />
-              ))}
+              <SortContext
+                ended={t('common.orderUpdated')}
+                instructions={t('common.reorderInstructions')}
+                items={views.map((entry, index) => ({ id: String(index), label: entry.tag }))}
+                onMove={(active, over) => move(Number(active), Number(over))}
+                renderOverlay={(id) => {
+                  const entry = views[Number(id)];
+                  return entry ? <SortOverlay detail={entry.type === 'untyped' ? undefined : entry.type} name={entry.tag} /> : null;
+                }}
+                strategy={verticalListSortingStrategy}
+              >
+                {views.map((entry, index) => (
+                  <EntryRow
+                    disabled={disabled} entry={entry} collection={activeCollection}
+                    id={String(index)}
+                    key={`${entry.id}:${encodeCanonicalValue(entry.value)}`}
+                    onDelete={() => setDeletingIndex(index)}
+                    onEdit={() => {
+                      setEditing({ index, draft: { [activeCollection]: [items[index]] } });
+                      setEditOpen(true);
+                    }}
+                    onRepair={() => repair(index)}
+                  />
+                ))}
+              </SortContext>
               <ConfigurationListAddRow>
                 <ConfigurationListAddButton
                   aria-label={t('configuration.managed.add')}

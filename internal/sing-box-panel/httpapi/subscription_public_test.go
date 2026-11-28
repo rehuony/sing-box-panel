@@ -5,6 +5,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -18,8 +19,7 @@ import (
 func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *testing.T) {
 	ctx := t.Context()
 	db, app, handler, channel, publish := newSubscriptionPublicationHTTPFixture(t, "/panel")
-	// A node's own quota is not a subscription total: the header reports
-	// usage only.
+	// The header reports the node's quota as the total and the key's expiry.
 	nodeID := testutil.PublishNode(t, db, "edge", testutil.InboundDocument, "edge.example", "")
 	quota := int64(100)
 	if _, err := db.SaveNodeSettings(ctx, nodeID, 2, store.NodeSettings{PublicHost: "edge.example", Traffic: store.NodeTrafficSettings{QuotaGiB: &quota, PeriodMonths: 1, ResetDay: 1}}); err != nil {
@@ -36,13 +36,17 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	}); err != nil {
 		t.Fatal(err)
 	}
-	key, err := app.Subscriptions.CreateSubscriptionToken(ctx, subscription.CreateSubscriptionTokenRequest{Label: "traffic"})
+	expires := time.Now().UTC().Add(30 * 24 * time.Hour)
+	key, err := app.Subscriptions.CreateSubscriptionToken(ctx, subscription.CreateSubscriptionTokenRequest{Label: "traffic", ExpiresAt: &expires})
 	if err != nil {
 		t.Fatal(err)
 	}
+	userinfo := func(upload, download, total int64) string {
+		return fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", upload, download, total, expires.Unix())
+	}
 	path := "/panel/sub/" + key.Token + "/" + channel.ID
 	first := publicSubscriptionRequest(handler, path)
-	if first.Code != http.StatusOK || first.Header().Get("Subscription-Userinfo") != "upload=0; download=0; total=0" {
+	if first.Code != http.StatusOK || first.Header().Get("Subscription-Userinfo") != userinfo(0, 0, quota<<30) {
 		t.Fatalf("first response status=%d traffic=%q", first.Code, first.Header().Get("Subscription-Userinfo"))
 	}
 
@@ -61,7 +65,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	}
 	conditional := publicSubscriptionConditionalRequest(handler, path, first.Header().Get("ETag"))
 	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 || conditional.Header().Get("ETag") != first.Header().Get("ETag") ||
-		conditional.Header().Get("Subscription-Userinfo") != "upload=123; download=456; total=0" {
+		conditional.Header().Get("Subscription-Userinfo") != userinfo(123, 456, quota<<30) {
 		t.Fatalf("conditional response status=%d traffic=%q", conditional.Code, conditional.Header().Get("Subscription-Userinfo"))
 	}
 	second, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
@@ -74,7 +78,8 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 	if other.Code != http.StatusOK || other.Header().Get("Subscription-Userinfo") != conditional.Header().Get("Subscription-Userinfo") {
 		t.Fatalf("other channel status=%d traffic=%q", other.Code, other.Header().Get("Subscription-Userinfo"))
 	}
-	// A channel that leaves the node out does not report the node's traffic.
+	// A channel that leaves the node out reports neither the node's traffic
+	// nor its quota.
 	without, err := app.Subscriptions.CreateSubscriptionChannel(ctx, subscription.CreateSubscriptionChannelRequest{
 		Name: "Without VLESS", Format: store.SubscriptionFormatSingBox, Enabled: true, Config: json.RawMessage(emptyChannelConfig),
 	})
@@ -82,7 +87,7 @@ func TestPublicSubscriptionTrafficRefreshesOn304AndIsSharedAcrossChannels(t *tes
 		t.Fatal(err)
 	}
 	excluded := publicSubscriptionRequest(handler, "/panel/sub/"+key.Token+"/"+without.ID)
-	if excluded.Code != http.StatusOK || excluded.Header().Get("Subscription-Userinfo") != "upload=0; download=0; total=0" {
+	if excluded.Code != http.StatusOK || excluded.Header().Get("Subscription-Userinfo") != userinfo(0, 0, 0) {
 		t.Fatalf("channel without the node status=%d traffic=%q", excluded.Code, excluded.Header().Get("Subscription-Userinfo"))
 	}
 	usage, err := app.Subscriptions.SubscriptionToken(ctx, key.Metadata.ID)

@@ -7,6 +7,13 @@ export interface UnsavedChange {
 }
 
 interface UnsavedChangesContextValue {
+  /**
+   * Runs action, letting the route changes it starts pass without asking:
+   * for a page whose changes are already settled, such as a form just saved
+   * or an object just deleted, before the change leaves the guard. Going back
+   * or forward is never let through.
+   */
+  skipGuard: (action: () => void) => void;
   confirmNavigation: (action: () => void) => void;
   register: (id: string, change: UnsavedChange) => () => void;
 }

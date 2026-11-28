@@ -75,7 +75,7 @@ func TestSystemdInstallLoadsSettingsAndReportsResolvedPaths(t *testing.T) {
 		ExecutablePath: "/home/test/.local/bin/sing-box-panel", Enabled: true, Started: true,
 	}}
 	stdout, stderr, err := executeSystemCommand(t, service,
-		"--config", settingsPath, "--output=json", "systemd", "install", "--scope=user", "--force", "--now",
+		"--config", settingsPath, "--format=json", "systemd", "install", "--scope=user", "--force", "--now",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestSystemdUninstallAccountOutput(t *testing.T) {
 				service.err = errors.New("groupdel failed")
 				service.uninstallResult.GroupRemoved, service.uninstallResult.GroupRetained = false, true
 			case "json":
-				args = append(args, "--output=json")
+				args = append(args, "--format=json")
 			}
 			stdout, _, err := executeSystemCommand(t, service, args...)
 			if (err != nil) != (scenario == "partial failure") || service.uninstallRequest.KeepUser != (scenario == "retained") {
@@ -168,7 +168,7 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	// Unit file does not state one unambiguous path: unit state stays,
 	// storage locations are unknown.
 	service := &fakeSystemdService{statusResult: unit}
-	stdout, stderr, err := executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
+	stdout, stderr, err := executeSystemCommand(t, service, "--config", settingsPath, "--format=json", "systemd", "status", "--scope=user")
 	if err != nil || stderr != "" {
 		t.Fatalf("status error=%v stderr=%q", err, stderr)
 	}
@@ -204,7 +204,7 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	// Unit file names the same file the CLI selected and it loads.
 	unit.UnitFileStatePath = absoluteSettings
 	service = &fakeSystemdService{statusResult: unit}
-	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
+	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--format=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	// daemon-reload requirement is surfaced instead of calling it loaded.
 	unit.NeedDaemonReload = true
 	service = &fakeSystemdService{statusResult: unit}
-	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
+	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--format=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestSystemdStatusLabelsOnDiskSourcesAndNeverClaimsLiveSettings(t *testing.T
 	// both paths are kept, storage stays unknown, no parse detail is shown.
 	unit.UnitFileStatePath = filepath.Join(t.TempDir(), "missing.json")
 	service = &fakeSystemdService{statusResult: unit}
-	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--output=json", "systemd", "status", "--scope=user")
+	stdout, _, err = executeSystemCommand(t, service, "--config", settingsPath, "--format=json", "systemd", "status", "--scope=user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestSystemdInitialCredentialsSurviveActivationFailure(t *testing.T) {
 					controlResult: systemd.ControlResult[settings.Settings]{Initial: &value},
 					err:           errors.New("service activation failed"),
 				}
-				stdout, stderr, err := executeSystemCommand(t, service, "--config", path, "--output", format, "systemd", action, "--scope=user")
+				stdout, stderr, err := executeSystemCommand(t, service, "--config", path, "--format", format, "systemd", action, "--scope=user")
 				if err == nil || stdout != "" {
 					t.Fatal("activation failure claimed success")
 				}

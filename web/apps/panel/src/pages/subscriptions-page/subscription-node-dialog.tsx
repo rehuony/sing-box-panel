@@ -1,6 +1,5 @@
 import type { FormEvent, ReactNode } from 'react';
 
-import { cn } from '@shared/lib/utils';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FileCode2, PencilLine } from 'lucide-react';
@@ -15,17 +14,12 @@ import type { SubscriptionNode, SubscriptionNodeList } from '@/api/api-client';
 
 import { nodePath } from '@/utils/node-path';
 import { ApiRequestError } from '@/api/api-client';
-import { messageLine } from '@/utils/message-line';
 import { useApiClient } from '@/api/api-client-context';
+import { useDialogProblem } from '@/hooks/use-dialog-problem';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { describeRequestError } from '@/components/error-notice';
 
 import { nodeAddress } from './subscription-node-pool';
-
-interface Message {
-  text: string;
-  tone: 'danger' | 'warning';
-}
 
 /** A row's label column, then its value or control; stacked below 520px. */
 const row = 'grid min-h-(--control-height) min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 max-[520px]:min-h-0 max-[520px]:grid-cols-1';
@@ -53,8 +47,8 @@ function Reading({ children, label }: { children: ReactNode; label: string }) {
  * name as the only value that edits, from its edit action, its origin with a
  * fleet node's overview and an inbound's configuration a click away, and the
  * outbound channels publish for it. A name another node uses, or a node that
- * changed since it was read, is said in the footer's message slot; the
- * changed node is read again so saving can retry.
+ * changed since it was read, is said in a toast; the changed node is read
+ * again so saving can retry.
  */
 export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNode; onClose: () => void }) {
   const { t } = useTranslation();
@@ -65,9 +59,8 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
   const titleRef = useRef<HTMLHeadingElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
-  const messageId = useId();
   const [name, setName] = useState(node.display_name);
-  const [message, setMessage] = useState<Message | null>(null);
+  const { clear: clearProblem, invalid, report } = useDialogProblem<'name'>();
   // The detail carries the credentials, so it is read each time the dialog opens and never kept.
   const detail = useQuery({
     queryKey: ['nodes', 'detail', node.id],
@@ -100,13 +93,14 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
     },
     onError: (error) => {
       if (error instanceof ApiRequestError && error.status === 409) {
-        setMessage({ text: t('subscriptions.pool.detail.nameTaken'), tone: 'danger' });
+        report(t('subscriptions.pool.detail.nameTaken'), { field: 'name' });
+        nameRef.current?.focus();
       } else if (error instanceof ApiRequestError && error.status === 412) {
-        setMessage({ text: t('subscriptions.pool.detail.stale'), tone: 'warning' });
+        report(t('subscriptions.pool.detail.stale'), { description: t('subscriptions.pool.detail.staleDetail'), type: 'warning' });
         void detail.refetch();
         void cache.invalidateQueries({ queryKey: ['nodes'], exact: true });
       } else {
-        setMessage({ text: describeRequestError(error), tone: 'danger' });
+        report(t('subscriptions.pool.detail.saveFailed'), { description: describeRequestError(error) });
       }
     },
   });
@@ -116,14 +110,15 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
     if (save.isPending) return;
     const trimmed = name.trim();
     if (trimmed === '') {
-      setMessage({ text: t('subscriptions.pool.detail.nameRequired'), tone: 'danger' });
+      report(t('subscriptions.pool.detail.nameRequired'), { field: 'name' });
+      nameRef.current?.focus();
       return;
     }
     if (!dirty) {
       onClose();
       return;
     }
-    setMessage(null);
+    clearProblem();
     save.mutate(trimmed);
   }
 
@@ -178,13 +173,12 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
                     <div className='relative flex min-w-0 items-center'>
                       <span
                         aria-hidden='true'
-                        className={`absolute end-full top-1/2 me-[1ch] -translate-y-1/2 ${nameFace} ${message?.tone === 'danger' ? 'text-[var(--color-danger-text)]' : 'text-[var(--color-highlight-yellow)]'}`}
+                        className={`absolute end-full top-1/2 me-[1ch] -translate-y-1/2 ${nameFace} ${invalid('name') ? 'text-[var(--color-danger-text)]' : 'text-[var(--color-highlight-yellow)]'}`}
                       >
                         λ
                       </span>
                       <input
-                        aria-describedby={messageId}
-                        aria-invalid={message?.tone === 'danger' || undefined}
+                        aria-invalid={invalid('name')}
                         autoComplete='off'
                         className={`terminal-input min-w-0 flex-1 bg-transparent p-0 leading-5 text-foreground outline-none ${nameFace}`}
                         data-slot='terminal-input'
@@ -195,7 +189,7 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
                         }}
                         onChange={(event) => {
                           setName(event.target.value);
-                          setMessage(null);
+                          clearProblem();
                         }}
                         ref={nameRef}
                         spellCheck={false}
@@ -249,14 +243,6 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
             {block}
           </section>
           <DialogFooter className='flex-nowrap'>
-            <p
-              className={cn('min-h-5 min-w-0 flex-1 truncate text-compact', message?.tone === 'warning' ? 'text-[var(--color-warning-text)]' : 'text-[var(--color-danger-text)]')}
-              id={messageId}
-              role='status'
-              title={message ? messageLine(message.text) : undefined}
-            >
-              {message ? messageLine(message.text) : null}
-            </p>
             <Button onClick={onClose} type='button' variant='outline'>{t('common.cancel')}</Button>
             <Button aria-busy={save.isPending || undefined} type='submit'>{t('subscriptions.pool.detail.save')}</Button>
           </DialogFooter>

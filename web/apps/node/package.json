@@ -14,10 +14,10 @@
   },
   "dependencies": {
     "@sing-box-panel/shared": "workspace:*",
-    "i18next": "26.4.0",
-    "lucide-react": "0.511.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "react-i18next": "17.0.12"
+    "i18next": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-i18next": "catalog:"
   }
 }

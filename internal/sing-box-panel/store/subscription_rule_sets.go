@@ -8,11 +8,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
 
 // MaximumRuleSetRulesBytes bounds a rule set's serialized rules.
 const MaximumRuleSetRulesBytes = 640 << 10
+
+// DefaultRuleSetIcon is the icon of a rule set created without one.
+const DefaultRuleSetIcon = "layers"
+
+// ErrSubscriptionRuleSetsChanged refuses an order that does not name exactly
+// the client's current rule sets.
+var ErrSubscriptionRuleSetsChanged = errors.New("subscription rule sets changed")
+
+// ruleSetIcon is the form of an icon key; the Web application decides which
+// keys it draws.
+var ruleSetIcon = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// ValidateRuleSetIcon checks the form of a rule set's icon key.
+func ValidateRuleSetIcon(icon string) error {
+	if !ruleSetIcon.MatchString(icon) {
+		return errors.New("a rule set icon must be 1 to 32 lower-case letters, digits or hyphens, starting with a letter")
+	}
+	return nil
+}
 
 // SubscriptionRuleSet is a client's reusable, ordered rules. The
 // subscription service validates the rules; the store keeps them as given.
@@ -20,6 +40,8 @@ type SubscriptionRuleSet struct {
 	ID     string
 	Client SubscriptionFormat
 	Name   string
+	// Icon is the key of the icon the Web application draws for the set.
+	Icon string
 	// Rules is the JSON array of the rules in order.
 	Rules json.RawMessage
 	// Channels are the channels whose exit rules route by the rule set, in
@@ -34,18 +56,22 @@ type SubscriptionRuleSetChannel struct {
 	Name string
 }
 
-// UpdateSubscriptionRuleSetInput replaces a rule set's name and rules when its
-// updated_at is still ExpectedUpdatedAt. Its client never changes.
+// UpdateSubscriptionRuleSetInput replaces a rule set's name, icon and rules
+// when its updated_at is still ExpectedUpdatedAt. Its client never changes.
 type UpdateSubscriptionRuleSetInput struct {
-	ID                string
-	Name              string
+	ID   string
+	Name string
+	// Icon replaces the set's icon; empty keeps it.
+	Icon              string
 	Rules             json.RawMessage
 	ExpectedUpdatedAt time.Time
 	UpdatedAt         time.Time
 }
 
-const subscriptionRuleSetColumns = `id, client, name, rules, created_at, updated_at`
+const subscriptionRuleSetColumns = `id, client, name, icon, rules, created_at, updated_at`
 
+// CreateSubscriptionRuleSet stores a new rule set at the end of its client's
+// order.
 func (s *Store) CreateSubscriptionRuleSet(ctx context.Context, set SubscriptionRuleSet) (SubscriptionRuleSet, error) {
 	prepared, err := prepareSubscriptionRuleSet(set)
 	if err != nil {
@@ -56,9 +82,10 @@ func (s *Store) CreateSubscriptionRuleSet(ctx context.Context, set SubscriptionR
 		if err := ensureRuleSetIdentityAvailable(ctx, tx, prepared.ID, prepared.Client, prepared.Name, ""); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_rule_sets(`+subscriptionRuleSetColumns+`) VALUES (?, ?, ?, ?, ?, ?)`,
-			prepared.ID, string(prepared.Client), prepared.Name, string(prepared.Rules),
-			formatTime(prepared.CreatedAt), formatTime(prepared.UpdatedAt)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_rule_sets(`+subscriptionRuleSetColumns+`, position)
+			VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT coalesce(max(position) + 1, 0) FROM subscription_rule_sets WHERE client = ?))`,
+			prepared.ID, string(prepared.Client), prepared.Name, prepared.Icon, string(prepared.Rules),
+			formatTime(prepared.CreatedAt), formatTime(prepared.UpdatedAt), string(prepared.Client)); err != nil {
 			return fmt.Errorf("insert subscription rule set: %w", err)
 		}
 		stored, err = getSubscriptionRuleSet(ctx, tx, prepared.ID)
@@ -84,7 +111,7 @@ func (s *Store) GetSubscriptionRuleSet(ctx context.Context, ruleSetID string) (S
 }
 
 // ListSubscriptionRuleSets returns every rule set, or only client's when it
-// is not empty, in name order.
+// is not empty, each client's sets in their saved order.
 func (s *Store) ListSubscriptionRuleSets(ctx context.Context, client SubscriptionFormat) ([]SubscriptionRuleSet, error) {
 	if client != "" && !validSubscriptionFormat(client) {
 		return nil, fmt.Errorf("%w: invalid rule set client %q", ErrInvalidQuery, client)
@@ -94,7 +121,7 @@ func (s *Store) ListSubscriptionRuleSets(ctx context.Context, client Subscriptio
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	sets, err := loadSubscriptionRuleSets(ctx, tx, `WHERE ? = '' OR client = ? ORDER BY name, client, id`, string(client), string(client))
+	sets, err := loadSubscriptionRuleSets(ctx, tx, `WHERE ? = '' OR client = ? ORDER BY client, position, id`, string(client), string(client))
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +162,7 @@ func (s *Store) SubscriptionRuleSetsByID(ctx context.Context, ids []string) ([]S
 	return loadSubscriptionRuleSets(ctx, s.db, `WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id`, string(encoded))
 }
 
-// UpdateSubscriptionRuleSet replaces a rule set's name and rules. It fails
+// UpdateSubscriptionRuleSet replaces a rule set's name, icon and rules. It fails
 // with a SubscriptionReferenceError when a channel that routes by the rule
 // set would hold more than MaximumChannelRules rules.
 func (s *Store) UpdateSubscriptionRuleSet(ctx context.Context, input UpdateSubscriptionRuleSetInput) (SubscriptionRuleSet, error) {
@@ -161,14 +188,17 @@ func (s *Store) UpdateSubscriptionRuleSet(ctx context.Context, input UpdateSubsc
 		}
 		next := current
 		next.Name, next.Rules, next.UpdatedAt = input.Name, input.Rules, updated
+		if input.Icon != "" {
+			next.Icon = input.Icon
+		}
 		if next, err = prepareSubscriptionRuleSet(next); err != nil {
 			return err
 		}
 		if err := ensureRuleSetIdentityAvailable(ctx, tx, next.ID, next.Client, next.Name, next.ID); err != nil {
 			return err
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE subscription_rule_sets SET name = ?, rules = ?, updated_at = ?
-			WHERE id = ? AND updated_at = ?`, next.Name, string(next.Rules), formatTime(updated), next.ID, formatTime(expected))
+		result, err := tx.ExecContext(ctx, `UPDATE subscription_rule_sets SET name = ?, icon = ?, rules = ?, updated_at = ?
+			WHERE id = ? AND updated_at = ?`, next.Name, next.Icon, string(next.Rules), formatTime(updated), next.ID, formatTime(expected))
 		if err != nil {
 			return fmt.Errorf("update subscription rule set: %w", err)
 		}
@@ -240,6 +270,57 @@ func (s *Store) DeleteSubscriptionRuleSet(ctx context.Context, ruleSetID string,
 	})
 }
 
+// SetSubscriptionRuleSetOrder saves the order of client's rule sets. ids
+// must name each of the client's rule sets exactly once; otherwise they
+// changed since they were read and it fails with
+// ErrSubscriptionRuleSetsChanged.
+func (s *Store) SetSubscriptionRuleSetOrder(ctx context.Context, client SubscriptionFormat, ids []string) error {
+	if !validSubscriptionFormat(client) {
+		return fmt.Errorf("%w: invalid rule set client %q", ErrInvalidQuery, client)
+	}
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM subscription_rule_sets WHERE client = ?`, string(client))
+		if err != nil {
+			return fmt.Errorf("read subscription rule sets: %w", err)
+		}
+		current := map[string]bool{}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			current[id] = true
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(ids) != len(current) {
+			return ErrSubscriptionRuleSetsChanged
+		}
+		for _, id := range ids {
+			if !current[id] {
+				return ErrSubscriptionRuleSetsChanged
+			}
+			delete(current, id)
+		}
+		statement, err := tx.PrepareContext(ctx, `UPDATE subscription_rule_sets SET position = ? WHERE id = ?`)
+		if err != nil {
+			return err
+		}
+		defer statement.Close()
+		for position, id := range ids {
+			if _, err := statement.ExecContext(ctx, position, id); err != nil {
+				return fmt.Errorf("save subscription rule set order: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 func prepareSubscriptionRuleSet(set SubscriptionRuleSet) (SubscriptionRuleSet, error) {
 	if err := validateSubscriptionID(set.ID, "rule set"); err != nil {
 		return SubscriptionRuleSet{}, err
@@ -249,6 +330,12 @@ func prepareSubscriptionRuleSet(set SubscriptionRuleSet) (SubscriptionRuleSet, e
 	}
 	if !validSubscriptionFormat(set.Client) {
 		return SubscriptionRuleSet{}, fmt.Errorf("invalid subscription rule set client %q", set.Client)
+	}
+	if set.Icon == "" {
+		set.Icon = DefaultRuleSetIcon
+	}
+	if err := ValidateRuleSetIcon(set.Icon); err != nil {
+		return SubscriptionRuleSet{}, err
 	}
 	var rules []json.RawMessage
 	if len(set.Rules) > MaximumRuleSetRulesBytes || json.Unmarshal(set.Rules, &rules) != nil || rules == nil {
@@ -320,7 +407,7 @@ func loadSubscriptionRuleSets(ctx context.Context, q queryer, clause string, arg
 	for rows.Next() {
 		var set SubscriptionRuleSet
 		var rules, createdAt, updatedAt string
-		if err := rows.Scan(&set.ID, &set.Client, &set.Name, &rules, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&set.ID, &set.Client, &set.Name, &set.Icon, &rules, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		set.Rules, set.Channels = json.RawMessage(rules), []SubscriptionRuleSetChannel{}

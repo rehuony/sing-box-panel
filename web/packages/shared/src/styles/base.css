@@ -138,13 +138,12 @@ h3 {
   outline: none;
 }
 
+/* A text field being typed in deepens its own hairline; it draws no second line. */
 :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), textarea):not(
     [data-slot]
   ):focus-visible {
   border-color: var(--input-focus);
   box-shadow: none;
-  outline: 1px solid var(--input-focus);
-  outline-offset: -1px;
 }
 
 /* Selection is a soft band that keeps each text's colour. */

@@ -12,10 +12,10 @@ import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import { Braces, FoldVertical, Search, UnfoldVertical } from 'lucide-react';
 
 import { ErrorNotice } from '@/components/error-notice';
+import { chineseEditorPhrases, editorTheme } from '@/components/code-editor';
 
 import { SearchPanelHost } from './search-panel-host';
 import { EditorSearchPanel } from './editor-search-panel';
-import { chineseEditorPhrases, editorTheme } from './editor-theme';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '../use-canonical-configuration';
 
 export interface AdvancedConfigurationEditorProps {

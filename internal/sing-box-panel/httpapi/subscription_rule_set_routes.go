@@ -47,6 +47,28 @@ func (handler *Handler) createSubscriptionRuleSet(w http.ResponseWriter, request
 	writeSubscriptionResource(w, http.StatusCreated, set.UpdatedAt, set)
 }
 
+func (handler *Handler) setSubscriptionRuleSetOrder(w http.ResponseWriter, request *http.Request) {
+	if !handler.subscriptionMutationRequest(w, request) {
+		return
+	}
+	var input struct {
+		Client store.SubscriptionFormat `json:"client"`
+		IDs    []string                 `json:"ids"`
+	}
+	if !decodeStrictRequest(w, request, 2<<20, &input) {
+		return
+	}
+	if input.IDs == nil {
+		writeSubscriptionInvalid(w, request)
+		return
+	}
+	if err := handler.services.Subscriptions.SetSubscriptionRuleSetOrder(request.Context(), input.Client, input.IDs); err != nil {
+		writeSubscriptionProblem(w, request, "subscription_rule_set_order_failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (handler *Handler) getSubscriptionRuleSet(w http.ResponseWriter, request *http.Request, identifier string) {
 	if !handler.subscriptionReadRequest(w, request) {
 		return

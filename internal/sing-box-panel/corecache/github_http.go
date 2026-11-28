@@ -35,7 +35,7 @@ func (client *GitHubClient) requestJSON(
 	}
 	response, err := client.http.Do(request)
 	if err != nil {
-		return nil, nil, fail(step, "request_failed", err)
+		return nil, nil, fail(step, transportFailureCode("request_failed", err), err)
 	}
 	if response == nil || response.Body == nil {
 		return nil, nil, fail(step, "invalid_response", nil)
@@ -52,7 +52,9 @@ func (client *GitHubClient) requestJSON(
 		if response.StatusCode == http.StatusTooManyRequests || (response.StatusCode == http.StatusForbidden && response.Header.Get("X-RateLimit-Remaining") == "0") {
 			code = "rate_limited"
 		}
-		return nil, nil, fail(step, code, fmt.Errorf("GitHub returned HTTP %d", response.StatusCode))
+		failure := fail(step, code, fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)).(*Failure)
+		failure.Status = response.StatusCode
+		return nil, nil, failure
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
@@ -63,7 +65,7 @@ func (client *GitHubClient) requestJSON(
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, client.maximumBytes+1))
 	if err != nil {
-		return nil, nil, fail(step, "body_read", err)
+		return nil, nil, fail(step, transportFailureCode("body_read", err), err)
 	}
 	if int64(len(body)) > client.maximumBytes {
 		return nil, nil, fail(step, "body_too_large", nil)

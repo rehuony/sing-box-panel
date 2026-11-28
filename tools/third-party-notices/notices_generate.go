@@ -13,6 +13,8 @@ import (
 var goDirectivePattern = regexp.MustCompile(`(?m)^go[ \t]+([0-9]+(?:\.[0-9]+){1,2})[ \t]*$`)
 
 var goModuleLicenseIDs = map[string]string{
+	"filippo.io/age":                           "BSD-3-Clause",
+	"filippo.io/hpke":                          "BSD-3-Clause",
 	"github.com/alexedwards/argon2id":          "MIT",
 	"github.com/coder/websocket":               "ISC",
 	"golang.org/x/crypto":                      "BSD-3-Clause",

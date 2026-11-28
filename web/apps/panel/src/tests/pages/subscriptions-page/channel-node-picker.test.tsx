@@ -30,7 +30,7 @@ const cardNames = () => within(screen.getByRole('dialog')).getAllByRole('checkbo
 afterEach(() => vi.restoreAllMocks());
 
 describe('channel node picker', () => {
-  it('lists pool nodes in pool order, then built-ins and other groups, and adds the chosen members in that order', async () => {
+  it('lists the built-ins, the other groups, then pool nodes in pool order, and adds the chosen members in that order', async () => {
     const user = userEvent.setup();
     const current = { ...newRuleGroup([{ kind: 'node', id: 'tokyo' }]), id: 'current', name: 'Current' };
     const groups = [
@@ -39,16 +39,17 @@ describe('channel node picker', () => {
       { ...newRuleGroup([{ kind: 'group', id: 'current' }]), id: 'cycle', name: 'Cycle' },
     ];
     const { dialog, onAdd } = mount(current, 'sing-box', groups);
-    expect(cardNames()).toEqual(['Seattle', 'Tokyo', 'DIRECT', 'REJECT', 'Auto', 'Cycle']);
+    // sing-box has no REJECT outbound, so the picker leaves it out.
+    expect(cardNames()).toEqual(['DIRECT', 'Auto', 'Cycle', 'Seattle', 'Tokyo']);
     expect(within(dialog).getByRole('checkbox', { name: 'Seattle' })).toHaveTextContent('edge · seattle-in');
-    // Already a member, unsupported by the client, or making a cycle: listed but not chosen.
-    for (const name of ['Tokyo', 'REJECT', 'Cycle']) {
+    // Already a member or making a cycle: listed but not chosen.
+    for (const name of ['Tokyo', 'Cycle']) {
       expect(within(dialog).getByRole('checkbox', { name })).toHaveAttribute('aria-disabled', 'true');
     }
     for (const name of ['Auto', 'DIRECT', 'Seattle']) await user.click(within(dialog).getByRole('checkbox', { name }));
     await user.click(within(dialog).getByRole('button', { name: 'Add 3 nodes' }));
     expect(onAdd).toHaveBeenCalledWith([
-      { kind: 'node', id: 'seattle' }, { kind: 'builtin', id: 'direct' }, { kind: 'group', id: 'auto' },
+      { kind: 'builtin', id: 'direct' }, { kind: 'group', id: 'auto' }, { kind: 'node', id: 'seattle' },
     ]);
   });
 
@@ -70,6 +71,8 @@ describe('channel node picker', () => {
         const index = Array.from(this.parentElement!.children).indexOf(this);
         return DOMRect.fromRect({ x: (index % 2) * 300, y: Math.floor(index / 2) * 200, width: 288, height: 184 });
       }
+      // The copy that follows the pointer starts over Seattle, the third card.
+      if (this.matches('.cursor-grabbing[aria-hidden="true"]')) return DOMRect.fromRect({ x: 0, y: 200, width: 288, height: 184 });
       return originalRect.call(this);
     });
     const seattle = within(dialog).getByRole('checkbox', { name: 'Seattle' });
@@ -78,13 +81,13 @@ describe('channel node picker', () => {
     await waitFor(() => expect(seattle).toHaveAttribute('data-dragging', 'true'));
     await user.keyboard('[ArrowRight][Escape]');
     expect(onClose).not.toHaveBeenCalled();
-    expect(cardNames()[0]).toBe('Seattle');
+    expect(cardNames()[2]).toBe('Seattle');
     fireEvent.keyDown(seattle, { key: 'F2', code: 'F2' });
     await waitFor(() => expect(seattle).toHaveAttribute('data-dragging', 'true'));
     await user.keyboard('[ArrowRight]');
-    await waitFor(() => expect(screen.getByText('Position 2 of 4.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Position 4 of 4.')).toBeInTheDocument());
     fireEvent.keyDown(seattle, { key: 'F2', code: 'F2' });
-    await waitFor(() => expect(cardNames().slice(0, 2)).toEqual(['Tokyo', 'Seattle']));
+    await waitFor(() => expect(cardNames().slice(2)).toEqual(['Tokyo', 'Seattle']));
     await user.click(within(dialog).getByRole('checkbox', { name: 'Tokyo' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add 2 nodes' }));
     expect(onAdd).toHaveBeenCalledWith([{ kind: 'node', id: 'tokyo' }, { kind: 'node', id: 'seattle' }]);

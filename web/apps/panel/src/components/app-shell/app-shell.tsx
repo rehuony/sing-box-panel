@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Suspense, useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { formatRate } from '@shared/lib/telemetry-format';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 
 import '@/i18n';
@@ -28,16 +27,14 @@ function WorkspaceLoadingState() {
   return <LoadingState label={t('shell.loading.page')} fullScreen={false} />;
 }
 
-/** Hands the fleet's own values to the backdrop behind the shell. */
+/** Hands the fleet's own values to the backdrop behind the shell, as they change rather than on every fleet frame. */
 function useFleetWords() {
-  const { i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage ?? i18n.language ?? 'en';
   const client = useApiClient();
   const { setWords } = useBackdrop();
-  const fleet = useQuery(queries.fleetStatus(client));
+  const words = useQuery({ ...queries.fleetStatus(client), select: status => fleetWords(status.items) }).data;
   useEffect(() => {
-    setWords(fleetWords(fleet.data?.items ?? [], value => formatRate(value, locale)));
-  }, [fleet.data, locale, setWords]);
+    setWords(words ?? []);
+  }, [setWords, words]);
 }
 
 /** Whether a key typed here belongs to what has focus: a field, an editor, a menu or a dialog. */

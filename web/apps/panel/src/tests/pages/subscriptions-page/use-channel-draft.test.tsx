@@ -2,6 +2,7 @@ import type { PropsWithChildren } from 'react';
 
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { toast } from '@shared/components/ui/toast-manager';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { ApiClient, SubscriptionChannel, SubscriptionPreview } from '@/api/api-client';
@@ -138,7 +139,7 @@ describe('channel draft', () => {
     expect(result.current.config.default_exit).toEqual({ kind: 'direct' });
     act(() => result.current.requestRemoveGroup(second.id));
     expect(result.current.removeGroup).toBeNull();
-    act(() => result.current.reorder(0, 1));
+    act(() => result.current.moveGroup(first.id, second.id));
     expect(result.current.config.groups).toEqual([second, { ...first, enabled: false }]);
   });
   it('points exit rules at the new client’s rule set of the same name when the client changes', async () => {
@@ -168,4 +169,31 @@ it('removes references in the same draft update when disabling a group', () => {
   expect(result.current.config.groups[1].enabled).toBe(false);
   expect(result.current.config.groups[0].members).toEqual([]);
   expect(result.current.config.default_exit).toEqual({ kind: 'group', id: 'parent' });
+});
+
+it('keeps an unsaved draft through a reload of the same version, and drops one the channel outdated', async () => {
+  const key = `sing-box-panel.channel-draft.${channel.id}`;
+  const feedback = vi.spyOn(toast, 'add');
+  const first = mount();
+  act(() => first.result.current.addGroup());
+  const left = window.sessionStorage.getItem(key);
+  expect(JSON.parse(left!)).toMatchObject({ base: channel.updated_at, config: { groups: [expect.any(Object)] } });
+  // A reload runs no cleanup, so the draft it left is still there.
+  first.unmount();
+  window.sessionStorage.setItem(key, left!);
+
+  const reloaded = mount();
+  expect(reloaded.result.current.dirty).toBe(true);
+  expect(reloaded.result.current.config.groups).toHaveLength(1);
+  expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Restored the changes left unsaved before the reload', type: 'info' }));
+  await act(() => reloaded.result.current.save());
+  expect(window.sessionStorage.getItem(key)).toBeNull();
+  reloaded.unmount();
+
+  window.sessionStorage.setItem(key, JSON.stringify({ ...JSON.parse(left!), base: 'an earlier version' }));
+  const outdated = mount();
+  expect(outdated.result.current.dirty).toBe(false);
+  expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'warning' }));
+  expect(window.sessionStorage.getItem(key)).toBeNull();
+  feedback.mockRestore();
 });

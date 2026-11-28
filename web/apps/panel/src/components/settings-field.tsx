@@ -11,7 +11,7 @@ import { InfoTooltip } from '@/components/info-tooltip';
  * optional mark and actions at the end, then rows divided by hairlines on a
  * narrower label column.
  */
-export function SettingsCard({ title, mark, actions, footer, danger, children }: {
+export function SettingsCard({ title, mark, actions, footer, danger, fill, children }: {
   title: string;
   mark?: ReactNode;
   actions?: ReactNode;
@@ -19,16 +19,29 @@ export function SettingsCard({ title, mark, actions, footer, danger, children }:
   footer?: ReactNode;
   /** Rows of destructive actions, bordered in danger. */
   danger?: boolean;
+  /** Takes the rest of its column's height, for a last row that grows to fill it. */
+  fill?: boolean;
   children: ReactNode;
 }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className={cn('min-w-0 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]', danger && 'border-[var(--color-danger-border)]')}>
+    <section
+      aria-labelledby={id}
+      className={cn(
+        'min-w-0 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]',
+        danger && 'border-[var(--color-danger-border)]',
+        fill && 'flex flex-1 flex-col',
+      )}
+    >
       <CardTitleBar id={id} title={title}>
         {mark}
         {actions}
       </CardTitleBar>
-      <FieldGroup className='gap-0 divide-y [--settings-label:9.5rem] *:data-[slot=field]:min-h-14 *:data-[slot=field]:px-4 *:data-[slot=field]:py-2'>
+      <FieldGroup className={cn(
+        'gap-0 divide-y [--settings-label:9.5rem] *:data-[slot=field]:min-h-14 *:data-[slot=field]:px-4 *:data-[slot=field]:py-2',
+        fill && 'min-h-0 flex-1',
+      )}
+      >
         {children}
       </FieldGroup>
       {footer ? <div className='flex min-h-14 items-center gap-3 border-t px-4 py-2'>{footer}</div> : null}

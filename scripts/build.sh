@@ -412,7 +412,7 @@ verify_runtime_metadata() {
       build_binary "${source_root}" "${host_os}" "${host_arch}" "${probe}" "${ldflags}" "${command}"
     fi
     # Both binaries report one release version and the panel-node protocol.
-    actual="$("${probe}" --output json version)"
+    actual="$("${probe}" --format json version)"
     [[ "${actual}" == "${expected}",\"protocol\":* ]] || {
       build_error "release metadata mismatch: got ${actual}, expected ${expected},\"protocol\":...}"
       return 1

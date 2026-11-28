@@ -1,3 +1,5 @@
+import { toast } from '@shared/components/ui/toast-manager';
+
 import i18n from '@/i18n';
 import { ApiRequestError } from '@/api/api-client';
 
@@ -20,4 +22,12 @@ export function describeRequestError(error: unknown): string {
     return error.message;
   }
   return i18n.t('common.requestFailed');
+}
+
+/**
+ * Reports a failed action in a toast: what failed, in a few words, as its
+ * title, and the reason as its description, never the reason as the title.
+ */
+export function toastFailure(title: string, reason: unknown) {
+  toast.add({ title, description: describeRequestError(reason), type: 'error' });
 }

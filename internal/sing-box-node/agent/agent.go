@@ -318,6 +318,7 @@ func holdSession(attempt, lifetime context.Context, client *nodeapi.Client, iden
 	if welcome == nil {
 		return errors.New("the panel did not welcome the session")
 	}
+	commands.applyCoreLogPolicy(ctx, welcome.GetCoreLogPolicy())
 	var sendMu sync.Mutex
 	send := func(frame *nodeapi.ConnectRequest) error {
 		sendMu.Lock()
@@ -368,6 +369,8 @@ func holdSession(attempt, lifetime context.Context, client *nodeapi.Client, iden
 		switch {
 		case frame.GetTelemetryControl() != nil:
 			reports.setInterval(frame.GetTelemetryControl().GetMetricsInterval().AsDuration())
+		case frame.GetCoreLogPolicy() != nil:
+			commands.applyCoreLogPolicy(ctx, frame.GetCoreLogPolicy())
 		case frame.GetCommand() != nil:
 			command := frame.GetCommand()
 			commandContext, stop := context.WithCancel(lifetime)

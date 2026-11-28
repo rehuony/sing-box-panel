@@ -19,8 +19,9 @@ make check build
 
 `make check` builds the Web assets (including TypeScript checking), verifies Go
 formatting and modules, and runs `go vet`, Go tests, Web linting and tests,
-third-party notice checks, offline configuration-schema validation, OpenAPI
-checks, shell syntax checks, and network-independent installer contract tests.
+third-party notice checks, offline configuration-schema validation, protocol
+lint and generated-code checks, OpenAPI checks, shell syntax checks, and
+network-independent installer and cleanup contract tests.
 `make check-backend`, `make check-frontend`, and `make check-contracts` run the individual
 groups described in [Contributing](../.github/CONTRIBUTING.md#validation).
 `make build` uses the same Web-first boundary and writes `bin/sing-box-panel` and
@@ -90,7 +91,7 @@ user it is `$XDG_DATA_HOME/sing-box-panel`, or
 
 The settings file is the single source for all panel settings. The Web UI,
 `config init/show/get/set/verify`, and manual edits use this same file. Shared fields retain
-their existing sections; `panel` holds the language and appearance. The Web form exposes service paths, version check interval, metric, runtime states and sing-box log retention; each node's published host and traffic quota belong to that node's settings. The panel log is kept until it is cleared; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
+their existing sections; `panel` holds the language and appearance. The Web form exposes service paths, version check interval, metric, runtime states and sing-box log retention, and the backup schedule; each node's published host and traffic quota belong to that node's settings. The panel log is kept until it is cleared; subscription source policy remains a file/API setting. Inbound credentials are edited directly in the native sing-box configuration. Changing `data_dir` moves
 existing storage on the next explicit start, with interruption recovery.
 Sing-box documents, subscriptions and runtime evidence remain in SQLite.
 See the [complete field mapping](configuration-and-runtime.md#shared-settings-file).
@@ -105,7 +106,7 @@ Only active settings are generated. Removed subscription author/provider fields
 and `logs.retention_days` are rejected, while `logs.panel_retention_days` carries
 over to `nodes.runtime_history_retention_days`; see the field mapping above.
 
-`traffic.sample_retention_days` defaults to 90. It is required for startup and
+`traffic.sample_retention_days` defaults to 7 in a new settings file. It is required for startup and
 `config verify` and must be between 1 and 366;
 older settings without it are rejected instead of receiving a compatibility
 default. Commands that only locate instance files or data validate `data_dir`
@@ -118,8 +119,6 @@ checks no `Origin`. Session cookies automatically use `Secure` for an HTTPS exte
 an external origin, they use the request's actual TLS state; forwarded headers
 are not trusted. The origin contains no path—continue to use `server.base_path`
 for a public path prefix. Origin changes take effect after a server restart.
-The removed `auth.secure_cookie` field is rejected: delete it from existing
-settings files and backups before using them with this version.
 
 Login allows five attempts per minute per direct peer and, when available,
 per browser fingerprint, with a process-wide budget of 30 and two concurrent
@@ -147,13 +146,11 @@ without `--config`, using the default path for the current user.
 First-run guidance lists `Panel URL`, `Email`, `Initial password`,
 `Settings`, and `Data directory`. Open the URL and sign in with the
 printed email and password. The password is displayed only when settings are
-created; `auth.password_hash` stores its hash. Existing token-based settings using
-`auth.token` are rejected: initialize current-format settings and migrate the
-other options. There is no automatic conversion.
+created; `auth.password_hash` stores its hash.
 That initial summary confirms settings creation. After binding the listener, every
 start prints the actual panel URL, settings and data paths, Web logs guidance and stop
 hint, then streams sanitized panel events. Redirected output omits ANSI color;
-`NO_COLOR` disables it in terminals and `--output json` emits structured events.
+`NO_COLOR` disables it in terminals and `--format json` emits structured events.
 
 If the password is lost, run the following on the server using the same configuration
 path and an OS account permitted to update it:
@@ -179,9 +176,9 @@ core, start, stop, restart, and rollback through the authenticated API are
 commands the panel sends to a node, so that node must be online; saving a
 node's configuration works while it is offline. Manage nodes, catalogs,
 installed cores, subscriptions, logs, and metrics in the Web UI. The CLI provides panel settings, node registration, service and
-installation maintenance; its panel status/stop controls use the owner-only Unix socket.
+installation maintenance and backups; its panel status/stop controls use the owner-only Unix socket.
 
-Source refresh, catalog refresh and retention keep their own bounded schedules
+Source refresh, catalog refresh, retention and backups keep their own bounded schedules
 on the panel; each node recovers its own runtime. There is no generic operation
 queue or detached polling API.
 
@@ -276,7 +273,8 @@ which every build checks, and updates the panel when it is a release build on
 Linux; a node's settings tab updates that node to the panel's
 own release, and enrolled nodes never contact GitHub. Restarting a node restarts
 its core, so its proxy is briefly interrupted. From a shell, `sing-box-panel
-update` and `sing-box-node update` do the same; a node that is not enrolled
+update` and `sing-box-node update` replace the binary with the same release,
+and a running service keeps its version until it restarts; a node that is not enrolled
 updates from the latest stable GitHub release instead. See the
 [CLI reference](cli.md). A system service stages each update and stops; its unit
 installs it and starts the service again, as the [systemd packaging

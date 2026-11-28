@@ -33,7 +33,7 @@ export function ServerPathInput({ value, mode, onValueChange, disabled, readOnly
           value={value} disabled={disabled} readOnly={readOnly}
           onChange={event => onValueChange(event.currentTarget.value)} />
         <InputGroupAddon align='inline-end'>
-          <DialogTrigger render={<InputGroupButton className='border-transparent bg-transparent text-muted-foreground shadow-none outline-none hover:border-transparent hover:bg-transparent focus-visible:underline focus-visible:underline-offset-4 focus-visible:outline-none aria-expanded:bg-transparent active:scale-100' data-browse disabled={disabled || readOnly} aria-label={t('filesystem.browseField', { field: props['aria-label'] ?? props.name ?? '' })} />}>
+          <DialogTrigger render={<InputGroupButton className='border-transparent bg-transparent text-muted-foreground shadow-none outline-none hover:border-transparent hover:bg-transparent focus-visible:shadow-[inset_0_0_0_1px_var(--ring)] focus-visible:outline-none aria-expanded:bg-transparent active:scale-100' data-browse disabled={disabled || readOnly} aria-label={t('filesystem.browseField', { field: props['aria-label'] ?? props.name ?? '' })} />}>
             <FolderOpen data-icon='inline-start' aria-hidden='true' />
             {t('filesystem.browse')}
           </DialogTrigger>

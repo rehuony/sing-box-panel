@@ -6,10 +6,11 @@ collector sample exists.
 
 ## Subscription keys and user-scoped grants
 
-The Web UI exposes subscription sources, keys, and channels. New keys do not
-require a subscription user. They authorize the nodes allowed by each channel's
-publication policy. A key has a label, optional exclusive expiry time, and an
-optional download limit (1–1,000,000,000). Authentication uses its SHA-256 digest.
+The Web UI exposes rule sets, the node pool with its sources, channels and keys.
+New keys do not require a subscription user. They authorize the nodes allowed by
+each channel's publication policy. A key has a label, optional exclusive expiry
+time, and an optional download limit (1–1,000,000,000). Authentication uses its
+SHA-256 digest.
 New keys also retain their plaintext in a separate secret table in the protected
 SQLite database so an authenticated administrator can explicitly reveal them
 through `GET /subscription/tokens/{tokenId}/secret`. This response is `no-store`;
@@ -21,9 +22,12 @@ keys, reads the secret of the key it shows and displays the full channel URL
 with copy and a QR code, without requesting a subscription body or spending
 quota. With no active key it creates one from a name alone; expiry and quota stay
 in the key list. Existing global key scope, user grants,
-expiry, quota and revocation checks still govern delivery. Channel-to-key export
-bindings have been removed; API clients must omit `config.export_token_ids`.
-The key list provides View, enable/disable, rotation and deletion. Its metadata
+expiry, quota and revocation checks still govern delivery.
+The key list shows each key's name, its state (active, disabled, used up,
+expired or revoked), when it was last used, its expiry and its downloads against
+its quota; a phone keeps the name, state and actions. A row opens the key's
+details with its secret; its actions are enable/disable and a menu with rotation
+and deletion, and a revoked key can only be deleted. Its metadata
 and in-flight list request survive subscription-tab switches, with refreshes after
 key changes or pagination. Leaving the subscriptions page releases that state.
 Secret dialog contents, and the secret a channel link read, are cleared on close
@@ -73,19 +77,22 @@ Every successful public subscription response, including `304 Not Modified`,
 includes an HTTP response header in the following format:
 
 ```http
-Subscription-Userinfo: upload=123; download=456; total=0
+Subscription-Userinfo: upload=123; download=456; total=107374182400; expire=1798761600
 ```
 
-Values are integer bytes, separated by a semicolon and a space. `upload` is the
-recorded outbound traffic of the nodes whose local inbounds the subscription
+Fields are separated by a semicolon and a space. `upload` is the recorded
+outbound traffic, in bytes, of the nodes whose local inbounds the subscription
 delivers, each in its own current period, and `download` is the same for
 inbound traffic. Those are the fleet nodes with an inbound the channel
 publishes and the key may receive; a subscription that publishes no inbounds
-reports zero. `total` is always `0`: each node has its own quota, and their sum
-would tell a client nothing about how much it can still use on the node it
-actually uses. The counters belong to the nodes, so every key that reaches the
-same nodes sees the same values. They do not represent individual user usage,
-subscription file sizes, or the key's download limit.
+reports zero. `total` is the sum of those nodes' quotas in bytes, so what a
+client shows as left, `total` minus `upload` and `download`, is what the nodes
+have left together; it is `0`, which clients read as unlimited, when any of
+them has no quota or there is none. `expire` is when the key expires, in Unix
+seconds, and is left out for a key that never expires. The counters and quotas
+belong to the nodes, so every key that reaches the same nodes sees the same
+values. They do not represent individual user usage, subscription file sizes,
+or the key's download limit.
 
 Each request reads those nodes' period settings and sums the recorded usage of
 each node's current period. When a node reaches its reset day, only its new
@@ -100,10 +107,12 @@ Configuration read or traffic storage failures return `503` instead of fabricate
 do not consume download quota or expose the traffic header; final authorization
 is rechecked before either a `200` or `304` response is committed.
 
-Traffic changes leave the subscription body and its ETag unchanged. Conditional
-requests still receive refreshed traffic metadata. The response adds no expiry
-or refresh-interval field: a period boundary is not a subscription expiration.
-Clients display the new usage on their next successful subscription refresh,
+The panel keeps recent renderings by a digest of everything they are rendered
+from, so an unchanged channel renders once however many clients fetch it, and
+any change renders anew. Traffic changes leave the subscription body and its ETag unchanged. Conditional
+requests still receive refreshed traffic metadata. A period boundary is not an
+expiration: `expire` follows only the key, and the header has no refresh-interval
+field. Clients display the new usage on their next successful subscription refresh,
 so manually refresh an existing subscription to see it immediately.
 
 ## Subscription node pool
@@ -115,12 +124,17 @@ each channel's groups choose what that channel delivers. The Web UI shows the
 pool as cards in its saved order, without pagination; dragging a card saves the
 new order.
 
-Each node has an ID derived by one rule from its origin: `sn_` and a digest of
-the origin kind, the origin's ID and the node's key within the origin. An inbound's key is its type and tag with the identity of its credential, so a
+A new node's ID derives by one rule from its origin: `sn_` and a digest of
+the origin kind, the origin's ID and the node's key within the origin, followed
+by `-2`, `-3` and so on while another node holds it. An inbound's key is its type and tag with the identity of its credential, so a
 multi-user inbound yields one node per user, named `tag (user)`; a source node's key is its name in the
-source, with `#2`, `#3` and so on for later nodes of the same name. The ID holds
-while the origin keeps that key: renaming a node at its provider, or changing an inbound's type, tag or user,
-makes a new node. Order, display name, channel membership
+source, with `#2`, `#3` and so on for later nodes of the same name.
+Synchronization pairs each node its inputs yield with the existing node of the
+same origin it continues: the node with the same key and outbound, then one with
+the same outbound, then one with the same key. A node therefore keeps its ID
+when its provider renames it, when one of two nodes with the same name goes, and
+when its address or credential changes; only a node whose key and outbound both
+change at once is new. Order, display name, channel membership
 and user grants all refer to the ID.
 
 A node's display name is the name every channel publishes it under and the only
@@ -128,7 +142,11 @@ field an administrator edits. It is unique in the pool, ignoring case, has at
 most 256 bytes and no surrounding spaces, control characters or commas; a taken
 name answers 409. A new
 node takes its origin name, prefixed with its fleet node's name for an inbound
-(`tokyo · vless-in`), and appends ` 2`, ` 3` and so on while the name is taken.
+(`tokyo · vless-in`), with each comma turned into a space and surrounding spaces
+removed, and appends ` 2`, ` 3` and so on while the name is taken. A display name
+that still follows its origin name, with or without that number, follows the
+origin when it renames the node; one an administrator chose stays.
+Synchronization also normalizes an existing display name that holds a comma.
 Its content is the sing-box outbound its origin yields, stored with the node and
 replaced on each synchronization.
 
@@ -136,26 +154,35 @@ replaced on each synchronization.
 
 The pool is synchronized in one transaction whenever its inputs change: a fleet node applies a configuration (rollback included), changes its public
 host or reported public IP, or is deleted; a source is created, refreshed, given
-new content, has its filter changed, or is deleted; and once when the panel starts. Synchronization
+new content, has its filter changed, or is deleted; and once when the panel starts.
+A fleet node's change queues a synchronization that runs apart from the node's
+session, the sources due for refresh synchronize once after all of them, and a
+synchronization whose inputs are those of the last one returns without reading
+any source. Synchronization
 
-1. computes every node the inputs yield, with its ID;
-2. deletes the nodes whose ID is gone together with everything that names them:
+1. computes every node the inputs yield and pairs it with the node it continues;
+2. deletes the nodes no input continues together with everything that names them:
    their group memberships and user grants are removed by cascade, an exit
    rule's exit that named one falls back to `reject`, and a channel's final
    exit that named one falls back to `direct`;
-3. replaces the content of the nodes that remain, keeping their display names
-   and positions;
+3. replaces the key and content of the nodes that remain, keeping their
+   display names, as above, and positions;
 4. appends the new nodes to the end of the order in origin order: fleet nodes by
    name, each node's inbounds in configuration order, then sources by creation
    time, each source's nodes in content order.
 
 Nothing about a removed node is kept, so a node that returns later is new: it
 joins the end of the order and no channel. A source whose stored content no
-longer reads keeps its nodes and records the failure in `last_error`.
+longer reads keeps its nodes and records the failure in `last_error`, which a
+later synchronization that reads it clears unless a refresh failed since; a
+fleet node whose public host is not known keeps its nodes the same way, as
+[Fleet inbounds](#fleet-inbounds) describes.
 
 `PUT /subscription/node-order` takes every current ID exactly once. A different
 set means the pool was synchronized since it was read and answers 409; the UI
 then reloads the pool. Otherwise the last saved order wins.
+`GET /subscription/nodes` sends an `ETag` digest of its body, so a client holding
+an unchanged list gets `304`.
 
 ### Fleet inbounds
 
@@ -167,8 +194,14 @@ configuration is never published, and a rollback changes the applied bundle and
 therefore the inbounds. A node whose revision the panel no longer holds or whose
 digest differs, whose core version has no release line, whose configuration cannot
 be read, or that has neither a public host nor a reported public IP contributes
-no nodes and adds a diagnostic naming it; its earlier nodes leave the pool with
-the next synchronization, and the other nodes publish as usual.
+no nodes and adds a diagnostic naming it, and the other nodes publish as usual.
+The earlier nodes of a node with a failed revision, digest, core version or
+configuration leave the pool with the next synchronization. A missing public
+host is not a property of the configuration but a hint that may come back: the
+nodes a node published before keep their names, places and channels until its
+host is known again, so a node that briefly reports no public IP takes nothing
+out of a channel. The node refreshes its public IP hint before it expires, so a
+healthy node does not report an empty one between refreshes.
 
 A core version uses the inbound family of its
 [release line](core-versions.md#release-lines); a version without a line fails
@@ -192,11 +225,12 @@ diagnostic.
 
 A source is either a URL or a file. A URL source is fetched when it is created,
 when an administrator refreshes it and, when `refresh_minutes` is not zero, every
-that many minutes (at least 15). A file source holds content uploaded or pasted
+that many minutes (15 to 10,080). A file source holds content uploaded or pasted
 in the Web UI and changes only when an edit gives it new content, which is
 saved with the edit's settings in one write and read with its format and
 filter. A source is created only when its first content parses. The panel holds at most
-256 sources with 32 MiB of stored content in all, and at most 10,000 pool nodes.
+256 sources, each with at most 4 MiB and together 32 MiB of stored content, and
+at most 10,000 pool nodes.
 
 A source keeps only the last content that parsed, overwritten by the next, so no
 history accumulates in the database. A failed fetch or parse keeps the current
@@ -280,29 +314,41 @@ output. A new channel starts with no nodes. Each group lists its candidates in o
 and `reject` exits and other groups, and the first is the initial selection.
 Creating or opening a channel goes directly to the strategy-group
 workspace, without a separate channel-level node-selection screen. The editor
-lists strategy groups in a left sidebar and edits
-the selected group's nodes on the right. Each sidebar card has a
-settings action, shown on hover or keyboard focus, opening a compact dialog for
-name, strategy type and client-side health checks without selecting that group.
-Touch devices keep the action visible. Group icons distinguish manual selection,
+lists the exit rules and the strategy groups in a left sidebar and edits the
+selected group's candidates, or the exit rules through it, on the right. Each
+sidebar card has a settings action, shown on hover or keyboard focus, opening a
+compact dialog for name, strategy type, client-side health checks and the
+group's match, with the count of nodes it matches and the group's delete,
+without selecting that group. Touch devices keep the action visible. Group icons distinguish manual selection,
 automatic latency tests and fallback. Apply updates the channel draft; Cancel or closing
 it discards those edits. Groups created, configured or selected as the final exit are enabled; there is no separate
 group enablement control. Opening the page or cancelling the dialog preserves
 previously stored disabled groups. The top-level toolbar
-contains back, channel settings, preview and save. Channel settings contain name,
-client and template; node names, membership and order are managed
-directly through nodes and candidate cards. Candidate cards show
-the node name and a compact source/protocol summary; addresses remain available
-on hover. A group's menu in the sidebar sets or clears it as the final exit,
+contains back, the subscription link, preview, channel settings and save. Channel
+settings contain name, client, template and the channel's delete; node names,
+membership and order are managed
+directly through nodes and candidate cards. A candidate card is a compact node
+card: its name with the protocol, strategy or the reason it cannot be chosen at
+the end, then a node's address over its transport, security and origin, a
+group's member count, or a built-in exit as one. A group's menu in the sidebar sets or clears it as the final exit,
 which the sidebar marks beside the group's name and the exit rules item names;
 the exit rules list holds only exit rules. Selecting another group replaces the
 previous choice, and clearing it, or disabling or deleting that group, restores
 direct fallback. New groups are not automatically selected as the final exit.
 A stored node or reject fallback is preserved until explicitly changed. Group drafts survive
-switching groups and are persisted together by Save changes. Leaving an edited
-channel through Back, a subscription tab or another panel route prompts to keep
-editing or discard the changes. Confirmed departure clears the detail workspace;
-returning to Channels opens the channel list. Source settings use the same navigation protection. Adding a node to a
+switching groups and are persisted together by Save changes. The open channel
+is part of the address, `#subscription-channels/<channel ID>`, so reloading the
+page or going back and forward shows it again; a channel that no longer exists
+says why and shows the list. An unsaved draft waits out a reload in the tab's
+session storage: reloading the same version of the channel brings it back with
+a notice that can discard it, while a draft whose channel changed elsewhere is
+dropped with a warning; saving, discarding or leaving the channel removes it.
+This covers browsers that reload without asking, as embedded ones do. Back
+returns to the list, to its own history entry when the channel was opened from
+it. Leaving an edited channel through Back,
+the browser's back and forward, a subscription tab or another panel route
+prompts to keep editing or discard the changes. Confirmed departure clears the
+detail workspace; returning to Channels opens the channel list. Source settings use the same navigation protection. Adding a node to a
 group publishes it in the channel. Card order is the sole source of each manual group's initial selection: the first
 candidate is selected, and an empty group rejects traffic. The final group must be
 cleared before deletion. Existing exits remain unchanged until explicitly edited.
@@ -323,14 +369,14 @@ clears all selections. Only Remove selected nodes removes the selected candidate
 from the group, including selections hidden by search, and clears the selection.
 Switching groups resets card selection without changing either group's members.
 Add opens
-a selection dialog containing the pool's nodes in pool order, both built-in cards and other strategy groups;
-unsupported client options are disabled. Only confirmed additions appear in the
+a selection dialog listing DIRECT and REJECT, the channel's other strategy groups in their order, then the pool's nodes in pool order;
+built-ins the client lacks for the group are left out unless the group holds them. Only confirmed additions appear in the
 group; cancelling the dialog discards its selection and sorting. Its title, compact
 selection actions and search share a header; there is no corner close button.
 Clicking a card toggles its selection outline, and selecting any new cards reveals
 the same count, dashed divider and clear action before Select all. Already-added
 cards remain checked and disabled and are excluded from the new-selection count.
-Card presentation is shared with the node pool.
+Candidate cards look the same in the picker and in the group's candidate list.
 DND-KIT sorts whole cards in both the picker and the candidate list; a short mouse
 movement threshold distinguishes dragging from selection, and touch uses a long
 press. Space/Enter toggle selection; F2 starts/finishes keyboard sorting, arrow
@@ -344,7 +390,8 @@ traffic through exit rules naming it; no candidate is inserted.
 Mihomo and Loon support all three types. Mihomo supports both built-ins;
 Loon supports them in manual groups only; auto groups reject built-in candidates. Current sing-box supports
 select/url-test and direct; fallback and reject candidates are rejected during
-validation and disabled in the editor. Sing-box rejection remains a route action,
+validation and left out of the editor unless a group already holds them, as after a
+client change. Sing-box rejection remains a route action,
 not an obsolete block outbound.
 
 Automatic groups may configure `health_check` with an HTTP(S) URL, an interval
@@ -395,6 +442,33 @@ with `rule_set_not_found`, and one naming a rule set of another client with
 `rule_set_client_mismatch`, at `routes[i].rule_set_id`. Loon's native category
 precedence still applies.
 
+A rule that repeats an earlier one, or a remote rule set already emitted, is left
+out, since the earlier one takes all its traffic. A sing-box channel joins rules
+in a row with the same exit into one route rule, which matches when any of its
+domains, suffixes, keywords or IP ranges does, so a large rule set is one rule
+rather than thousands the client tries in turn; a remote rule set stays a rule of
+its own. Mihomo and Loon receive one line per rule.
+
+Generation puts a few rules before a channel's own so a subscription does not
+leak what it carries. A sing-box channel first sniffs each connection, so one to
+an address still matches by its domain, answers DNS from its DNS module, rejects
+STUN so WebRTC cannot learn the device's own address, and keeps private
+addresses direct. A mihomo channel first rejects UDP to the STUN ports 3478 and
+19302–19309, since it cannot recognize STUN; Loon's default template turns STUN
+off with `disable-stun`. Every IP rule mihomo and Loon receive, and each mihomo
+remote rule set that is not domain-only, carries `no-resolve`: it matches the
+connection's own address, and the client never resolves a domain locally only to
+test it.
+
+A channel without its own template uses its client's default, which the
+template editor starts from and can restore. Each answers proxied domains with
+fake IPs, so the proxy server resolves them, and reaches the device through a
+TUN that also captures DNS: sing-box resolves the rest through AliDNS over
+HTTPS; mihomo sends its remaining lookups along the rules to Cloudflare and
+Google DNS over HTTPS and resolves node and direct domains through AliDNS and
+DNSPod over HTTPS; Loon prefers AliDNS and DNSPod over HTTPS. The local mixed or
+HTTP proxy listens on 127.0.0.1 only, and no client control API is enabled.
+
 A node that leaves the pool drops out of every group; an exit rule that names
 it as its exit rejects traffic, and a final exit that names it becomes direct.
 A channel's groups, members and exit rules are stored in their own tables and
@@ -413,10 +487,22 @@ set's client exactly as a channel's own rules are, and a set holds at most 5000
 rules in at most 640 KiB. Changing a set changes every channel that routes by it
 at once. Deleting one deletes the exit rules that route by it, and each channel
 that loses one takes a new `updated_at`, so an edit of that channel begun
-earlier is refused with 412. The list, of one client's rule sets when asked, is
-in name order and names the channels whose exit rules use each set, in name
-order. Reads and writes use `updated_at` as the `ETag` and `If-Match` version,
-as sources do.
+earlier is refused with 412. The list, of one client's rule sets when asked,
+holds each client's sets in their saved order and names the channels whose exit
+rules use each set, in name order. Reads and writes use `updated_at` as the
+`ETag` and `If-Match` version, as sources do.
+
+A set also keeps an `icon`, the key of one of the icons the Web application
+draws, `layers` when none is given; a key is a lowercase letter followed by up
+to 31 lowercase letters, digits or hyphens, and any other is refused at `icon`
+with `invalid_icon`. An update without `icon` keeps the current one. A new set
+goes to the end of its client's order. `PUT /subscription/rule-set-order` takes
+a client and every one of its set IDs exactly once and answers 204; a different
+set of IDs means the sets changed since they were read and is refused with 409
+`subscription_rule_sets_changed`. Saving an order changes no set's
+`updated_at`. The rule sets tab shows a dropped set in its new place at once
+and saves the order behind it, outside a search, and the channel exit-rule
+picker lists a client's sets in it and adds the checked ones in that order.
 
 A rule list can be edited as Clash classic lines, one per rule in order:
 `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `IP-CIDR` or `IP-CIDR6`, and
@@ -452,8 +538,6 @@ with the same name but other metadata takes the name with the next free suffix,
 policy of the first exit rule that uses it. Sing-box remote sets use an inline `http_client` with
 `detour: direct`, matching the 1.14 configuration format. Loon uses native URL-based remote rules and emits the configured rule-set name
 as `tag` alongside `policy` and `enabled`, escaping quoted values when necessary.
-This development contract change has no legacy interval migration or compatibility
-reader; requests containing the removed field are rejected.
 The editor infers source format from the original URL's case-insensitive path
 extension, ignoring query strings and fragments: Mihomo YAML/YML, TXT/LIST or MRS;
 sing-box JSON or SRS; and Loon LOON/LIST/TXT. Unknown or incompatible extensions
@@ -464,7 +548,9 @@ Switching a channel's client retains its own rules and flags incompatible
 formats for explicit source review; exit rules that route by a rule set of the
 former client are refused until replaced. No format conversion is implied. Loon evaluates local rules
 before remote rules, domain matches before IP matches, and FINAL last; ordering
-within each category is retained.
+within each category is retained. In a Loon channel the editor ends the name of
+an exit rule Loon matches ahead of earlier ones in a warning sign whose tooltip
+names their positions.
 The client fetches the final URL; the panel never fetches, counts, uploads or
 converts rule content. GitHub acceleration unwraps known proxies and prefixes
 eligible original URLs with `https://gh-proxy.com/`, without a GitHub credential.
@@ -485,9 +571,9 @@ characters. Literal backslash sequences and required YAML escaping keep their
 original meaning.
 
 Defaults are shared by the editor and renderer from the native files in
-`internal/sing-box-panel/subscription/templates`. They use ordinary DNS without geographic
-splitting, IPv4, local proxy listeners, and no default-enabled TUN or MITM.
-Mihomo includes DNS caching and HTTP/TLS/QUIC sniffing without overriding the
+`internal/sing-box-panel/subscription/templates`. Besides the fake-IP DNS and
+TUN described above, they set DNS to IPv4 only, keep a local proxy listener
+and enable no MITM. Mihomo sniffs HTTP, TLS and QUIC without overriding the
 request destination; Loon retains local bypass and rejects unsupported UDP.
 The defaults follow the [Mihomo configuration reference](https://wiki.metacubex.one/config/),
 [sing-box DNS reference](https://sing-box.sagernet.org/configuration/dns/), and
@@ -509,8 +595,8 @@ titles its group by the code. The node pool's unpublished fleet nodes use the
 same list. Public diagnostics remain
 positional and never include node identities or configuration values.
 
-The node pool, sources, keys, channels and their dialogs show one centered empty
-or initial-loading state with a contextual icon, title and brief guidance inside
+The node pool, sources, rule sets, keys, channels and their dialogs show one
+centered empty or initial-loading state with a contextual icon and title inside
 the relevant content area. Loading does not show
 an empty-state message simultaneously; refreshes retain available data. Rule-order
 explanations do not occupy a separate banner above the editor.
@@ -562,7 +648,9 @@ The cross-format renderers convert only their explicit current contracts:
 | Loon | `shadowsocks`, `socks`, `http`, `vmess`, `vless`, `trojan`, `hysteria2`, `anytls` |
 
 Unsupported types, transports, TLS shapes, networks, dependencies, or options
-are omitted with stable positional diagnostics. Loon TLS output preserves the
+are omitted with stable positional diagnostics, as is a node whose display name
+the client cannot publish, such as one Loon cannot take as a policy name, with
+`invalid_metadata`; one node never fails the whole channel. Loon TLS output preserves the
 ordered ALPN list using a quoted comma-separated value, including AnyTLS. A single
 identifier containing a comma, line break, NUL or surrounding whitespace is
 rejected rather than changed during conversion. Renderers never infer a field
@@ -581,10 +669,10 @@ A node's **logs** window has three tabs in this order, kept in the address:
 **Events** (`#logs-events`, where it opens), **Runtime states**
 (`#logs-states`) and **Core log** (`#logs-core`). **Core log** shows sanitized sing-box output,
 with a muted timestamp and the entire remaining message colored by TRACE,
-DEBUG, INFO, WARN, ERROR, FATAL or PANIC. A file selector and level filter sit on
-the right. The toolbar also shows connection state and controls for live updates,
-scrolling to the bottom, clearing saved output, and deleting a historical
-file. Pausing freezes the selected file and disconnects the browser stream;
+DEBUG, INFO, WARN, ERROR, FATAL or PANIC. Its toolbar follows the tabs with the
+connection state, a file selector, a level filter, a search and controls for live
+updates, scrolling to the bottom, clearing saved output, and deleting a
+historical file. Pausing freezes the selected file and disconnects the browser stream;
 collection on the server continues. Resuming uses the last received byte cursor,
 or switches to the latest file after rotation. Scrolling up suspends automatic
 scrolling; the bottom button restores it without changing live-update state.
@@ -627,12 +715,12 @@ line is flushed before completion is reported.
 Relative `log.output` paths resolve from the node's `<data-dir>/runtime`, the child process's
 working directory, rather than from the saved configuration's directory. For
 example, `box.log` resolves to `<data-dir>/runtime/box.log`. Absolute paths remain
-absolute. The native process must be able to write the destination and the panel
-must be able to read it. Saving a new path takes effect on the next Start/Restart.
+absolute. The native process must be able to write the destination and the node
+service must be able to read it. Saving a new path takes effect on the next Start/Restart.
 The follower checks for new bytes every 250 ms; it does not import bytes already
 present when following begins. The original output file remains under the
 operator's management, including its permissions, retention and raw contents.
-The panel separately sanitizes and retains its captured copy under
+The node separately sanitizes and retains its captured copy under its
 `<data-dir>/logs/core`. Deleting a captured copy never removes the original file.
 
 `DELETE /api/v1/nodes/{nodeId}/core/logs/files?file=<managed-name>` requires management
@@ -662,22 +750,26 @@ responsible for discarding pre-clear cursors. Capture operations share the
 server-owned file manager so reading a chunk cannot overlap truncation.
 
 Private core logs default to seven UTC dates including today, 32 MiB per file,
-and no file-count limit. Panel settings → Log management controls
+and no file-count limit. Panel settings → Data retention controls
 `logs.core_retention_days` (1–3650), `logs.core_max_files` (0–1024, zero means
 unlimited), and `logs.core_max_file_size_mib` (1–1024). A count cap can shorten
 the effective retention window. Old settings without these fields use the defaults.
-Saving installs the policy immediately and runs cleanup. At panel service startup,
-UTC midnight, and settings changes, background maintenance ensures the current
+The panel sends the policy to each node when it connects and again when a save
+changes it. The node applies it at once, runs cleanup, and keeps it for its next
+start; until it first receives one it uses the defaults. A node records
+`core.log.policy_failed` for a policy it cannot apply, and the panel records
+`core.log.policy_sync_failed` when it cannot send one. At node service startup
+and UTC midnight, the node's background maintenance ensures the current
 UTC date has a capture file, even when the core is stopped or emits no output,
 then runs cleanup. A missing day's file starts at `000` with zero bytes; an
 existing day's newest segment is reused without truncation or size rotation.
 Empty files follow the same retention and count limits as other captures.
 Maintenance failures record `core.log.maintenance_failed` and retry within a
-minute. Days when the panel service was offline are not backfilled.
+minute. Days when the node service was offline are not backfilled.
 Shrinking the size limit rotates before the next write without
 truncating existing content. Files rotate by UTC date and size. Rotation switches only the destination file; the process output pipes and
 file follower remain connected. Each day's sequence advances from its newest
-retained file, including after a panel restart, and extends beyond three digits
+retained file, including after a node restart, and extends beyond three digits
 when necessary. The active file is retained while within the date window. Lines and read
 chunks are bounded; ANSI sequences and known credentials
 are sanitized. The browser resumes from the received cursor, freezes the selected
@@ -687,36 +779,38 @@ lists the panel log and `/api/v1/fleet/runtime/history` the runtime states.
 Each initial file read loads the last 64 KiB; the browser retains at most 2,000
 lines and searches/filters only this buffer. File lists refresh every 10 seconds
 without overlapping requests and refresh when the page becomes visible again;
-the output stream checks for appended content every second. Core capture
+the output stream checks for appended content every second, with one read of
+the file for all its streams, and sends only new output, with a heartbeat
+comment every ten seconds. Core capture
 retention applies only to sing-box capture files; the panel log and runtime
 states are described under [Durable logs](#durable-logs).
-The neutral status dot and icon buttons float over the output in the same softly
-bordered, translucent toolbar used by the Advanced JSON editor. Status tooltips
-and the pause/resume icon identify the current state without changing the toolbar's
-color. Pause freezes updates, bottom resumes scroll following, and clear truncates
-the selected persisted capture after confirmation. Historical deletion also
-requires confirmation.
-The floating toolbar is hidden whenever the output area is empty, including
-search and level filters with no matches. It returns when output is visible.
-Clearing while paused preserves that state and offers Resume live output in the
-empty message so streaming can continue without the floating controls.
+The toolbar heads the card above the output and stays while the output is
+empty, including when search and level filters match nothing. Its status dot
+takes the success color while live; its tooltip and the pause/resume icon name
+the current state. Pause freezes updates, bottom resumes scroll following, and
+clear truncates the selected persisted capture after confirmation. Historical
+deletion also requires confirmation. Clearing while paused preserves that
+state; the empty output says it was cleared, and the live-updates control
+resumes streaming.
 
 The panel log, runtime states and subscription-key lists support `offset` with
 `limit` for numbered pages and return `total` before pagination. Totals include
 the active filters. Counts and rows come from one database snapshot;
-live inserts or deletions may shift rows between requests. Existing `before_time`
-and `before_id` cursors remain supported and cannot be combined with `offset`.
+live inserts or deletions may shift rows between requests. The panel log and key
+lists also take the `before_time` and `before_id` cursors, which cannot be
+combined with `offset`.
 The Web footer supports direct page entry and 5, 10, or 50 items per page.
 
 ### Panel log details and search
 
-The log tab uses five centered, single-line columns: occurrence time, level, event
-summary, event source, and View details. The runtime states tab uses occurrence
-time, state, the runtime state's name, node, and View details. Known events and
+The log tab uses three single-line columns: occurrence time, level and event
+summary, which marks security events. The runtime states tab uses occurrence
+time, state and reason. A line opens its details from anywhere on it, and each
+table is one Tab stop whose arrow keys move between lines. Known events and
 reasons have Chinese and English names; the original message remains available
-in the collapsible JSON record. The list shows only the name; process IDs and
-other context are available in details.
-Long names are truncated in the list and readable in full in details.
+in the collapsible JSON record. Process IDs and other context are available in
+details.
+Long lines are truncated in the list and readable in full on hover and in details.
 The modal contains the event identifiers, precise local time and timezone,
 recorded context and collapsible JSON. Basic information and
 context appear side by side on desktop and stack on narrow screens. Copy log copies the
@@ -745,12 +839,17 @@ and core-log clear/delete actions also record bounded target identifiers and
 known error categories; arbitrary wrapped errors and request bodies are not
 persisted. Core configuration checks, health checks, version mismatches and
 termination failures have distinct error codes and localized descriptions.
+Core catalog refreshes and downloads record their failure code, such as
+`catalog_timeout` or `download_http_status`, with any HTTP status.
 Start/restart operation logs retain the activation bundle selected during the
 check phase, including when execution subsequently fails. All operation context
 still passes through the durable log sanitizer.
 Historical events without additional context remain readable and explicitly show
 that no extra context was recorded; current runtime state is not used to fill
-historical gaps.
+historical gaps. The log list follows each event with what its context records,
+as far as one line holds: the failure's localized reason (its code where none is
+known), the node by its current name, the version, file, address, attempt,
+counts, freed size and duration; the details keep every field as recorded.
 
 ## Durable logs
 
@@ -763,7 +862,9 @@ reads the service journal.
 `Last-Event-ID` for reconnection. Like the other streams it ends within a
 minute with a `control` event of type `reconnect`, so a client reconnects and
 authenticates again; `Last-Event-ID` resumes it after the last entry it
-received. Each write has its own deadline.
+received. Each write has its own deadline. The stream reads new entries when
+the panel records one, at most twice a second, and every five seconds for the
+entries another process, such as the command line, records.
 
 The panel log is stored in `logs.db` beside `panel.db` and is kept until it is
 cleared. An entry is about a node when its metadata names the node's
@@ -810,7 +911,10 @@ running and for 30 seconds after the reading. Its nullable
 by the panel from adjacent samples of the same process and their actual
 elapsed time: one-second rates while a node is viewed, ten-second averages
 otherwise. A first sample, process change, decrease, or interval over fifteen
-seconds has no rate. Existing cumulative fields remain available; the bundled Web client
+seconds has no rate. The node reads its counters and reports on separate
+clocks, so it may report one reading twice: the repeat changes nothing. A
+sample without traffic hides the live sample until the next reading, whose rate
+still spans the gap. Existing cumulative fields remain available; the bundled Web client
 uses the new rate fields directly. Live samples do not enter the persisted accounting totals.
 Collector availability and historical sampling quality remain separate from
 recorded period usage. Snapshots use narrow runtime
@@ -829,24 +933,34 @@ Live data is stale after ten seconds without a snapshot; history after 45 second
 Error feedback has a five-second grace period. Last observations remain visible;
 a history delay is shown locally with its update time, not as a panel disconnect.
 Linux host CPU/memory/disk metrics remain separate from sing-box process samples;
-unsupported hosts report unavailable values. The toolbar retains the localized
-`0s` uptime default. Missing or expired rates read `0 B/s`, as measured idle and
-verified stopped states do; download and upload values are never a dash.
+unsupported hosts report unavailable values. The toolbar shows an uptime only
+while the core is verified running. Missing or expired rates read `0 B/s`, as
+measured idle and verified stopped states do; download and upload values are
+never a dash.
 The interface colours each download and upload reading as its chart series:
 download cyan, upload magenta, a zero value in secondary text. Rates expire three seconds after their sample, even
 when fresh stream envelopes repeat the same observation; this does not mark
-the entire runtime stream stale before its ten-second threshold.
+the entire runtime stream stale before its ten-second threshold. The live chart
+keeps each reading's own rates however late it arrives, such as the reading a
+node sampling every ten seconds sent before the stream opened.
 
-System services read three narrowly scoped read-only host-counter mounts while
-retaining procfs isolation; see [systemd packaging](systemd.md#system-service)
-for the required unit refresh when upgrading an older installation.
+The node's system service reads three narrowly scoped read-only host-counter
+mounts while retaining procfs isolation; see
+[systemd packaging](systemd.md#system-service) for the required unit refresh
+when upgrading an older installation.
 
 `GET /api/v1/nodes/{nodeId}/dashboard/stream` sends one node's shared projection immediately (or a fresh
 cached value) and refreshes every 30 seconds only while subscribers exist.
 Assembly runs independently of live collection. A slow client retains just the
 latest pending snapshot, and cannot stall collection or grow an event backlog.
 The Dashboard owns this subscription; other routes do not query historical data.
-Each event includes the node's one-hour / 24-hour histories, runtime transitions,
+Each event includes the node's one-hour / 24-hour histories, each starting on the
+whole minute or five minutes at or before its length ago so that a refresh
+changes only the newest bucket and those that samples or runtime transitions
+recorded since reach; a refresh reads just those and keeps the other closed
+buckets, and removing samples or transitions, by retention or with the node,
+makes the next refresh read every bucket. A node's projection is dropped a
+minute after its last viewer leaves. Each event also carries the runtime transitions,
 its two most recent activity records and `persisted_through`. Both metric ranges and that accepted
 sample watermark come from one database read transaction. The watermark replaces
 overlapping connection-chart tails when history catches up. Live tails are bounded to 120
@@ -874,9 +988,13 @@ before: the node's stored samples, about ten seconds apart and each with the
 rates of the interval ending at it, and the spans in which its runtime history
 shows no core running, drawn as a known zero every ten seconds because a
 stopped core stores no samples. The stream's readings follow at their own
-spacing, and a reading of the same moment replaces the stored one. The span starts at the oldest sample it shows, and at least ten
-seconds before the newest, so no blank strip leads the lines; a time label that
-would run into the vertical axis or past the chart's edge is left out. While
+spacing, and a reading of the same moment replaces the stored one. The window
+is always two minutes long and ends at the next whole second of the node's
+clock, estimated from its readings, so it never rescales and steps one second
+at a time on each tick, the newest reading always inside it; the reading
+before the window runs the lines off its start, and time labels slide out
+under the plot's edges. The one-hour and 24-hour views leave out a label that
+would run into the vertical axis or past the chart's edge instead. While
 the node reports its core stopped, each reading is a known zero, so the lines
 rest at 0 instead of breaking. Browser suspension or network failures can still
 leave actual sampling gaps; missing observations are not filled in, and a range
@@ -893,15 +1011,18 @@ transitions.
 Traffic charts choose a shared B/s, KB/s, MB/s, GB/s, TB/s or PB/s unit from the
 largest displayed upload/download rate. The chart's label, axis and details update
 together when live data or the selected history changes; the vertical range
-rescales with headroom. Historical traffic keeps the full bucket denominator,
-including partial buckets. The connection chart can join its final historical
+rescales with headroom. Historical traffic is each bucket's deltas over its
+`traffic_seconds`, so an interval across a bucket boundary or a bucket still
+filling lowers no rate; the newest bucket is left out while it has no value. The connection chart can join its final historical
 bucket at the persistence watermark to subsequent live observations. Explicit
 missing values break the line, and so does a live interval longer than two and
 a half times the stream's usual spacing, never under three seconds, so a
 reconnect or restart shows while a node sampling every few seconds still draws
-a line. A step to or from a stored sample may also reach one and a half of that
-sample's interval, so the stored samples join each other and the stream's first
-reading, while a missing stored sample still breaks the line. Series are monotone cubic curves, which never overshoot their samples;
+a line. A step to or from a point may also reach one and a half of the span its
+rates cover, a stored sample's interval or the time since a stream reading's
+previous one, so the stored samples join each other and the stream's first
+readings, while a missing stored sample still breaks the line. A break sits
+midway between its two points, so the details at either show its values. Series are monotone cubic curves, which never overshoot their samples;
 small points keep individual live observations visible.
 Traffic and connection chart details follow the pointer and stay inside the chart,
 showing metric values and units without timestamps. Arrow keys inspect samples;
@@ -955,7 +1076,7 @@ evidence without changing accounting.
 Nodes report those cumulative totals in their metrics samples, so the panel
 proves the delta between any two samples of the same node database, including
 across core restarts, configuration changes and periods the node was offline.
-The panel stores a node's samples at most every ten seconds, and at once when
+The panel stores a node's samples at least nine seconds apart, and at once when
 the core process changes. A recreated node database starts a new segment whose
 first totals are a baseline. A decrease or out-of-order sample within one
 segment is rejected without changing the checkpoint. Persisted samples older
@@ -1001,16 +1122,14 @@ The paired `period_start`/`id` cursor in `next` preserves stable pagination.
 Every successful metrics response includes `current_traffic_period`: an empty
 period has zero inbound and outbound bytes. Recorded usage and quota status remain
 visible while sing-box is stopped, monitoring is unavailable or samples are stale.
-`available` and `reason_code` describe live collection only. The retired
-`traffic_available` and `traffic_coverage` fields are removed; clients should read
-`current_traffic_period` directly. The dashboard no longer evaluates period
-completeness. Before a successful response, or when storage fails, the existing
+`available` and `reason_code` describe live collection only. Before a successful response, or when storage fails, the existing
 loading/error handling applies rather than inventing zero usage.
 A node's metrics report its own `quota_bytes`, absent while unlimited, and
 `quota_exceeded`, set once the node's recorded upload and download together
 reach it, even while collection is stopped. `GET /api/v1/traffic/status` lists
 every node's current period, quota and `quota_exceeded`, and sums only usage
-into `upload_bytes` and `download_bytes`; quotas are never summed.
+into `upload_bytes` and `download_bytes`; it never sums quotas, which only the
+subscription header does.
 `GET /api/v1/fleet/status` returns every node with the metrics snapshot
 `GET /api/v1/nodes/{nodeId}/metrics` returns for it, without `latest_sample`
 and the period's `counters`, so the nodes home and the status line read the
@@ -1038,7 +1157,7 @@ from a reset event, and a stream that stays down hands over to one
 `/fleet/status` read.
 
 Raw samples follow the required `traffic.sample_retention_days` setting, which
-is initialized to 90 and accepts 1 through 366 days. A settings file without
+is initialized to 7 and accepts 1 through 366 days. A settings file without
 the field is rejected. The server removes expired raw samples during startup
 and every 24 hours, and rechecks immediately after a Web settings save, in
 small batches so arriving samples are not held up. Daily and traffic period
@@ -1060,9 +1179,11 @@ GET /api/v1/nodes/{nodeId}/metrics/history?from&to&bucket_seconds&activation_bun
 
 `from`, `to`, and a positive `bucket_seconds` are required; the bundle filter
 is optional. A request may cover at most 90 days and produce at most 512
-buckets. Each bucket returns traffic deltas, average and peak memory, average
-and peak active connections, sample count, and `complete`, `partial`, or
-`missing` coverage. A bucket without samples that the node's runtime history
+buckets. Each bucket returns the traffic deltas of the intervals wholly within
+it and `traffic_seconds`, how long those intervals last, so their rate is the
+deltas over it; average and peak memory, average and peak active connections,
+sample count, and `complete`, `partial`, or `missing` coverage. A bucket known
+idle has zero traffic over its whole length. A bucket without samples that the node's runtime history
 shows wholly stopped or failed held no running core: it is `complete`, with
 zero traffic, memory and connections. Every other bucket without evidence is
 emitted explicitly as `missing` with nullable measurements, never synthetic
@@ -1086,9 +1207,9 @@ traffic API. Metrics and traffic periods have no CLI command group.
 
 ## Management surfaces
 
-The Web interface exposes the node pool, sources, channels and keys.
-The former subscription, log, and metrics CLI groups have been removed; use the
-Web UI for these management tasks or the authenticated HTTP API for automation.
+The Web interface exposes rule sets, the node pool, sources, channels and keys.
+Use the Web UI for these management tasks or the authenticated HTTP API for
+automation.
 OpenAPI also provides user profiles and their node grants. Runtime operations and traffic evidence retain
 their authenticated management contracts. The
 browser core import uses bounded multipart upload and a private staging
@@ -1101,7 +1222,10 @@ authentication and request boundaries.
 ### Reverse proxy streaming
 
 Nginx must pass the event stream without response buffering (see the
-[official buffering documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)).
+[official buffering documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)),
+and should serve browsers over HTTP/2, as
+[Behind Nginx](configuration-and-runtime.md#behind-nginx) shows, so open
+streams do not use up the browser's connections.
 The application emits `X-Accel-Buffering: no`; avoid configurations that ignore
 that header. A dedicated API location can also set:
 
@@ -1121,7 +1245,7 @@ must arrive before closure, heartbeats must arrive about every ten seconds, and
 a control event/renewal must occur before one minute. A successful direct local
 connection alone does not establish CDN or reverse-proxy buffering behavior.
 
-Management node lists read only the public-address detector cache. The server
-refreshes it in the background; expired or missing addresses are unavailable.
-Explicit panel/channel addresses retain precedence, and actual public
-subscription publication still resolves and validates its endpoint.
+Fleet views show the public IP each node last reported. A node reports only its
+cached public IP hint, which it refreshes in the background; an expired or
+missing hint is reported empty. A node's `public_host` setting takes precedence
+over that hint in subscriptions, as [Fleet inbounds](#fleet-inbounds) describes.

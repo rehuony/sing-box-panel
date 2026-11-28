@@ -4,6 +4,7 @@ package telemetry
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -22,11 +23,18 @@ type DashboardStreamSnapshot struct {
 	Activity         store.PanelLogPage   `json:"activity"`
 }
 
-// DashboardSnapshot is one node's dashboard projection.
+// DashboardSnapshot is one node's dashboard projection, every bucket of its
+// history read anew.
 func (application *Service) DashboardSnapshot(ctx context.Context, nodeID string) (DashboardStreamSnapshot, error) {
+	return application.dashboardSnapshot(ctx, nodeID, nil)
+}
+
+// dashboardSnapshot reads the projection, reusing the closed buckets that
+// history keeps when it is not nil.
+func (application *Service) dashboardSnapshot(ctx context.Context, nodeID string, history *store.DashboardHistory) (DashboardStreamSnapshot, error) {
 	collectedAt := application.now().UTC()
 	oneDayAgo := collectedAt.Add(-24 * time.Hour)
-	history1H, history24H, watermark, err := application.database.DashboardMetricsHistory(ctx, nodeID, collectedAt)
+	history1H, history24H, watermark, err := application.database.DashboardMetricsHistory(ctx, nodeID, collectedAt, history)
 	if err != nil {
 		return DashboardStreamSnapshot{}, err
 	}
@@ -76,17 +84,75 @@ func (application *Service) dashboardRuntimeHistory(
 	return combined, nil
 }
 
-// SubscribeDashboard streams one node's dashboard projection.
+// dashboardInterval is how often a viewed node's dashboard is read again.
+const dashboardInterval = 30 * time.Second
+
+// dashboardIdleGrace is how long a node's dashboard and its history stay
+// after the last viewer leaves, so a stream that renews itself, which every
+// stream does each minute, finds them.
+const dashboardIdleGrace = time.Minute
+
+// dashboard is one node's shared dashboard feed and the history it reads
+// from. Service.dashboardsMu guards viewers and idle.
+type dashboard struct {
+	feed    *Feed[DashboardStreamSnapshot]
+	history store.DashboardHistory
+	viewers int
+	// idle counts the times the viewers dropped to none or rose from it; a
+	// removal waits out the grace only for the count it was scheduled at.
+	idle uint64
+}
+
+// SubscribeDashboard streams one node's dashboard projection. A node's
+// dashboard is dropped once no one has viewed it for dashboardIdleGrace.
 func (service *Service) SubscribeDashboard(nodeID string) (<-chan SnapshotResult[DashboardStreamSnapshot], func()) {
 	service.dashboardsMu.Lock()
-	feed := service.dashboards[nodeID]
-	if feed == nil {
-		feed = NewFeed(30*time.Second, func(ctx context.Context) (DashboardStreamSnapshot, error) {
-			return service.DashboardSnapshot(ctx, nodeID)
+	entry := service.dashboards[nodeID]
+	if entry == nil {
+		entry = &dashboard{}
+		entry.feed = NewFeed(dashboardInterval, func(ctx context.Context) (DashboardStreamSnapshot, error) {
+			return service.dashboardSnapshot(ctx, nodeID, &entry.history)
 		})
-		feed.Bind(service.root)
-		service.dashboards[nodeID] = feed
+		entry.feed.Bind(service.root)
+		service.dashboards[nodeID] = entry
 	}
+	if entry.viewers == 0 {
+		entry.idle++
+	}
+	entry.viewers++
 	service.dashboardsMu.Unlock()
-	return feed.Subscribe()
+	results, unsubscribe := entry.feed.Subscribe()
+	var once sync.Once
+	return results, func() {
+		once.Do(func() {
+			unsubscribe()
+			service.dashboardsMu.Lock()
+			defer service.dashboardsMu.Unlock()
+			if entry.viewers--; entry.viewers > 0 {
+				return
+			}
+			entry.idle++
+			idle := entry.idle
+			time.AfterFunc(dashboardIdleGrace, func() {
+				service.dashboardsMu.Lock()
+				defer service.dashboardsMu.Unlock()
+				if entry.idle == idle && service.dashboards[nodeID] == entry {
+					delete(service.dashboards, nodeID)
+				}
+			})
+		})
+	}
+}
+
+// resetDashboardHistory makes the next read of the dashboards of nodeID, or
+// of every node when nodeID is empty, compute every bucket, after samples or
+// transitions within their ranges were deleted.
+func (service *Service) resetDashboardHistory(nodeID string) {
+	service.dashboardsMu.Lock()
+	defer service.dashboardsMu.Unlock()
+	for id, entry := range service.dashboards {
+		if nodeID == "" || id == nodeID {
+			entry.history.Reset()
+		}
+	}
 }

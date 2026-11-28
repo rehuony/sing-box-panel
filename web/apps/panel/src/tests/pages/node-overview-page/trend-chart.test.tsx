@@ -103,12 +103,12 @@ describe('chart details', () => {
     const options = vi.mocked(UPlot).mock.calls[0]![0];
     const formatTimes = options.axes![0]!.values as UPlot.Axis.DynamicValues;
     const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
-    // A tick inside the plot reads with seconds; one on its left edge goes unlabelled.
+    // A tick reads with seconds; a live chart keeps one on its left edge, which the plot clips.
     const inside = { ...plot, valToPos: () => 500, over: { clientWidth: 1000 } } as unknown as UPlot;
     expect(formatTimes(inside, [1000], 0, 0, 0)).toEqual([
       new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(1000)),
     ]);
-    expect(formatTimes({ ...inside, valToPos: () => 0 } as unknown as UPlot, [1000], 0, 0, 0)).toEqual([null]);
+    expect(formatTimes({ ...inside, valToPos: () => 0 } as unknown as UPlot, [1000], 0, 0, 0)).not.toEqual([null]);
     expect(options.series.slice(1).every(series => series.points?.show)).toBe(true);
     // Both rates are drawn as curves through their samples.
     expect(options.series.slice(1).map(series => series.paths)).toEqual(['monotone spline', 'monotone spline']);
@@ -123,6 +123,39 @@ describe('chart details', () => {
     rerender(<TrendChart chart={chart(512)} kind='traffic' live />);
     expect(tooltip).toHaveTextContent('Download512 B/sUpload512 B/s');
     expect(UPlot).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its plot through writes to the root that leave its colours alone', async () => {
+    const root = document.documentElement;
+    render(<TrendChart chart={trendChartData(testMetricsHistory, 'traffic', [])} kind='traffic' />);
+    try {
+      // A menu's or dialog's scroll lock writes the root's style.
+      root.style.setProperty('scrollbar-gutter', 'stable');
+      await act(() => Promise.resolve());
+      expect(UPlot).toHaveBeenCalledTimes(1);
+
+      root.style.setProperty('--chart-1', '#0b7189');
+      await waitFor(() => expect(UPlot).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(UPlot).mock.calls[1]![0].series[1]!.stroke).toBe('#0b7189');
+    } finally {
+      root.removeAttribute('style');
+    }
+  });
+
+  it('steps a live window of fixed length one second at a time on the node\'s clock', () => {
+    vi.useFakeTimers({ now: 10_400, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      // The node's clock reads 10.1 s when this one reads 10.4 s.
+      render(<TrendChart chart={liveTrafficChartData([{ at: 10_100, downloadBytesPerSecond: 1, uploadBytesPerSecond: 1, connections: 1 }])} kind='traffic' live />);
+      const plot = vi.mocked(UPlot).mock.results[0]!.value as UPlot;
+      expect(plot.setScale).toHaveBeenLastCalledWith('x', { min: 11_000 - 120_000, max: 11_000 });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(plot.setScale).toHaveBeenLastCalledWith('x', { min: 12_000 - 120_000, max: 12_000 });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(plot.setScale).toHaveBeenLastCalledWith('x', { min: 13_000 - 120_000, max: 13_000 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 afterEach(() => vi.restoreAllMocks());

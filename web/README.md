@@ -4,7 +4,6 @@ This directory owns the React/Vite frontends as one pnpm workspace. They
 deliberately have no dependency on backend implementation packages.
 
 Install the [development toolchains](../.github/CONTRIBUTING.md#development-setup) first.
-Schema preparation requires Go for offline export, including when running frontend tests.
 
 ## Workspace
 
@@ -12,7 +11,7 @@ Schema preparation requires Go for offline export, including when running fronte
 | --- | --- | --- |
 | `@sing-box-panel/panel` | `apps/panel` | The panel's application, embedded by `sing-box-panel` through the Go package in `apps/panel` |
 | `@sing-box-panel/node` | `apps/node` | The node console's application, embedded by `sing-box-node` through the Go package in `apps/node` |
-| `@sing-box-panel/shared` | `packages/shared` | What both applications use: the `components/ui` controls, `lib/utils`, `hooks/use-mobile`, the styles and tokens, the theme preference primitives, language detection and i18n setup, and the favicon |
+| `@sing-box-panel/shared` | `packages/shared` | What the applications share: the `components/ui` controls, the terminal parts, the glyph field, the prompt input, the cell meter, the language menu and theme cycle button, `lib/utils` and the time and telemetry formatters, the styles and tokens, the theme preference primitives, language detection and i18n setup, and the favicon |
 
 Each application imports its own code through `@/` and the shared package
 through `@shared/`, both mapped in its `tsconfig.json`. Shared code imports
@@ -20,6 +19,14 @@ neither application, and neither application imports the other; ESLint
 enforces both, because each binary embeds only its own application. The
 workspace root holds the toolchain: the lockfile, the development dependencies,
 the ESLint configuration, and scripts that run each application's own.
+
+Every external package's version is declared once, in the `catalog` of
+`pnpm-workspace.yaml`, and each manifest refers to it as `catalog:`, so one
+entry upgrades a package for every application. `pnpm add` uses the cataloged
+version, adds a new package to the catalog, and refuses a version that differs
+from the catalog's. An install drops catalog entries no manifest uses, and
+refuses any locked version that was published with weaker trust evidence than
+an earlier release, such as a manual publish after trusted publishing.
 
 ## Development
 
@@ -71,7 +78,7 @@ panel's administrator credentials there and prints the node console's password
 once. Removing `panel/` or `node/` starts that service over.
 
 Use `make check-frontend` from the repository root for a production build, types,
-lint, all tests, Schema consistency and notices checks. From this directory,
+lint, all tests and the notices check. From this directory,
 `pnpm run build` builds both applications and `pnpm test` runs every package's
 tests. For a focused panel check, run `pnpm exec vitest run --project logic`,
 `--project react`, or `--project contracts` from `apps/panel`.
@@ -87,9 +94,11 @@ Test environments, timeout bounds and coverage ownership are documented in
 start` on the console's address. It signs in with the console password and
 shows the node, the panel it is enrolled with and the state of its session,
 refreshed every five seconds; the last status stays visible, marked stale,
-when the node stops answering. Its transport types under `src/api/generated/`
-are generated from `../../../api/node-openapi.yaml`. It follows the system's
-light or dark appearance.
+when the node stops answering. Its terminal also takes the enrollment commands
+(`enroll`, `re-enroll` and `unenroll`). Its transport types under
+`src/api/generated/` are generated from `../../../api/node-openapi.yaml`. Its
+theme cycle and language menu keep their choice in the browser under the same
+keys as the panel's.
 
 ## Source layout
 
@@ -105,10 +114,12 @@ and theme labels in `shell.ts`, with shared and startup messages in `common.ts`.
 
 The first visit selects Simplified Chinese for a `zh-CN` browser preference and
 English otherwise; an explicit user selection is persisted and takes precedence
-on later visits.
+on later visits. Each language's translations are a chunk of their own
+(`src/i18n/resources.ts`), and the application renders once the first one has
+loaded.
 
 `components/server-path-input` owns the shared server filesystem selector.
-Configuration and subscription-node forms use it through context-aware presentation
+Configuration forms use it through context-aware presentation
 annotations in `configuration-path-fields`, including scalar/list representations
 and nested dialogs. Filesystem reads go through the injected `ApiClient`. The
 chooser preserves hand-entered values until confirmation and rechecks the
@@ -157,8 +168,9 @@ README.
 ## HTTP client and authentication
 
 At runtime the browser client uses same-origin `/api/v1` endpoints for the
-session, the fleet and node enrollment, panel settings, subscription
-publication, the panel log and runtime states, the panel's restart and the core catalog. Everything about one node goes
+session, the fleet and node enrollment, panel settings, backups and restores,
+subscription publication, the panel log and runtime states, the panel's update
+and restart, and the core catalog. Everything about one node goes
 through `/api/v1/nodes/{nodeId}/…`: the node workspace gives its pages a client
 scoped to that node, so its cores, configuration, runtime, logs, telemetry and
 settings never reach another node. Cookie-backed writes retain the session CSRF
@@ -195,8 +207,9 @@ artifact-bound Schema contracts (5 minutes). Node-scoped reads carry the node in
 their key, so nodes never share cached data. Inactive queries expire after 5 minutes. Configuration,
 credentials and file content are read on demand; settings are retained only by
 an active provider. No query data is persisted in browser storage; it holds only
-the theme and language preferences (localStorage) and the marker that allows one
-reload per panel version after an update (sessionStorage). Shared query keys
+the theme and language preferences (localStorage), and the marker that allows one
+reload per panel version after an update and an open channel's unsaved draft
+through a reload (sessionStorage). Shared query keys
 coalesce pending reads and preserve unchanged object references. Background
 refresh retains content, pagination, selection and scroll position. GET requests
 have a 15-second total budget and retry a network/temporary service failure once;
@@ -213,9 +226,9 @@ as the status line and the panes do, so they never disagree on its state; a
 failed read keeps the last report, the workspace and drafts, and the workspace's
 views and drafts stay mounted while the node goes offline or comes back.
 Sources poll every 15 seconds only while their page and browser tab are visible;
-sources and channels share the node catalog. Batch source refresh uses at most
-three concurrent operations and one final list refresh. The backend also limits
-remote refresh concurrency to three across callers. Drafts retain their revision
+sources and channels share the node catalog. A source refreshes on request and
+reports the result in a toast; the backend limits remote refresh concurrency to
+three across callers. Drafts retain their revision
 until explicitly saved/restored so background reads cannot bypass conflict checks.
 
 Operations await the completed API resource; version/source actions update in
@@ -257,17 +270,17 @@ The default Live traffic chart retains the last 120 seconds of received samples,
 independently of the historical persistence watermark. One-hour and 24-hour
 traffic views show historical one-minute and five-minute averages. The collector
 supplies rates from adjacent observations on a one-second sampling cadence;
-the browser does not derive rates from stream delivery intervals. Missing rates
-or samples older than three seconds show `—`, while measured zero remains zero.
+the browser does not derive rates from stream delivery intervals. A rate the
+node has not given reads 0, never `—`, as [`DESIGN.md`](../DESIGN.md) sets out.
 Live chart samples preserve gaps and never contribute to accounted traffic totals.
 
-The runtime timeline keeps 48 half-hour segments with time marks anchored to the
-overview snapshot, including dates at both endpoints. Narrow cards retain the
+The runtime timeline keeps 48 half-hour segments over an axis that counts back
+from `-24h` to now, anchored to the overview snapshot. Narrow cards retain the
 start, midpoint and end marks. Segment tooltips expose the complete interval and
-observed state on hover or keyboard focus. Recent activity keeps the node's two
-newest panel log entries in compact rows, with the same localized event names
-and severity badges as the panel log. Each row opens the panel log filtered to
-the node; its tooltip exposes the full name and occurrence time.
+observed state on hover; the segments take no Tab stops. Recent activity keeps
+the node's two newest panel log entries in compact rows, with the same localized
+event names and level words as the panel log. Each row opens the node's events
+in its logs window; its tooltip exposes the full name and occurrence time.
 Activity times include dates for earlier days and years for earlier years, and
 update at local midnight independently of delayed runtime snapshots.
 
@@ -302,31 +315,31 @@ content region, retaining navigation, toolbars and any usable data. Reduced moti
 shows the indicator immediately and keeps it still.
 
 Colours, type, surfaces, radius and motion come from the tokens described in
-[`DESIGN.md`](../DESIGN.md); `src/styles/global.css` imports `tokens.css`,
+[`DESIGN.md`](../DESIGN.md); `@shared/styles/global.css` imports `tokens.css`,
 `base.css` and `components.css`. New configurations default to the system color
 scheme. The server embeds nonce-authorized background styles so the saved palette
 also appears before JavaScript starts. Explicit light/dark preferences remain
-supported. Reduced motion, reduced transparency, and increased contrast
-preferences are respected.
+supported. Reduced motion and increased contrast preferences are respected.
 
 The shell is one scrolling content region with a status line below it. The
-status line leads back to the fleet (`fleet`, the same in every scope), lists
-the scope's windows as numbered tabs (`1 nodes` to
+status line leads back to the fleet (`fleet` in panel windows; in a node's
+windows the previous node, the nodes home and the next node), lists the scope's
+windows as numbered tabs (`1 nodes` to
 `4 settings`, or a node's `1 overview` to `5 settings`), shows the fleet
 readout and the panel's update, and carries the theme cycle, language menu,
 the panel's restart and sign-out; below 640px it is a tab bar along the window's foot with a more
 menu. Window names are command words in every language; their tooltips and
 accessible names are translated. Pages omit a visible title band while
 retaining a screen reader heading: every view starts with one title strip
-holding its toolbar in flat controls grouped by dividers, or in a node the
-previous and next nodes, its name, state, labelled readings and runtime
-controls. Tables and forms scroll within the space above
+holding its toolbar in flat controls grouped by dividers, or in a node its
+name, state, labelled readings and runtime controls. Tables and forms scroll
+within the space above
 the status line, keeping their actions reachable.
 
 Ctrl or Cmd+K, `:` outside fields and dialogs, or the status line's prompt
 action opens the command line as a box floating near the window's top
 (`components/status-line`), leaving the status line as it is. It parses commands
-in `utils/panel-commands.ts` (`help`, `clear`, `logout`, window numbers,
+in `utils/panel-commands.ts` (`help`, `clear`, `exit`, window numbers,
 `open`, `goto`, `filter`, `start`, `stop`, `restart` and `update` on a name,
 a glob, `tag:<tag>` or `all`, and `reboot`), completes the word under the caret
 in a list below the input, and otherwise shows its output there until cleared.
@@ -358,16 +371,15 @@ with `sing-box-node enroll` on the same port.
 
 ## Login
 
-Login uses one responsive frame for session checking, sign-in, and service
-unavailability. Its decorative geometric characters respond to pointer and form
-focus. All three remain front-facing and close their eyes while the password
-field or visibility toggle is focused, or while the password is visible. They
-reopen their eyes when the password is hidden and focus leaves that field. The
-scene receives presentation state only, never credentials. Motion stops at rest;
-when their eyes are open, each character's pupils track a fine mouse pointer
-across the page while staying inside fixed eye whites. Reduced motion
-switches poses without animation. Form focus, error notifications, and
-authentication behavior remain independent of the scene.
+Login (`pages/login-page`) uses one responsive frame for session checking,
+sign-in, and service unavailability: a first row with the logo, theme and
+language, then a spinner, the terminal sign-in prompt or a card with a retry.
+The prompt asks `login:` for the email and `password:` below it, sends the email
+trimmed and in lower case, and reports a refusal in one toast that the next
+attempt replaces. The glyph field behind it (`components/backdrop`) receives
+presentation state only, never credentials. Form focus, error notifications,
+and authentication behavior remain independent of the field. The prompt and the
+field follow the showcase section of [`DESIGN.md`](../DESIGN.md).
 
 ## Shared controls and lists
 
@@ -375,9 +387,10 @@ Path pickers and log-file filters reuse the shared Input, InputGroup and Select
 components, so their sizes and states follow the field and single-choice patterns
 in [`DESIGN.md`](../DESIGN.md). Options never change the value until one is chosen.
 
-Version, subscription source, node, channel, key, and panel-log lists use the
-shared `components/list-pagination` footer. It combines the page-size selector,
-circular previous/next buttons, current-page input, and read-only total.
+Version, key and path picker lists, the panel log, and a node's events and
+runtime states use the shared `components/list-pagination` footer. It combines
+the page-size selector, previous/next buttons, current-page input, and
+read-only total.
 Enter or blur commits a page; Escape cancels an edit.
 Page numbers are clamped to the filtered list, and changing the tab, search or
 page size resets to the first page. The total follows the selected page size;
@@ -388,44 +401,51 @@ read from the same database snapshot, and shrinking lists return to a valid page
 Panel-log search matches both Chinese and English event names by passing exact
 `search_codes` alongside the original `search` text. The server unions those
 matches before applying other filters, counting, and pagination.
-Overview activity links and runtime segments use explicit keyboard focus outlines
-for inspection; keyboard navigation and focus restoration are preserved everywhere.
+Overview activity links take the hover wash under keyboard focus; keyboard
+navigation and focus restoration are preserved everywhere.
 
-Workspace tables for versions, sources, keys, channels and panel logs use the data
-table pattern and table measurements in [`DESIGN.md`](../DESIGN.md).
+Orderable lists, such as configuration collections, rule sets, exit rules and
+the node pool, drag through `components/sortable` with the mouse, touch or the
+keyboard; a list longer than 300 items draws only the items near its view.
+
+Workspace tables for versions, keys, channels, the panel log and a node's events
+and runtime states use the data table pattern and table measurements in
+[`DESIGN.md`](../DESIGN.md).
 
 ## Pages and navigation
 
 The four navigation entries and a node's five tabs host every view; details
-use local tabs and dialogs instead of separate pages. Sources, manual nodes, subscription keys and native
-channel rules share node provenance and independent visibility. Channel preview
+use local tabs and dialogs instead of separate pages. Fleet nodes' inbounds and
+sources feed one [node pool](../docs/subscriptions-and-observability.md#subscription-node-pool),
+with no manual nodes or visibility switches. Channel preview
 and delivery have one server renderer; remote rule references are fetched only
 by subscribing clients. Native editors preserve unknown fields and scalar/list
 representations. Appearance is a saveable preview transaction shared by controls,
 charts and overlays, with semantic status colors kept independent.
 
-Management tabs use URL fragments: `#cores-installed` / `#cores-catalog`,
-`#configuration-visual` / `#configuration-advanced` (visual sections append `/route`,
-`/inbounds`, etc.) inside a node, and `#panel-service`, `#panel-traffic`,
-`#panel-logs`, `#panel-interface`, `#panel-maintenance` and `#panel-backup` in
-panel settings. Direct links, reloads and browser history restore the selected
-tab. Tab switches preserve query parameters and route state. Subscription tabs retain
-`#subscription-sources`, `#subscription-tokens`, and `#subscription-channels`.
+Management tabs use URL fragments inside a node: `#cores-installed` /
+`#cores-catalog`, `#configuration-visual` / `#configuration-advanced` (visual
+sections append `/route`, `/inbounds`, etc.) and `#logs-events`, `#logs-states`
+and `#logs-core`. Direct links, reloads and browser history restore the selected
+tab. Tab switches preserve query parameters and route state. Subscription tabs use
+`#subscription-rules`, `#subscription-nodes`, `#subscription-channels` and
+`#subscription-tokens`; `#subscription-rules/<client>` names the client and
+`#subscription-channels/<id>` the open channel.
 
 ## Panel logs
 
-The logs window (`pages/panel-logs-page`) has a log tab and a runtime states
-tab, each its own view with its own search, filter and page, sharing the tabs
-and the node filter, which live in the address (`?view=states`, `?node=`). The
-log shows five centered, single-line columns: occurrence time, level, event
-summary, event source, and a details action; runtime states show occurrence
-time, state, the reason's name, node and a details action. Known event names
+The logs window (`pages/panel-logs-page`) shows the panel's own log. A node's
+logs window (`pages/node-logs-page`) has tabs for its events, its runtime states
+and its core log. The panel log and a node's events share `components/panel-log`,
+whose table and details the runtime states reuse; each view has its own search,
+filter and page, and reads again every five seconds while the page is visible.
+A line shows its time, its level or state, and the event with what its context
+records, or the state's reason, on one line. Known event names
 follow the interface language; unknown events retain their original messages.
-The summary contains only the event name, with overflowing text truncated. A
-read-only modal shows the selected record's stable snapshot, recorded context,
-and collapsible JSON, with a copy action. The log's Clear action reads
-`/logs/usage` when its confirmation opens and reports what `DELETE /logs`
-freed. The panel's restart (`components/status-line/run-restart.ts`) is shared
+A line opens a read-only modal that shows the selected record's stable snapshot,
+recorded context, and collapsible JSON, with a copy action. Clear reads
+`/logs/usage` for its scope when its confirmation opens and reports what
+`DELETE /logs` freed. The panel's restart (`components/status-line/run-restart.ts`) is shared
 by the status line's action and `reboot`: one runs at a time, and the page
 polls `/system/status` until `started_at` changes, for at most a minute. Basic information and context sit
 side by side on desktop and stack on narrow screens; the header and actions stay
@@ -439,8 +459,8 @@ streams with bounded buffering and reconnect.
 
 The configuration UI combines version-scoped RJSF controls with a lossless
 sing-box JSON editor. It preserves unknown fields and unmodified large-number
-lexemes, and never adds panel metadata to executable configuration. Versions
-without a committed native or reviewed Schema use the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
+lexemes, and never adds panel metadata to executable configuration. A version
+the panel serves no schema for uses the Advanced editor only. The Web UI offers Save and Validate, with validation feedback in a Toast.
 Visual fields, Advanced JSON and visual module navigation share one in-memory
 draft for the authenticated session. Internal tab changes retain that draft;
 only leaving the configuration route or unloading the page invokes the
@@ -459,9 +479,9 @@ columns after a small top inset. Inbound and outbound tables replace details wit
 server addresses respectively, including configured ports and bracketed IPv6
 hosts. Port-hopping ranges are retained; missing address parts display a dash.
 A full-width dashed Add row is the final row
-inside the table, including empty lists. Actions show Edit, up/down arrows and
-Delete together, with identity repair available for malformed nodes. Up/down
-buttons replace node dragging; node deletion retains its confirmation dialog.
+inside the table, including empty lists. Rows start with a grip that drags them
+into their order; actions show Edit and Delete together, with identity repair
+available for malformed nodes. Node deletion retains its confirmation dialog.
 Narrow screens scroll these tables horizontally within the list. List cells are centered and entry names
 are display-only. Experimental tabs follow Clash API, V2Ray API, cache file and
 Debug order, showing only groups available in the selected Schema. The version
@@ -471,7 +491,7 @@ clear of the scrollbar. The Add row has a small gap and its own dashed outline
 without a doubled divider. Scalar field descriptions appear in an information
 tooltip beside the label, available on hover or click/tap; validation
 errors remain visible beside the control.
-Chinese field names and help cover the committed schema inventory, including
+Chinese field names and help cover the 1.13 and 1.14 schemas, including
 list and optional-object headings. Help shows the description without a separate key heading and uses
 context-specific wording for DNS, routing and protocol options. See the
 [field-help contract and sources](../docs/configuration-and-runtime.md#field-names-and-inline-help).
@@ -493,8 +513,7 @@ Dialog footer actions align right, with an outline Cancel first, auxiliary
 actions next and the primary action last. Destructive actions retain their danger
 style. Cancel only dismisses the dialog or its pending edits; Apply updates a
 parent draft, while Save retains its existing persistence behavior. Channel
-settings order Channel name, Client, New-node policy and Config template, with
-each label and control on one row even on narrow screens.
+settings order Channel name, Client and Config template.
 Node tag and protocol fields are stacked vertically.
 Simple entry fields omit row dividers, and user entries place the username before
 the password. Sections containing a single empty collection center their empty
@@ -525,21 +544,14 @@ fields remain visible when a missing discriminator needs repair.
 Scalar/list choices use Single value and List labels. Bare nested `anyOf` alternatives
 share one representation selector, with a distinct Byte sequence option where supported;
 existing strings, byte sequences and mixed lists retain their original representation.
-Credential fields use plain text in configuration and subscription-node forms,
+Credential fields use plain text in configuration forms,
 including private-key lists, consistently with the authenticated JSON editors.
 Supported credentials have a dice action at the right of the input. The
 presentation-only rules in `configuration-credentials` select the appropriate
 password, UUID or Base64 key format. Shadowsocks method context follows nested
-user and destination dialogs, including pending edits. Subscription-node forms
-use the same vertical section navigation and single-column field rows as configuration
-entry dialogs, with fixed headers and footers. The top-level Visual editor,
-Advanced JSON and Import share link modes remain separate. Protocol and endpoint
+user and destination dialogs, including pending edits. Protocol and endpoint
 choices appear in Basic settings, SSH authentication in Authentication, and detour
-selection in Connection options. One mounted schema form preserves pending fields
-across section changes and retains the protocol as a hidden discriminator so
-generation uses the current protocol and encryption method. See the
-[configuration guide](../docs/configuration-and-runtime.md#configuration-schemas)
-for the generated formats.
+selection in Connection options.
 ### Previews and unsaved changes
 
 Managed entry editors include their lossless JSON preview in the same tab bar.
@@ -563,16 +575,18 @@ JSON. Cancel preserves the current URL, draft and concurrency revision;
 Discard changes resets the draft and continues to the requested destination.
 Subscription areas return to their initial lists after leaving. Reloading or
 closing the page uses the browser's native unsaved-changes prompt, and signing
-out requires confirmation while edits are pending. No draft or embedded
-configuration secrets are written to browser storage. Adding a node initializes
-its configuration to `{}`. The file API uses its own numeric compare-and-swap revision;
+out requires confirmation while edits are pending. No configuration draft or
+embedded configuration secret is written to browser storage. Enrolling a new node
+initializes its configuration to `{}`. The file API uses its own numeric compare-and-swap revision;
 immutable canonical revisions remain internal runtime evidence.
 
 ## Error feedback
 
 Request failures and validation errors use the shared Toaster instead of in-flow
-banners or field-error labels. Use `toast.add` for an action failure and
-`ErrorNotice` for an error represented by component state. Repeated state errors
+banners or field-error labels. Use `toastFailure` from `components/error-notice`
+for an action failure, `useDialogProblem` (`hooks/use-dialog-problem.ts`) for
+what keeps a dialog from going on,
+and `ErrorNotice` for an error represented by component state. Repeated state errors
 reuse one notification; recovery or unmount closes it. Keep invalid controls
 marked with `aria-invalid`, and retain visually hidden descriptions where
 `aria-describedby` needs them. Error feedback must not take focus away from the

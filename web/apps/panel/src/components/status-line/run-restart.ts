@@ -6,6 +6,7 @@ import { toast } from '@shared/components/ui/toast-manager';
 
 import type { ApiClient } from '@/api/api-client';
 
+import { ApiRequestError } from '@/api/api-client';
 import { usePanelRestart } from '@/stores/panel-restart.store';
 import { describeRequestError } from '@/components/error-notice';
 import { useCommandSession } from '@/stores/command-session.store';
@@ -32,20 +33,29 @@ function wait(milliseconds: number) {
   return new Promise<void>(resolve => setTimeout(resolve, milliseconds));
 }
 
+/** Restarts the panel and waits until it answers again. */
+export function restartPanel(run: RestartRun): Promise<RestartOutcome> {
+  return awaitRestart(run, async () => (await run.client.restartPanel()).started_at);
+}
+
 /**
- * Restarts the panel and waits until it answers again: the restart request
- * returns the start of the process that stops, and the panel is back once its
- * status reports another one. One restart runs at a time; the status line
- * shows it while it runs. Once the panel is back every view reads again.
+ * Runs begin, which asks for a restart and returns when the stopping panel
+ * started, then waits until another panel answers: one whose status reports
+ * another start, or one that no longer knows this session, as a restored
+ * panel does. One restart runs at a time; the status line shows it while it
+ * runs. Once the panel is back every view reads again.
  */
-export async function restartPanel({ cache, client, t }: RestartRun): Promise<RestartOutcome> {
+export async function awaitRestart(
+  { cache, client, t }: RestartRun,
+  begin: () => Promise<string>,
+): Promise<RestartOutcome> {
   const state = usePanelRestart.getState();
   if (state.restarting) return { kind: 'busy' };
   state.setRestarting(true);
   try {
     let stopping: string;
     try {
-      stopping = (await client.restartPanel()).started_at;
+      stopping = await begin();
     } catch (error) {
       return { kind: 'failed', reason: describeRequestError(error) };
     }
@@ -59,8 +69,10 @@ export async function restartPanel({ cache, client, t }: RestartRun): Promise<Re
           void cache.invalidateQueries();
           return { kind: 'restarted' };
         }
-      } catch {
-        // The panel does not answer while it restarts.
+      } catch (error) {
+        // A restored panel signs everyone out; the page then shows sign-in.
+        if (error instanceof ApiRequestError && error.status === 401) return { kind: 'restarted' };
+        // Otherwise the panel does not answer while it restarts.
       }
     }
     return { kind: 'failed', reason: t('shell.restart.timeout') };

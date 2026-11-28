@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/rehuony/sing-box-panel/internal/configuration"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/store"
@@ -50,6 +51,9 @@ type nodeLocals struct {
 	Inbounds    []fleetInbound
 	Diagnostics []ConversionDiagnostic
 	Summaries   []NodePublicationSummary
+	// Hostless holds the nodes that publish while neither a public host nor a
+	// public IP is known for them.
+	Hostless map[string]bool
 	// Documents holds each node's applied configuration, for preview
 	// diagnostics.
 	Documents map[string][]byte
@@ -70,9 +74,15 @@ func publishedHost(publication store.NodePublication) string {
 // localNodes converts the inbounds of every node that publishes, in the
 // order of publications and, within a node, configuration order. A node that
 // cannot be published adds a diagnostic and contributes no inbounds, without
-// failing the others.
+// failing the others. A node whose conversion inputs are those of the last
+// call reuses its conversion.
 func (application *Service) localNodes(publications []store.NodePublication) nodeLocals {
-	result := nodeLocals{Documents: map[string][]byte{}, Summaries: []NodePublicationSummary{}, Diagnostics: []ConversionDiagnostic{}}
+	result := nodeLocals{
+		Documents: map[string][]byte{}, Summaries: []NodePublicationSummary{}, Diagnostics: []ConversionDiagnostic{}, Hostless: map[string]bool{},
+	}
+	conversions.Lock()
+	defer conversions.Unlock()
+	kept := make(map[conversionKey]nodeConversion, len(publications))
 	for _, publication := range publications {
 		host := publishedHost(publication)
 		result.Summaries = append(result.Summaries, NodePublicationSummary{
@@ -84,34 +94,89 @@ func (application *Service) localNodes(publications []store.NodePublication) nod
 				NodeID: publication.NodeID, Collection: CollectionInbounds, ItemIndex: -1, Code: code,
 			})
 		}
-		document, ok := appliedDocument(publication)
+		key := newConversionKey(publication, host)
+		converted, ok := kept[key]
 		if !ok {
+			if converted, ok = conversions.entries[key]; !ok {
+				converted = application.convertPublication(publication, host)
+			}
+			kept[key] = converted
+		}
+		if !converted.applied {
 			fail(DiagnosticAppliedRevisionUnavailable)
 			continue
 		}
 		if host == "" {
+			result.Hostless[publication.NodeID] = true
 			fail(DiagnosticPublicHostUnavailable)
 			continue
 		}
-		conversion, err := application.convertInboundNodes(publication.ExactCoreVersion, document, host)
 		switch {
-		case errors.Is(err, ErrUnsupportedCoreVersion):
+		case errors.Is(converted.err, ErrUnsupportedCoreVersion):
 			fail(DiagnosticUnsupportedVersion)
 			continue
-		case err != nil:
+		case converted.err != nil:
 			fail(DiagnosticInvalidStartup)
 			continue
 		}
-		result.Documents[publication.NodeID] = document
-		for _, diagnostic := range conversion.Diagnostics {
+		result.Documents[publication.NodeID] = converted.document
+		for _, diagnostic := range converted.inbounds.Diagnostics {
 			diagnostic.NodeID = publication.NodeID
 			result.Diagnostics = append(result.Diagnostics, diagnostic)
 		}
-		for _, node := range conversion.Nodes {
+		for _, node := range converted.inbounds.Nodes {
 			result.Inbounds = append(result.Inbounds, fleetInbound{NodeID: publication.NodeID, NodeName: publication.NodeName, Node: node})
 		}
 	}
+	conversions.entries = kept
 	return result
+}
+
+// conversionKey digests what one node's conversion derives from: the
+// applied configuration as stored, the digest the node reported for it, its
+// core version and the host it publishes.
+type conversionKey [sha256.Size]byte
+
+func newConversionKey(publication store.NodePublication, host string) conversionKey {
+	digest := sha256.New()
+	for _, field := range []string{publication.ExactCoreVersion, host, publication.ConfigSHA256} {
+		digest.Write([]byte(field))
+		digest.Write([]byte{0})
+	}
+	if publication.Document != nil {
+		digest.Write([]byte{1})
+		digest.Write(publication.Document)
+	}
+	var key conversionKey
+	digest.Sum(key[:0])
+	return key
+}
+
+// nodeConversion is what one node's applied configuration yields: the
+// configuration as the node runs it, whether it matches the digest the node
+// reported and, with a host, its inbounds.
+type nodeConversion struct {
+	document []byte
+	applied  bool
+	inbounds InboundResult
+	err      error
+}
+
+// conversions keeps the conversions of the nodes the latest localNodes call
+// read, by what each derives from. A conversion depends on nothing else, so
+// every Service shares them; readers must not change them.
+var conversions = struct {
+	sync.Mutex
+	entries map[conversionKey]nodeConversion
+}{entries: map[conversionKey]nodeConversion{}}
+
+func (application *Service) convertPublication(publication store.NodePublication, host string) nodeConversion {
+	document, applied := appliedDocument(publication)
+	converted := nodeConversion{document: document, applied: applied}
+	if applied && host != "" {
+		converted.inbounds, converted.err = application.convertInboundNodes(publication.ExactCoreVersion, document, host)
+	}
+	return converted
 }
 
 // appliedDocument returns the node's applied configuration as the node runs

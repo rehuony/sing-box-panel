@@ -1,8 +1,11 @@
 import '@testing-library/jest-dom/vitest';
-import { afterEach } from 'vitest';
+import { afterEach, beforeAll } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
-import '@/i18n';
+import { i18nReady } from '@/i18n';
+
+// Components render once the language's translations have loaded, as in the application.
+beforeAll(() => i18nReady);
 
 afterEach(() => {
   cleanup();

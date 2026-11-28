@@ -1,4 +1,5 @@
 import userEvent from '@testing-library/user-event';
+import { toast } from '@shared/components/ui/toast-manager';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -52,8 +53,13 @@ describe('subscription sources', () => {
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('list', { name: 'Nodes' })).not.toBeInTheDocument());
     expect(dialog).toBeInTheDocument();
+    const feedback = vi.spyOn(toast, 'add');
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
-    expect(await within(dialog).findByText('line 1 does not convert')).toBeVisible();
+    // A refused save is reported in a toast, the dialog kept open with what was given.
+    await waitFor(() => expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: 'The source was not saved', description: 'line 1 does not convert', type: 'error',
+    })));
+    expect(dialog).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(client.createSubscriptionSource).toHaveBeenLastCalledWith({ content, filter, format: 'auto', kind: 'file', name: 'Provider' });
@@ -102,8 +108,9 @@ describe('subscription sources', () => {
     expect(within(dialog).getByLabelText('Name')).toHaveAttribute('placeholder', 'example.com');
     expect(await within(dialog).findByText('The link answered HTTP 404', {}, { timeout: 2_000 })).toBeVisible();
     // What cannot be read is not sent to be saved.
+    const feedback = vi.spyOn(toast, 'add');
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
-    expect(within(dialog).getByText('The source cannot be read; fix what the nodes line says first')).toBeVisible();
+    expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'The source cannot be read; fix what the nodes line says first', type: 'error' }));
     expect(client.createSubscriptionSource).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
     expect(await within(dialog).findByText('1 of 1 nodes kept', {}, { timeout: 2_000 })).toBeVisible();

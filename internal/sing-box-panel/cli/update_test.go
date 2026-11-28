@@ -30,7 +30,7 @@ func TestUpdateCommandPreservesStructuredOutput(t *testing.T) {
 					t.Fatalf("version=%q progress enabled=%t", current, report != nil)
 				}
 				return want, nil
-			}, "--output="+format, "update")
+			}, "--format="+format, "update")
 			if err != nil || stderr != "" {
 				t.Fatalf("error=%v stderr=%q", err, stderr)
 			}

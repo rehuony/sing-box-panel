@@ -41,7 +41,7 @@ export function ListPagination({ className, page, pages, pageSize, onPageChange,
         onValueChange={onPageSizeChange}
         items={[5, 10, 50].map(value => ({ value, label: t('pagination.perPage', { count: value }) }))}
       />
-      <nav className='flex flex-none items-center gap-1 *:data-[slot=button]:rounded-full' aria-label={t('pagination.label')}>
+      <nav className='flex flex-none items-center gap-1' aria-label={t('pagination.label')}>
         <Button
           variant='ghost'
           size='icon-sm'
@@ -51,11 +51,24 @@ export function ListPagination({ className, page, pages, pageSize, onPageChange,
         >
           <ChevronLeft aria-hidden='true' />
         </Button>
-        <div className='flex h-[var(--control-height-sm)] items-center rounded-[var(--radius-control)] border border-transparent bg-[color-mix(in_oklch,var(--foreground)_4%,var(--color-surface))] tabular-nums focus-within:border-[var(--input-focus)]'>
+        {/*
+          A flat field, as the bar's other controls: the hover wash on hover, and while
+          focused the wash over the field surface, as the strip's search. A press on the
+          total puts the caret in the page.
+        */}
+        <div
+          className='flex h-[var(--control-height-sm)] cursor-text items-center rounded-[var(--radius-control)] tabular-nums transition-colors hover:bg-[var(--color-hover)] focus-within:bg-[color-mix(in_oklab,var(--foreground)_6%,var(--color-field))]'
+          onPointerDown={(event) => {
+            if (!(event.target instanceof HTMLInputElement)) {
+              event.preventDefault();
+              event.currentTarget.querySelector('input')?.focus();
+            }
+          }}
+        >
           <Input
             aria-label={t('pagination.currentPage')}
             aria-describedby={totalId}
-            className='h-full min-h-0 w-[4ch] min-w-9 [appearance:textfield] rounded-[inherit] border-0 bg-transparent px-1 text-center text-sm font-medium shadow-none outline-none focus-visible:outline-none dark:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+            className='h-full min-h-0 w-[4ch] min-w-9 rounded-[inherit] border-0 bg-transparent px-1 text-center font-medium shadow-none outline-none focus-visible:outline-none dark:bg-transparent'
             type='number'
             inputMode='numeric'
             min={1}
@@ -74,8 +87,8 @@ export function ListPagination({ className, page, pages, pageSize, onPageChange,
               }
             }}
           />
-          <span className='flex items-center gap-2 pr-3 text-sm whitespace-nowrap text-muted-foreground' aria-hidden='true'>
-            <span className='opacity-55'>/</span>
+          <span className='flex items-center gap-2 pr-3 text-base whitespace-nowrap text-muted-foreground md:text-sm' aria-hidden='true'>
+            <span className='text-[var(--color-text-faint)]'>/</span>
             {pages}
           </span>
         </div>

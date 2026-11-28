@@ -33,12 +33,13 @@ type session struct {
 	// then does the session accept commands.
 	ready     chan struct{}
 	readyOnce sync.Once
-	// telemetryMu orders Welcome and the session's metrics interval
-	// changes; metricsInterval is the interval the node was last told,
-	// starting with the baseline Welcome names.
+	// telemetryMu orders Welcome and the control frames after it;
+	// metricsInterval and coreLogPolicy are what the node was last told,
+	// starting with what Welcome names.
 	telemetryMu     sync.Mutex
 	welcomed        bool
 	metricsInterval time.Duration
+	coreLogPolicy   *nodeapi.CoreLogPolicy
 
 	cancel context.CancelCauseFunc
 	// done closes when the session ends.
@@ -114,6 +115,17 @@ func (registry *sessions) get(nodeID string) *session {
 type sessions struct {
 	mu     sync.Mutex
 	byNode map[string]*session
+}
+
+// all returns the current session of every connected node.
+func (registry *sessions) all() []*session {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	current := make([]*session, 0, len(registry.byNode))
+	for _, session := range registry.byNode {
+		current = append(current, session)
+	}
+	return current
 }
 
 // replace makes current the node's session and ends the previous one.

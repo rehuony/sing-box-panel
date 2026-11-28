@@ -8,6 +8,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
 import '@/i18n';
+import { keyboardReorder } from '@/tests/keyboard-reorder';
 import { ConfigurationSectionEditor } from '@/pages/configuration-page/configuration-section-editor';
 import { encodeCanonicalValue, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
 
@@ -80,14 +81,11 @@ it('moves standalone records without losing unknown fields or numeric lexemes an
   const user = userEvent.setup();
   render(<CollectionHarness initial='{"http_clients":[{"tag":"first","counter":900719925474099312345,"future":4.2000e+99,"users":[{"name":"nested"}]},{"tag":"second"}]}' />);
   const table = screen.getByRole('table');
-  expect(screen.getByRole('button', { name: 'Move first up' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Move second down' })).toBeDisabled();
-  screen.getByRole('button', { name: 'Move first down' }).focus();
-  await user.keyboard('{Enter}');
+  await keyboardReorder(screen.getByRole('button', { name: 'Reorder first' }), { position: 2, row: 'tr', steps: 1 });
   expect(within(table).getAllByRole('row')[1]).toHaveTextContent('second');
   expect(screen.getByLabelText('Draft')).toHaveTextContent('"counter":900719925474099312345');
   expect(screen.getByLabelText('Draft')).toHaveTextContent('"future":4.2000e+99');
-  await user.click(screen.getByRole('button', { name: 'Move first up' }));
+  await keyboardReorder(screen.getByRole('button', { name: 'Reorder first' }), { position: 1, row: 'tr', steps: -1 });
   expect(within(table).getAllByRole('row')[1]).toHaveTextContent('first');
   await user.click(within(within(table).getAllByRole('row')[1]).getByRole('button', { name: 'Edit' }));
   const dialog = screen.getByRole('dialog');
@@ -100,8 +98,6 @@ it('moves standalone records without losing unknown fields or numeric lexemes an
   expect(screen.getByLabelText('Draft')).toHaveTextContent('"future":4.2000e+99');
   await user.click(within(within(table).getAllByRole('row')[1]).getByRole('button', { name: 'Remove' }));
   expect(JSON.parse(screen.getByLabelText('Draft').textContent ?? '{}')).toEqual({ http_clients: [{ tag: 'second' }] });
-  expect(screen.getByRole('button', { name: 'Move second up' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Move second down' })).toBeDisabled();
 });
 
 it('respects locked arrays and schema limits in the standalone layout', () => {

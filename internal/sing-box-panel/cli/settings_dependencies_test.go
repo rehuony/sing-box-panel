@@ -151,7 +151,7 @@ func TestInstanceCommandsIgnoreInvalidRuntimeSettings(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			service := &fakeSystemdService{statusResult: systemd.Status{UnitFileStatePath: path}}
 			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: service})
-			root.SetArgs(append([]string{"--config", path, "--output=json"}, args...))
+			root.SetArgs(append([]string{"--config", path, "--format=json"}, args...))
 			if err := root.ExecuteContext(t.Context()); err != nil || stderr.Len() != 0 {
 				t.Fatalf("unrelated runtime setting blocked command: %v; stderr=%q", err, stderr.String())
 			}

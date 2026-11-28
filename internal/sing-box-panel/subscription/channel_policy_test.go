@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -172,8 +173,8 @@ func TestChannelYAMLEmitsUnicodeLiterally(t *testing.T) {
 			t.Fatalf("group reference changed: %v", got)
 		}
 	}
-	wantRules := []any{"DOMAIN-SUFFIX,example.org,🏠 国内服务", "IP-CIDR6,2001:db8::/32,DIRECT", "RULE-SET,🚀 全球服务,Hong Kong", "MATCH,🏠 国内服务"}
-	if !reflect.DeepEqual(root["rules"], wantRules) || root["rule-providers"].(map[string]any)["🚀 全球服务"] == nil {
+	wantRules := []any{"DOMAIN-SUFFIX,example.org,🏠 国内服务", "IP-CIDR6,2001:db8::/32,DIRECT,no-resolve", "RULE-SET,🚀 全球服务,Hong Kong", "MATCH,🏠 国内服务"}
+	if !reflect.DeepEqual(exitRules(RenderFormatMihomo, root["rules"].([]any)), wantRules) || root["rule-providers"].(map[string]any)["🚀 全球服务"] == nil {
 		t.Fatalf("rule references changed: %s", result.Content)
 	}
 }
@@ -207,7 +208,7 @@ func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {
 				if route["auto_detect_interface"] != true || route["final"] != "Selected" {
 					t.Fatal(route)
 				}
-				rules := route["rules"].([]any)
+				rules := exitRules(format, route["rules"].([]any))
 				if len(rules) != 3 || rules[0].(map[string]any)["outbound"] != "Selected" || rules[2].(map[string]any)["outbound"] != nodes[1].Name {
 					t.Fatal(rules)
 				}
@@ -222,8 +223,8 @@ func TestChannelNativeRenderingAndTemplatePreservation(t *testing.T) {
 				if !bytes.Contains(result.Content, []byte("# retained comment")) {
 					t.Fatal("template comment lost")
 				}
-				rules := root["rules"].([]any)
-				if len(rules) != 4 || rules[1] != "IP-CIDR6,2001:db8::/32,DIRECT" || rules[3] != "MATCH,Selected" {
+				rules := exitRules(format, root["rules"].([]any))
+				if len(rules) != 4 || rules[1] != "IP-CIDR6,2001:db8::/32,DIRECT,no-resolve" || rules[3] != "MATCH,Selected" {
 					t.Fatal(rules)
 				}
 				provider := root["rule-providers"].(map[string]any)["Remote rules"].(map[string]any)
@@ -247,7 +248,7 @@ func TestChannelUnavailableNodesNeverLeakOrFallbackDirect(t *testing.T) {
 		t.Fatal(string(result.Content))
 	}
 	root, _ := DecodeDocumentObject(result.Content)
-	rules := root["route"].(map[string]any)["rules"].([]any)
+	rules := exitRules(RenderFormatSingBox, root["route"].(map[string]any)["rules"].([]any))
 	if rules[0].(map[string]any)["action"] != "reject" || rules[len(rules)-1].(map[string]any)["action"] != "reject" {
 		t.Fatal(rules)
 	}
@@ -257,6 +258,22 @@ func TestChannelUnavailableNodesNeverLeakOrFallbackDirect(t *testing.T) {
 	restored, err := RenderChannelNodes(nodes, RenderFormatSingBox, *p, nil)
 	if err != nil || restored.NodeCount != 2 {
 		t.Fatal(restored, err)
+	}
+}
+
+func TestChannelSkipsANodeItCannotNameAndRendersTheRest(t *testing.T) {
+	nodes := testChannelNodes(t, "src", `{"outbounds":[
+		{"type":"shadowsocks","tag":"HK, 01","server":"1.2.3.4","server_port":8388,"method":"aes-128-gcm","password":"secret-pass"},
+		{"type":"shadowsocks","tag":"JP 01","server":"1.2.3.5","server_port":8388,"method":"aes-128-gcm","password":"secret-pass"}]}`)
+	for _, format := range []RenderFormat{RenderFormatSingBox, RenderFormatMihomo, RenderFormatLoon} {
+		result, err := RenderChannelNodes(nodes, format, publishAll(nodes, "skip"), nil)
+		if err != nil || result.NodeCount != 1 || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != DiagnosticInvalidMetadata ||
+			result.PreviewDiagnostics[0].NodeName != "HK, 01" {
+			t.Fatalf("%s: %+v, %v", format, result.PreviewDiagnostics, err)
+		}
+		if _, err := RenderChannelNodes(nodes, format, publishAll(nodes, "error"), nil); err == nil {
+			t.Fatalf("%s: a skipped node passed incompatible_nodes=error", format)
+		}
 	}
 }
 
@@ -530,8 +547,13 @@ func TestAutomaticGroupsUseRemainingCandidatesAndEmptyGroupsReject(t *testing.T)
 				if err != nil || !bytes.Contains(result.Content, []byte("Selected")) {
 					t.Fatal("remaining automatic candidate lost", err)
 				}
-				if format == RenderFormatSingBox && bytes.Contains(result.Content, []byte(`"action": "reject"`)) {
-					t.Fatal("automatic group followed unavailable fixed default")
+				if format == RenderFormatSingBox {
+					root, _ := DecodeDocumentObject(result.Content)
+					for _, rule := range exitRules(format, root["route"].(map[string]any)["rules"].([]any)) {
+						if rule.(map[string]any)["action"] == "reject" {
+							t.Fatal("automatic group followed unavailable fixed default")
+						}
+					}
 				}
 			}
 			result, err := RenderChannelNodes(nil, format, *policy, nil)
@@ -634,9 +656,10 @@ func renderedRules(t *testing.T, format RenderFormat, content []byte) ([]string,
 			if rule["action"] == "reject" {
 				target = "REJECT"
 			}
-			for _, kind := range []string{"domain", "domain_suffix", "ip_cidr", "rule_set"} {
-				if values, ok := rule[kind].([]any); ok {
-					rules = append(rules, kind+","+values[0].(string)+","+target)
+			for _, kind := range []string{"domain", "domain_suffix", "domain_keyword", "ip_cidr", "rule_set"} {
+				values, _ := rule[kind].([]any)
+				for _, value := range values {
+					rules = append(rules, kind+","+value.(string)+","+target)
 				}
 			}
 		}
@@ -649,7 +672,7 @@ func renderedRules(t *testing.T, format RenderFormat, content []byte) ([]string,
 		if err := yaml.Unmarshal(content, &root); err != nil {
 			t.Fatal(err)
 		}
-		for _, value := range root["rules"].([]any) {
+		for _, value := range exitRules(format, root["rules"].([]any)) {
 			rules = append(rules, value.(string))
 		}
 		for name, value := range root["rule-providers"].(map[string]any) {
@@ -687,7 +710,8 @@ func TestChannelRoutesEmitRuleSetsInOrderWithTheirExits(t *testing.T) {
 				"streaming": {Client: format, Rules: []SubscriptionRule{
 					{Kind: "domain", Value: "a.example"}, {Kind: "domain_suffix", Value: "b.example"}, *remote(shared), {Kind: "ip_cidr", Value: "10.0.0.0/8"},
 				}},
-				// The same remote in another set merges with the first.
+				// The same remote in another set merges with the first, and it and
+				// the repeated domain, which the first rules already take, go.
 				"other": {Client: format, Rules: []SubscriptionRule{*remote(shared), {Kind: "domain", Value: "a.example"}}},
 			}
 			p.Routes = []ChannelRoute{
@@ -705,11 +729,11 @@ func TestChannelRoutesEmitRuleSetsInOrderWithTheirExits(t *testing.T) {
 			rules, remotes := renderedRules(t, format, result.Content)
 			want := map[RenderFormat][]string{
 				RenderFormatSingBox: {"domain,first.example,direct", "domain,a.example,Selected", "domain_suffix,b.example,Selected", "rule_set,Shared,Selected",
-					"ip_cidr,10.0.0.0/8,Selected", "rule_set,Shared,REJECT", "domain,a.example,REJECT", "rule_set,Shared-2,direct"},
+					"ip_cidr,10.0.0.0/8,Selected", "rule_set,Shared-2,direct"},
 				RenderFormatMihomo: {"DOMAIN,first.example,DIRECT", "DOMAIN,a.example,Selected", "DOMAIN-SUFFIX,b.example,Selected", "RULE-SET,Shared,Selected",
-					"IP-CIDR,10.0.0.0/8,Selected", "RULE-SET,Shared,REJECT", "DOMAIN,a.example,REJECT", "RULE-SET,Shared-2,DIRECT", "MATCH,Selected"},
+					"IP-CIDR,10.0.0.0/8,Selected,no-resolve", "RULE-SET,Shared-2,DIRECT", "MATCH,Selected"},
 				RenderFormatLoon: {"DOMAIN,first.example,DIRECT", "DOMAIN,a.example,Selected", "DOMAIN-SUFFIX,b.example,Selected",
-					"IP-CIDR,10.0.0.0/8,Selected", "DOMAIN,a.example,REJECT", "FINAL,Selected"},
+					"IP-CIDR,10.0.0.0/8,Selected,no-resolve", "FINAL,Selected"},
 			}[format]
 			wantRemotes := []string{"Shared-2=" + other, "Shared=" + shared}
 			if format == RenderFormatSingBox {
@@ -720,6 +744,14 @@ func TestChannelRoutesEmitRuleSetsInOrderWithTheirExits(t *testing.T) {
 			}
 			if !slices.Equal(rules, want) || !slices.Equal(remotes, wantRemotes) {
 				t.Fatalf("rules %q\nremotes %q", rules, remotes)
+			}
+			if format == RenderFormatSingBox {
+				// The two matches in a row with one exit are one rule; a rule set
+				// stays apart.
+				root, _ := DecodeDocumentObject(result.Content)
+				if exit := exitRules(format, root["route"].(map[string]any)["rules"].([]any)); len(exit) != 5 {
+					t.Fatalf("sing-box exit rules = %v", exit)
+				}
 			}
 		})
 	}
@@ -856,7 +888,7 @@ func TestChannelUnavailableNestedGroupDoesNotChangeManualExit(t *testing.T) {
 					t.Fatal(err)
 				}
 				if format == RenderFormatSingBox {
-					rule := root["route"].(map[string]any)["rules"].([]any)[0].(map[string]any)
+					rule := exitRules(format, root["route"].(map[string]any)["rules"].([]any))[0].(map[string]any)
 					if (kind == "select" && rule["action"] != "reject") || (kind == "url-test" && rule["outbound"] != "Parent") {
 						t.Fatal(rule)
 					}
@@ -865,7 +897,7 @@ func TestChannelUnavailableNestedGroupDoesNotChangeManualExit(t *testing.T) {
 					if kind == "select" {
 						target = "REJECT"
 					}
-					if root["rules"].([]any)[0] != "DOMAIN,example.org,"+target {
+					if exitRules(format, root["rules"].([]any))[0] != "DOMAIN,example.org,"+target {
 						t.Fatal(root)
 					}
 				}
@@ -972,5 +1004,45 @@ func TestChannelFollowsPoolOrderWithoutChangingNamesOrReferences(t *testing.T) {
 				t.Fatal("routing changed")
 			}
 		})
+	}
+}
+
+// exitRules leaves out the rules every channel of format starts with.
+func exitRules(format RenderFormat, rules []any) []any {
+	return rules[len(leadingRules(format)):]
+}
+
+// TestChannelRulesStartWithLeakGuards puts sing-box's sniffing, DNS hijack,
+// STUN reject and private-address bypass, and mihomo's STUN reject, before
+// every exit rule, and matches IP rules by the connection's own address.
+func TestChannelRulesStartWithLeakGuards(t *testing.T) {
+	nodes, p := policyFixture(t, RenderFormatSingBox)
+	result, err := RenderChannelNodes(nodes, RenderFormatSingBox, *p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := DecodeDocumentObject(result.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	for _, value := range root["route"].(map[string]any)["rules"].([]any)[:4] {
+		rule := value.(map[string]any)
+		actions = append(actions, fmt.Sprintf("%v|%v|%v|%v", rule["action"], rule["protocol"], rule["ip_is_private"], rule["outbound"]))
+	}
+	if want := []string{"sniff|<nil>|<nil>|<nil>", "hijack-dns|[dns]|<nil>|<nil>", "reject|[stun]|<nil>|<nil>", "route|<nil>|true|direct"}; !slices.Equal(actions, want) {
+		t.Fatalf("leading sing-box rules = %q", actions)
+	}
+	nodes, p = policyFixture(t, RenderFormatMihomo)
+	result, err = RenderChannelNodes(nodes, RenderFormatMihomo, *p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mihomo map[string]any
+	if err := yaml.Unmarshal(result.Content, &mihomo); err != nil {
+		t.Fatal(err)
+	}
+	if rules := mihomo["rules"].([]any); rules[0] != "AND,((NETWORK,UDP),(DST-PORT,3478/19302-19309)),REJECT" {
+		t.Fatalf("leading mihomo rule = %v", rules[0])
 	}
 }

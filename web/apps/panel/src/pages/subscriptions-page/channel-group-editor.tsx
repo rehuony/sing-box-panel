@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCallback, useMemo, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
@@ -27,6 +27,9 @@ import { groupTypeName, matchedNodes, memberKey } from './channel-policy';
 import { ChannelMatchedCards, ChannelNodeCards } from './channel-node-cards';
 
 export type ChannelGroupTab = 'nodes' | 'rules';
+
+/** Whether a value holds the trimmed, lowercased search. */
+const matches = (value: string, query: string) => value.toLowerCase().includes(query);
 
 interface Props {
   busy: boolean;
@@ -55,28 +58,38 @@ export function ChannelGroupEditor({
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const query = search.trim().toLowerCase();
-  const matches = (value: string) => value.toLowerCase().includes(query);
-  const order = group.members.map(memberKey);
-  const selectedIDs = new Set(order.filter((id) => selected.includes(id)));
-  const groupCatalog = new Map(config.groups.map(value => [value.id, value]));
-  const catalog = new Map(nodes.map((node) => [node.id, node]));
-  const cards: ChannelNodeCard[] = group.members.flatMap((member) => {
-    const id = memberKey(member);
-    const builtin = member.kind === 'builtin' ? member.id as 'direct' | 'reject' : undefined;
-    const node = member.kind === 'node' ? catalog.get(member.id) : undefined;
-    const candidate = member.kind === 'group' ? groupCatalog.get(member.id) : undefined;
-    let label = node?.display_name ?? candidate?.name ?? t('channels.missingNode');
-    if (builtin) label = BUILTIN_EXIT_NAMES[builtin];
-    let searched = `${label} ${node ? `${nodeOrigin(node)} ${node.protocol}` : member.id}`;
-    if (builtin) searched = label;
-    if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${groupTypeName(candidate.type, format)}`;
-    if (!matches(searched)) return [];
-    let unavailable = !node;
-    if (builtin) unavailable = (format === 'sing-box' && builtin === 'reject') || (format === 'loon' && group.type !== 'select');
-    if (member.kind === 'group') unavailable = !candidate?.enabled;
-    return [{ id, label, node, builtin, group: candidate, selected: selectedIDs.has(id), disabled: busy, unavailable }];
-  });
-  const matched = matchedNodes(group, nodes).filter(node => matches(`${node.display_name} ${nodeOrigin(node)} ${node.protocol}`));
+  const order = useMemo(() => group.members.map(memberKey), [group.members]);
+  // The chosen candidates still in the group.
+  const selectedIDs = useMemo(() => {
+    const chosen = new Set(selected);
+    return new Set(order.filter(id => chosen.has(id)));
+  }, [order, selected]);
+  const catalog = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
+  const cards = useMemo(() => {
+    const groupCatalog = new Map(config.groups.map(value => [value.id, value]));
+    return group.members.flatMap((member): ChannelNodeCard[] => {
+      const id = memberKey(member);
+      const builtin = member.kind === 'builtin' ? member.id as 'direct' | 'reject' : undefined;
+      const node = member.kind === 'node' ? catalog.get(member.id) : undefined;
+      const candidate = member.kind === 'group' ? groupCatalog.get(member.id) : undefined;
+      let label = node?.display_name ?? candidate?.name ?? t('channels.missingNode');
+      if (builtin) label = BUILTIN_EXIT_NAMES[builtin];
+      let searched = `${label} ${node ? `${nodeOrigin(node)} ${node.protocol}` : member.id}`;
+      if (builtin) searched = label;
+      if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${groupTypeName(candidate.type, format)}`;
+      if (!matches(searched, query)) return [];
+      let unavailable = !node;
+      if (builtin) unavailable = (format === 'sing-box' && builtin === 'reject') || (format === 'loon' && group.type !== 'select');
+      if (member.kind === 'group') unavailable = !candidate?.enabled;
+      return [{
+        id, label, node, builtin, group: candidate, selected: selectedIDs.has(id), disabled: busy, unavailable,
+      }];
+    });
+  }, [busy, catalog, config.groups, format, group.members, group.type, query, selectedIDs, t]);
+  const matched = useMemo(() => matchedNodes(group, nodes)
+    .filter(node => matches(`${node.display_name} ${nodeOrigin(node)} ${node.protocol}`, query)), [group, nodes, query]);
+  const toggle = useCallback((id: string) => setSelected(current =>
+    current.includes(id) ? current.filter(value => value !== id) : [...current, id]), []);
 
   return (
     <section className='flex min-h-0 min-w-0 flex-1 flex-col' aria-label={t('channels.editGroup')}>
@@ -131,8 +144,9 @@ export function ChannelGroupEditor({
                 <ChannelRouteAdd
                   busy={busy}
                   exit={{ kind: 'group', id: group.id }}
+                  exitName={group.name || t('channels.groupName')}
                   format={format}
-                  onAdd={route => onRoutesChange([...config.routes, route])}
+                  onAdd={added => onRoutesChange([...config.routes, ...added])}
                   routes={config.routes}
                   ruleSets={ruleSets}
                 />
@@ -146,15 +160,14 @@ export function ChannelGroupEditor({
                     <ChannelNodeCards
                       format={format}
                       items={cards}
-                      onToggle={(id) => setSelected((current) =>
-                        current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
+                      onToggle={toggle}
                       onMove={(active, over) => {
                         const byKey = new Map(group.members.map(member => [memberKey(member), member]));
                         const next = reorderVisibleNodes(order, cards.map((card) => card.id), active, over);
                         onChange({ ...group, members: next.map(key => byKey.get(key)!) });
                       }}
                     />
-                    <ChannelMatchedCards nodes={matched} />
+                    <ChannelMatchedCards format={format} nodes={matched} />
                   </fieldset>
                 </ScrollArea>
               )

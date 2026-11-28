@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/rehuony/sing-box-panel/internal/coreartifact"
+	"github.com/rehuony/sing-box-panel/internal/singbox"
 )
 
 func stableVersion(tag string) (coreartifact.ExactVersion, bool) {
@@ -23,6 +24,17 @@ func stableVersion(tag string) (coreartifact.ExactVersion, bool) {
 		return coreartifact.ExactVersion{}, false
 	}
 	return version, true
+}
+
+// supportedTag reports whether a tag, stable or not, names a version of a
+// supported release line: its version without a prerelease suffix has a line.
+func supportedTag(tag string) bool {
+	if len(tag) < 2 || tag[0] != 'v' {
+		return false
+	}
+	version, _, _ := strings.Cut(tag[1:], "-")
+	_, supported := singbox.LineOf(version)
+	return supported
 }
 
 func classifyAsset(version coreartifact.ExactVersion, name string) (coreartifact.Architecture, coreartifact.Variant, bool) {

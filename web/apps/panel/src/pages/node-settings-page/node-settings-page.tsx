@@ -185,19 +185,19 @@ function SettingsForm({ node, settings }: { node: FleetNode; settings: NodeSetti
         </SettingsField>
         <SettingsField {...row('quota')} help={t('node.settings.quotaHelp')} id='node-quota' label={t('node.settings.quota')}>
           <InputGroup>
-            <InputGroupInput aria-invalid={invalid === 'quota' || undefined} className='tabular-nums' id='node-quota' inputMode='numeric' min={0} onChange={event => update('quota', event.target.value)} placeholder={t('node.settings.unlimited')} type='number' value={draft.quota} />
+            <InputGroupInput aria-invalid={invalid === 'quota' || undefined} id='node-quota' inputMode='numeric' min={0} onChange={event => update('quota', event.target.value)} placeholder={t('node.settings.unlimited')} type='number' value={draft.quota} />
             <InputGroupAddon align='inline-end'>GiB</InputGroupAddon>
           </InputGroup>
         </SettingsField>
         <SettingsField {...row('months')} id='node-period' label={t('node.settings.period')}>
           <InputGroup>
-            <InputGroupInput aria-invalid={invalid === 'months' || undefined} className='tabular-nums' id='node-period' inputMode='numeric' max={120} min={1} onChange={event => update('months', event.target.value)} type='number' value={draft.months} />
+            <InputGroupInput aria-invalid={invalid === 'months' || undefined} id='node-period' inputMode='numeric' max={120} min={1} onChange={event => update('months', event.target.value)} type='number' value={draft.months} />
             <InputGroupAddon align='inline-end'>{t('node.settings.months')}</InputGroupAddon>
           </InputGroup>
         </SettingsField>
         <SettingsField {...row('resetDay')} help={t('node.settings.resetDayHelp')} id='node-reset-day' label={t('node.settings.resetDay')}>
           <InputGroup>
-            <InputGroupInput aria-invalid={invalid === 'resetDay' || undefined} className='tabular-nums' id='node-reset-day' inputMode='numeric' max={28} min={1} onChange={event => update('resetDay', event.target.value)} type='number' value={draft.resetDay} />
+            <InputGroupInput aria-invalid={invalid === 'resetDay' || undefined} id='node-reset-day' inputMode='numeric' max={28} min={1} onChange={event => update('resetDay', event.target.value)} type='number' value={draft.resetDay} />
             {/* Languages that name the day of the month with a unit show it; English needs none. */}
             {t('node.settings.day') ? <InputGroupAddon align='inline-end'>{t('node.settings.day')}</InputGroupAddon> : null}
           </InputGroup>

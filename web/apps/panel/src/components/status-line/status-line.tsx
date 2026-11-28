@@ -103,7 +103,8 @@ function windowsOf({ scope }: ShellScopeState): WindowEntry[] {
  */
 function CommandAction({ className, controls }: { className?: string; controls: string }) {
   const { t } = useTranslation();
-  const { open, setOpen } = useCommandSession();
+  const open = useCommandSession(state => state.open);
+  const setOpen = useCommandSession(state => state.setOpen);
   return (
     <Tooltip>
       <TooltipTrigger
@@ -150,7 +151,7 @@ function Scope({ shell }: { shell: ShellScopeState }) {
   if (scope.kind !== 'node') {
     return (
       <Link
-        className='inline-flex h-(--control-height-xs) flex-none items-center rounded-[var(--radius-control)] px-2 text-foreground outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring'
+        className='inline-flex h-(--control-height-xs) flex-none items-center rounded-[var(--radius-control)] px-2 text-foreground outline-none hover:bg-[var(--color-hover)] focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]'
         title={t('shell.scope.fleet')}
         to='/nodes'
       >
@@ -185,7 +186,7 @@ function Windows({ shell }: { shell: ShellScopeState }) {
       {windows.map(({ page, path, window }, index) => (
         <NavLink
           aria-label={t('shell.window', { name: t(windowNameKeys[window]), number: index + 1 })}
-          className='inline-flex h-(--control-height-xs) flex-none items-center gap-[1ch] rounded-[var(--radius-control)] px-2 whitespace-nowrap text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-accent aria-[current=page]:text-foreground'
+          className='inline-flex h-(--control-height-xs) flex-none items-center gap-[1ch] rounded-[var(--radius-control)] px-2 whitespace-nowrap text-muted-foreground outline-none hover:bg-[var(--color-hover)] hover:text-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--ring)] aria-[current=page]:bg-accent aria-[current=page]:text-foreground'
           end
           key={window}
           onFocus={() => preloadPage(page)}
@@ -215,7 +216,7 @@ function FleetReadout({ items }: { items: readonly NodeStatus[] }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Link aria-label={label} className='inline-flex h-(--control-height-xs) flex-none items-center gap-2 rounded-[var(--radius-control)] px-2 whitespace-nowrap tabular-nums outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring' to='/nodes' />}
+        render={<Link aria-label={label} className='inline-flex h-(--control-height-xs) flex-none items-center gap-2 rounded-[var(--radius-control)] px-2 whitespace-nowrap tabular-nums outline-none hover:bg-[var(--color-hover)] focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]' to='/nodes' />}
       >
         <span aria-hidden='true' className={cn('size-2 rounded-full', tone)} />
         <span aria-hidden='true'>{t('shell.readout.online', { online, total })}</span>
@@ -252,7 +253,7 @@ function PanelUpdateHint() {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Link aria-label={label} className={cn('inline-flex h-(--control-height-xs) flex-none items-center gap-1.5 rounded-[var(--radius-control)] px-2 whitespace-nowrap outline-none hover:bg-[var(--color-hover)] focus-visible:ring-2 focus-visible:ring-ring', tone)} to='/settings' />}
+        render={<Link aria-label={label} className={cn('inline-flex h-(--control-height-xs) flex-none items-center gap-1.5 rounded-[var(--radius-control)] px-2 whitespace-nowrap outline-none hover:bg-[var(--color-hover)] focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]', tone)} to='/settings' />}
       >
         {update.state === 'updating' || update.state === 'restarting' ? <Spinner className='size-3.5' /> : null}
         <span aria-hidden='true'>{text}</span>
@@ -279,12 +280,13 @@ function SignOutAction() {
 /** With panes selected on the home screen, the selection takes the scope's and windows' place. */
 function Selection({ compact = false, nodes }: { compact?: boolean; nodes: readonly NodeStatus[] }) {
   const { t } = useTranslation();
-  const { clearSelection, select, visible } = useFleetView();
+  const clearSelection = useFleetView(state => state.clearSelection);
+  const select = useFleetView(state => state.select);
   const count = nodes.length;
   return (
     <div aria-label={t('shell.selection.count', { count })} className='flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]' role='group'>
       <span className='flex-none px-2 whitespace-nowrap text-foreground tabular-nums'>{t('shell.selection.count', { count })}</span>
-      <Button className='font-[family-name:var(--font-body)]' onClick={() => select(visible)} size='xs' variant='ghost'>
+      <Button className='font-[family-name:var(--font-body)]' onClick={() => select(useFleetView.getState().visible)} size='xs' variant='ghost'>
         {t('shell.selection.selectAll')}
       </Button>
       <Button className='font-[family-name:var(--font-body)]' onClick={clearSelection} size='xs' variant='ghost'>
@@ -387,7 +389,7 @@ function PhoneBar({ commandId, shell }: { commandId: string; shell: ShellScopeSt
   const navigate = useNavigate();
   const windows = windowsOf(shell);
   const selection = useSelectedNodes(shell);
-  const item = 'flex h-full min-w-10 flex-1 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset';
+  const item = 'flex h-full min-w-10 flex-1 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground outline-none focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]';
   return (
     <div className='flex h-full min-w-0 flex-1 items-stretch'>
       {shell.scope.kind === 'node'

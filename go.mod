@@ -11,6 +11,7 @@ tool (
 )
 
 require (
+	filippo.io/age v1.3.2
 	github.com/alexedwards/argon2id v1.0.0
 	github.com/coder/websocket v1.8.15
 	github.com/getkin/kin-openapi v0.148.0
@@ -45,6 +46,7 @@ require (
 	cel.dev/expr v0.25.3 // indirect
 	connectrpc.com/connect/v2 v2.0.2 // indirect
 	connectrpc.com/otelconnect v0.11.0 // indirect
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bufbuild/buf v1.74.0 // indirect

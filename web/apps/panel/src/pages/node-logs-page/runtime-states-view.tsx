@@ -2,10 +2,10 @@ import type { ReactNode } from 'react';
 
 import { Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@shared/components/ui/button';
 import { useDeferredValue, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 
 import type { PanelLogRecord } from '@/components/panel-log';
 import type { NodeRuntimeTransition, RuntimeTransitionState } from '@/api/api-client';
@@ -16,17 +16,20 @@ import { RegionState } from '@/components/region-state';
 import { SelectField } from '@/components/select-field';
 import { LoadingState } from '@/components/loading-state';
 import { usePageVisible } from '@/hooks/use-page-visible';
+import { logTitle } from '@/utils/panel-log-presentation';
 import { ListPagination } from '@/components/list-pagination';
-import { formatLogTime, logTitle } from '@/utils/panel-log-presentation';
 import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
-import { matchingEventCodes, PanelLogDetails, RuntimeStateBadge } from '@/components/panel-log';
-
-const columns = [
-  { key: 'time', className: 'w-48' },
-  { key: 'state', className: 'w-25' },
-  { key: 'reason', className: '' },
-  { key: 'actions', className: 'w-30' },
-] as const;
+import {
+  logDataCell,
+  LogRow,
+  LogRowTitle,
+  LogTime,
+  logTimeColumnClass,
+  matchingEventCodes,
+  PanelLogDetails,
+  RuntimeStateBadge,
+  useLogRowFocus,
+} from '@/components/panel-log';
 
 const states = ['running', 'stopped', 'failed', 'unknown'] as const satisfies readonly RuntimeTransitionState[];
 
@@ -45,7 +48,7 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
   const [search, setSearch] = useState('');
   const query = useDeferredValue(search.trim());
   const [state, setState] = useState('');
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(50);
   const [page, setPage] = useState(1);
   const enabled = usePageVisible();
   const history = useQuery({
@@ -61,7 +64,13 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
   const loading = history.isPending || history.isPlaceholderData;
   const pages = Math.max(1, Math.ceil(result.total / limit));
   if (!history.isPlaceholderData && history.data && page > pages) setPage(pages);
-  function open(item: NodeRuntimeTransition, trigger: HTMLButtonElement) {
+  const rowFocus = useLogRowFocus(result.items.map(item => String(item.id)));
+  const columns = [
+    { key: 'time', className: logTimeColumnClass(result.items.map(item => item.occurred_at)) },
+    { key: 'state', className: 'w-25 max-sm:w-22' },
+    { key: 'reason', className: '' },
+  ] as const;
+  function open(item: NodeRuntimeTransition, trigger: HTMLButtonElement | null) {
     triggerRef.current = trigger;
     setSelected({ kind: 'state', transition: structuredClone(item) });
     setDetailsOpen(true);
@@ -98,34 +107,38 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
           />
         </CardToolbar>
         <ScrollArea aria-busy={loading} className='flex-1' viewportClassName='flex flex-col'>
-          <table className='workspace-table w-full min-w-195 flex-none table-fixed border-collapse [&_td]:px-4 [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground [&_td:last-child]:text-center [&_th:last-child]:text-center'>
-            <thead>
-              <tr>
+          <Table>
+            <TableHeader>
+              <TableRow>
                 {columns.map(column => (
-                  <th className={`sticky top-0 z-1 bg-[var(--color-surface-raised)] ${column.className}`} scope='col' key={column.key}>
+                  <TableHead className={column.className} key={column.key}>
                     {t(`productLogs.stateColumns.${column.key}`)}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody onKeyDown={rowFocus.onKeyDown}>
               {result.items.map((item) => {
                 const title = logTitle({ code: item.reason }, t);
                 return (
-                  <tr className='border-b' key={item.id}>
-                    <td className='truncate text-muted-foreground'><time dateTime={item.occurred_at}>{formatLogTime(item.occurred_at, language)}</time></td>
-                    <td><RuntimeStateBadge state={item.state} /></td>
-                    <td><div className='truncate' title={title}>{title}</div></td>
-                    <td>
-                      <Button variant='ghost' size='sm' aria-label={`${t('productLogs.details')}: ${title}`} onClick={event => open(item, event.currentTarget)}>
-                        {t('productLogs.details')}
-                      </Button>
-                    </td>
-                  </tr>
+                  <LogRow key={item.id} onOpen={trigger => open(item, trigger)}>
+                    <TableCell className={logDataCell}>
+                      <LogTime language={language} value={item.occurred_at} />
+                    </TableCell>
+                    <TableCell><RuntimeStateBadge state={item.state} /></TableCell>
+                    <TableCell>
+                      <LogRowTitle
+                        tabIndex={rowFocus.tabIndex(String(item.id))}
+                        title={title}
+                        onFocus={() => rowFocus.onFocus(String(item.id))}
+                        onOpen={trigger => open(item, trigger)}
+                      />
+                    </TableCell>
+                  </LogRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {!result.items.length && (loading
             ? <LoadingState label={t('productLogs.loading')} fullScreen={false} />
             : <RegionState icon={Activity} title={t('productLogs.empty')} />)}
@@ -147,7 +160,12 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onClosed={() => setSelected(null)}
-        returnFocus={() => triggerRef.current?.isConnected ? triggerRef.current : searchRef.current}
+        returnFocus={() => {
+          const trigger = triggerRef.current;
+          // Details a press opened leave focus out of the list.
+          if (trigger === null) return false;
+          return trigger.isConnected ? trigger : searchRef.current;
+        }}
       />
     </>
   );

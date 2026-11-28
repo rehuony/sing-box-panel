@@ -57,6 +57,36 @@ func TestDetectionIsBoundedAndCached(t *testing.T) {
 	}
 }
 
+func TestRefreshReplacesTheHintBeforeItExpires(t *testing.T) {
+	now := time.Now()
+	value, fail := "1.1.1.1", false
+	d := NewPublicIPDetector()
+	d.now = func() time.Time { return now }
+	d.client.Transport = transportFunc(func(*http.Request) (*http.Response, error) {
+		if fail {
+			return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(value)), Header: make(http.Header)}, nil
+	})
+	d.resolve(t.Context(), publicIPRefreshInterval)
+	// The last refresh before expiry fails: the hint stays until it expires.
+	now = now.Add(5*time.Minute - publicIPRefreshInterval/2)
+	fail = true
+	if got := d.resolve(t.Context(), publicIPRefreshInterval); got != "1.1.1.1" || d.Cached(t.Context()) != "1.1.1.1" {
+		t.Fatalf("a failed early refresh dropped the hint: %q", got)
+	}
+	// The retry succeeds before the hint expires, so Cached never runs dry.
+	fail, value = false, "8.8.8.8"
+	now = now.Add(publicIPRefreshInterval / 4)
+	if got := d.resolve(t.Context(), publicIPRefreshInterval); got != "8.8.8.8" {
+		t.Fatal(got)
+	}
+	now = now.Add(publicIPRefreshInterval)
+	if got := d.Cached(t.Context()); got != "8.8.8.8" {
+		t.Fatalf("hint expired between refreshes: %q", got)
+	}
+}
+
 func TestCachedDoesNotWaitForPublicNetwork(t *testing.T) {
 	d := NewPublicIPDetector()
 	entered, release := make(chan struct{}), make(chan struct{})

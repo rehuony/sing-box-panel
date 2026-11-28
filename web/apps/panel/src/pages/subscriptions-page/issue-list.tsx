@@ -37,7 +37,7 @@ function IssueRow({ item, showDetail }: { item: IssueItem; showDetail: boolean }
       {item.to
         ? (
             <Link
-              className={cn(row, 'group/issue outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset')}
+              className={cn(row, 'group/issue outline-none transition-colors duration-[var(--dur-micro)] ease-out hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)]')}
               to={item.to}
             >
               {body}
@@ -73,7 +73,7 @@ export function IssueList({ groups }: { groups: IssueGroup[] }) {
               aria-controls={panel}
               aria-expanded={expanded}
               className={cn(
-                'sticky top-0 z-1 grid h-10 w-full cursor-pointer grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 border-b ps-3 pe-3.5 text-left outline-none transition-colors duration-[var(--dur-micro)] ease-out focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset',
+                'sticky top-0 z-1 grid h-10 w-full cursor-pointer grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 border-b ps-3 pe-3.5 text-left outline-none transition-colors duration-[var(--dur-micro)] ease-out focus-visible:bg-[var(--color-hover)]',
                 band,
                 // An open group's last row meets the next heading, which then draws the hairline between them.
                 index > 0 && open === groups[index - 1]!.key && 'border-t',

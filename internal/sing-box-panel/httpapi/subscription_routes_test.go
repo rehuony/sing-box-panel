@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,64 @@ func TestSubscriptionManagementHTTPCRUDStrictnessAndCAS(t *testing.T) {
 
 	if _, err := app.Subscriptions.SubscriptionChannel(ctx, channel.ID); !errors.Is(err, store.ErrSubscriptionChannelNotFound) {
 		t.Fatalf("management delete did not persist through application: %v", err)
+	}
+}
+
+func TestSubscriptionRuleSetIconsAndOrderPerClient(t *testing.T) {
+	_, _, handler := newSubscriptionHTTPServices(t, "")
+	const base = "/api/v1/subscription/rule-sets"
+	create := func(body string) subscription.SubscriptionRuleSet {
+		t.Helper()
+		response := authenticatedRequest(t, handler, http.MethodPost, base, body, "")
+		var set subscription.SubscriptionRuleSet
+		if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &set) != nil {
+			t.Fatalf("create status=%d body=%s", response.Code, response.Body.String())
+		}
+		return set
+	}
+	zeta := create(`{"client":"mihomo","name":"Zeta","rules":[]}`)
+	alpha := create(`{"client":"mihomo","name":"Alpha","icon":"shield-ban","rules":[]}`)
+	other := create(`{"client":"sing-box","name":"Other","rules":[]}`)
+	if zeta.Icon != "layers" || alpha.Icon != "shield-ban" {
+		t.Fatalf("icons = %q, %q", zeta.Icon, alpha.Icon)
+	}
+	if bad := authenticatedRequest(t, handler, http.MethodPost, base, `{"client":"mihomo","name":"Bad","icon":"Not An Icon","rules":[]}`, ""); bad.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(bad.Body.String(), "icon: invalid_icon") {
+		t.Fatalf("invalid icon status=%d body=%s", bad.Code, bad.Body.String())
+	}
+	order := func() []string {
+		t.Helper()
+		var list subscription.SubscriptionRuleSetList
+		if response := authenticatedRequest(t, handler, http.MethodGet, base+"?client=mihomo", "", ""); json.Unmarshal(response.Body.Bytes(), &list) != nil {
+			t.Fatalf("list body=%s", response.Body.String())
+		}
+		ids := []string{}
+		for _, set := range list.Items {
+			ids = append(ids, set.ID)
+		}
+		return ids
+	}
+	// A new set joins the end of its client's order, not its place by name.
+	if got := order(); !slices.Equal(got, []string{zeta.ID, alpha.ID}) {
+		t.Fatalf("order after creating = %v", got)
+	}
+	saved := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/rule-set-order",
+		`{"client":"mihomo","ids":["`+alpha.ID+`","`+zeta.ID+`"]}`, "")
+	if saved.Code != http.StatusNoContent || !slices.Equal(order(), []string{alpha.ID, zeta.ID}) {
+		t.Fatalf("save order status=%d body=%s", saved.Code, saved.Body.String())
+	}
+	// An order that misses a set, or names another client's, is stale.
+	for _, ids := range []string{`["` + alpha.ID + `"]`, `["` + alpha.ID + `","` + other.ID + `"]`} {
+		stale := authenticatedRequest(t, handler, http.MethodPut, "/api/v1/subscription/rule-set-order", `{"client":"mihomo","ids":`+ids+`}`, "")
+		if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), "subscription_rule_sets_changed") {
+			t.Fatalf("stale order %s status=%d body=%s", ids, stale.Code, stale.Body.String())
+		}
+	}
+	// An update without an icon keeps it.
+	updated := authenticatedRequest(t, handler, http.MethodPut, base+"/"+alpha.ID, `{"name":"Alpha","rules":[]}`, `"`+alpha.UpdatedAt.Format(time.RFC3339Nano)+`"`)
+	var kept subscription.SubscriptionRuleSet
+	if updated.Code != http.StatusOK || json.Unmarshal(updated.Body.Bytes(), &kept) != nil || kept.Icon != "shield-ban" {
+		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
 	}
 }
 

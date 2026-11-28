@@ -10,10 +10,6 @@ Security fixes are provided for the latest published stable release only.
 | Earlier releases | No |
 | Unreleased `main` branch | Reports are welcome, but no support guarantee applies |
 
-Until the first stable release is published, there is no supported release.
-Reports against the development branch are still welcome so vulnerabilities
-can be addressed before publication.
-
 ## Reporting a Vulnerability
 
 Report vulnerabilities through [GitHub private vulnerability
@@ -22,8 +18,8 @@ reporting](https://github.com/rehuony/sing-box-panel/security/advisories/new).
 Do not open a public issue, pull request, or discussion containing vulnerability
 details. Include the affected version or commit, deployment and exposure
 conditions, reproduction steps, expected impact, and any relevant sanitized
-logs. Remove management tokens, subscription tokens, configuration secrets,
-private paths, personal data, and signing material.
+logs. Remove passwords, session cookies, enrollment codes, subscription tokens,
+configuration secrets, private paths, personal data, and signing material.
 
 The maintainer will acknowledge a private report within seven calendar days and
 begin validating its reachability and impact. Remediation and disclosure
@@ -37,17 +33,25 @@ investigate and release a fix before public disclosure.
 
 ## System and Scope
 
-sing-box-panel is a local-first Linux management service and CLI with an
-embedded Web application. It manages configuration history, sing-box artifacts,
-runtime lifecycle, public subscription output, persistent state, systemd
-integration, installation, and authenticated self-update.
+sing-box-panel is a Linux management system of two services. The panel is a
+management service and CLI with an embedded Web application. It manages each
+node's configuration history, the sing-box artifacts and node release it
+distributes, public subscription output, and its own persistent state. Each
+node is a service and CLI on a proxy host: it opens a WebSocket session to its
+panel, runs one sing-box core, carries out the panel's commands, and serves a
+password-protected console. Both services integrate with systemd, are
+installed by one installer, and update themselves from signed releases.
+[Identity and trust](../docs/panel-node-architecture.md#identity-and-trust)
+describes the boundary between them.
 
-Security review covers the Go backend and CLI, Web application, OpenAPI
-boundary, persistence and runtime management, installer and systemd paths,
-release build and signing workflow, version-scoped Schema support, and
-subscription rendering.
+Security review covers both services' Go backends and CLIs, both Web
+applications, the OpenAPI boundaries, the panel–node protocol and enrollment,
+persistence and runtime management, installer and systemd paths, release
+build and signing workflow, version-scoped Schema support, and subscription
+rendering.
 
-Important attacker-controlled inputs include HTTP requests, browser uploads,
+Important attacker-controlled inputs include HTTP requests to the panel and
+the node console, browser uploads, panel–node messages, enrollment codes,
 subscription source responses, GitHub release metadata and assets, imported
 archives and binaries, configuration documents, public subscription tokens,
 filesystem state, and subprocess output.
@@ -56,12 +60,12 @@ filesystem state, and subprocess output.
 
 The following properties must hold:
 
-- Management reads and mutations require the documented authentication
-  boundary; cookie-authenticated mutations also require CSRF and origin checks.
-- Management tokens, subscription plaintext tokens, configuration secrets,
-  signing keys, and secret-bearing diagnostics must not be exposed through
-  logs, API responses, generated artifacts, command arguments, or repository
-  content.
+- Management reads and mutations on the panel and the node console require the
+  documented authentication boundary; cookie-authenticated mutations also
+  require CSRF and origin checks.
+- Subscription plaintext tokens, configuration secrets, signing keys, and
+  secret-bearing diagnostics must not be exposed through logs, API responses,
+  generated artifacts, command arguments, or repository content.
 - Network fetches, redirects, uploads, archives, JSON documents, command output,
   and decompressed content remain bounded and fail closed on malformed or
   ambiguous input.
@@ -74,6 +78,10 @@ The following properties must hold:
   path traversal, non-regular targets, and partial updates.
 - Runtime and systemd operations must not cross the selected user or system
   privilege boundary or silently broaden service privileges.
+- A node accepts no connection from its panel and validates every command
+  itself. The panel sends a node only that node's configuration, artifacts,
+  and grants, and a compromised node cannot impersonate another node or read
+  panel data.
 - Concurrent configuration, artifact, and activation changes must not bypass
   revision, digest, or immutable-evidence checks.
 - Public subscription access remains default-deny and cannot expose nodes,

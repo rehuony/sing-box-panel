@@ -18,8 +18,10 @@ import type { PendingEnrollment } from '@/stores/enrollment-dialog.store';
 import { queries } from '@/api/queries';
 import { nodePath } from '@/utils/node-path';
 import { messageLine } from '@/utils/message-line';
+import { StripAction } from '@/components/title-strip';
 import { useApiClient } from '@/api/api-client-context';
 import { describeRequestError } from '@/components/error-notice';
+import { HeightTransition } from '@/components/height-transition';
 import { useEnrollmentDialog } from '@/stores/enrollment-dialog.store';
 import { useFleetStreamState } from '@/components/app-shell/use-fleet-stream';
 
@@ -200,64 +202,67 @@ export function EnrollmentDialog() {
       }}
       open={open}
     >
-      <DialogContent>
+      {/* Its top stays where its tallest step centres it, so a step's change grows or shrinks it below. */}
+      <DialogContent className='top-[max(1rem,calc(50dvh-8.5rem))] translate-y-0'>
         <form className='flex min-w-0 flex-col gap-5' noValidate onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
-          {naming
-            ? (
-                <DialogFields>
-                  <label htmlFor={nameId}>{t('fleet.add.name')}</label>
-                  <Input
-                    aria-describedby={messageId}
-                    aria-invalid={missing || issue.error ? true : undefined}
-                    autoComplete='off'
-                    id={nameId}
-                    maxLength={64}
-                    onChange={(event) => {
-                      setName(event.target.value);
-                      setMissing(false);
-                      if (issue.error) issue.reset();
-                    }}
-                    placeholder='edge-tokyo'
-                    spellCheck={false}
-                    value={name}
-                  />
-                </DialogFields>
-              )
-            : (
+          <HeightTransition>
+            {naming
+              ? (
+                  <DialogFields>
+                    <label htmlFor={nameId}>{t('fleet.add.name')}</label>
+                    <Input
+                      aria-describedby={messageId}
+                      aria-invalid={missing || issue.error ? true : undefined}
+                      autoComplete='off'
+                      id={nameId}
+                      maxLength={64}
+                      onChange={(event) => {
+                        setName(event.target.value);
+                        setMissing(false);
+                        if (issue.error) issue.reset();
+                      }}
+                      placeholder='edge-tokyo'
+                      spellCheck={false}
+                      value={name}
+                    />
+                  </DialogFields>
+                )
+              : (
                 // Both later states share one cell, so the dialog keeps its height when the node arrives.
-                <div className='grid rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] *:col-start-1 *:row-start-1'>
-                  <div aria-hidden={enrolled ? true : undefined} className={cn('flex min-w-0 flex-col gap-2 p-3', enrolled && 'invisible')} inert={enrolled ? true : undefined}>
-                    <div className='flex min-w-0 items-center justify-between gap-2'>
-                      <span className='text-xs text-muted-foreground'>{t('enrollment.runOnHost')}</span>
-                      <span className='-my-1 -me-1 flex flex-none items-center gap-0.5'>
-                        <CopyAction copied={t('enrollment.copiedCommand')} label={t('enrollment.copyCommand')} ref={copyRef} value={current.enrollment.command} />
-                        <CopyAction copied={t('enrollment.copiedCode')} label={t('enrollment.copyCode')} value={current.enrollment.code} />
-                      </span>
+                  <div className='grid rounded-[var(--radius-card)] border bg-[var(--color-surface-raised)] *:col-start-1 *:row-start-1'>
+                    <div aria-hidden={enrolled ? true : undefined} className={cn('flex min-w-0 flex-col gap-2 p-3', enrolled && 'invisible')} inert={enrolled ? true : undefined}>
+                      <div className='flex min-w-0 items-center justify-between gap-2'>
+                        <span className='text-xs text-muted-foreground'>{t('enrollment.runOnHost')}</span>
+                        <span className='-my-1 -me-1 flex flex-none items-center gap-0.5'>
+                          <CopyAction copied={t('enrollment.copiedCommand')} label={t('enrollment.copyCommand')} ref={copyRef} value={current.enrollment.command} />
+                          <CopyAction copied={t('enrollment.copiedCode')} label={t('enrollment.copyCode')} value={current.enrollment.code} />
+                        </span>
+                      </div>
+                      <p className='font-[family-name:var(--font-data)] text-compact break-all select-text'>
+                        <span aria-hidden='true' className='text-primary select-none'>$ </span>
+                        {current.enrollment.command}
+                      </p>
                     </div>
-                    <p className='font-[family-name:var(--font-data)] text-compact break-all select-text'>
-                      <span aria-hidden='true' className='text-primary select-none'>$ </span>
-                      {current.enrollment.command}
-                    </p>
-                  </div>
-                  {enrolled
-                    ? (
-                        <div className='flex min-w-0 flex-col gap-2 p-3'>
-                          <div className='flex min-w-0 items-center gap-2'>
-                            <span aria-hidden='true' className={cn('size-2 flex-none rounded-full', enrolled.state === 'online' ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]')} />
-                            <span className='truncate text-sm font-medium'>{enrolled.name}</span>
+                    {enrolled
+                      ? (
+                          <div className='flex min-w-0 flex-col gap-2 p-3'>
+                            <div className='flex min-w-0 items-center gap-2'>
+                              <span aria-hidden='true' className={cn('size-2 flex-none rounded-full', enrolled.state === 'online' ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]')} />
+                              <span className='truncate text-sm font-medium'>{enrolled.name}</span>
+                            </div>
+                            <dl className='grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-compact'>
+                              {host ? <Reading label={t('enrollment.host')} value={host} /> : null}
+                              {system ? <Reading label={t('enrollment.system')} value={system} /> : null}
+                            </dl>
                           </div>
-                          <dl className='grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-compact'>
-                            {host ? <Reading label={t('enrollment.host')} value={host} /> : null}
-                            {system ? <Reading label={t('enrollment.system')} value={system} /> : null}
-                          </dl>
-                        </div>
-                      )
-                    : null}
-                </div>
-              )}
+                        )
+                      : null}
+                  </div>
+                )}
+          </HeightTransition>
           <DialogFooter className='flex-nowrap justify-between'>
             <p className='flex min-h-5 min-w-0 flex-1 items-center gap-2 text-compact' id={messageId} role='status'>
               {message
@@ -340,15 +345,11 @@ export function EnrollmentDialog() {
 export function AddNodeAction({ strip = false }: { strip?: boolean }) {
   const { t } = useTranslation();
   const add = useEnrollmentDialog(state => state.add);
+  if (strip) return <StripAction icon={<Plus aria-hidden='true' data-icon='inline-start' />} label={t('fleet.add.action')} onClick={add} />;
   return (
-    <Button
-      className={strip ? 'max-sm:w-(--control-height-sm) max-sm:px-0' : undefined}
-      onClick={add}
-      size={strip ? 'sm' : 'default'}
-      variant={strip ? 'flat' : 'default'}
-    >
+    <Button onClick={add} type='button'>
       <Plus aria-hidden='true' data-icon='inline-start' />
-      <span className={strip ? 'max-sm:sr-only' : undefined}>{t('fleet.add.action')}</span>
+      {t('fleet.add.action')}
     </Button>
   );
 }

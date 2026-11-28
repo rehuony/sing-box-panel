@@ -109,7 +109,7 @@ const RuleLine = memo(({ active, changed, flashing, onEdit, onFocusLine, onRemov
     >
       <button
         aria-description={t('subscriptions.ruleSets.editRule')}
-        className='col-span-3 grid h-full cursor-pointer grid-cols-subgrid items-center text-start outline-none focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset'
+        className='col-span-3 grid h-full cursor-pointer grid-cols-subgrid items-center text-start outline-none focus-visible:bg-[var(--color-hover)]'
         data-rule-button=''
         onClick={() => onEdit(row.key)}
         onFocus={() => onFocusLine(row.key)}

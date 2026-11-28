@@ -7,6 +7,7 @@ import type { CanonicalDraft } from '@/pages/configuration-page/use-canonical-co
 import type { ConfigurationSchemaResolution } from '@/pages/configuration-page/use-configuration-schema';
 
 import '@/i18n';
+import { keyboardReorder } from '@/tests/keyboard-reorder';
 import { configurationSchemas } from '@/tests/fixtures/configuration-schemas';
 import { ManagedCollectionsEditor } from '@/pages/configuration-page/managed-collections-editor';
 import { encodeCanonicalDraft, parseCanonicalDraft } from '@/pages/configuration-page/use-canonical-configuration';
@@ -286,11 +287,10 @@ describe('managedCollectionsEditor', () => {
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Create' }));
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     const entryRow = within(table).getAllByRole('row')[1];
+    // The row drags by its grip; no action moves it.
     expect(within(entryRow).getAllByRole('button').map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual([
-      'Edit', expect.stringMatching(/^Move .+ up$/), expect.stringMatching(/^Move .+ down$/), 'Delete',
+      expect.stringMatching(/^Reorder .+$/), 'Edit', 'Delete',
     ]);
-    expect(within(table).getByRole('button', { name: /Move .+ up/ })).toBeDisabled();
-    expect(within(table).getByRole('button', { name: /Move .+ down/ })).toBeDisabled();
   });
 
   it('moves whole records by keyboard and edits and deletes the reordered entry', async () => {
@@ -300,17 +300,13 @@ describe('managedCollectionsEditor', () => {
         '{"inbounds":[{"type":"mixed","tag":"first","listen_port":2080,"future":900719925474099312345},{"type":"socks","tag":"second","listen_port":3080}]}',
       )} />,
     );
-    expect(screen.getByRole('button', { name: 'Move first up' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move second down' })).toBeDisabled();
-    screen.getByRole('button', { name: 'Move first down' }).focus();
-    await user.keyboard(' ');
     const table = screen.getByRole('table');
+    await keyboardReorder(screen.getByRole('button', { name: 'Reorder first' }), { position: 2, row: 'tr', steps: 1 });
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent('second');
-    expect(screen.getByRole('button', { name: 'Move first down' })).toBeDisabled();
     expect(screen.getByLabelText('Canonical draft')).toHaveTextContent('"future":900719925474099312345');
-    await user.click(screen.getByRole('button', { name: 'Move first up' }));
+    await keyboardReorder(screen.getByRole('button', { name: 'Reorder first' }), { position: 1, row: 'tr', steps: -1 });
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent('first');
-    await user.click(screen.getByRole('button', { name: 'Move first down' }));
+    await keyboardReorder(screen.getByRole('button', { name: 'Reorder first' }), { position: 2, row: 'tr', steps: 1 });
     const movedRow = within(table).getAllByRole('row')[2];
     await user.click(within(movedRow).getByRole('button', { name: 'Edit' }));
     const dialog = screen.getByRole('dialog');
@@ -350,7 +346,8 @@ describe('managedCollectionsEditor', () => {
   ] as const)('shows only the $collection address as $expected', ({ collection, value, expected }) => {
     render(<Harness selectedCollection={collection} initial={parseCanonicalDraft(JSON.stringify({ [collection]: [{ tag: 'node', ...value }] }))} />);
     const row = within(screen.getByRole('table')).getAllByRole('row')[1];
-    expect(within(row).getAllByRole('cell')[2].textContent).toBe(expected);
+    // After the grip, the tag and the type.
+    expect(within(row).getAllByRole('cell')[3].textContent).toBe(expected);
   });
 
   it('copies the current unsaved entry JSON without changing large numeric values', async () => {

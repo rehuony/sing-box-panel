@@ -66,10 +66,20 @@ interface Glyph {
   /** Where it was placed; home again whenever the anchor leaves it clear. */
   originX: number;
   originY: number;
+  /** The typing step the field last drew it at, so calm typing redraws it only when the step moves. */
+  painted: number;
   depth: FieldDepth;
   visibility: number;
   /** When it began typing its current text, or null once typed. */
   typing: number | null;
+}
+
+/** A region of the field in CSS pixels. */
+interface Box {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
 }
 
 interface Palette {
@@ -138,11 +148,17 @@ const VISIBILITY_RATE = 4;
 const WORD_SHARE = 0.5;
 const WORD_BURST = 24;
 const WORD_BURST_GAP_MS = 60;
-// Background life: now and then one glyph types a new text, a cursor at its end.
+// Background life: now and then one glyph types a new text, a cursor at its end,
+// glowing in the accent as it starts and fading as it types.
 const REWRITE_MS = { calm: 1100, interactive: 420 } as const;
 const TYPE_MS = 32;
 const CURSOR_LINGER_MS = 360;
+const REWRITE_HEAT = 0.5;
+/** Typing steps the glow of a rewritten glyph lasts. */
+const GLOW_STEPS = Math.ceil(REWRITE_HEAT / HEAT_DECAY * 1000 / TYPE_MS);
 const BUSY_MS = 160;
+/** Room a glyph's box keeps beyond its ink, so a redrawn box leaves no trace of it. */
+const BOX_PAD = 2;
 
 function readPalette(): Palette {
   const root = document.documentElement;
@@ -153,6 +169,49 @@ function readPalette(): Palette {
     dark: root.classList.contains('dark') || root.dataset.resolvedTheme === 'dark',
     family: read('--font-data') || 'monospace',
     tones: { accent: read('--primary'), danger: read('--color-danger'), success: read('--color-success') },
+  };
+}
+
+/**
+ * Whether two palettes paint alike; the root's style also changes for what
+ * the field does not paint, such as the scroll lock of a menu or dialog.
+ */
+function samePalette(first: Palette, second: Palette): boolean {
+  return first.base === second.base && first.dark === second.dark && first.family === second.family
+    && (Object.keys(first.tones) as Tone[]).every(tone => first.tones[tone] === second.tones[tone]);
+}
+
+/** How many typing steps a glyph has taken: one character each. */
+function typingStep(typing: number, now: number): number {
+  return Math.max(0, Math.floor((now - typing) / TYPE_MS));
+}
+
+/** The steps after which a typing glyph looks the same until its cursor goes: all typed and no longer glowing. */
+function lastTypingStep(glyph: Glyph): number {
+  return Math.max(glyph.text.length, GLOW_STEPS);
+}
+
+/** When a glyph that began typing at typing has its cursor go. */
+function typingEnd(glyph: Glyph, typing: number): number {
+  return typing + glyph.text.length * TYPE_MS + CURSOR_LINGER_MS;
+}
+
+/** A rewritten glyph's glow at a typing step, fading as it types. */
+function rewriteHeat(step: number): number {
+  return Math.max(0, REWRITE_HEAT - HEAT_DECAY * step * TYPE_MS / 1000);
+}
+
+function overlaps(first: Box, second: Box): boolean {
+  return first.left < second.right && first.right > second.left
+    && first.top < second.bottom && first.bottom > second.top;
+}
+
+function union(first: Box, second: Box): Box {
+  return {
+    bottom: Math.max(first.bottom, second.bottom),
+    left: Math.min(first.left, second.left),
+    right: Math.max(first.right, second.right),
+    top: Math.min(first.top, second.top),
   };
 }
 
@@ -206,8 +265,9 @@ interface Engine {
  * stream them toward the password, and the outcome sends a wave or a shock
  * through them. Behind a signed-in view it is calm: fainter, still under the
  * pointer, pulsing once per refresh and rewriting itself with the product's
- * own values. Glyphs the anchor covers move to its edge or fade. Under reduced
- * motion it is a still field that only changes colour.
+ * own values, drawing only what its typing changes. Glyphs the anchor covers
+ * move to its edge or fade. Under reduced motion it is a still field that
+ * only changes colour.
  */
 export function GlyphField({
   anchor = null, busy = false, calmOpacity = CALM_ALPHA, mode, ref, top = 0, words,
@@ -263,34 +323,55 @@ export function GlyphField({
       return fieldToken(depth);
     }
 
-    function draw(now = performance.now()) {
-      context!.setTransform(ratio, 0, 0, ratio, 0, 0);
-      context!.clearRect(0, 0, width, height);
+    /** How far a push leans a glyph beyond its tilt at rest. */
+    function lean(glyph: Glyph) {
+      if (reducedMotion) return 0;
+      return Math.max(-MAXIMUM_PUSH_TILT, Math.min(MAXIMUM_PUSH_TILT, (glyph.x - glyph.homeX) * TILT_PER_PIXEL));
+    }
+
+    /** The box a glyph's ink and cursor cover at its tilt and lean. */
+    function boxOf(glyph: Glyph): Box {
+      const size = LAYERS[glyph.depth].size;
+      // Its cursor may follow the whole text; text and cursor stay within three quarters of the size from its middle.
+      const halfWidth = glyph.width / 2 + size / 2 + BOX_PAD;
+      const halfHeight = size * 0.75 + BOX_PAD;
+      const angle = glyph.angle + lean(glyph);
+      const cos = Math.abs(Math.cos(angle));
+      const sin = Math.abs(Math.sin(angle));
+      const x = halfWidth * cos + halfHeight * sin;
+      const y = halfWidth * sin + halfHeight * cos;
+      return { bottom: glyph.y + y, left: glyph.x - x, right: glyph.x + x, top: glyph.y - y };
+    }
+
+    /** Draws the glyphs within region, or every glyph, far layers first. */
+    function paint(now: number, region?: Box) {
       context!.textBaseline = 'middle';
       context!.textAlign = 'left';
       let depth = -1;
       for (const glyph of glyphs) {
-        if (glyph.visibility < 0.01) continue;
+        if (glyph.visibility < 0.01 || (region && !overlaps(boxOf(glyph), region))) continue;
         if (glyph.depth !== depth) {
           depth = glyph.depth;
           context!.font = layerFont(palette, glyph.depth);
         }
         const layer = LAYERS[glyph.depth];
         const base = palette.dark ? layer.alpha.dark : layer.alpha.light;
-        const hot = glyph.heat > 0.02;
-        const alpha = hot ? Math.min(1, base + glyph.heat * 0.8) : base;
+        const step = glyph.typing === null ? null : typingStep(glyph.typing, now);
+        const glow = step === null ? 0 : rewriteHeat(step);
+        const heat = Math.max(glyph.heat, glow);
+        const hot = heat > 0.02;
+        const alpha = hot ? Math.min(1, base + heat * 0.8) : base;
         context!.globalAlpha = alpha * fieldAlpha * glyph.visibility;
-        context!.fillStyle = hot ? palette.tones[glyph.tone] : palette.base;
-        const shift = (glyph.x - glyph.homeX) * TILT_PER_PIXEL;
-        const lean = reducedMotion ? 0 : Math.max(-MAXIMUM_PUSH_TILT, Math.min(MAXIMUM_PUSH_TILT, shift));
-        const cos = Math.cos(glyph.angle + lean);
-        const sin = Math.sin(glyph.angle + lean);
+        context!.fillStyle = hot ? palette.tones[glow > glyph.heat ? 'accent' : glyph.tone] : palette.base;
+        const angle = glyph.angle + lean(glyph);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
         context!.setTransform(ratio * cos, ratio * sin, -ratio * sin, ratio * cos, ratio * glyph.x, ratio * glyph.y);
         const left = -glyph.width / 2;
-        if (glyph.typing === null) {
+        if (step === null) {
           context!.fillText(glyph.text, left, 0);
         } else {
-          const shown = glyph.text.slice(0, Math.max(0, Math.floor((now - glyph.typing) / TYPE_MS)));
+          const shown = glyph.text.slice(0, step);
           context!.fillText(shown, left, 0);
           const size = layer.size;
           context!.fillRect(left + context!.measureText(shown).width + 1, -size * 0.45, size * 0.5, size * 0.9);
@@ -298,6 +379,28 @@ export function GlyphField({
       }
       context!.setTransform(ratio, 0, 0, ratio, 0, 0);
       context!.globalAlpha = 1;
+    }
+
+    function draw(now = performance.now()) {
+      context!.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context!.clearRect(0, 0, width, height);
+      paint(now);
+    }
+
+    /** Draws one region again, on whole device pixels so its edges leave no seam. */
+    function redraw(region: Box, now = performance.now()) {
+      const left = Math.floor(region.left * ratio) / ratio;
+      const top = Math.floor(region.top * ratio) / ratio;
+      const right = Math.ceil(region.right * ratio) / ratio;
+      const bottom = Math.ceil(region.bottom * ratio) / ratio;
+      context!.save();
+      context!.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context!.beginPath();
+      context!.rect(left, top, right - left, bottom - top);
+      context!.clip();
+      context!.clearRect(left, top, right - left, bottom - top);
+      paint(now, { bottom, left, right, top });
+      context!.restore();
     }
 
     function layout() {
@@ -332,7 +435,7 @@ export function GlyphField({
           if (best === null) continue;
           placed.push({
             ...shape, heat: 0, hidden: false, homeX: best.x, homeY: best.y, keep: Math.random() < KEEP_DISPLACED,
-            originX: best.x, originY: best.y, pull: 0, text, tone: 'accent', typing: null, visibility: 1,
+            originX: best.x, originY: best.y, painted: 0, pull: 0, text, tone: 'accent', typing: null, visibility: 1,
             vx: 0, vy: 0, x: best.x, y: best.y,
           });
         }
@@ -385,7 +488,15 @@ export function GlyphField({
       wake();
     }
 
-    /** Gives a glyph a new text that fits where it rests, typed out from start. */
+    function calm() {
+      return settingsRef.current.mode === 'calm';
+    }
+
+    /**
+     * Gives a glyph a new text that fits where it rests, typed out from start.
+     * In calm mode it erases the old text and draws the new one's first step
+     * at once; typeOn draws the rest.
+     */
     function rewrite(glyph: Glyph, start: number) {
       const rect = anchorRect();
       context!.font = layerFont(palette, glyph.depth);
@@ -394,12 +505,49 @@ export function GlyphField({
         const shape = { angle: glyph.angle, depth: glyph.depth, width: context!.measureText(text).width };
         const extent = extents(shape);
         if (outside(glyph.homeX, glyph.homeY, extent) || covers(rect, glyph.homeX, glyph.homeY, extent)) continue;
+        const before = boxOf(glyph);
         glyph.text = text;
         glyph.width = shape.width;
         glyph.typing = start;
-        warm(glyph, 0.5, 'accent');
+        glyph.painted = 0;
+        if (calm()) redraw(union(before, boxOf(glyph)));
         return;
       }
+    }
+
+    let typingTimer = 0;
+
+    /**
+     * Calm mode types without the frame loop: each typing glyph's box is drawn
+     * again when its step moves, one character at a time, and once more when
+     * its cursor goes, so an idle field draws a few small boxes a second
+     * rather than the whole window every frame.
+     */
+    function typeOn() {
+      window.clearTimeout(typingTimer);
+      typingTimer = 0;
+      if (!calm() || document.hidden) return;
+      const now = performance.now();
+      let due = Number.POSITIVE_INFINITY;
+      for (const glyph of glyphs) {
+        const typing = glyph.typing;
+        if (typing === null) continue;
+        const end = typingEnd(glyph, typing);
+        if (now >= end) {
+          glyph.typing = null;
+          redraw(boxOf(glyph), now);
+          continue;
+        }
+        const last = lastTypingStep(glyph);
+        const step = Math.min(typingStep(typing, now), last);
+        if (step !== glyph.painted) {
+          glyph.painted = step;
+          redraw(boxOf(glyph), now);
+        }
+        // The next step, until it would look the same, then the cursor's end.
+        due = Math.min(due, step < last ? typing + (step + 1) * TYPE_MS : end);
+      }
+      if (due !== Number.POSITIVE_INFINITY) typingTimer = window.setTimeout(typeOn, Math.max(0, due - now));
     }
 
     function step(now: number) {
@@ -408,9 +556,11 @@ export function GlyphField({
       lastStep = now;
       const target = center();
       const front = wave ? (now - wave.start) / 1000 * WAVE_SPEED : 0;
-      const alphaTarget = settingsRef.current.mode === 'calm' ? settingsRef.current.calmOpacity : 1;
+      const alphaTarget = calm() ? settingsRef.current.calmOpacity : 1;
       fieldAlpha = approach(fieldAlpha, alphaTarget, ALPHA_RATE * seconds);
       let active = fieldAlpha !== alphaTarget;
+      // Calm typing draws itself; only interactive typing keeps the frames coming.
+      const typingActive = !calm();
       for (const glyph of glyphs) {
         const push = LAYERS[glyph.depth].push;
         if (reducedMotion) {
@@ -448,11 +598,9 @@ export function GlyphField({
         if (wave && Math.abs(front - Math.hypot(glyph.homeX - target.x, glyph.homeY - target.y)) < WAVE_BAND) {
           warm(glyph, wave.heat, wave.tone);
         }
-        if (glyph.typing !== null && now - glyph.typing > glyph.text.length * TYPE_MS + CURSOR_LINGER_MS) {
-          glyph.typing = null;
-        }
+        if (glyph.typing !== null && now >= typingEnd(glyph, glyph.typing)) glyph.typing = null;
         glyph.heat = Math.max(0, glyph.heat - HEAT_DECAY * seconds);
-        const settled = glyph.heat <= 0.01 && glyph.pull <= 0 && glyph.typing === null
+        const settled = glyph.heat <= 0.01 && glyph.pull <= 0 && (glyph.typing === null || !typingActive)
           && glyph.visibility === (glyph.hidden ? 0 : 1)
           && Math.abs(glyph.vx) + Math.abs(glyph.vy) <= 2
           && Math.abs(glyph.x - glyph.homeX) + Math.abs(glyph.y - glyph.homeY) <= 0.5;
@@ -467,6 +615,12 @@ export function GlyphField({
       if (frame !== 0 || document.hidden) return;
       lastStep = performance.now();
       frame = requestAnimationFrame(step);
+    }
+
+    /** Calm typing draws its own boxes; interactive typing runs with the frame loop. */
+    function typeRewrites() {
+      if (calm()) typeOn();
+      else wake();
     }
 
     function visibleGlyphs() {
@@ -488,6 +642,7 @@ export function GlyphField({
       changeMode() {
         pointer = null;
         wake();
+        typeOn();
       },
       clearAnchor,
       relayout,
@@ -524,7 +679,7 @@ export function GlyphField({
           const glyph = candidates.splice(Math.floor(Math.random() * candidates.length), 1)[0]!;
           rewrite(glyph, now + index * WORD_BURST_GAP_MS);
         }
-        wake();
+        typeRewrites();
       },
     };
     engineRef.current = engine;
@@ -545,7 +700,9 @@ export function GlyphField({
       clearAnchor();
     }
     function changeTheme() {
-      palette = readPalette();
+      const next = readPalette();
+      if (samePalette(next, palette)) return;
+      palette = next;
       draw();
     }
     function changeVisibility() {
@@ -554,6 +711,7 @@ export function GlyphField({
         frame = 0;
       } else {
         wake();
+        typeOn();
       }
     }
     function relayout() {
@@ -572,7 +730,7 @@ export function GlyphField({
       rewriteDue = now + REWRITE_MS[settingsRef.current.mode];
       const shown = visibleGlyphs();
       if (shown.length > 0) rewrite(shown[Math.floor(Math.random() * shown.length)]!, now);
-      wake();
+      typeRewrites();
     }, REWRITE_MS.interactive);
     const stream = window.setInterval(() => {
       if (!settingsRef.current.busy || document.hidden) return;
@@ -589,6 +747,7 @@ export function GlyphField({
     motionQuery.addEventListener('change', changeMotion);
     return () => {
       cancelAnimationFrame(frame);
+      window.clearTimeout(typingTimer);
       window.clearInterval(rewriter);
       window.clearInterval(stream);
       themeObserver.disconnect();

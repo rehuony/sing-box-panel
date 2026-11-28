@@ -14,7 +14,7 @@ import (
 // protobuf package; the minor version grows with additive changes.
 const (
 	ProtocolMajor = 1
-	ProtocolMinor = 2
+	ProtocolMinor = 3
 )
 
 // MaximumCoreSchemaBytes bounds the schema a node sends in CoreSchemaOutcome.

@@ -17,6 +17,11 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/netguard"
 )
 
+// publicIPRefreshInterval is how often Run refreshes the hint, and how long
+// before the hint expires it replaces it, so Cached has no gap between
+// refreshes.
+const publicIPRefreshInterval = 30 * time.Second
+
 type PublicIPDetector struct {
 	mu       sync.Mutex
 	client   *http.Client
@@ -36,13 +41,19 @@ func NewPublicIPDetector() *PublicIPDetector {
 // Resolve coalesces simultaneous requests and negatively caches failures. No
 // credentials, panel URL, node information or user-supplied URL are sent.
 func (d *PublicIPDetector) Resolve(ctx context.Context) string {
+	return d.resolve(ctx, 0)
+}
+
+// resolve detects again once the hint expires within margin. A detection
+// that fails while the hint has not expired keeps it, to be retried later.
+func (d *PublicIPDetector) resolve(ctx context.Context, margin time.Duration) string {
 	for {
 		d.mu.Lock()
 		if ctx.Err() != nil {
 			d.mu.Unlock()
 			return ""
 		}
-		if d.now().Before(d.expires) {
+		if d.now().Add(margin).Before(d.expires) {
 			value := d.value
 			d.mu.Unlock()
 			return value
@@ -60,12 +71,15 @@ func (d *PublicIPDetector) Resolve(ctx context.Context) string {
 		d.mu.Unlock()
 		value := d.detect(ctx)
 		d.mu.Lock()
-		d.value = value
-		ttl := 30 * time.Second
-		if value != "" {
-			ttl = 5 * time.Minute
+		if value != "" || !d.now().Before(d.expires) {
+			d.value = value
+			ttl := 30 * time.Second
+			if value != "" {
+				ttl = 5 * time.Minute
+			}
+			d.expires = d.now().Add(ttl)
 		}
-		d.expires = d.now().Add(ttl)
+		value = d.value
 		close(d.inflight)
 		d.inflight = nil
 		d.mu.Unlock()
@@ -83,12 +97,13 @@ func (d *PublicIPDetector) Cached(context.Context) string {
 	return ""
 }
 
-// Run owns proactive refreshes for the server lifetime.
+// Run owns proactive refreshes for the server lifetime, replacing the hint
+// before it expires so a node never reports an empty one between refreshes.
 func (d *PublicIPDetector) Run(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(publicIPRefreshInterval)
 	defer ticker.Stop()
 	for {
-		d.Resolve(ctx)
+		d.resolve(ctx, publicIPRefreshInterval)
 		select {
 		case <-ctx.Done():
 			return

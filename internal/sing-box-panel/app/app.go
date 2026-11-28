@@ -11,6 +11,7 @@ import (
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/auth"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/backup"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/corecache"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/fleet"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/nodeconfig"
@@ -33,6 +34,7 @@ type Services struct {
 	Telemetry     *telemetry.Service
 	Fleet         *fleet.Service
 	Releases      *releases.Service
+	Backups       *backup.Service
 }
 
 // Options adjusts the composition.
@@ -52,7 +54,7 @@ type Options struct {
 // selected by configuration.
 func New(database *store.Store, configuration settings.Settings, options Options) Services {
 	panelSettings := settings.NewService(database, configuration.Path(), configuration)
-	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: fleet.ClassifyOperationFailure, Observe: options.Observe})
+	records := telemetry.New(database, panelSettings, telemetry.Options{Classify: classifyOperationFailure, Observe: options.Observe})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: configuration.DataDir, Downloader: options.Downloader})
 	// Configuration schemas of later lines come from the nodes' cores, which
 	// fleet reaches; fleet in turn checks configurations with configs.
@@ -67,7 +69,7 @@ func New(database *store.Store, configuration settings.Settings, options Options
 	panelReleases := releases.New(options.Build, configuration.DataDir, panelSettings, records, releaseOptions)
 	subscriptions := subscription.New(database, panelSettings, records, subscription.Options{})
 	nodes = fleet.New(database, panelSettings, records, configs, cores, fleet.Options{
-		Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.PoolInputsChanged,
+		Build: options.Build, Releases: panelReleases, PublicationChanged: subscriptions.RequestPoolSync,
 	})
 	return Services{
 		Sessions:      auth.NewSessions(database, panelSettings),
@@ -78,7 +80,24 @@ func New(database *store.Store, configuration settings.Settings, options Options
 		Telemetry:     records,
 		Fleet:         nodes,
 		Releases:      panelReleases,
+		Backups: backup.New(backup.Options{
+			DataDir: configuration.DataDir, SettingsPath: configuration.Path(), PanelVersion: options.Build.Version,
+			Document: panelSettings.SavedDocument, PanelID: database.CurrentPanelID,
+		}),
 	}
+}
+
+// classifyOperationFailure names the failures the panel log may describe:
+// node commands and updates, backups and restores, then catalog refreshes
+// and archive downloads.
+func classifyOperationFailure(err error) (string, string, bool) {
+	if code, message, ok := fleet.ClassifyOperationFailure(err); ok {
+		return code, message, true
+	}
+	if code, message, ok := backup.ClassifyOperationFailure(err); ok {
+		return code, message, true
+	}
+	return corecache.ClassifyOperationFailure(err)
 }
 
 // restartPanel queues a restart of the systemd unit that runs the panel.

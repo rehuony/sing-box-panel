@@ -6,7 +6,7 @@ import { testMetricsHistory } from '@/tests/api/mock-api-client';
 import { liveTrafficChartData, trendChartData } from '@/pages/node-overview-page/trend-chart-data';
 
 describe('live traffic evidence', () => {
-  it('keeps only the latest two minutes without averaging peaks or filling gaps', () => {
+  it('keeps the latest two minutes and the reading before them without averaging peaks or filling gaps', () => {
     const point = (at: number, downloadBytesPerSecond: number | null): LivePoint => ({
       at, downloadBytesPerSecond, uploadBytesPerSecond: downloadBytesPerSecond, connections: 2,
     });
@@ -16,9 +16,10 @@ describe('live traffic evidence', () => {
     ]);
     expect(chart.from).toBe(2000);
     expect(chart.to).toBe(122000);
+    // The reading before the window runs the line off its start without choosing the unit.
     expect(chart.unit).toBe('KB/s');
-    expect(chart.data[0]).toEqual([2000, 3000, 4000, 120999, 121000, 122000]);
-    expect(chart.data[1]).toEqual([1, 0.5, null, null, 0, 0.25]);
+    expect(chart.data[0]).toEqual([1000, 2000, 3000, 4000, 62500, 121000, 122000]);
+    expect(chart.data[1]).toEqual([1024 ** 2, 1, 0.5, null, null, 0, 0.25]);
   });
 
   it('connects a stream that samples every few seconds and breaks it only at a longer pause', () => {
@@ -26,7 +27,8 @@ describe('live traffic evidence', () => {
       at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2,
     });
     const chart = liveTrafficChartData([point(0), point(5000), point(10000), point(15000), point(60000), point(65000)]);
-    expect(chart.data[0]).toEqual([0, 5000, 10000, 15000, 59999, 60000, 65000]);
+    // The break sits midway, so the cursor at either side's reading shows it.
+    expect(chart.data[0]).toEqual([0, 5000, 10000, 15000, 37500, 60000, 65000]);
     expect(chart.data[1]).toEqual([1, 1, 1, 1, null, 1, 1]);
   });
 
@@ -38,19 +40,30 @@ describe('live traffic evidence', () => {
     const chart = liveTrafficChartData([
       point(0, 10_000), point(10_000, 10_000), point(20_000, 10_000), point(50_000, 10_000), ...stream,
     ]);
-    expect(chart.data[0].slice(0, 6)).toEqual([0, 10_000, 20_000, 49_999, 50_000, 51_000]);
+    expect(chart.data[0].slice(0, 6)).toEqual([0, 10_000, 20_000, 35_000, 50_000, 51_000]);
     expect(chart.data[1]).toEqual([1, 1, 1, null, 1, ...stream.map(() => 1)]);
   });
 
-  it('starts the live span at its oldest sample, at least ten seconds before the newest', () => {
+  it('joins the reading after a slower sampling to the one before it by the span its rates cover', () => {
+    const point = (at: number, span?: number): LivePoint => ({
+      at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2, ...(span ? { span } : {}),
+    });
+    // Seven seconds after the last ten-second reading, then every second.
+    const stream = Array.from({ length: 20 }, (_, index) => point(8000 + index * 1000, 1000));
+    const chart = liveTrafficChartData([point(0), point(7000, 7000), ...stream]);
+    expect(chart.data[1]).not.toContain(null);
+  });
+
+  it('spans exactly two minutes up to the newest sample, however few samples it holds', () => {
     const point = (at: number): LivePoint => ({
       at, downloadBytesPerSecond: 1024, uploadBytesPerSecond: 512, connections: 2,
     });
-    expect(liveTrafficChartData([point(50_000), point(55_000), point(80_000)]).from).toBe(50_000);
-    expect(liveTrafficChartData([point(50_000), point(55_000)]).from).toBe(45_000);
-    // Two minutes on, the oldest kept sample still starts the span.
+    const few = liveTrafficChartData([point(50_000), point(55_000), point(80_000)]);
+    expect(few).toMatchObject({ from: -40_000, to: 80_000 });
     const tail = Array.from({ length: 30 }, (_, index) => point(index * 5000 + 3000));
-    expect(liveTrafficChartData(tail).from).toBe(28_000);
+    const chart = liveTrafficChartData(tail);
+    expect(chart).toMatchObject({ from: 28_000, to: 148_000 });
+    expect(chart.data[0][0]).toBe(23_000);
   });
 
   it('does not mix live rates into historical traffic averages', () => {
@@ -89,7 +102,7 @@ describe('history and live chart continuity', () => {
   it('does not connect across a delayed live tail or fill missing historical buckets', () => {
     const chart = trendChartData(testMetricsHistory, 'connections', [point(end + 30_000)], testMetricsHistory.to);
     expect(chart.data[1]).toEqual([12.5, null, null, 15]);
-    expect(chart.data[0].at(-2)).toBe(end + 29_999);
+    expect(chart.data[0].at(-2)).toBe(end + 15_000);
   });
 
   it('preserves a reconnect or process-change null immediately after the watermark', () => {
@@ -122,7 +135,28 @@ describe('history and live chart continuity', () => {
 
   it('keeps only non-overlapping history without a persistence watermark', () => {
     const chart = trendChartData(history, 'connections', [point(end - 2000)], null);
-    expect(chart.data[0]).toEqual([Date.parse(history.buckets[0]!.to), end - 2001, end - 2000]);
+    const bucketEnd = Date.parse(history.buckets[0]!.to);
+    expect(chart.data[0]).toEqual([bucketEnd, (bucketEnd + end - 2000) / 2, end - 2000]);
+  });
+});
+
+describe('historical traffic rates', () => {
+  const [bucket] = testMetricsHistory.buckets;
+
+  it('divides bucket traffic by the time its intervals cover, not the whole bucket', () => {
+    const covered = { ...bucket!, download_bytes: 2500, upload_bytes: 500, traffic_seconds: 250 };
+    const history = { ...testMetricsHistory, buckets: [covered] };
+    expect(trendChartData(history, 'traffic', []).data.slice(1)).toEqual([[10], [2]]);
+  });
+
+  it('leaves out the newest bucket while it fills without a value', () => {
+    const filling = {
+      ...bucket!, from: testMetricsHistory.to, to: new Date(Date.parse(testMetricsHistory.to) + 20_000).toISOString(),
+      download_bytes: null, upload_bytes: null, traffic_seconds: null, active_connections_avg: null, coverage: 'partial' as const,
+    };
+    const history = { ...testMetricsHistory, to: filling.to, buckets: [bucket!, filling] };
+    expect(trendChartData(history, 'traffic', []).data[0]).toEqual([Date.parse(bucket!.to)]);
+    expect(trendChartData(history, 'connections', []).data[0]).toEqual([Date.parse(bucket!.to)]);
   });
 });
 

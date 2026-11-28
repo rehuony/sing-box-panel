@@ -87,7 +87,7 @@ export function DateTimeField({
   return (
     <div
       className={cn(
-        'flex h-(--control-height) min-w-0 items-center rounded-lg border border-input bg-[var(--color-field)] transition-colors has-focus-visible:outline-1 has-focus-visible:-outline-offset-1 has-focus-visible:outline-input-focus has-focus-visible:outline-solid',
+        'flex h-(--control-height) min-w-0 items-center rounded-lg border border-input bg-[var(--color-field)] transition-colors has-focus-visible:border-[var(--input-focus)]',
         invalid && 'border-destructive',
       )}
     >
@@ -148,7 +148,7 @@ export function DateTimeField({
                   aria-label={day.toLocaleDateString(language, { dateStyle: 'full' })}
                   aria-pressed={current}
                   className={cn(
-                    'relative flex h-8 items-center justify-center rounded-[var(--radius-control)] border border-transparent font-[family-name:var(--font-data)] text-compact tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-primary',
+                    'relative flex h-8 items-center justify-center rounded-[var(--radius-control)] border border-transparent font-[family-name:var(--font-data)] text-compact tabular-nums outline-none focus-visible:bg-[var(--color-hover)]',
                     past ? 'cursor-default text-[var(--color-text-faint)] opacity-50' : 'cursor-pointer hover:bg-[var(--color-hover)]',
                     current && 'border-primary/50 bg-accent font-medium text-primary hover:bg-accent',
                     day.getTime() === today.getTime() && 'after:absolute after:bottom-1 after:size-[3px] after:rounded-full after:bg-primary',
@@ -195,7 +195,7 @@ export function DateTimeField({
             <span className='flex min-w-0 flex-1'>
               {['00:00', '23:59'].map(preset => (
                 <button
-                  className='h-7 cursor-pointer rounded-[var(--radius-pill)] px-1.5 font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)] outline-none hover:bg-[var(--color-hover)] focus-visible:ring-1 focus-visible:ring-primary'
+                  className='h-7 cursor-pointer rounded-[var(--radius-pill)] px-1.5 font-[family-name:var(--font-data)] text-xs text-[var(--color-text-secondary)] outline-none hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)]'
                   key={preset}
                   onClick={() => commitTime(preset)}
                   type='button'

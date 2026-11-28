@@ -41,6 +41,7 @@ export const queries = {
   // Kept between visits so the settings window opens on what was last read while it reads again.
   nodeSettings: (client: ApiClient) => queryOptions({ queryKey: ['nodeSettings', client.nodeID], queryFn: ({ signal }) => client.getNodeSettings(signal), staleTime: 0, refetchOnWindowFocus: false }),
   systemUpdate: (client: ApiClient) => queryOptions({ queryKey: ['systemUpdate'], queryFn: ({ signal }) => client.getSystemUpdate(signal), staleTime: 0 }),
+  panelBackups: (client: ApiClient) => queryOptions({ queryKey: ['panelBackups'], queryFn: ({ signal }) => client.listPanelBackups(signal), staleTime: 0 }),
   // Node-scoped reads carry the node in their key, so nodes never share data.
   coreLogFiles: (client: ApiClient) => queryOptions({ queryKey: ['coreLogFiles', client.nodeID], queryFn: ({ signal }) => client.listCoreLogFiles(signal), staleTime: 5000 }),
   runtime: (client: ApiClient) => queryOptions({ queryKey: ['runtime', client.nodeID], queryFn: ({ signal }) => client.getRuntimeStatus(signal), staleTime: 0 }),

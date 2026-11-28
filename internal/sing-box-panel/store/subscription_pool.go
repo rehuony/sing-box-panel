@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,19 +76,20 @@ type SubscriptionPoolSource struct {
 	ContentFormat string
 	Filter        SubscriptionSourceFilter
 	Content       []byte
-	// NodeCount is the number of pool nodes the source contributes.
-	NodeCount int
 }
 
 // SubscriptionPoolNodeInput is a node the pool's inputs yield.
 type SubscriptionPoolNodeInput struct {
+	// ID is the ID a new node takes; a node that continues an existing one
+	// keeps that one's ID.
 	ID         string
 	NodeID     string
 	SourceID   string
 	OriginKey  string
 	OriginName string
-	// DisplayName is the name a new node takes, before ` 2`, ` 3` and so on
-	// are appended while another node has it.
+	// DisplayName is the name a new node takes, normalized as a channel can
+	// publish it, before ` 2`, ` 3` and so on are appended while another node
+	// has it; it also says which part of the name is the origin name.
 	DisplayName string
 	Protocol    string
 	Outbound    json.RawMessage
@@ -103,7 +105,14 @@ type SubscriptionPoolSynchronization struct {
 	// as they are, and SourceErrors records why.
 	KeptSources  map[string]bool
 	SourceErrors map[string]string
-	At           time.Time
+	// ReadSources are sources whose content reads, which clears an error a
+	// synchronization recorded while it did not.
+	ReadSources map[string]bool
+	// KeptNodes are fleet nodes whose public host is not known right now,
+	// with neither an override nor a reported public IP: their nodes stay as
+	// they are until it is.
+	KeptNodes map[string]bool
+	At        time.Time
 }
 
 const subscriptionPoolColumns = `
@@ -287,8 +296,7 @@ func (s *Store) LoadSubscriptionPoolInputs(ctx context.Context) (SubscriptionPoo
 	if inputs.Publications, err = loadNodePublications(ctx, tx); err != nil {
 		return SubscriptionPoolInputs{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT s.id, s.name, s.content_format, s.include_rules, s.exclude_rules, s.content,
-		(SELECT count(*) FROM subscription_nodes AS n WHERE n.source_id = s.id)
+	rows, err := tx.QueryContext(ctx, `SELECT s.id, s.name, s.content_format, s.include_rules, s.exclude_rules, s.content
 		FROM subscription_sources AS s ORDER BY s.created_at, s.id`)
 	if err != nil {
 		return SubscriptionPoolInputs{}, fmt.Errorf("read subscription sources: %w", err)
@@ -297,7 +305,7 @@ func (s *Store) LoadSubscriptionPoolInputs(ctx context.Context) (SubscriptionPoo
 	for rows.Next() {
 		var source SubscriptionPoolSource
 		var include, exclude string
-		if err := rows.Scan(&source.ID, &source.Name, &source.ContentFormat, &include, &exclude, &source.Content, &source.NodeCount); err != nil {
+		if err := rows.Scan(&source.ID, &source.Name, &source.ContentFormat, &include, &exclude, &source.Content); err != nil {
 			return SubscriptionPoolInputs{}, err
 		}
 		if err := json.Unmarshal([]byte(include), &source.Filter.Include); err != nil {
@@ -312,6 +320,33 @@ func (s *Store) LoadSubscriptionPoolInputs(ctx context.Context) (SubscriptionPoo
 		return SubscriptionPoolInputs{}, err
 	}
 	return inputs, tx.Commit()
+}
+
+// SubscriptionPoolFingerprint is the fingerprint LoadSubscriptionPoolInputs
+// would give, read without the sources' content.
+func (s *Store) SubscriptionPoolFingerprint(ctx context.Context) (string, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", fmt.Errorf("begin subscription pool fingerprint read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	fingerprint, err := subscriptionPoolFingerprint(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	return fingerprint, tx.Commit()
+}
+
+// CountSubscriptionPoolNodes counts the pool's nodes, leaving out those of
+// exceptSourceID when it is not empty.
+func (s *Store) CountSubscriptionPoolNodes(ctx context.Context, exceptSourceID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM subscription_nodes WHERE ? = '' OR source_id IS NULL OR source_id <> ?`,
+		exceptSourceID, exceptSourceID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count subscription nodes: %w", err)
+	}
+	return count, nil
 }
 
 // subscriptionPoolFingerprint digests what the pool derives from: each fleet
@@ -362,19 +397,30 @@ func subscriptionPoolFingerprint(ctx context.Context, tx *sql.Tx) (string, error
 }
 
 // SynchronizeSubscriptionPool makes the pool what its inputs yield, when the
-// inputs are still those the synchronization was computed from: it deletes
-// the nodes that are gone, which removes them from every channel and grant,
-// replaces the content of the nodes that remain and appends new nodes in
-// origin order with free display names.
+// inputs are still those the synchronization was computed from. Each node
+// the inputs yield continues the existing node of its origin that
+// matchPoolNodes pairs it with, keeping that node's ID, position, display
+// name, channel memberships and grants while taking its key and content; the
+// other nodes are new and append in origin order with free display names.
+// Nodes no input continues are deleted, which removes them from every
+// channel and grant, except those of kept sources and fleet nodes. A display
+// name that still follows its node's origin name follows a renamed origin,
+// and one a channel cannot publish, as with a comma, is normalized. The pool
+// holds at most MaximumSubscriptionNodes.
 func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input SubscriptionPoolSynchronization) error {
 	at, err := requiredUTC(input.At, "subscription pool synchronization time")
 	if err != nil {
 		return err
 	}
+	desired := make(map[string]bool, len(input.Nodes))
 	for _, node := range input.Nodes {
 		if err := validatePoolNodeInput(node); err != nil {
 			return err
 		}
+		if desired[node.ID] {
+			return fmt.Errorf("subscription pool synchronization repeats node %s", node.ID)
+		}
+		desired[node.ID] = true
 	}
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		fingerprint, err := subscriptionPoolFingerprint(ctx, tx)
@@ -384,44 +430,35 @@ func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input Subscript
 		if fingerprint != input.Fingerprint {
 			return ErrSubscriptionPoolInputsChanged
 		}
-		type existingNode struct {
-			sourceID, displayName string
-		}
-		rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(source_id, ''), display_name FROM subscription_nodes`)
+		rows, err := loadPoolRows(ctx, tx)
 		if err != nil {
 			return err
 		}
-		existing := map[string]existingNode{}
-		for rows.Next() {
-			var id string
-			var node existingNode
-			if err := rows.Scan(&id, &node.sourceID, &node.displayName); err != nil {
-				_ = rows.Close()
-				return err
+		matched := matchPoolNodes(rows, input.Nodes)
+		claimed := make(map[string]bool, len(matched))
+		for _, id := range matched {
+			if id != "" {
+				claimed[id] = true
 			}
-			existing[id] = node
 		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		desired := make(map[string]bool, len(input.Nodes))
-		for _, node := range input.Nodes {
-			if desired[node.ID] {
-				return fmt.Errorf("subscription pool synchronization repeats node %s", node.ID)
-			}
-			desired[node.ID] = true
-		}
+		byID := make(map[string]poolRow, len(rows))
 		taken := map[string]bool{}
 		gone := []string{}
-		for id, node := range existing {
-			if desired[id] || input.KeptSources[node.sourceID] {
-				taken[foldDisplayName(node.displayName)] = true
+		kept := 0
+		for _, row := range rows {
+			byID[row.id] = row
+			switch {
+			case claimed[row.id]:
+			case input.KeptSources[row.sourceID] || input.KeptNodes[row.nodeID]:
+				kept++
+			default:
+				gone = append(gone, row.id)
 				continue
 			}
-			gone = append(gone, id)
+			taken[foldDisplayName(row.displayName)] = true
+		}
+		if len(input.Nodes)+kept > MaximumSubscriptionNodes {
+			return fmt.Errorf("%w: the pool would hold more than %d nodes", ErrSubscriptionLimitExceeded, MaximumSubscriptionNodes)
 		}
 		slices.Sort(gone)
 		for _, id := range gone {
@@ -429,26 +466,76 @@ func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input Subscript
 				return fmt.Errorf("delete subscription node: %w", err)
 			}
 		}
+		// A key moving to another node of the same origin is freed first, so
+		// no two nodes of one origin ever hold the same key. The interim key
+		// starts with a control character, which no real key holds; SQLite's
+		// length() stops at a NUL, so it is not that one.
+		for index, id := range matched {
+			if id != "" && byID[id].originKey != input.Nodes[index].OriginKey {
+				if _, err := tx.ExecContext(ctx, `UPDATE subscription_nodes SET origin_key = ? WHERE id = ?`, "\x01"+id, id); err != nil {
+					return fmt.Errorf("move subscription node key: %w", err)
+				}
+			}
+		}
+		for index, id := range matched {
+			if id == "" {
+				continue
+			}
+			node, row := input.Nodes[index], byID[id]
+			name := row.displayName
+			if base := poolDisplayName(previousDisplayBase(node, row)); node.OriginName != row.originName && followsDisplayBase(row.displayName, base) {
+				name = poolDisplayName(node.DisplayName)
+			} else {
+				name = poolDisplayName(name)
+			}
+			if name != row.displayName {
+				delete(taken, foldDisplayName(row.displayName))
+				name = freeDisplayName(name, taken)
+				taken[foldDisplayName(name)] = true
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE subscription_nodes SET origin_key = ?, origin_name = ?, display_name = ?, protocol = ?, outbound_json = ?
+				WHERE id = ? AND (origin_key <> ? OR origin_name <> ? OR display_name <> ? OR protocol <> ? OR outbound_json <> ?)`,
+				node.OriginKey, node.OriginName, name, node.Protocol, string(node.Outbound), id,
+				node.OriginKey, node.OriginName, name, node.Protocol, string(node.Outbound)); err != nil {
+				return fmt.Errorf("update subscription node: %w", err)
+			}
+		}
+		// Kept nodes keep everything but a display name no channel can publish.
+		for _, row := range rows {
+			if claimed[row.id] || !(input.KeptSources[row.sourceID] || input.KeptNodes[row.nodeID]) || poolDisplayName(row.displayName) == row.displayName {
+				continue
+			}
+			delete(taken, foldDisplayName(row.displayName))
+			name := freeDisplayName(poolDisplayName(row.displayName), taken)
+			taken[foldDisplayName(name)] = true
+			if _, err := tx.ExecContext(ctx, `UPDATE subscription_nodes SET display_name = ? WHERE id = ?`, name, row.id); err != nil {
+				return fmt.Errorf("normalize subscription node name: %w", err)
+			}
+		}
 		var position int64
 		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(position) + 1, 0) FROM subscription_nodes`).Scan(&position); err != nil {
 			return err
 		}
-		for _, node := range input.Nodes {
-			if _, present := existing[node.ID]; present {
-				if _, err := tx.ExecContext(ctx, `UPDATE subscription_nodes SET origin_name = ?, protocol = ?, outbound_json = ?
-					WHERE id = ? AND (origin_name <> ? OR protocol <> ? OR outbound_json <> ?)`,
-					node.OriginName, node.Protocol, string(node.Outbound), node.ID,
-					node.OriginName, node.Protocol, string(node.Outbound)); err != nil {
-					return fmt.Errorf("update subscription node: %w", err)
-				}
+		ids := make(map[string]bool, len(byID)+len(input.Nodes))
+		for id := range byID {
+			ids[id] = true
+		}
+		for index, node := range input.Nodes {
+			if matched[index] != "" {
 				continue
 			}
-			name := freeDisplayName(node.DisplayName, taken)
+			// A node that continues another may hold the ID this key derives.
+			id := node.ID
+			for number := 2; ids[id]; number++ {
+				id = node.ID + "-" + strconv.Itoa(number)
+			}
+			ids[id] = true
+			name := freeDisplayName(poolDisplayName(node.DisplayName), taken)
 			taken[foldDisplayName(name)] = true
 			if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_nodes(
 					id, node_id, source_id, origin_key, origin_name, display_name, protocol, outbound_json, position, created_at, updated_at
 				) VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
-				node.ID, node.NodeID, node.SourceID, node.OriginKey, node.OriginName, name, node.Protocol,
+				id, node.NodeID, node.SourceID, node.OriginKey, node.OriginName, name, node.Protocol,
 				string(node.Outbound), position, formatTime(at), formatTime(at)); err != nil {
 				return fmt.Errorf("insert subscription node: %w", err)
 			}
@@ -462,8 +549,139 @@ func (s *Store) SynchronizeSubscriptionPool(ctx context.Context, input Subscript
 				return fmt.Errorf("record subscription source error: %w", err)
 			}
 		}
+		// A source whose last attempt succeeded holds an error only because
+		// its stored content did not read; now that it reads, the error goes.
+		for _, id := range slices.Sorted(maps.Keys(input.ReadSources)) {
+			if _, err := tx.ExecContext(ctx, `UPDATE subscription_sources SET last_error = NULL
+				WHERE id = ? AND last_error IS NOT NULL AND (last_attempt_at IS NULL OR last_attempt_at = content_at)`, id); err != nil {
+				return fmt.Errorf("clear subscription source error: %w", err)
+			}
+		}
 		return nil
 	})
+}
+
+// poolRow is an existing pool node as synchronization matches it.
+type poolRow struct {
+	id, nodeID, sourceID, originKey, originName, displayName, outbound string
+}
+
+func loadPoolRows(ctx context.Context, tx *sql.Tx) ([]poolRow, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(node_id, ''), coalesce(source_id, ''), origin_key, origin_name, display_name, outbound_json
+		FROM subscription_nodes ORDER BY position, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []poolRow{}
+	for rows.Next() {
+		var row poolRow
+		if err := rows.Scan(&row.id, &row.nodeID, &row.sourceID, &row.originKey, &row.originName, &row.displayName, &row.outbound); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+// matchPoolNodes pairs each node the inputs yield with the existing node of
+// the same origin it continues, so a node keeps its identity while its
+// origin keeps it: first the node with the same key and outbound, then one
+// with the same outbound, as when a source renames a node or one of two
+// nodes with the same name goes, then one with the same key, as when a
+// node's address or credential changes. It returns the ID each input node
+// continues, or "" for a new node. Nodes with the same outbound pair in pool
+// order.
+func matchPoolNodes(rows []poolRow, nodes []SubscriptionPoolNodeInput) []string {
+	origin := func(nodeID, sourceID string) string {
+		if nodeID != "" {
+			return "node\x00" + nodeID
+		}
+		return "source\x00" + sourceID
+	}
+	byKey := make(map[string]string, len(rows))
+	byOutbound := make(map[string][]string, len(rows))
+	outbounds := make(map[string]string, len(rows))
+	for _, row := range rows {
+		from := origin(row.nodeID, row.sourceID)
+		byKey[from+"\x00"+row.originKey] = row.id
+		byOutbound[from+"\x00"+row.outbound] = append(byOutbound[from+"\x00"+row.outbound], row.id)
+		outbounds[row.id] = row.outbound
+	}
+	matched := make([]string, len(nodes))
+	claimed := make(map[string]bool, len(rows))
+	claim := func(index int, id string) bool {
+		if id == "" || claimed[id] {
+			return false
+		}
+		matched[index], claimed[id] = id, true
+		return true
+	}
+	for index, node := range nodes {
+		if id := byKey[origin(node.NodeID, node.SourceID)+"\x00"+node.OriginKey]; outbounds[id] == string(node.Outbound) {
+			claim(index, id)
+		}
+	}
+	for index, node := range nodes {
+		if matched[index] != "" {
+			continue
+		}
+		for _, id := range byOutbound[origin(node.NodeID, node.SourceID)+"\x00"+string(node.Outbound)] {
+			if claim(index, id) {
+				break
+			}
+		}
+	}
+	for index, node := range nodes {
+		if matched[index] == "" {
+			claim(index, byKey[origin(node.NodeID, node.SourceID)+"\x00"+node.OriginKey])
+		}
+	}
+	return matched
+}
+
+// previousDisplayBase is the display name a node's origin gave before it
+// changed: node's base with the row's origin name in place of its own.
+func previousDisplayBase(node SubscriptionPoolNodeInput, row poolRow) string {
+	if prefix, found := strings.CutSuffix(node.DisplayName, node.OriginName); found {
+		return prefix + row.originName
+	}
+	return row.originName
+}
+
+// followsDisplayBase reports whether name is base or base followed by a
+// number, as freeDisplayName gives, rather than a name someone chose.
+func followsDisplayBase(name, base string) bool {
+	if name == base {
+		return true
+	}
+	number, found := strings.CutPrefix(name, base+" ")
+	if !found || number == "" {
+		return false
+	}
+	return strings.IndexFunc(number, func(character rune) bool { return character < '0' || character > '9' }) < 0
+}
+
+// poolDisplayName is base as a display name a channel can publish and a
+// rename would accept: commas, which channels cannot publish, give way to a
+// space, and control characters and surrounding spaces go.
+func poolDisplayName(base string) string {
+	parts := strings.Split(strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, base), ",")
+	words := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			words = append(words, part)
+		}
+	}
+	if len(words) == 0 {
+		return "node"
+	}
+	return strings.Join(words, " ")
 }
 
 func validatePoolNodeInput(node SubscriptionPoolNodeInput) error {

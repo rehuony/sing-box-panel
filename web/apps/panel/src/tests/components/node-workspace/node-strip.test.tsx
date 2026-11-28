@@ -179,7 +179,8 @@ describe('node strip', () => {
 
     renderBanner(client);
 
-    expect(await screen.findByTitle('Runtime evidence is stale')).toHaveTextContent('not reported');
+    // The state's hover names what it reads, then why.
+    expect(await screen.findByTitle(/Runtime evidence is stale$/)).toHaveTextContent('not reported');
     expect(screen.queryByText('Stopped')).not.toBeInTheDocument();
     expect(screen.queryByText('6 KB')).not.toBeInTheDocument();
     expect(screen.queryByText(/^up /)).not.toBeInTheDocument();

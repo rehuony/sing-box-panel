@@ -21,6 +21,7 @@ type SubscriptionRuleSet struct {
 	ID     string                   `json:"id"`
 	Client store.SubscriptionFormat `json:"client"`
 	Name   string                   `json:"name"`
+	Icon   string                   `json:"icon"`
 	Rules  []SubscriptionRule       `json:"rules"`
 	// Channels are the channels whose exit rules route by it, in name order.
 	Channels  []SubscriptionRuleSetChannel `json:"channels"`
@@ -37,16 +38,20 @@ type SubscriptionRuleSetList struct {
 	Items []SubscriptionRuleSet `json:"items"`
 }
 
+// CreateSubscriptionRuleSetRequest adds a rule set at the end of its
+// client's order; without an icon it takes the default one.
 type CreateSubscriptionRuleSetRequest struct {
 	Client store.SubscriptionFormat `json:"client"`
 	Name   string                   `json:"name"`
+	Icon   string                   `json:"icon,omitempty"`
 	Rules  []SubscriptionRule       `json:"rules"`
 }
 
-// UpdateSubscriptionRuleSetRequest replaces a rule set's name and rules; its
-// client never changes.
+// UpdateSubscriptionRuleSetRequest replaces a rule set's name, icon and
+// rules; its client never changes, and an empty icon keeps the current one.
 type UpdateSubscriptionRuleSetRequest struct {
 	Name  string             `json:"name"`
+	Icon  string             `json:"icon,omitempty"`
 	Rules []SubscriptionRule `json:"rules"`
 }
 
@@ -59,13 +64,16 @@ func (application *Service) CreateSubscriptionRuleSet(ctx context.Context, reque
 	if err != nil {
 		return SubscriptionRuleSet{}, err
 	}
+	if err := validateRuleSetIcon(request.Icon); err != nil {
+		return SubscriptionRuleSet{}, err
+	}
 	id, err := database.NewID(application.random, "rule_set")
 	if err != nil {
 		return SubscriptionRuleSet{}, err
 	}
 	now := application.now().UTC()
 	stored, err := application.database.CreateSubscriptionRuleSet(ctx, store.SubscriptionRuleSet{
-		ID: id, Client: request.Client, Name: request.Name, Rules: rules, CreatedAt: now, UpdatedAt: now,
+		ID: id, Client: request.Client, Name: request.Name, Icon: request.Icon, Rules: rules, CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		return SubscriptionRuleSet{}, ruleSetStoreError(err)
@@ -82,7 +90,7 @@ func (application *Service) SubscriptionRuleSet(ctx context.Context, ruleSetID s
 }
 
 // ListSubscriptionRuleSets returns every rule set, or only client's when it
-// is not empty, in name order.
+// is not empty, each client's sets in their saved order.
 func (application *Service) ListSubscriptionRuleSets(ctx context.Context, client store.SubscriptionFormat) (SubscriptionRuleSetList, error) {
 	stored, err := application.database.ListSubscriptionRuleSets(ctx, client)
 	if err != nil {
@@ -111,14 +119,28 @@ func (application *Service) UpdateSubscriptionRuleSet(ctx context.Context, ruleS
 	if err != nil {
 		return SubscriptionRuleSet{}, err
 	}
+	if err := validateRuleSetIcon(request.Icon); err != nil {
+		return SubscriptionRuleSet{}, err
+	}
 	stored, err := application.database.UpdateSubscriptionRuleSet(ctx, store.UpdateSubscriptionRuleSetInput{
-		ID: current.ID, Name: request.Name, Rules: rules,
+		ID: current.ID, Name: request.Name, Icon: request.Icon, Rules: rules,
 		ExpectedUpdatedAt: expected, UpdatedAt: application.nextSubscriptionUpdateTime(expected),
 	})
 	if err != nil {
 		return SubscriptionRuleSet{}, ruleSetStoreError(err)
 	}
 	return applicationRuleSet(stored)
+}
+
+// SetSubscriptionRuleSetOrder saves the order of client's rule sets. ids
+// must name each of them exactly once; otherwise they changed since they were
+// read and it fails with store.ErrSubscriptionRuleSetsChanged.
+func (application *Service) SetSubscriptionRuleSetOrder(ctx context.Context, client store.SubscriptionFormat, ids []string) error {
+	format := RenderFormat(client)
+	if format != RenderFormatSingBox && format != RenderFormatMihomo && format != RenderFormatLoon {
+		return policyError("client", "unsupported_client")
+	}
+	return application.database.SetSubscriptionRuleSetOrder(ctx, client, ids)
 }
 
 // DeleteSubscriptionRuleSet deletes a rule set and the exit rules of every
@@ -154,6 +176,15 @@ func validRuleSetName(name string) bool {
 		strings.IndexFunc(name, unicode.IsControl) < 0
 }
 
+// validateRuleSetIcon refuses an icon key of the wrong form; an empty one is
+// left to the default or the current icon.
+func validateRuleSetIcon(icon string) error {
+	if icon != "" && store.ValidateRuleSetIcon(icon) != nil {
+		return policyError("icon", "invalid_icon")
+	}
+	return nil
+}
+
 // ruleSetStoreError reports a name another rule set of the client already
 // uses as a policy error on the name.
 func ruleSetStoreError(err error) error {
@@ -165,7 +196,7 @@ func ruleSetStoreError(err error) error {
 
 func applicationRuleSet(value store.SubscriptionRuleSet) (SubscriptionRuleSet, error) {
 	set := SubscriptionRuleSet{
-		ID: value.ID, Client: value.Client, Name: value.Name,
+		ID: value.ID, Client: value.Client, Name: value.Name, Icon: value.Icon,
 		Channels:  make([]SubscriptionRuleSetChannel, 0, len(value.Channels)),
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}

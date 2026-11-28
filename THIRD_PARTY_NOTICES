@@ -26,7 +26,15 @@ INCLUDED COMPONENTS
 
 Component: @babel/runtime
 Ecosystem: web-package
-Version: 7.29.7
+Version: 7.29.15
+Source: https://babel.dev/docs/en/next/babel-runtime
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
+
+Component: @babel/runtime
+Ecosystem: web-package
+Version: 8.1.3
 Source: https://babel.dev/docs/en/next/babel-runtime
 License: MIT
 License documents:
@@ -34,7 +42,7 @@ License documents:
 
 Component: @base-ui/react
 Ecosystem: web-package
-Version: 1.7.0
+Version: 1.9.0
 Source: https://base-ui.com
 License: MIT
 License documents:
@@ -42,7 +50,7 @@ License documents:
 
 Component: @base-ui/utils
 Ecosystem: web-package
-Version: 0.3.2
+Version: 0.5.0
 Source: https://github.com/mui/base-ui#readme
 License: MIT
 License documents:
@@ -50,7 +58,7 @@ License documents:
 
 Component: @codemirror/autocomplete
 Ecosystem: web-package
-Version: 6.20.3
+Version: 6.20.4
 Source: https://code.haverbeke.berlin/codemirror/autocomplete.git
 License: MIT
 License documents:
@@ -58,7 +66,7 @@ License documents:
 
 Component: @codemirror/commands
 Ecosystem: web-package
-Version: 6.11.1
+Version: 6.11.2
 Source: https://code.haverbeke.berlin/codemirror/commands.git
 License: MIT
 License documents:
@@ -72,9 +80,17 @@ License: MIT
 License documents:
   - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
+Component: @codemirror/lang-yaml
+Ecosystem: web-package
+Version: 6.1.3
+Source: https://github.com/codemirror/lang-yaml#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 8ac9cfc9c82c397298c2139028d2474d8e0470f2092a97edddccf353bc5d4d36)
+
 Component: @codemirror/language
 Ecosystem: web-package
-Version: 6.12.4
+Version: 6.13.1
 Source: https://code.haverbeke.berlin/codemirror/language.git
 License: MIT
 License documents:
@@ -82,7 +98,7 @@ License documents:
 
 Component: @codemirror/lint
 Ecosystem: web-package
-Version: 6.9.7
+Version: 6.9.8
 Source: https://code.haverbeke.berlin/codemirror/lint.git
 License: MIT
 License documents:
@@ -90,7 +106,7 @@ License documents:
 
 Component: @codemirror/merge
 Ecosystem: web-package
-Version: 6.12.3
+Version: 6.13.0
 Source: https://code.haverbeke.berlin/codemirror/merge.git
 License: MIT
 License documents:
@@ -98,7 +114,7 @@ License documents:
 
 Component: @codemirror/search
 Ecosystem: web-package
-Version: 6.7.2
+Version: 6.7.3
 Source: https://code.haverbeke.berlin/codemirror/search.git
 License: MIT
 License documents:
@@ -106,15 +122,23 @@ License documents:
 
 Component: @codemirror/state
 Ecosystem: web-package
-Version: 6.7.5
+Version: 6.7.6
 Source: https://code.haverbeke.berlin/codemirror/state.git
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+Component: @codemirror/streamparser
+Ecosystem: web-package
+Version: 6.0.0
+Source: https://code.haverbeke.berlin/codemirror/streamparser.git
 License: MIT
 License documents:
   - LICENSE (SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
 Component: @codemirror/view
 Ecosystem: web-package
-Version: 6.43.12
+Version: 6.44.2
 Source: https://code.haverbeke.berlin/codemirror/view.git
 License: MIT
 License documents:
@@ -210,16 +234,16 @@ License documents:
 
 Component: @lezer/common
 Ecosystem: web-package
-Version: 1.5.2
-Source: https://github.com/lezer-parser/common#readme
+Version: 1.5.7
+Source: https://code.haverbeke.berlin/lezer/common.git
 License: MIT
 License documents:
   - LICENSE (SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
 
 Component: @lezer/highlight
 Ecosystem: web-package
-Version: 1.2.3
-Source: https://github.com/lezer-parser/highlight#readme
+Version: 1.2.5
+Source: https://code.haverbeke.berlin/lezer/highlight.git
 License: MIT
 License documents:
   - LICENSE (SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
@@ -234,11 +258,19 @@ License documents:
 
 Component: @lezer/lr
 Ecosystem: web-package
-Version: 1.4.10
+Version: 1.4.13
 Source: https://code.haverbeke.berlin/lezer/lr.git
 License: MIT
 License documents:
   - LICENSE (SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
+
+Component: @lezer/yaml
+Ecosystem: web-package
+Version: 1.0.4
+Source: https://github.com/lezer-parser/yaml#readme
+License: MIT
+License documents:
+  - LICENSE (SHA-256: 8cb910abd2a5463466b7c31958b39d6787ebf9e9f299598266b814bc90dd076b)
 
 Component: @marijn/find-cluster-break
 Ecosystem: web-package
@@ -264,9 +296,29 @@ License: Apache-2.0
 License documents:
   - LICENSE.md (SHA-256: 2590ed517c3e27c426127a85b4559cf8c7a287f1dd3a12892e8a10cb7d49c8ca)
 
+Component: @tabler/icons
+Ecosystem: web-package
+Version: 3.51.0
+Source: https://tabler.io/icons
+License: MIT
+License documents:
+  - LICENSE (SHA-256: b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db)
+  - categories/outline/Document/license-off.svg (SHA-256: 8140303ecb95659174373cb632eb0d71e0452d6f8dcdafa359bd2ff85e7e4e96)
+  - categories/outline/Document/license.svg (SHA-256: c2e322cf99a97371cb1c45e8517a9cd17d41fd1436e454d6fccb7d9f99856afe)
+  - icons/outline/license-off.svg (SHA-256: 8140303ecb95659174373cb632eb0d71e0452d6f8dcdafa359bd2ff85e7e4e96)
+  - icons/outline/license.svg (SHA-256: c2e322cf99a97371cb1c45e8517a9cd17d41fd1436e454d6fccb7d9f99856afe)
+
+Component: @tabler/icons-react
+Ecosystem: web-package
+Version: 3.51.0
+Source: https://tabler.io/icons
+License: MIT
+License documents:
+  - LICENSE (SHA-256: b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db)
+
 Component: @tanstack/query-core
 Ecosystem: web-package
-Version: 5.104.0
+Version: 5.108.4
 Source: https://tanstack.com/query
 License: MIT
 License documents:
@@ -274,7 +326,7 @@ License documents:
 
 Component: @tanstack/react-query
 Ecosystem: web-package
-Version: 5.104.0
+Version: 5.108.4
 Source: https://tanstack.com/query
 License: MIT
 License documents:
@@ -298,7 +350,7 @@ License documents:
 
 Component: @x0k/json-schema-merge
 Ecosystem: web-package
-Version: 1.0.5
+Version: 1.2.0
 Source: https://github.com/x0k/json-schema-merge#readme
 License: MIT
 License documents:
@@ -355,7 +407,7 @@ License documents:
 
 Component: csstype
 Ecosystem: web-package
-Version: 3.2.3
+Version: 3.2.4
 Source: https://github.com/frenic/csstype#readme
 License: MIT
 License documents:
@@ -363,7 +415,7 @@ License documents:
 
 Component: fast-equals
 Ecosystem: web-package
-Version: 6.0.2
+Version: 6.4.1
 Source: https://github.com/planttheidea/fast-equals#readme
 License: MIT
 License documents:
@@ -371,19 +423,27 @@ License documents:
 
 Component: fast-uri
 Ecosystem: web-package
-Version: 4.1.3
+Version: 4.2.4
 Source: https://github.com/fastify/fast-uri
 License: BSD-3-Clause
 License documents:
   - LICENSE (SHA-256: b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786)
 
-Component: framer-motion
-Ecosystem: web-package
-Version: 13.1.1
-Source: https://github.com/motiondivision/motion#readme
-License: MIT
+Component: filippo.io/age
+Ecosystem: go-module
+Version: v1.3.2
+Source: https://pkg.go.dev/filippo.io/age@v1.3.2
+License: BSD-3-Clause
 License documents:
-  - LICENSE.md (SHA-256: 5ff46083b88563822b0560dd6221ab89d2f74bc97a52d4c97a75020fd62c6f32)
+  - LICENSE (SHA-256: c5d65279d02955c0fc2294ae417c3add650d228f4f5c82bd6d531fc26c89cd96)
+
+Component: filippo.io/hpke
+Ecosystem: go-module
+Version: v0.4.0
+Source: https://pkg.go.dev/filippo.io/hpke@v0.4.0
+License: BSD-3-Clause
+License documents:
+  - LICENSE (SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad)
 
 Component: github.com/alexedwards/argon2id
 Ecosystem: go-module
@@ -593,7 +653,7 @@ License documents:
 
 Component: markdown-to-jsx
 Ecosystem: web-package
-Version: 9.10.2
+Version: 9.11.0
 Source: https://markdown-to-jsx.quantizor.dev
 License: MIT
 License documents:
@@ -639,30 +699,6 @@ License documents:
   - LICENSE-SQLITE (SHA-256: 8438c9c89b849131ead81d5435cb97fcf052df5b0b286dda8a2d4c29e6cb3fd0)
   - LICENSE-SQLITE_VEC (SHA-256: 6ce72bbe12d975bd5286e5ab0a064c069693300c47bccbc57bec18485f1621ea)
 
-Component: motion
-Ecosystem: web-package
-Version: 13.1.1
-Source: https://github.com/motiondivision/motion#readme
-License: MIT
-License documents:
-  - LICENSE.md (SHA-256: 1bf0dc3f7727723e5a032ed12164a47cf92c05204cb1a3485f123c24e2833ed1)
-
-Component: motion-dom
-Ecosystem: web-package
-Version: 13.1.1
-Source: https://github.com/motiondivision/motion#readme
-License: MIT
-License documents:
-  - LICENSE.md (SHA-256: 1bf0dc3f7727723e5a032ed12164a47cf92c05204cb1a3485f123c24e2833ed1)
-
-Component: motion-utils
-Ecosystem: web-package
-Version: 13.0.0
-Source: https://github.com/motiondivision/motion#readme
-License: MIT
-License documents:
-  - LICENSE.md (SHA-256: 1bf0dc3f7727723e5a032ed12164a47cf92c05204cb1a3485f123c24e2833ed1)
-
 Component: object-assign
 Ecosystem: web-package
 Version: 4.1.1
@@ -689,8 +725,8 @@ License documents:
 
 Component: react-colorful
 Ecosystem: web-package
-Version: 5.8.1
-Source: https://omgovich.github.io/react-colorful
+Version: 5.8.2
+Source: https://react-colorful.com
 License: MIT
 License documents:
   - LICENSE (SHA-256: c779efe5dfb04b7b7cac35c4898725e4d22e98b86bc81c9556311d067bf97af5)
@@ -761,7 +797,7 @@ License documents:
 
 Component: set-cookie-parser
 Ecosystem: web-package
-Version: 2.7.2
+Version: 2.7.3
 Source: https://github.com/nfriedly/set-cookie-parser
 License: MIT
 License documents:
@@ -769,7 +805,7 @@ License documents:
 
 Component: style-mod
 Ecosystem: web-package
-Version: 4.1.4
+Version: 4.1.5
 Source: https://code.haverbeke.berlin/marijn/style-mod
 License: MIT
 License documents:
@@ -777,7 +813,7 @@ License documents:
 
 Component: tailwind-merge
 Ecosystem: web-package
-Version: 3.6.0
+Version: 3.7.1
 Source: https://github.com/dcastil/tailwind-merge
 License: MIT
 License documents:
@@ -785,7 +821,7 @@ License documents:
 
 Component: tslib
 Ecosystem: web-package
-Version: 2.8.1
+Version: 2.9.1
 Source: https://www.typescriptlang.org/
 License: 0BSD
 License documents:
@@ -825,8 +861,8 @@ License documents:
 
 Component: use-sync-external-store
 Ecosystem: web-package
-Version: 1.6.0
-Source: https://github.com/facebook/react#readme
+Version: 1.7.0
+Source: https://github.com/react/react#readme
 License: MIT
 License documents:
   - LICENSE (SHA-256: da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93)
@@ -879,14 +915,15 @@ SOFTWARE.
 ================================================================================
 SHA-256: 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
 Applies to:
-  - web-package:@codemirror/autocomplete@6.20.3 — LICENSE
-  - web-package:@codemirror/commands@6.11.1 — LICENSE
+  - web-package:@codemirror/autocomplete@6.20.4 — LICENSE
+  - web-package:@codemirror/commands@6.11.2 — LICENSE
   - web-package:@codemirror/lang-json@6.0.2 — LICENSE
-  - web-package:@codemirror/language@6.12.4 — LICENSE
-  - web-package:@codemirror/lint@6.9.7 — LICENSE
-  - web-package:@codemirror/search@6.7.2 — LICENSE
-  - web-package:@codemirror/state@6.7.5 — LICENSE
-  - web-package:@codemirror/view@6.43.12 — LICENSE
+  - web-package:@codemirror/language@6.13.1 — LICENSE
+  - web-package:@codemirror/lint@6.9.8 — LICENSE
+  - web-package:@codemirror/search@6.7.3 — LICENSE
+  - web-package:@codemirror/state@6.7.6 — LICENSE
+  - web-package:@codemirror/streamparser@6.0.0 — LICENSE
+  - web-package:@codemirror/view@6.44.2 — LICENSE
   - web-package:codemirror@6.0.2 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
@@ -914,8 +951,8 @@ THE SOFTWARE.
 ================================================================================
 SHA-256: 07fc1b39d69d14bc7d40482a628f47226258eb01265db68ae684944b916beb2a
 Applies to:
-  - web-package:@base-ui/react@1.7.0 — LICENSE
-  - web-package:@base-ui/utils@0.3.2 — LICENSE
+  - web-package:@base-ui/react@1.9.0 — LICENSE
+  - web-package:@base-ui/utils@0.5.0 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -1215,7 +1252,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ================================================================================
 SHA-256: 0e8d2550baea17eb3072c4f919b36fbf9852bb49dba948549872e713863c0834
 Applies to:
-  - web-package:tslib@2.8.1 — LICENSE.txt
+  - web-package:tslib@2.9.1 — LICENSE.txt
 --------------------------------------------------------------------------------
 Copyright (c) Microsoft Corporation.
 
@@ -1233,7 +1270,8 @@ PERFORMANCE OF THIS SOFTWARE.
 ================================================================================
 SHA-256: 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76
 Applies to:
-  - web-package:@babel/runtime@7.29.7 — LICENSE
+  - web-package:@babel/runtime@7.29.15 — LICENSE
+  - web-package:@babel/runtime@8.1.3 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -1261,38 +1299,9 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ================================================================================
 SHA-256: 11d55bd4541c75ee7879547ac49089c489163dae49551389713c3d026cab383e
 Applies to:
-  - web-package:csstype@3.2.3 — LICENSE
+  - web-package:csstype@3.2.4 — LICENSE
 --------------------------------------------------------------------------------
 Copyright (c) 2017-2018 Fredrik Nicol
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-================================================================================
-SHA-256: 1bf0dc3f7727723e5a032ed12164a47cf92c05204cb1a3485f123c24e2833ed1
-Applies to:
-  - web-package:motion-dom@13.1.1 — LICENSE.md
-  - web-package:motion-utils@13.0.0 — LICENSE.md
-  - web-package:motion@13.1.1 — LICENSE.md
---------------------------------------------------------------------------------
-The MIT License (MIT)
-
-Copyright (c) 2024 [Motion](https://motion.dev) B.V.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1891,9 +1900,9 @@ SOFTWARE.
 ================================================================================
 SHA-256: 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
 Applies to:
-  - web-package:@lezer/common@1.5.2 — LICENSE
-  - web-package:@lezer/highlight@1.2.3 — LICENSE
-  - web-package:@lezer/lr@1.4.10 — LICENSE
+  - web-package:@lezer/common@1.5.7 — LICENSE
+  - web-package:@lezer/highlight@1.2.5 — LICENSE
+  - web-package:@lezer/lr@1.4.13 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -2138,33 +2147,6 @@ Applies to:
       of your accepting any such warranty or additional liability.
 
 ================================================================================
-SHA-256: 5ff46083b88563822b0560dd6221ab89d2f74bc97a52d4c97a75020fd62c6f32
-Applies to:
-  - web-package:framer-motion@13.1.1 — LICENSE.md
---------------------------------------------------------------------------------
-The MIT License (MIT)
-
-Copyright (c) 2018 Framer B.V.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-================================================================================
 SHA-256: 6ce72bbe12d975bd5286e5ab0a064c069693300c47bccbc57bec18485f1621ea
 Applies to:
   - go-module:modernc.org/sqlite@v1.57.0 — LICENSE-SQLITE_VEC
@@ -2350,7 +2332,7 @@ SOFTWARE.
 ================================================================================
 SHA-256: 7c6e3a020c1db4725560be9120b96eb2305ae7d37d155ee20e6023bb27ad144e
 Applies to:
-  - web-package:@codemirror/merge@6.12.3 — LICENSE
+  - web-package:@codemirror/merge@6.13.0 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -2400,6 +2382,31 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+================================================================================
+SHA-256: 8140303ecb95659174373cb632eb0d71e0452d6f8dcdafa359bd2ff85e7e4e96
+Applies to:
+  - web-package:@tabler/icons@3.51.0 — categories/outline/Document/license-off.svg
+  - web-package:@tabler/icons@3.51.0 — icons/outline/license-off.svg
+--------------------------------------------------------------------------------
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  class="icon icon-tabler icons-tabler-outline icon-tabler-license-off"
+>
+  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+  <path d="M15 21h-9a3 3 0 0 1 -3 -3v-1h10v2a2 2 0 1 0 4 0v-2m0 -4v-8a2 2 0 1 1 2 2h-2m2 -4h-11a3 3 0 0 0 -.864 .126m-2.014 2.025a3 3 0 0 0 -.122 .849v11" />
+  <path d="M11 7h2" />
+  <path d="M9 11h2" />
+  <path d="M3 3l18 18" />
+</svg>
 
 ================================================================================
 SHA-256: 8438c9c89b849131ead81d5435cb97fcf052df5b0b286dda8a2d4c29e6cb3fd0
@@ -2458,6 +2465,60 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ================================================================================
+SHA-256: 8ac9cfc9c82c397298c2139028d2474d8e0470f2092a97edddccf353bc5d4d36
+Applies to:
+  - web-package:@codemirror/lang-yaml@6.1.3 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2024 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
+SHA-256: 8cb910abd2a5463466b7c31958b39d6787ebf9e9f299598266b814bc90dd076b
+Applies to:
+  - web-package:@lezer/yaml@1.0.4 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (C) 2024 by Marijn Haverbeke <marijnh@gmail.com> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
 SHA-256: 8f989229699b4fe2f1a0432d0e9edc338a8a911e250e2d1b01ecd770a5f5b1bd
 Applies to:
   - web-package:uplot@1.6.32 — LICENSE
@@ -2487,6 +2548,7 @@ THE SOFTWARE.
 ================================================================================
 SHA-256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
 Applies to:
+  - go-module:filippo.io/hpke@v0.4.0 — LICENSE
   - go-module:golang.org/x/crypto@v0.58.0 — LICENSE
   - go-module:golang.org/x/mod@v0.42.0 — LICENSE
   - go-module:golang.org/x/sys@v0.49.0 — LICENSE
@@ -2665,8 +2727,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 SHA-256: a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
 Applies to:
-  - web-package:@tanstack/query-core@5.104.0 — LICENSE
-  - web-package:@tanstack/react-query@5.104.0 — LICENSE
+  - web-package:@tanstack/query-core@5.108.4 — LICENSE
+  - web-package:@tanstack/react-query@5.108.4 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -2720,7 +2782,7 @@ SOFTWARE.
 ================================================================================
 SHA-256: b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786
 Applies to:
-  - web-package:fast-uri@4.1.3 — LICENSE
+  - web-package:fast-uri@4.2.4 — LICENSE
 --------------------------------------------------------------------------------
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
 Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
@@ -2762,6 +2824,34 @@ MIT License
 
 Copyright (c) Project Nayuki
 Copyright (c) 2023 Anthony Fu <https://github.com/antfu>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+SHA-256: b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db
+Applies to:
+  - web-package:@tabler/icons-react@3.51.0 — LICENSE
+  - web-package:@tabler/icons@3.51.0 — LICENSE
+--------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2020-2026 Paweł Kuna
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -2941,7 +3031,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 SHA-256: c0af1c3e74a891b408dc4365897482cc8c284365808e3837c56ea3c337ed7a2c
 Applies to:
-  - web-package:fast-equals@6.0.2 — LICENSE
+  - web-package:fast-equals@6.4.1 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -3021,6 +3111,30 @@ Applies to:
     SOFTWARE
 
 ================================================================================
+SHA-256: c2e322cf99a97371cb1c45e8517a9cd17d41fd1436e454d6fccb7d9f99856afe
+Applies to:
+  - web-package:@tabler/icons@3.51.0 — categories/outline/Document/license.svg
+  - web-package:@tabler/icons@3.51.0 — icons/outline/license.svg
+--------------------------------------------------------------------------------
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  class="icon icon-tabler icons-tabler-outline icon-tabler-license"
+>
+  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+  <path d="M15 21h-9a3 3 0 0 1 -3 -3v-1h10v2a2 2 0 0 0 4 0v-14a2 2 0 1 1 2 2h-2m2 -4h-11a3 3 0 0 0 -3 3v11" />
+  <path d="M9 7l4 0" />
+  <path d="M9 11l4 0" />
+</svg>
+
+================================================================================
 SHA-256: c2eba69f20d05414538c3a5df7694dde392e065ff70882e1625e90f5d6659fff
 Applies to:
   - go-module:modernc.org/memory@v1.12.1 — LICENSE-MMAP-GO
@@ -3069,7 +3183,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ================================================================================
 SHA-256: c5c6c5183a789d122f267c405f685037efb87e27fcde28ab1dd7378a2d2f5962
 Applies to:
-  - web-package:set-cookie-parser@2.7.2 — LICENSE
+  - web-package:set-cookie-parser@2.7.3 — LICENSE
 --------------------------------------------------------------------------------
 The MIT License (MIT)
 
@@ -3092,6 +3206,41 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+================================================================================
+SHA-256: c5d65279d02955c0fc2294ae417c3add650d228f4f5c82bd6d531fc26c89cd96
+Applies to:
+  - go-module:filippo.io/age@v1.3.2 — LICENSE
+--------------------------------------------------------------------------------
+Copyright 2019 The age Authors
+Copyright 2019 Google LLC
+Copyright 2022 Filippo Valsorda
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of the age project nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 SHA-256: c6fe05491a60ae13bcd223088d2705e36dede24e5587226231d2459ada5c4822
@@ -3128,7 +3277,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ================================================================================
 SHA-256: c779efe5dfb04b7b7cac35c4898725e4d22e98b86bc81c9556311d067bf97af5
 Applies to:
-  - web-package:react-colorful@5.8.1 — LICENSE
+  - web-package:react-colorful@5.8.2 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -3363,7 +3512,7 @@ Applies to:
 ================================================================================
 SHA-256: cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1
 Applies to:
-  - web-package:style-mod@4.1.4 — LICENSE
+  - web-package:style-mod@4.1.5 — LICENSE
 --------------------------------------------------------------------------------
 Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
 
@@ -3562,7 +3711,7 @@ limitations under the License.
 ================================================================================
 SHA-256: d4c70c7ce38cea8778f0aed3fc0bef0a9dbd27f13bd8b6773cbd6d37941971e5
 Applies to:
-  - web-package:tailwind-merge@3.6.0 — LICENSE.md
+  - web-package:tailwind-merge@3.7.1 — LICENSE.md
 --------------------------------------------------------------------------------
 MIT License
 
@@ -3592,7 +3741,7 @@ Applies to:
   - web-package:react-dom@19.2.8 — LICENSE
   - web-package:react@19.2.8 — LICENSE
   - web-package:scheduler@0.27.0 — LICENSE
-  - web-package:use-sync-external-store@1.6.0 — LICENSE
+  - web-package:use-sync-external-store@1.7.0 — LICENSE
 --------------------------------------------------------------------------------
 MIT License
 
@@ -4052,7 +4201,7 @@ SOFTWARE.
 ================================================================================
 SHA-256: f46342c4d0e78012a708e962c6d4bf35c69f4db48ce88bb409eb02c0518c7aa2
 Applies to:
-  - web-package:@x0k/json-schema-merge@1.0.5 — LICENSE
+  - web-package:@x0k/json-schema-merge@1.2.0 — LICENSE
 --------------------------------------------------------------------------------
 Copyright (c) 2025 Roman Krasilnikov
 
@@ -4476,7 +4625,7 @@ terms above.
 ================================================================================
 SHA-256: fe90246827308c366dfdfbdd8cfeb96e99f14f8d44160aafc7dbb7b950800dc7
 Applies to:
-  - web-package:markdown-to-jsx@9.10.2 — LICENSE
+  - web-package:markdown-to-jsx@9.11.0 — LICENSE
 --------------------------------------------------------------------------------
 The MIT License (MIT)
 

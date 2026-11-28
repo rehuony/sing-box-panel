@@ -85,7 +85,7 @@ function ToastTitle({ className, ...props }: ToastPrimitive.Title.Props) {
   return (
     <ToastPrimitive.Title
       data-slot='toast-title'
-      className={cn('text-sm leading-5 font-semibold', className)}
+      className={cn('truncate text-sm leading-5 font-semibold', className)}
       {...props}
     />
   );
@@ -98,7 +98,7 @@ function ToastDescription({
   return (
     <ToastPrimitive.Description
       data-slot='toast-description'
-      className={cn('text-sm leading-5 text-current opacity-85', className)}
+      className={cn('line-clamp-2 text-sm leading-5 text-current opacity-85', className)}
       {...props}
     />
   );
@@ -191,6 +191,16 @@ function ToastIcon({ type }: { type: string | undefined }) {
   );
 }
 
+/** A toast's text in full, for the hover that shows what one line or two cut. */
+function fullText(value: React.ReactNode): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * The toasts: what happened in one line, then at most two lines of why, so
+ * every toast keeps one size; text past that ends in an ellipsis, shown in
+ * full on hover. Longer accounts belong in the run log or the page.
+ */
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager();
 
@@ -199,8 +209,8 @@ function ToastList() {
       <ToastContent>
         <ToastIcon type={toastItem.type} />
         <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
-          <ToastTitle />
-          <ToastDescription />
+          <ToastTitle title={fullText(toastItem.title)} />
+          <ToastDescription title={fullText(toastItem.description)} />
         </div>
         <ToastAction />
         <ToastClose />

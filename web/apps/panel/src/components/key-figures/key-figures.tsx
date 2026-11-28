@@ -29,7 +29,7 @@ interface KeyFigureProps {
 /** One key figure: its label, its value in the data face and one line of meta. */
 export function KeyFigure({ children, help, label, meta, meter, tone }: KeyFigureProps) {
   return (
-    <div className='flex min-w-0 flex-col gap-1 px-4 py-3'>
+    <div className='flex min-w-0 flex-col gap-1 px-3 py-3 @3xl/figures:px-4'>
       <dt className='flex min-w-0 items-center gap-1 text-xs text-muted-foreground'>
         <span className='truncate'>{label}</span>
         {/* The trigger overlaps the line's padding so the label row keeps its height. */}
@@ -51,15 +51,17 @@ export function KeyFigure({ children, help, label, meta, meter, tone }: KeyFigur
 }
 
 /**
- * Key figures in one card, divided by hairlines: four a row from 48rem of
- * their own width, two a row below it.
+ * Key figures in one card, divided by hairlines: four a row from 36rem of
+ * their own width, so the card keeps to one row above a phone and leaves the
+ * view below it its height, two a row below that; values take 20px and the
+ * cells their full inset from 48rem.
  */
 export function KeyFigures({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className='@container/figures flex-none'>
       <dl
         aria-label={label}
-        className='grid grid-cols-2 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] *:border-border @3xl/figures:grid-cols-4 [&>*:nth-child(even)]:border-l [&>*:nth-child(n+3)]:border-t @3xl/figures:[&>*:nth-child(n+2)]:border-l @3xl/figures:[&>*:nth-child(n+3)]:border-t-0'
+        className='grid grid-cols-2 rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)] *:border-border @xl/figures:grid-cols-4 [&>*:nth-child(even)]:border-l [&>*:nth-child(n+3)]:border-t @xl/figures:[&>*:nth-child(n+2)]:border-l @xl/figures:[&>*:nth-child(n+3)]:border-t-0'
       >
         {children}
       </dl>

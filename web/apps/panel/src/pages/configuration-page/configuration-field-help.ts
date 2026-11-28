@@ -82,3 +82,16 @@ export function withConfigurationFieldHelp(schema: RJSFSchema, key: string, cont
   if (!copy || readConfigurationFieldHelp(schema)) return schema;
   return { ...schema, 'x-panel-field-help': { key, label: copy[0], description: copy[1] } };
 }
+
+/** The unit of a number field, by its help key, shown inside the field rather than in its label. */
+const FIELD_UNITS: Record<string, 'Mbps' | 'ms' | 'days'> = {
+  down_mbps: 'Mbps',
+  up_mbps: 'Mbps',
+  tolerance: 'ms',
+  requested_validity: 'days',
+};
+
+export function configurationFieldUnit(schema: RJSFSchema): 'Mbps' | 'ms' | 'days' | undefined {
+  const key = readConfigurationFieldHelp(schema)?.key;
+  return key === undefined ? undefined : FIELD_UNITS[key];
+}

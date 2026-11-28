@@ -16,7 +16,7 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/testutil"
 )
 
-func TestCatalogNotModifiedRequiresAndReusesLocalSnapshot(t *testing.T) {
+func TestCatalogRefreshBuildsOnTheStoredCatalogAndKeepsItOnFailure(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
 	if err != nil {
@@ -24,8 +24,9 @@ func TestCatalogNotModifiedRequiresAndReusesLocalSnapshot(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	application := New(database, nil, nil, Options{})
+	// A refresh that returns no catalog of the official repository stores nothing.
 	if _, err := application.refreshCatalogWith(ctx, fakeCatalogRefresher{result: RefreshResult{NotModified: true}}); err == nil {
-		t.Fatal("not-modified without local state was accepted")
+		t.Fatal("a refresh without a catalog was accepted")
 	}
 	asset := validCatalogAsset(t)
 	initial := Catalog{RepositoryID: OfficialRepositoryID, Releases: []Release{{
@@ -46,10 +47,12 @@ func TestCatalogNotModifiedRequiresAndReusesLocalSnapshot(t *testing.T) {
 		!afterFailure.RefreshedAt.Equal(beforeFailure.RefreshedAt) || len(afterFailure.Catalog.Assets()) != 1 {
 		t.Fatalf("failed refresh changed last-known-good catalog: before=%+v after=%+v err=%v", beforeFailure, afterFailure, err)
 	}
-	refresher := &capturingCatalogRefresher{result: RefreshResult{NotModified: true}}
+	// The next refresh starts from the stored catalog and its validator.
+	refresher := &capturingCatalogRefresher{}
 	updated, err := application.refreshCatalogWith(ctx, refresher)
-	if err != nil || refresher.previous != "v1" || len(updated.Catalog.Assets()) != 1 || !updated.NotModified {
-		t.Fatalf("updated=%+v previous=%q err=%v", updated, refresher.previous, err)
+	if err != nil || refresher.validator != "v1" || refresher.previous == nil || len(refresher.previous.Assets()) != 1 ||
+		len(updated.Catalog.Assets()) != 1 || !updated.NotModified || updated.Validator != "v1" {
+		t.Fatalf("updated=%+v validator=%q previous=%+v err=%v", updated, refresher.validator, refresher.previous, err)
 	}
 }
 
@@ -90,18 +93,66 @@ func TestRefreshCatalogHonorsConfiguredRefreshInterval(t *testing.T) {
 	}
 }
 
-func (refresher fakeCatalogRefresher) Refresh(context.Context, string) (RefreshResult, error) {
+func TestCatalogRefreshOutlivesACallerThatStopsWaiting(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, filepath.Join(t.TempDir(), "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	application := New(database, nil, nil, Options{})
+	asset := validCatalogAsset(t)
+	value := Catalog{RepositoryID: OfficialRepositoryID, Releases: []Release{{
+		ID: asset.ReleaseID, Tag: "v1.13.19", Version: asset.Version, Assets: []Asset{asset},
+	}}}
+	started, release := make(chan struct{}), make(chan struct{})
+	refresh := func(ctx context.Context) (CatalogSnapshot, error) {
+		close(started)
+		<-release
+		if ctx.Err() != nil {
+			return CatalogSnapshot{}, ctx.Err()
+		}
+		return application.refreshCatalogWith(ctx, fakeCatalogRefresher{result: RefreshResult{Catalog: value, ETag: "detached"}})
+	}
+	caller, stopWaiting := context.WithCancel(ctx)
+	waited := make(chan error, 1)
+	go func() {
+		_, err := application.joinRefresh(caller, refresh)
+		waited <- err
+	}()
+	<-started
+	application.refreshMu.Lock()
+	running := application.refreshing
+	application.refreshMu.Unlock()
+	stopWaiting()
+	if err := <-waited; !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller error = %v, want context.Canceled", err)
+	}
+	close(release)
+	<-running.done
+	if running.err != nil {
+		t.Fatalf("refresh after its caller left: %v", running.err)
+	}
+	stored, err := application.Catalog(ctx)
+	if err != nil || stored.Validator != "detached" || len(stored.Catalog.Assets()) != 1 {
+		t.Fatalf("stored catalog = %+v, %v", stored, err)
+	}
+}
+
+func (refresher fakeCatalogRefresher) Refresh(context.Context, string, *Catalog) (RefreshResult, error) {
 	return refresher.result, refresher.err
 }
 
+// capturingCatalogRefresher records what a refresh starts from and finds the
+// catalog unchanged.
 type capturingCatalogRefresher struct {
-	previous string
-	result   RefreshResult
+	validator string
+	previous  *Catalog
 }
 
-func (refresher *capturingCatalogRefresher) Refresh(_ context.Context, previous string) (RefreshResult, error) {
-	refresher.previous = previous
-	return refresher.result, nil
+func (refresher *capturingCatalogRefresher) Refresh(_ context.Context, validator string, previous *Catalog) (RefreshResult, error) {
+	refresher.validator, refresher.previous = validator, previous
+	return RefreshResult{Catalog: *previous, ETag: validator, NotModified: true}, nil
 }
 
 type fakeCatalogRefresher struct {

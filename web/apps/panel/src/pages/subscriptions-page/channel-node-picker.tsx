@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@shared/components/ui/input-group';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
@@ -33,10 +33,12 @@ const BUILTINS = ['direct', 'reject'] as const;
 type Candidate = ChannelGroupMember & { node?: SubscriptionNode; group?: ChannelRuleGroup };
 
 /**
- * Picks candidates to add to a group: the pool's nodes in pool order, the
- * built-in exits, then the channel's other groups. Candidates already in the
- * group, unsupported by the client, disabled or making a cycle stay listed
- * but cannot be chosen; the chosen ones join in the order shown here.
+ * Picks candidates to add to a group: the built-in exits DIRECT and REJECT,
+ * the channel's other groups in their order, then the pool's nodes in pool
+ * order. A built-in the client lacks for the group, such as REJECT for
+ * sing-box, is left out unless the group holds it; candidates already in the
+ * group, disabled or making a cycle stay listed but cannot be chosen. The
+ * chosen ones join in the order shown here.
  */
 export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd }: Props) {
   const { t } = useTranslation();
@@ -45,41 +47,46 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
   const [selected, setSelected] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const catalog = useMemo(() => new Map<string, Candidate>([
-    ...nodes.map(node => [`node:${node.id}`, { kind: 'node' as const, id: node.id, node }] as const),
     ...BUILTINS.map(id => [`builtin:${id}`, { kind: 'builtin' as const, id }] as const),
     ...groups.filter(value => value.id !== group.id).map(value => [`group:${value.id}`, { kind: 'group' as const, id: value.id, group: value }] as const),
+    ...nodes.map(node => [`node:${node.id}`, { kind: 'node' as const, id: node.id, node }] as const),
   ]), [group.id, groups, nodes]);
   const [order, setOrder] = useState(() => [...catalog.keys()]);
   const query = deferredSearch.trim().toLowerCase();
-  const added = new Set(group.members.map(memberKey));
-  const items: ChannelNodeCard[] = order.flatMap((key) => {
-    const entry = catalog.get(key);
-    if (!entry) return [];
-    const builtin = entry.kind === 'builtin' ? entry.id as typeof BUILTINS[number] : undefined;
-    const candidate = entry.group;
-    const unsupported = (builtin === 'reject' && format === 'sing-box')
-      || (builtin !== undefined && format === 'loon' && group.type !== 'select');
-    let label = builtin ? BUILTIN_EXIT_NAMES[builtin] : candidate?.name ?? '';
-    if (entry.node) label = entry.node.display_name;
-    let searched = label;
-    if (entry.node) searched = `${label} ${nodeOrigin(entry.node)} ${entry.node.protocol}`;
-    if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${groupTypeName(candidate.type, format)}`;
-    if (query && !searched.toLowerCase().includes(query)) return [];
-    let disabledReason: string | undefined;
-    if (added.has(key)) disabledReason = t('channels.alreadyAdded');
-    else if (candidate && !candidate.enabled) disabledReason = t('channels.disabled');
-    else if (candidate && createsGroupCycle(groups, group.id, candidate.id)) disabledReason = t('channels.cyclicGroupReference');
-    else if (unsupported) disabledReason = t('channels.unavailable');
-    return [{
-      id: key, label, node: entry.node, builtin, group: candidate, disabledReason,
-      selected: added.has(key) || selected.includes(key),
-      disabled: Boolean(disabledReason), unavailable: unsupported || Boolean(candidate && !candidate.enabled),
-    }];
-  });
+  const chosen = useMemo(() => new Set(selected), [selected]);
+  const items = useMemo(() => {
+    const added = new Set(group.members.map(memberKey));
+    return order.flatMap((key): ChannelNodeCard[] => {
+      const entry = catalog.get(key);
+      if (!entry) return [];
+      const builtin = entry.kind === 'builtin' ? entry.id as typeof BUILTINS[number] : undefined;
+      const candidate = entry.group;
+      const unsupported = (builtin === 'reject' && format === 'sing-box')
+        || (builtin !== undefined && format === 'loon' && group.type !== 'select');
+      if (unsupported && !added.has(key)) return [];
+      let label = builtin ? BUILTIN_EXIT_NAMES[builtin] : candidate?.name ?? '';
+      if (entry.node) label = entry.node.display_name;
+      let searched = label;
+      if (entry.node) searched = `${label} ${nodeOrigin(entry.node)} ${entry.node.protocol}`;
+      if (candidate) searched = `${label} ${t('channels.strategyGroup')} ${groupTypeName(candidate.type, format)}`;
+      if (query && !searched.toLowerCase().includes(query)) return [];
+      let disabledReason: string | undefined;
+      if (added.has(key)) disabledReason = t('channels.alreadyAdded');
+      else if (candidate && !candidate.enabled) disabledReason = t('channels.disabled');
+      else if (candidate && createsGroupCycle(groups, group.id, candidate.id)) disabledReason = t('channels.cyclicGroupReference');
+      return [{
+        id: key, label, node: entry.node, builtin, group: candidate, disabledReason,
+        selected: added.has(key) || chosen.has(key),
+        disabled: Boolean(disabledReason), unavailable: unsupported || Boolean(candidate && !candidate.enabled),
+      }];
+    });
+  }, [catalog, chosen, format, group, groups, order, query, t]);
   const count = selected.length;
   const visible = items.map((item) => item.id);
+  const toggle = useCallback((id: string) => setSelected(current =>
+    current.includes(id) ? current.filter(key => key !== id) : [...current, id]), []);
   function add() {
-    onAdd(order.filter(key => selected.includes(key)).flatMap((key) => {
+    onAdd(order.filter(key => chosen.has(key)).flatMap((key) => {
       const entry = catalog.get(key);
       return entry ? [{ kind: entry.kind, id: entry.id }] : [];
     }));
@@ -127,8 +134,7 @@ export function ChannelNodePicker({ nodes, group, groups, format, onClose, onAdd
           <ChannelNodeCards
             format={format}
             items={items}
-            onToggle={(id) => setSelected((current) =>
-              current.includes(id) ? current.filter((key) => key !== id) : [...current, id])}
+            onToggle={toggle}
             onMove={(active, over) => setOrder(reorderVisibleNodes(order, visible, active, over))}
             onDraggingChange={setDragging}
           />

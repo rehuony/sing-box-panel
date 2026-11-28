@@ -16,7 +16,9 @@ import (
 type PublicSubscriptionState struct {
 	TokenID string
 	UserID  string
-	Channel SubscriptionChannel
+	// TokenExpiresAt is when the key expires, nil when it never does.
+	TokenExpiresAt *time.Time
+	Channel        SubscriptionChannel
 	// RuleSets are the rule sets the channel's exit rules route by, without
 	// their channels.
 	RuleSets []SubscriptionRuleSet
@@ -127,7 +129,7 @@ func (s *Store) LoadPublicSubscriptionState(
 	if !token.Active(at) {
 		return PublicSubscriptionState{}, ErrSubscriptionTokenInactive
 	}
-	state.TokenID, state.UserID = token.ID, token.UserID
+	state.TokenID, state.UserID, state.TokenExpiresAt = token.ID, token.UserID, token.ExpiresAt
 	if err := loadSubscriptionPublicationState(ctx, tx, &state, channelID, true); err != nil {
 		return PublicSubscriptionState{}, err
 	}

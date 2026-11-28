@@ -180,6 +180,7 @@ export const testSubscriptionRuleSets: SubscriptionRuleSet[] = [
   {
     id: 'rule_set_streaming',
     client: 'mihomo',
+    icon: 'tv',
     name: 'Streaming',
     rules: [
       { kind: 'domain_suffix', value: 'netflix.com' },
@@ -192,6 +193,7 @@ export const testSubscriptionRuleSets: SubscriptionRuleSet[] = [
   {
     id: 'rule_set_direct',
     client: 'sing-box',
+    icon: 'layers',
     name: 'Direct',
     rules: [{ kind: 'domain_suffix', value: 'cn' }],
     channels: [],
@@ -262,6 +264,7 @@ export const testMetricsHistory: MetricsHistory = {
       to: '2026-08-26T07:35:00Z',
       upload_bytes: 4_096,
       download_bytes: 2_048,
+      traffic_seconds: 300,
       memory_bytes_avg: 58_000_000,
       memory_bytes_peak: 60_000_000,
       active_connections_avg: 12.5,
@@ -274,6 +277,7 @@ export const testMetricsHistory: MetricsHistory = {
       to: '2026-08-26T07:40:00Z',
       upload_bytes: null,
       download_bytes: null,
+      traffic_seconds: null,
       memory_bytes_avg: null,
       memory_bytes_peak: null,
       active_connections_avg: null,
@@ -355,8 +359,15 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
         canonical_revision_id: syntaxValid ? testRevision.id : undefined,
       };
     }),
-    exportPanelBackup: vi.fn<ApiClient['exportPanelBackup']>(),
-    restorePanelBackup: vi.fn<ApiClient['restorePanelBackup']>(),
+    listPanelBackups: vi.fn<ApiClient['listPanelBackups']>().mockResolvedValue({ items: [] }),
+    createPanelBackup: vi.fn<ApiClient['createPanelBackup']>(),
+    panelBackupDownloadUrl: vi.fn<ApiClient['panelBackupDownloadUrl']>((name: string) => `/api/v1/panel/backups/${name}`),
+    deletePanelBackup: vi.fn<ApiClient['deletePanelBackup']>().mockResolvedValue(undefined),
+    stagePanelBackup: vi.fn<ApiClient['stagePanelBackup']>(),
+    uploadPanelRestore: vi.fn<ApiClient['uploadPanelRestore']>(),
+    discardPanelRestore: vi.fn<ApiClient['discardPanelRestore']>().mockResolvedValue(undefined),
+    planPanelRestore: vi.fn<ApiClient['planPanelRestore']>(),
+    applyPanelRestore: vi.fn<ApiClient['applyPanelRestore']>(),
     getPanelSettings: vi.fn<ApiClient['getPanelSettings']>().mockResolvedValue({ admin_email: 'admin@example.com',
       revision: 0,
       service: { data_dir: '/var/lib/sing-box-panel', base_path: '', catalog_refresh_interval_hours: 12, sample_retention_days: 90, private_source_cidrs: [] },
@@ -430,8 +441,9 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     refreshSubscriptionSource: vi.fn<ApiClient['refreshSubscriptionSource']>().mockResolvedValue(testSubscriptionSources[0]),
     previewSubscriptionSource: vi.fn<ApiClient['previewSubscriptionSource']>().mockResolvedValue({ items: [] }),
     listSubscriptionRuleSets: vi.fn<ApiClient['listSubscriptionRuleSets']>().mockResolvedValue({ items: testSubscriptionRuleSets }),
+    setSubscriptionRuleSetOrder: vi.fn<ApiClient['setSubscriptionRuleSetOrder']>().mockResolvedValue(undefined),
     createSubscriptionRuleSet: vi.fn<ApiClient['createSubscriptionRuleSet']>().mockImplementation(async input => ({
-      ...input, id: 'rule_set_new', channels: [], created_at: '2026-08-26T08:00:00Z', updated_at: '2026-08-26T08:00:00.000000001Z',
+      ...input, icon: input.icon ?? 'layers', id: 'rule_set_new', channels: [], created_at: '2026-08-26T08:00:00Z', updated_at: '2026-08-26T08:00:00.000000001Z',
     })),
     updateSubscriptionRuleSet: vi.fn<ApiClient['updateSubscriptionRuleSet']>().mockImplementation(async (id, input) => ({
       ...testSubscriptionRuleSets.find(set => set.id === id)!, ...input, updated_at: '2026-08-26T08:00:00.000000001Z',

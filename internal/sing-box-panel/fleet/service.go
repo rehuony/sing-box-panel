@@ -93,7 +93,8 @@ type Options struct {
 	Releases *releases.Service
 	// PublicationChanged runs after what a node's subscription inbounds
 	// derive from changed: its applied configuration, reported public IP or
-	// public host.
+	// public host. It runs within the node's session, so it returns at once
+	// and leaves the work it starts to run apart.
 	PublicationChanged func(context.Context)
 }
 

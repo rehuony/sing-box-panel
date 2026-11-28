@@ -41,10 +41,14 @@ type Downloader interface {
 
 // CacheOfficial downloads a catalog asset into the cache, verifying its
 // declared size and, when GitHub reports one, its digest. A cached asset is
-// not downloaded again.
+// not downloaded again. The download runs to its own deadline even when the
+// caller stops waiting, so an install the browser gave up on still leaves
+// its archive cached for the next attempt.
 func (application *Service) CacheOfficial(ctx context.Context, assetID int64) (result store.CachedArtifact, operationErr error) {
+	ctx = context.WithoutCancel(ctx)
+	startedAt := time.Now()
 	defer func() {
-		application.telemetry.RecordOperation(ctx, "core.cache", "Core download", operationErr, telemetry.OperationLogContext{CoreID: result.ID})
+		application.telemetry.RecordOperation(ctx, "core.cache", "Core download", operationErr, telemetry.OperationLogContext{CoreID: result.ID, StartedAt: startedAt})
 	}()
 	asset, err := application.CatalogAsset(ctx, assetID)
 	if err != nil {

@@ -128,6 +128,14 @@ func (s *Store) PanelID(ctx context.Context, candidate string) (string, error) {
 	return id, err
 }
 
+// CurrentPanelID returns the panel's identity without creating one; empty
+// before any node was enrolled.
+func (s *Store) CurrentPanelID(ctx context.Context) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT coalesce((SELECT panel_id FROM fleet_identity WHERE singleton = 1), '')`).Scan(&id)
+	return id, err
+}
+
 func (s *Store) Nodes(ctx context.Context) ([]Node, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+nodeColumns+` FROM nodes ORDER BY name COLLATE NOCASE, id`)
 	if err != nil {

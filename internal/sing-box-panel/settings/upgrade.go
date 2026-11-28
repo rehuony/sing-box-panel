@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 
 	"github.com/rehuony/sing-box-panel/internal/jsonstrict"
 	"github.com/rehuony/sing-box-panel/internal/settingsfile"
@@ -47,11 +48,15 @@ func upgradeDocument(data []byte) []byte {
 	if document["nodes"], err = json.Marshal(nodes); err != nil {
 		return data
 	}
-	upgraded, err := json.MarshalIndent(document, "", "  ")
+	compact, err := json.Marshal(document)
 	if err != nil {
 		return data
 	}
-	return append(upgraded, '\n')
+	upgraded, err := settingsfile.Format(reflect.TypeFor[Settings](), compact)
+	if err != nil {
+		return data
+	}
+	return upgraded
 }
 
 // UpgradeFile rewrites the settings file at path in the current shape when

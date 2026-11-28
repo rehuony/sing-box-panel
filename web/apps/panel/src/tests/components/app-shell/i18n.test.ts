@@ -8,7 +8,8 @@ import {
 } from '@shared/i18n/language';
 
 import i18n from '@/i18n';
-import { translationResources } from '@/i18n/resources';
+import { en } from '@/i18n/locales/en';
+import { zhCN } from '@/i18n/locales/zh-CN';
 
 function collectLeafKeys(value: unknown, prefix = ''): string[] {
   if (value === null || typeof value !== 'object') return prefix === '' ? [] : [prefix];
@@ -50,16 +51,18 @@ describe('application language', () => {
     expect(document.documentElement.lang).toBe('zh-CN');
   });
 
+  // Only the language in use is loaded, with no fallback, so each must hold every key.
   it('keeps the English and Simplified Chinese resource keysets identical', () => {
-    const englishKeys = collectLeafKeys(translationResources.en.translation).sort();
-    const chineseKeys = collectLeafKeys(translationResources['zh-CN'].translation).sort();
+    const englishKeys = collectLeafKeys(en).sort();
+    const chineseKeys = collectLeafKeys(zhCN).sort();
 
     expect(supportedLanguages).toEqual(['en', 'zh-CN']);
     expect(chineseKeys).toEqual(englishKeys);
     expect(new Set(englishKeys).size).toBe(englishKeys.length);
   });
 
-  it.each(supportedLanguages)('provides every runtime-composed key in %s', (language) => {
+  it.each(supportedLanguages)('provides every runtime-composed key in %s', async (language) => {
+    await i18n.loadLanguages(language);
     for (const key of requiredDynamicKeys) {
       expect(i18n.exists(key, { lng: language }), `${language} is missing ${key}`).toBe(true);
     }

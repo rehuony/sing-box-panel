@@ -179,14 +179,23 @@ func (server *nodeServer) Connect(stream *nodeapi.ConnectServer) error {
 	service.sessions.replace(node.ID, current)
 	defer service.sessions.remove(node.ID, current)
 	// Commands wait for the first state report, which follows Welcome;
-	// telemetry control waits for Welcome itself.
+	// control frames wait for Welcome itself. The session is registered
+	// before Welcome reads the core log policy, so a settings change after
+	// that read reaches it once Welcome is sent.
 	current.telemetryMu.Lock()
+	policy, err := service.coreLogPolicy(ctx)
+	if err != nil {
+		current.telemetryMu.Unlock()
+		return nodeapi.Errorf(nodeapi.CodeInternal, "read settings")
+	}
 	err = current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_Welcome{Welcome: &nodeapi.Welcome{
 		SessionId: sessionID, PanelBuildVersion: service.build.Version,
 		Protocol:        &nodeapi.ProtocolVersion{Major: nodeapi.ProtocolMajor, Minor: nodeapi.ProtocolMinor},
 		MetricsInterval: durationpb.New(MetricsInterval), RuntimeHistoryAfter: historyAfter,
+		CoreLogPolicy: policy,
 	}}})
 	current.welcomed = err == nil
+	current.coreLogPolicy = policy
 	current.telemetryMu.Unlock()
 	if err != nil {
 		return err

@@ -35,6 +35,7 @@ are described in the core guide.
 | Toolchain and verification commands | [`go.mod`](../go.mod), [`web/package.json`](../web/package.json), [`Makefile`](../Makefile) |
 | CLI behavior | Cobra commands under [`internal/sing-box-panel/cli`](../internal/sing-box-panel/cli) and [`internal/sing-box-node/cli`](../internal/sing-box-node/cli) and live `--help` |
 | HTTP operations, payloads and problem details | Panel: [`api/panel-openapi.yaml`](../api/panel-openapi.yaml); node console: [`api/node-openapi.yaml`](../api/node-openapi.yaml) |
+| Panel–node protocol messages | [`api/proto/sbp/node/v1/node.proto`](../api/proto/sbp/node/v1/node.proto) |
 | Supported sing-box release lines | [`internal/singbox/line.go`](../internal/singbox/line.go) |
 | Reviewed 1.13 configuration schema and its provenance | [Source definition](../internal/sing-box-panel/schema/1.13.json) |
 | Service layouts, ownership and hardening | [systemd packaging](systemd.md) |

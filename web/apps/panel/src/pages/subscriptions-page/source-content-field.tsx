@@ -17,6 +17,7 @@ import { IconAction } from '@/components/icon-action';
 import type { SourceContent } from './source-content';
 
 import { contentLabel } from './source-format';
+import { pasteFromClipboard } from './clipboard-paste';
 import { pastedContent, readContentFile } from './source-content';
 
 /** The view of new content shows at most this many lines, and of each at most this many characters. */
@@ -67,7 +68,7 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
   protocols?: readonly string[];
   value: SourceContent | null;
   onChange: (content: SourceContent | null) => void;
-  /** Says why content could not be taken, in the form's message slot. */
+  /** Says why content could not be taken, which the form reports and marks the field for. */
   onError: (text: string) => void;
   labelId: string;
   invalid?: boolean;
@@ -134,9 +135,9 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
       aria-labelledby={labelId}
       className={cn(
         'flex h-(--control-height) min-w-0 items-center gap-2 rounded-lg border border-input bg-[var(--color-field)] ps-3 pe-1 text-sm outline-none',
-        'focus-visible:outline-1 focus-visible:outline-input-focus focus-visible:-outline-offset-1 focus-visible:outline-solid',
+        'focus-visible:border-[var(--input-focus)]',
         dropping && 'outline-1 -outline-offset-1 outline-input-focus outline-dashed',
-        invalid && 'border-destructive focus-visible:outline-destructive',
+        invalid && 'border-destructive focus-visible:border-destructive',
       )}
       data-slot='source-content'
       onDragLeave={() => setDropping(false)}
@@ -185,11 +186,7 @@ export function SourceContentField({ current, describedBy, invalid, labelId, onC
           : null}
         <IconAction
           label={t('subscriptions.sources.content.paste')}
-          onClick={() => {
-            // The clipboard is absent outside a secure context, and reading it may be refused.
-            const reading = navigator.clipboard?.readText() ?? Promise.reject(new Error('clipboard unavailable'));
-            reading.then(take, () => onError(t('subscriptions.sources.content.clipboardUnavailable')));
-          }}
+          onClick={() => pasteFromClipboard(take, fieldRef.current)}
           size='icon-xs'
         >
           <ClipboardPaste aria-hidden='true' />

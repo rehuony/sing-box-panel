@@ -4,9 +4,8 @@ This directory owns executable project scripts. `installer.sh` installs a
 published release on a Linux host and `cleanup.sh` removes one. `build.sh`
 builds and verifies an
 isolated source snapshot. `test/` contains local script tests and the
-shared release smoke orchestration plus the native Linux sing-box core
-contract. GitHub workflow YAML and the release signing trust root remain under
-`.github/`.
+shared release smoke orchestration. GitHub workflow YAML and the release
+signing trust root remain under `.github/`.
 
 ## Release installer
 
@@ -77,8 +76,12 @@ of accounts from UID 1000), otherwise only the caller's own.
 - `purge` stops and disables the units, stops the processes still running a
   listed binary or a core from a listed node data directory, and removes the
   units with their drop-ins and enablement links, the sysusers and tmpfiles
-  declarations, the binaries, the settings and data directories and the service
-  accounts. `--keep-data` keeps the settings, the data and the accounts.
+  declarations, the binaries, the settings and data directories, the service
+  accounts and what was left behind. `--keep-data` keeps the settings, the
+  data and the accounts.
+
+Every mode covers both components unless `--component panel` or
+`--component node` names one.
 
 | Group | What it looks for |
 | --- | --- |

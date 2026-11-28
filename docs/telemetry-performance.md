@@ -126,31 +126,30 @@ SBP_BROWSER_REVIEW=1 SBP_BROWSER_FLEET=500 go test ./internal/sing-box-panel/ser
 ```
 
 The browser review serves the built interface from `web/apps/panel/dist` on
-`127.0.0.1:3337`. The measured run's seeded fleet had long names, tags and
-mixed states: every sixth node had not enrolled, half the fleet was online
-with reports and a sample every five seconds, and the rest were offline.
-Headless Chrome 157 on Apple M5, at 1440×900 and device scale
-2 in the light theme, signed in as the fixture administrator, opened the home
-screen and ran three passes. Each pass switched the state filter from offline
+`127.0.0.1:3337`. The seeded fleet has long names, tags and mixed states:
+every node is enrolled, half the fleet is online with reports and a sample
+every five seconds, and the rest are offline. Headless Chrome 158 on Apple M5,
+at 1440×900 and device scale 2 in the light theme, signed in as the fixture
+administrator, opened the home screen and ran three passes. Each pass switched the state filter from offline
 to all five times, timing the click to the second frame after it, then scrolled
 the list 40 px a frame for 120 frames. The heap was read after a forced
 collection; single runs, not a statistical claim.
 
 | Measure | 200 nodes | 500 nodes |
 | --- | ---: | ---: |
-| Panes, list height | 200, 9,388 px | 500, 23,488 px |
-| Elements in the page | 9,901 | 24,460 |
-| JavaScript heap | 56 MiB | 127–143 MiB |
-| Scroll frame, median and p95 | 16.7 ms, 16.8 ms | 16.7 ms, 16.8 ms |
-| Longest scroll frame | 16.8 ms | 16.8 ms; 117 ms once in the first pass |
-| Filter switch, offline to all, median per pass | 91–97 ms, 133 panes added | 194–202 ms, 333 panes added |
+| Panes, list height | 200, 9,788 px | 500, 24,488 px |
+| Elements in the page | 14,335 | 35,487 |
+| JavaScript heap | 21–25 MiB | 49–59 MiB |
+| Scroll frame, median and p95 | 16.7 ms, 16.7 ms | 16.7 ms, 16.8 ms |
+| Longest scroll frame | 16.8 ms | 16.8 ms; 33.3 ms once in each of the second and third passes |
+| Filter switch, offline to all, median per pass | 64.8–65.0 ms, 100 panes added | 98.4 ms, 250 panes added |
 
 Headless Chrome draws on a 60 Hz frame clock, so a 16.7 ms frame means none
 was dropped; the figures do not show the headroom below a frame. The first 48
 panes render at once and the rest use `content-visibility: auto`, so scrolling
 paints only the panes coming into view. Mounting is what grows with the fleet:
-the filter switch costs about 0.6 ms a pane added and reaches 200 ms at 500
-nodes, and the heap grows by about 0.3 MiB a node.
+the filter switch takes about 65 ms for 100 panes added and about 100 ms for
+250, and the heap grows by about 0.1 MiB a node.
 
 ## Metrics history
 
@@ -172,6 +171,25 @@ statistical claim.
 The full range stays expensive. The dashboard stream shares one read among its
 viewers and runs only while one is open, so the cost is per refresh, not per
 viewer.
+
+```sh
+go test ./internal/sing-box-panel/store -run '^$' \
+  -bench '^BenchmarkDashboardMetricsHistory' -benchtime=200x -benchmem
+```
+
+`BenchmarkDashboardMetricsHistory` reads a node's dashboard ranges, the last
+hour and the last day, over two days of one sample every ten seconds, each
+read ten seconds and one new sample after the last. Three runs on Apple M5:
+
+| Dashboard read | Elapsed | Allocated | Allocations |
+| --- | ---: | ---: | ---: |
+| Every bucket | 55.0–55.6 ms | 216 KB | 7,742 |
+| Kept history | 0.50–0.51 ms | 74 KB | 361–362 |
+
+A kept history reads again only the buckets that rows recorded since its last
+read reach and the open one, so a refresh costs about a hundredth of a full
+read; the first read after a viewer opens the dashboard, a retention pass or a
+node's removal is a full one.
 
 ## Not measured
 

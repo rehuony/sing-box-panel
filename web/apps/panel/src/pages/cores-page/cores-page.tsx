@@ -1,12 +1,17 @@
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Badge } from '@shared/components/ui/badge';
 import { Button } from '@shared/components/ui/button';
+import { Spinner } from '@shared/components/ui/spinner';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@shared/components/ui/scroll-area';
+import { EM_DASH, formatBytes } from '@shared/lib/telemetry-format';
+import { buttonVariants } from '@shared/components/ui/button-variants';
+import { formatDateTime, formatShortDateTime } from '@shared/lib/format-time';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
-import { ExternalLink, Package, PackageSearch, RefreshCw, SearchX, Upload } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -15,25 +20,63 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@shared/components/ui/dialog';
+import { Download, ExternalLink, MoreHorizontal, Package, PackageSearch, Power, PowerOff, RefreshCw, SearchX, Trash2, Upload } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@shared/components/ui/dropdown-menu';
 
 import type { CoreArtifact } from '@/api/api-client';
 
 import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
 import { ApiRequestError } from '@/api/api-client';
+import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
 import { useCurrentNode } from '@/stores/current-node.store';
 import { ListPagination } from '@/components/list-pagination';
 import { RegionError, RegionState } from '@/components/region-state';
-import { describeRequestError, ErrorNotice } from '@/components/error-notice';
+import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
 import { CardToolbar, StripAction, StripDivider, StripSearch } from '@/components/title-strip';
 
 import { CoreImportDialog } from './core-import-dialog';
 import { useVersionLibrary } from './use-version-library';
 
-export function CoresPage() {
+/** A version's state in its list: what the catalog has installed, or whether an installed one runs. */
+type VersionState = 'installed' | 'notInstalled' | 'enabled' | 'disabled' | 'unknown' | 'running';
+
+/** A version, the row's identity, in the data face. */
+const versionCell = 'font-[family-name:var(--font-data)] text-compact font-medium tabular-nums';
+
+const stateTone: Record<VersionState, string> = {
+  installed: 'text-[var(--color-success-text)]',
+  enabled: 'text-[var(--color-success-text)]',
+  notInstalled: 'text-muted-foreground',
+  disabled: 'text-muted-foreground',
+  unknown: 'text-[var(--color-warning-text)]',
+  running: 'text-muted-foreground',
+};
+
+/** A version's state as a dot and a word; work in progress turns the dot into a spinner. */
+function VersionStatus({ state }: { state: VersionState }) {
   const { t } = useTranslation();
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', stateTone[state])}>
+      {state === 'running'
+        ? <Spinner aria-hidden='true' className='size-3' role={undefined} />
+        : <span aria-hidden='true' className='size-1.5 flex-none rounded-full bg-current' />}
+      {t(`cores.library.${state}`)}
+    </span>
+  );
+}
+
+export function CoresPage() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? 'en';
   const node = useCurrentNode();
   const navigate = useNavigate();
   const client = useApiClient();
@@ -99,7 +142,8 @@ export function CoresPage() {
     } catch (reason) {
       if (!signal.aborted) {
         toast.add({
-          title: describeRequestError(reason),
+          title: t('cores.library.actionFailed'),
+          description: describeRequestError(reason),
           type: 'error',
           ...(reason instanceof ApiRequestError && reason.code === 'configuration_not_saved'
             ? {
@@ -129,7 +173,7 @@ export function CoresPage() {
         toast.add({ title: t('cores.artifact.changed'), type: 'success' });
       }
     } catch (reason) {
-      if (!signal.aborted) toast.add({ title: describeRequestError(reason), type: 'error' });
+      if (!signal.aborted) toastFailure(t('cores.library.removeFailed'), reason);
     } finally {
       if (!signal.aborted) setPending(null);
     }
@@ -189,120 +233,134 @@ export function CoresPage() {
           aria-busy={listLoading}
         >
           <ScrollArea className='flex-1' viewportClassName='flex flex-col'>
-            <table className='workspace-table w-full min-w-160 table-fixed border-collapse [&_td]:px-4 [&_td]:wrap-anywhere [&_th]:sticky [&_th]:top-0 [&_th]:z-1 [&_th]:bg-[var(--color-surface-raised)] [&_th]:px-4 [&_th]:text-left [&_th]:text-muted-foreground [&_tbody_tr]:border-b [&_td:last-child]:text-center [&_th:last-child]:text-center'>
-              <thead>
-                <tr>
-                  <th className='w-1/5'>{t('cores.library.version')}</th>
-                  <th className='w-[24%]'>{t('cores.library.source')}</th>
-                  {tab === 'catalog' && <th className='w-[38%]'>{t('cores.library.officialLink')}</th>}
-                  {tab === 'installed' && <th className='w-[38%]'>{t('cores.library.status')}</th>}
-                  <th>{t('cores.library.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className='w-36 max-sm:w-28'>{t('cores.library.version')}</TableHead>
+                  <TableHead className='w-32 max-sm:w-28'>{t('cores.library.status')}</TableHead>
+                  {tab === 'catalog'
+                    ? (
+                        <>
+                          <TableHead className='max-sm:hidden'>{t('cores.library.file')}</TableHead>
+                          <TableHead className='w-28 text-end max-sm:hidden'>{t('cores.library.size')}</TableHead>
+                        </>
+                      )
+                    : (
+                        <>
+                          <TableHead className='max-sm:hidden'>{t('cores.library.source')}</TableHead>
+                          <TableHead className='w-44 max-sm:hidden'>{t('cores.library.installedAt')}</TableHead>
+                        </>
+                      )}
+                  <TableHead className='w-28 max-sm:w-24 max-sm:ps-0'><span className='sr-only'>{t('cores.library.actions')}</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {tab === 'installed'
                   ? installed.slice(start, start + size).map((artifact) => {
                       const enabled
                         = library.runtime?.enabled_core?.core_artifact_id === artifact.id;
+                      let state: VersionState = 'disabled';
+                      if (pending?.key === artifact.id) state = 'running';
+                      else if (enabled) state = 'enabled';
+                      else if (runtimeUncertain) state = 'unknown';
                       return (
-                        <tr key={artifact.id}>
-                          <td>
-                            <strong className='font-mono text-muted-foreground'>{artifact.exact_version}</strong>
-                          </td>
-                          <td>
+                        <TableRow key={artifact.id}>
+                          <TableCell className={versionCell}>{artifact.exact_version}</TableCell>
+                          <TableCell><VersionStatus state={state} /></TableCell>
+                          <TableCell className='text-[var(--color-text-secondary)] max-sm:hidden'>
                             {t(artifact.source_kind === 'official' ? 'cores.source.official' : 'cores.source.user_verified')}
-                          </td>
-                          <td>
-                            <span className={enabled ? 'text-[var(--color-success-text)]' : undefined}>
-                              {pending?.key === artifact.id
-                                ? t(`cores.library.${pending.status}`)
-                                : enabled
-                                  ? t('cores.library.enabled')
-                                  : runtimeUncertain
-                                    ? t('cores.library.unknown')
-                                    : t('cores.library.disabled')}
-                            </span>
-                          </td>
-                          <td>
-                            <div className='flex items-center justify-center gap-2'>
-                              <Button
-                                size='sm'
-                                variant={enabled ? 'destructive' : 'default'}
-                                title={runtimeUncertain ? t('cores.library.unknown') : undefined}
-                                disabled={
-                                  Boolean(pending)
-                                  || runtimeUncertain
-                                }
-                                onClick={() =>
-                                  void run(artifact.id, (signal) =>
-                                    enabled
-                                      ? client.disableCore(artifact.id, signal)
-                                      : client.enableCore(artifact.id, signal),
-                                  )
-                                }
+                          </TableCell>
+                          <TableCell className='max-sm:hidden' kind='data' title={formatDateTime(artifact.created_at, locale)}>
+                            {formatShortDateTime(artifact.created_at, locale) || EM_DASH}
+                          </TableCell>
+                          <TableCell className='max-sm:ps-0' kind='actions'>
+                            <IconAction
+                              disabled={Boolean(pending) || runtimeUncertain}
+                              label={t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
+                              onClick={() =>
+                                void run(artifact.id, (signal) =>
+                                  enabled
+                                    ? client.disableCore(artifact.id, signal)
+                                    : client.enableCore(artifact.id, signal),
+                                )}
+                            >
+                              {enabled ? <PowerOff aria-hidden='true' /> : <Power aria-hidden='true' />}
+                            </IconAction>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                render={(
+                                  <IconAction
+                                    className='data-popup-open:bg-[var(--color-hover)] data-popup-open:text-foreground'
+                                    label={t('cores.library.more', { version: artifact.exact_version })}
+                                  />
+                                )}
                               >
-                                {t(enabled ? 'cores.library.disable' : 'cores.library.enable')}
-                              </Button>
-                              <Button
-                                size='sm'
-                                variant='destructive'
-                                disabled={Boolean(pending) || enabled || runtimeUncertain}
-                                onClick={() => setConfirmation(artifact)}
-                              >
-                                {t('cores.action.remove')}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
+                                <MoreHorizontal aria-hidden='true' />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align='end' className='w-auto min-w-40'>
+                                <DropdownMenuGroup>
+                                  <DropdownMenuItem
+                                    disabled={Boolean(pending) || enabled || runtimeUncertain}
+                                    variant='destructive'
+                                    onClick={() => setConfirmation(artifact)}
+                                  >
+                                    <Trash2 aria-hidden='true' />
+                                    {t('cores.action.remove')}
+                                  </DropdownMenuItem>
+                                </DropdownMenuGroup>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
                       );
                     })
                   : available.slice(start, start + size).map((asset) => {
                       const exists = library.artifacts.some((artifact) => artifact.asset_id === asset.asset_id);
+                      const key = `install:${asset.asset_id}`;
+                      let state: VersionState = exists ? 'installed' : 'notInstalled';
+                      if (pending?.key === key) state = 'running';
+                      const release = t('cores.library.release', { version: asset.version });
                       return (
-                        <tr key={asset.asset_id}>
-                          <td>
-                            <strong className='font-mono text-muted-foreground'>{asset.version}</strong>
-                          </td>
-                          <td>
-                            {t('cores.source.official')}
-                          </td>
-                          <td>
-                            <Badge
-                              className='max-w-full'
-                              title={asset.name}
-                              render={(
-                                <a
-                                  href={`https://github.com/SagerNet/sing-box/releases/tag/v${encodeURIComponent(asset.version)}`}
-                                  target='_blank'
-                                  rel='noopener noreferrer'
-                                />
-                              )}
-                            >
-                              <span className='truncate'>{asset.name}</span>
-                              <ExternalLink aria-hidden='true' data-icon='inline-end' />
-                            </Badge>
-                          </td>
-                          <td>
-                            <Button
-                              size='sm'
-                              variant='default'
-                              disabled={exists || Boolean(pending)}
-                              onClick={() =>
-                                void run(`install:${asset.asset_id}`, (signal) =>
-                                  client.installCore(asset.asset_id, signal),
-                                )
-                              }
-                            >
-                              {pending?.key === `install:${asset.asset_id}`
-                                ? t(`cores.library.${pending.status}`)
-                                : t(exists ? 'cores.library.installed' : 'cores.library.download')}
-                            </Button>
-                          </td>
-                        </tr>
+                        <TableRow key={asset.asset_id}>
+                          <TableCell className={versionCell}>{asset.version}</TableCell>
+                          <TableCell><VersionStatus state={state} /></TableCell>
+                          <TableCell className='max-sm:hidden' kind='data' title={asset.name}>{asset.name}</TableCell>
+                          <TableCell className='max-sm:hidden' kind='number'>{formatBytes(asset.size, locale)}</TableCell>
+                          <TableCell className='max-sm:ps-0' kind='actions'>
+                            {exists
+                              ? null
+                              : (
+                                  <IconAction
+                                    disabled={Boolean(pending)}
+                                    label={t('cores.library.download')}
+                                    onClick={() =>
+                                      void run(key, (signal) => client.installCore(asset.asset_id, signal))}
+                                  >
+                                    <Download aria-hidden='true' />
+                                  </IconAction>
+                                )}
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={(
+                                  <a
+                                    aria-label={release}
+                                    className={buttonVariants({ size: 'icon-sm', variant: 'ghost' })}
+                                    href={`https://github.com/SagerNet/sing-box/releases/tag/v${encodeURIComponent(asset.version)}`}
+                                    rel='noopener noreferrer'
+                                    target='_blank'
+                                  />
+                                )}
+                              >
+                                <ExternalLink aria-hidden='true' />
+                              </TooltipTrigger>
+                              <TooltipContent>{release}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             {!count
               ? listLoading
                 ? <LoadingState label={t(tab === 'installed' ? 'cores.loadingInstalled' : 'cores.loadingCatalog')} fullScreen={false} />

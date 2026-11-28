@@ -1,8 +1,25 @@
 export const EM_DASH = '—';
 
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+/**
+ * The number format for a locale and options, built once and kept: building
+ * one costs far more than formatting with it, and live views format on every
+ * frame. Callers write the same options in the same order to share one.
+ */
+export function numberFormat(locale: string, options: Intl.NumberFormatOptions = {}): Intl.NumberFormat {
+  const key = `${locale} ${JSON.stringify(options)}`;
+  let format = numberFormats.get(key);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(locale, options);
+    numberFormats.set(key, format);
+  }
+  return format;
+}
+
 export function formatBytes(value: number | null | undefined, locale = 'en'): string {
   if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return EM_DASH;
-  if (value < 1_024) return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)} B`;
+  if (value < 1_024) return `${numberFormat(locale, { maximumFractionDigits: 0 }).format(value)} B`;
   const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
   let amount = value / 1_024;
   let unit = units[0];
@@ -10,9 +27,7 @@ export function formatBytes(value: number | null | undefined, locale = 'en'): st
     amount /= 1_024;
     unit = units[index];
   }
-  return `${new Intl.NumberFormat(locale, {
-    maximumFractionDigits: amount >= 10 ? 0 : 1,
-  }).format(amount)} ${unit}`;
+  return `${numberFormat(locale, { maximumFractionDigits: amount >= 10 ? 0 : 1 }).format(amount)} ${unit}`;
 }
 
 /** A traffic rate; one that is not known reads 0, never a dash. */

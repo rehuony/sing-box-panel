@@ -1,9 +1,9 @@
 import { useState } from 'react';
+import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Globe2, Languages } from 'lucide-react';
 import { Button } from '@shared/components/ui/button';
 import { setAppLanguage } from '@shared/i18n/language';
-import { motion, useReducedMotion } from 'motion/react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,56 +13,19 @@ import {
   DropdownMenuTrigger,
 } from '@shared/components/ui/dropdown-menu';
 
-const LANGUAGE_MOTION_DURATION_SECONDS = 0.22;
+// Each icon turns and fades as the other takes its place; reduced motion swaps them at once.
+const glyphLayer = 'absolute inset-0 flex items-center justify-center transition-[opacity,rotate,scale] duration-[var(--dur-short)] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none';
 
+/** The globe at rest, turning into the languages icon while the menu is open. */
 function LanguageGlyph({ active }: { active: boolean }) {
-  const shouldReduceMotion = useReducedMotion();
-
-  if (shouldReduceMotion === true) {
-    return (
-      <span className='relative flex size-4 items-center justify-center' data-motion='reduced'>
-        {active
-          ? <Languages aria-hidden='true' data-language-icon='languages' />
-          : <Globe2 aria-hidden='true' data-language-icon='globe' />}
-      </span>
-    );
-  }
-
-  const transition = {
-    duration: LANGUAGE_MOTION_DURATION_SECONDS,
-    ease: [0.22, 1, 0.36, 1] as const,
-  };
-
   return (
-    <span
-      className='relative flex size-4 items-center justify-center'
-      data-active={active ? 'true' : 'false'}
-      data-motion='full'
-    >
-      <motion.span
-        animate={{
-          opacity: active ? 0 : 1,
-          rotate: active ? -16 : 0,
-          scale: active ? 0.88 : 1,
-        }}
-        className='absolute inset-0 flex items-center justify-center'
-        initial={false}
-        transition={transition}
-      >
+    <span className='relative flex size-4 items-center justify-center'>
+      <span className={cn(glyphLayer, active && '-rotate-16 scale-88 opacity-0')}>
         <Globe2 aria-hidden='true' data-language-icon='globe' />
-      </motion.span>
-      <motion.span
-        animate={{
-          opacity: active ? 1 : 0,
-          rotate: active ? 0 : 16,
-          scale: active ? 1 : 0.88,
-        }}
-        className='absolute inset-0 flex items-center justify-center'
-        initial={false}
-        transition={transition}
-      >
+      </span>
+      <span className={cn(glyphLayer, !active && 'rotate-16 scale-88 opacity-0')}>
         <Languages aria-hidden='true' data-language-icon='languages' />
-      </motion.span>
+      </span>
     </span>
   );
 }

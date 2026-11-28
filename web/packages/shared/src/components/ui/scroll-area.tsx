@@ -5,7 +5,8 @@ import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area';
 
 /**
  * A scroll region whose scrollbars overlay the content and appear only while
- * it scrolls or the pointer is over them, so they never take layout width.
+ * it scrolls or the pointer is over them, so they never take layout width;
+ * scrolling it to its end never scrolls the page behind it.
  */
 function ScrollArea({
   className,
@@ -30,7 +31,9 @@ function ScrollArea({
         data-slot='scroll-area-viewport'
         {...viewportProps}
         ref={viewportRef}
-        className={cn('size-full overscroll-contain outline-none', viewportClassName)}
+        // Overscroll stays inside only along an axis that scrolls, so a region with nothing to
+        // scroll hands the wheel and touch on to the page around it.
+        className={cn('size-full outline-none data-has-overflow-x:overscroll-x-contain data-has-overflow-y:overscroll-y-contain', viewportClassName)}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

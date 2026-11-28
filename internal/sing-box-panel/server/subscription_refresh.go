@@ -9,6 +9,9 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
 )
 
+// startSubscriptionRefresh refreshes due sources every minute and, between
+// those rounds, serves requested pool synchronizations, such as after a fleet
+// node's report, one at a time.
 func startSubscriptionRefresh(ctx context.Context, subscriptions *subscription.Service, records *telemetry.Service) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
@@ -19,10 +22,15 @@ func startSubscriptionRefresh(ctx context.Context, subscriptions *subscription.S
 			if err := subscriptions.RefreshDueSubscriptionSources(ctx); err != nil && ctx.Err() == nil {
 				records.RecordOperation(ctx, "subscription.refresh", "Automatic subscription refresh", err, telemetry.OperationLogContext{})
 			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
+			for waiting := true; waiting; {
+				select {
+				case <-ctx.Done():
+					return
+				case <-subscriptions.PoolSyncRequests():
+					subscriptions.PoolInputsChanged(ctx)
+				case <-ticker.C:
+					waiting = false
+				}
 			}
 		}
 	}()
