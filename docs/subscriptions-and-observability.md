@@ -910,7 +910,11 @@ Each node's runtime history follows `nodes.runtime_history_retention_days`
 traffic samples deletes older transitions during startup, every 24 hours and
 after a settings save; it keeps the newest runtime transition of each node
 instance, which gives the state a timeline starts in and where the node's next
-session resumes its history. Configuration bytes, subscription bodies, token
+session resumes its history. A node's runtime states tab clears its history
+with `DELETE /api/v1/nodes/{nodeId}/core/runtime/history`, which keeps the
+same newest transition of each instance, records one
+`runtime.history.cleared` entry about the node with the number deleted and
+leaves the panel log alone. Configuration bytes, subscription bodies, token
 plaintext, URL credentials, and known secret fields are not stored as log
 payloads.
 

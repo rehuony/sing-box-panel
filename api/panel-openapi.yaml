@@ -850,6 +850,20 @@ paths:
           $ref: "#/components/responses/RuntimeHistoryPage"
         default:
           $ref: "#/components/responses/Problem"
+    delete:
+      operationId: clearCoreRuntimeHistory
+      description: >-
+        Deletes the node's runtime history except the newest entry of each of
+        its node instances, which gives the current state and where the node
+        resumes reporting, and records one runtime.history.cleared entry about
+        the node with the number deleted. Panel log entries are not affected.
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/RuntimeHistoryClearResult"
+        default:
+          $ref: "#/components/responses/Problem"
   /nodes/{nodeId}/core/check:
     parameters:
       - $ref: '#/components/parameters/NodeID'
@@ -2683,6 +2697,9 @@ components:
     RuntimeHistoryPage:
       description: Stable newest-first page of durable runtime transitions.
       content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeHistoryPage"}}}
+    RuntimeHistoryClearResult:
+      description: Count of deleted runtime transitions.
+      content: {application/json: {schema: {$ref: "#/components/schemas/RuntimeHistoryClearResult"}}}
     SubscriptionNodeList:
       description: The subscription node pool in its saved order.
       content: {application/json: {schema: {$ref: "#/components/schemas/SubscriptionNodeList"}}}
@@ -3582,6 +3599,12 @@ components:
       properties:
         occurred_at: {type: string, format: date-time}
         id: {type: integer, format: int64, minimum: 1}
+    RuntimeHistoryClearResult:
+      type: object
+      additionalProperties: false
+      required: [deleted]
+      properties:
+        deleted: {type: integer, format: int64, minimum: 0}
     RuntimeHistoryPage:
       type: object
       additionalProperties: false

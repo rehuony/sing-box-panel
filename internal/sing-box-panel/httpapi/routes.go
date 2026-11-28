@@ -100,6 +100,7 @@ var routes = []route{
 	{http.MethodPost, "/nodes/{nodeId}/core/import", "importCoreArtifact", accessNode, (*Handler).importCore},
 	{http.MethodGet, "/nodes/{nodeId}/core/status", "getCoreRuntimeStatus", accessNode, (*Handler).coreRuntimeStatus},
 	{http.MethodGet, "/nodes/{nodeId}/core/runtime/history", "getCoreRuntimeHistory", accessNode, (*Handler).coreRuntimeHistory},
+	{http.MethodDelete, "/nodes/{nodeId}/core/runtime/history", "clearCoreRuntimeHistory", accessNode, (*Handler).clearCoreRuntimeHistory},
 	{http.MethodPost, "/nodes/{nodeId}/core/check", "checkStartupArtifact", accessNode, (*Handler).checkStartup},
 	{http.MethodPost, "/nodes/{nodeId}/core/start", "startCoreRuntime", accessNode, runtimeLifecycle("start")},
 	{http.MethodPost, "/nodes/{nodeId}/core/stop", "stopCoreRuntime", accessNode, runtimeLifecycle("stop")},

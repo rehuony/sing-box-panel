@@ -59,6 +59,43 @@ func TestRuntimeHistoryReplicatesEachNodeInstanceAppendOnly(t *testing.T) {
 	}
 }
 
+func TestClearingRuntimeHistoryKeepsEachInstanceNewest(t *testing.T) {
+	ctx := testContext(t)
+	database := openTestStore(t, ctx)
+	if _, err := enrollTestNode(ctx, database, "node-other", "other", nil); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, time.November, 18, 9, 0, 0, 0, time.UTC)
+	for index, transition := range []RuntimeTransitionInput{
+		{NodeID: testNodeID, InstanceID: "instance-a", SourceID: 1},
+		{NodeID: testNodeID, InstanceID: "instance-a", SourceID: 2},
+		{NodeID: testNodeID, InstanceID: "instance-a", SourceID: 3},
+		{NodeID: testNodeID, InstanceID: "instance-b", SourceID: 1},
+		{NodeID: "node-other", InstanceID: "instance-a", SourceID: 1},
+		{NodeID: "node-other", InstanceID: "instance-a", SourceID: 2},
+	} {
+		transition.State, transition.Reason = RuntimeTransitionStopped, "stop_succeeded"
+		transition.OccurredAt = at.Add(time.Duration(index) * time.Minute)
+		if err := database.RecordRuntimeTransition(ctx, transition); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if deleted, err := database.ClearRuntimeTransitions(ctx, testNodeID); err != nil || deleted != 2 {
+		t.Fatalf("cleared runtime transitions = %d, %v; want the two older entries of instance-a", deleted, err)
+	}
+	for _, want := range []struct {
+		node, instance string
+		sources        string
+	}{{testNodeID, "instance-a", "3"}, {testNodeID, "instance-b", "1"}, {"node-other", "instance-a", "1,2"}} {
+		var sources string
+		if err := database.db.QueryRowContext(ctx, `SELECT group_concat(source_id, ',') FROM
+		    (SELECT source_id FROM runtime_transitions WHERE node_id = ? AND instance_id = ? ORDER BY source_id)`,
+			want.node, want.instance).Scan(&sources); err != nil || sources != want.sources {
+			t.Fatalf("%s/%s keeps sources %q, %v; want %q", want.node, want.instance, sources, err, want.sources)
+		}
+	}
+}
+
 func TestRuntimeHistoryPaginationFiltersAndPreceding(t *testing.T) {
 	ctx := testContext(t)
 	database := openTestStore(t, ctx)

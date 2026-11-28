@@ -20,6 +20,7 @@ import { logTitle } from '@/utils/panel-log-presentation';
 import { ListPagination } from '@/components/list-pagination';
 import { CardToolbar, StripDivider, StripSearch } from '@/components/title-strip';
 import {
+  ClearRuntimeStatesAction,
   logDataCell,
   LogRow,
   LogRowTitle,
@@ -105,6 +106,8 @@ export function RuntimeStatesView({ lead, nodeID }: { lead: ReactNode; nodeID: s
               setPage(1);
             }}
           />
+          <StripDivider className='max-sm:hidden' />
+          <ClearRuntimeStatesAction className='max-sm:ms-auto' onCleared={() => setPage(1)} />
         </CardToolbar>
         <ScrollArea aria-busy={loading} className='flex-1' contentClassName='flex flex-col'>
           <Table>

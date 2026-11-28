@@ -10,6 +10,7 @@ export type {
   NodeRuntimeTransition,
   PanelLogPage,
   RecentMetrics,
+  RuntimeHistoryClearResult,
 } from '../generated';
 
 export type LogLevel = LogEntry['level'];

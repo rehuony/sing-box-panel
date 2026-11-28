@@ -117,6 +117,29 @@ func applicationRuntimeTransition(value store.RuntimeTransition) RuntimeTransiti
 	}
 }
 
+type RuntimeHistoryClearResult struct {
+	Deleted int64 `json:"deleted"`
+}
+
+// ClearRuntimeHistory deletes the node's runtime history except each of its
+// instances' newest transition, the current state and where the node resumes
+// replicating, makes its dashboard read every bucket again and records one
+// entry about the node saying how many it deleted.
+func (application *Service) ClearRuntimeHistory(ctx context.Context, nodeID string) (RuntimeHistoryClearResult, error) {
+	deleted, err := application.database.ClearRuntimeTransitions(ctx, nodeID)
+	if deleted > 0 {
+		application.resetDashboardHistory(nodeID)
+	}
+	if err != nil {
+		return RuntimeHistoryClearResult{}, err
+	}
+	application.RecordEvent(LogRecordRequest{
+		Source: store.LogSourcePanel, Level: store.LogLevelInfo, Code: "runtime.history.cleared", Message: "Runtime history cleared",
+		Metadata: LogMetadata(map[string]any{"node_id": nodeID, "deleted": deleted}),
+	})
+	return RuntimeHistoryClearResult{Deleted: deleted}, nil
+}
+
 // RecordRuntimeTransition stores one entry of a node's runtime history.
 func (application *Service) RecordRuntimeTransition(ctx context.Context, input store.RuntimeTransitionInput) error {
 	return application.database.RecordRuntimeTransition(ctx, input)

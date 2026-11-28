@@ -75,6 +75,15 @@ export const productLogs = {
     done_other: '已清空 {{count}} 条日志，释放 {{size}}',
     failed: '日志清空失败',
   },
+  clearStates: {
+    title: '清空运行状态记录',
+    description: '将删除该节点已保存的运行状态记录，只保留当前状态。概览中更早的运行时间线将显示为未知。',
+    note: '事件和核心日志不受影响，此操作无法撤销。',
+    confirm: '清空',
+    done_one: '已清空 {{count}} 条运行状态记录',
+    done_other: '已清空 {{count}} 条运行状态记录',
+    failed: '运行状态记录清空失败',
+  },
   columns: {
     time: '发生时间',
     level: '级别',
@@ -111,6 +120,7 @@ export const productLogs = {
     'panel.failed': '面板服务异常停止',
     'panel.restart_requested': '已请求重启面板',
     'logs.cleared': '日志已清空',
+    'runtime.history.cleared': '运行状态记录已清空',
     'runtime.reconciled': '启动时运行状态已校准',
     'runtime.config_cleanup_failed': '运行配置清理失败',
     'runtime.recovery_reconcile_failed': '恢复状态校准失败',

@@ -146,13 +146,15 @@ func (service *Service) SubscribeDashboard(nodeID string) (<-chan SnapshotResult
 
 // resetDashboardHistory makes the next read of the dashboards of nodeID, or
 // of every node when nodeID is empty, compute every bucket, after samples or
-// transitions within their ranges were deleted.
+// transitions within their ranges were deleted. A viewer arriving next reads
+// the dashboard anew instead of receiving the snapshot from before.
 func (service *Service) resetDashboardHistory(nodeID string) {
 	service.dashboardsMu.Lock()
 	defer service.dashboardsMu.Unlock()
 	for id, entry := range service.dashboards {
 		if nodeID == "" || id == nodeID {
 			entry.history.Reset()
+			entry.feed.Expire()
 		}
 	}
 }

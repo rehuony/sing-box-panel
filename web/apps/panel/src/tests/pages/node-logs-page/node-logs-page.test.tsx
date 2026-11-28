@@ -83,6 +83,17 @@ describe('node core logs', () => {
     expect(within(context).getByText('进程 ID')).toBeVisible();
     expect(within(context).getByText('bundle_current')).toBeVisible();
   });
+  it('clears the node\'s runtime states once confirmed', async () => {
+    const user = userEvent.setup();
+    const client = show(createMockApiClient({
+      clearCoreRuntimeHistory: vi.fn().mockResolvedValue({ deleted: 3 }),
+    }), `/nodes/${testNode.id}/logs#logs-states`);
+    await user.click(await screen.findByRole('button', { name: 'Clear runtime states' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Clear runtime states' });
+    await user.click(within(dialog).getByRole('button', { name: 'Clear' }));
+    expect(client.clearCoreRuntimeHistory).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
   it('wires the live toggle to stream cancellation and resumption', async () => {
     const stream = vi.fn(async function* (_file: string, offset = -1, _generation?: string, signal?: AbortSignal) {
       const chunk: CoreLogChunk = {

@@ -129,6 +129,24 @@ func (s *Store) LatestRuntimeTransitionSource(ctx context.Context, nodeID, insta
 	return latest.Int64, nil
 }
 
+// ClearRuntimeTransitions removes the node's runtime history except the
+// newest transition of each of its instances, which retention keeps for the
+// same reasons, and returns how many it removed.
+func (s *Store) ClearRuntimeTransitions(ctx context.Context, nodeID string) (int64, error) {
+	if !ValidIdentifier(nodeID) {
+		return 0, errors.New("runtime history requires a node")
+	}
+	return s.deleteInBatches(ctx, "cleared runtime transitions",
+		`DELETE FROM runtime_transitions WHERE id IN (
+			SELECT transition.id FROM runtime_transitions AS transition
+			 WHERE transition.node_id = ?
+			   AND transition.source_id < (
+				SELECT max(newest.source_id) FROM runtime_transitions AS newest
+				 WHERE newest.node_id = transition.node_id AND newest.instance_id = transition.instance_id)
+			 LIMIT ?)`,
+		nodeID)
+}
+
 func (s *Store) ListRuntimeTransitions(
 	ctx context.Context,
 	filter RuntimeHistoryFilter,
