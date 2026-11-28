@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/corelogs"
+	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
 )
 
 func (application *Node) coreLogFiles() (*corelogs.Files, error) {
@@ -65,6 +66,49 @@ func (application *Node) ClearCoreLog(ctx context.Context, name string) (err err
 		return err
 	}
 	return files.Clear(name)
+}
+
+// SetCoreLogPolicy applies the core log retention the panel sends, removing
+// what it no longer keeps, and keeps it for the node's next start. A policy
+// already in effect changes nothing. A failure is recorded as well as
+// returned; a stored policy that its cleanup could not finish still applies,
+// and the next cleanup retries it.
+func (application *Node) SetCoreLogPolicy(ctx context.Context, policy corelogs.Policy) (err error) {
+	defer func() {
+		if err != nil {
+			application.record(Event{
+				Source: SourceNode, Level: LevelWarn,
+				Code: "core.log.policy_failed", Message: "The panel's core log retention could not be applied",
+				Metadata: map[string]any{"error": err.Error()},
+			})
+		}
+	}()
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	files, err := application.coreLogFiles()
+	if err != nil {
+		return err
+	}
+	if files.Policy() == policy {
+		return nil
+	}
+	if err := application.database.SaveCoreLogPolicy(ctx, store.CoreLogPolicy{
+		RetentionDays: policy.RetentionDays, MaxFiles: policy.MaxFiles, MaxFileBytes: policy.MaxFileBytes,
+	}, application.now()); err != nil {
+		return err
+	}
+	return files.SetPolicy(policy)
+}
+
+// startingCoreLogPolicy is the policy the node starts with: the one the panel
+// last sent, or DefaultCoreLogPolicy before it sent one.
+func startingCoreLogPolicy(ctx context.Context, database *store.Store) (corelogs.Policy, error) {
+	stored, found, err := database.CoreLogPolicy(ctx)
+	if err != nil || !found {
+		return DefaultCoreLogPolicy, err
+	}
+	return corelogs.Policy{RetentionDays: stored.RetentionDays, MaxFiles: stored.MaxFiles, MaxFileBytes: stored.MaxFileBytes}, nil
 }
 
 // attachCoreLogs attaches the runtime's core log files before requests are

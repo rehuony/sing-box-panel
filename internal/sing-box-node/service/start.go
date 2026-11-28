@@ -35,7 +35,7 @@ func (node *Node) Start(ctx context.Context) (*Runtime, error) {
 		return nil, fmt.Errorf("restore enabled core link: %w", err)
 	}
 	node.artifacts = installed
-	services, err := newRuntimeServices(node.database, node, node.dataDir)
+	services, err := newRuntimeServices(ctx, node.database, node, node.dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("construct sing-box runtime: %w", err)
 	}

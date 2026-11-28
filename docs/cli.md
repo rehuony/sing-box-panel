@@ -1,7 +1,7 @@
 # CLI reference
 
 The sing-box-panel CLI manages panel settings, node registration, the panel
-service, systemd integration, installation files, and the panel executable. Manage sing-box
+service, systemd integration, installation files, backups, and the panel executable. Manage sing-box
 versions and runtime, subscriptions, logs, and metrics through the Web UI.
 Running the root command or a command group without a leaf prints help.
 
@@ -10,7 +10,7 @@ Running the root command or a command group without a leaf prints help.
 ```text
 sing-box-panel
 ├─ init | version | update
-├─ system df | prune
+├─ system df | prune | backup | restore
 ├─ server start | stop | status
 ├─ systemd install | uninstall | status | start | stop | restart | logs
 ├─ config init | show | get | set | verify
@@ -43,16 +43,10 @@ the Web UI, per node where they belong to one; automation can use the
 authenticated [HTTP API](../api/panel-openapi.yaml). `version` reports the panel executable's version and `update` updates that
 executable; sing-box version management belongs to the Web UI.
 
-Service commands previously under `system` now use `systemd`. File inspection
-uses `system df` (formerly `system files`); cleanup uses `system prune`
-(formerly `system clean`). Update scripts and regenerate shell completions;
-the old service paths, `system files`, and `system clean` are not aliases,
-and there is no `prn` alias.
-
 Use `sing-box-panel COMMAND --help` at any level for current flags and leaf
-commands. Help lists usage, local flags, inherited global flags (when present),
-and available commands, in that order. Root usage is shown on one line as
-`sing-box-panel [flags] [command]`; command groups similarly combine flags and
+commands. Help lists usage, examples (when present), local flags, inherited
+global flags (when present), and available commands, in that order. Root
+usage is shown on one line as `sing-box-panel [flags] [command]`; command groups similarly combine flags and
 subcommands. Global flags may appear before or after subcommands, and invoking
 a group without a subcommand still displays help. Leaf usage retains its
 command-specific arguments.
@@ -64,11 +58,12 @@ ordering.
 ## Global flags and output
 
 - `-c, --config PATH` selects one settings file.
-- `-o, --output=text|json|jsonl` selects human or machine-readable output.
+- `-f, --format=text|json|jsonl` selects human or machine-readable output.
 
-Both `-o json` and `-o=json` select JSON.
-It is the same persistent flag as `--output`, so either form may appear before
-or after subcommands; `text` and `jsonl` work the same way.
+Both `-f json` and `-f=json` select JSON.
+It is the same persistent flag as `--format`, so either form may appear before
+or after subcommands; `text` and `jsonl` work the same way. A command's own
+`-o, --output` names a file it writes, such as the copy `system backup` makes.
 
 `-c` and `--config` are short and long forms of the same flag. When omitted,
 commands that need settings load the default path: root uses
@@ -110,7 +105,8 @@ Service ownership, symlink, locking, and cleanup-scope checks still apply.
 Database identity restricts storage operations, but does not prevent confirmed
 full-directory cleanup.
 
-`config verify`, `server start`, and `systemd install --now` require the complete
+`config verify`, the `node` commands, `system backup`, `system restore`,
+`server start`, and `systemd install --now` require the complete
 valid panel settings. Startup checks the runtime environment and database;
 `config verify` reads the settings file alone. `server start` first creates default
 settings if the selected file is absent, including parent directories, the default data directory,
@@ -175,8 +171,8 @@ not serialized because they may expose filesystem or upstream details.
 `version` prints only the program name and version, such as `sing-box-panel
 v1.2.3`; the panel and the node of one release report the same version. Release, prerelease, and Go module pseudo-versions are shown unchanged,
 including a `+dirty` suffix when present. A build without a usable version
-number displays `sing-box-panel unknown`. Use `version --output=json` or
-`--output=jsonl` for the full, unchanged `version`, `commit`, and `date` metadata,
+number displays `sing-box-panel unknown`. Use `version --format=json` or
+`--format=jsonl` for the full, unchanged `version`, `commit`, and `date` metadata,
 including any original placeholder values, and the `protocol` version of the
 panel-node protocol.
 
@@ -242,7 +238,8 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   cleared. Clearing a value does not restore initialization defaults.
   The existing file must be a JSON object; the complete result must validate.
   This can repair an invalid field value, but cannot repair malformed JSON.
-  The change is atomic, retains unselected values and relative paths, and uses mode `0600`.
+  The change is atomic, retains unselected values and relative paths, writes
+  the fields in the order `init` and the Web UI write them, and uses mode `0600`.
   Missing files are not initialized. Values are never echoed in success output.
 - `set auth.password --stdin` accepts a plaintext administrator password and
   stores only its Argon2id hash in `auth.password_hash`, using the same password
@@ -265,10 +262,8 @@ sing-box-panel config set --config ./setting.json --file - < ./new-setting.json
   and database are untouched. JSON/JSONL returns `saved: true` and `settings_path`.
   This form cannot be combined with a field/value or `--stdin`.
 
-`get` and `set` accept dot-separated keys only. The former `unset`,
-`hash-password`, and `reset-password` commands have been removed; use `set`
-to clear optional values or change the password. Update scripts and regenerate
-installed shell completions after upgrading.
+`get` and `set` accept dot-separated keys only; use `set` to clear optional
+values or change the password.
 
 Settings documents are limited to 1 MiB. `set` and
 `verify` reject unknown fields, duplicate keys, trailing JSON, and invalid
@@ -290,15 +285,10 @@ pending move. These sidecars appear in `system df`; cleanup removes idle metadat
 and refuses an unfinished relocation.
 Do not remove recovery material to bypass a conflict.
 
-The top-level `verify` and duplicate `config check` commands are removed; use
-`config verify`. Update scripts that used `config check`.
-The former sing-box configuration interfaces and their revision and core
-flags remain removed. The current `config verify`, `get`, and `set`
-operate only on panel settings. Move sing-box editing, validation, and Apply
-workflows to the Web UI, and regenerate shell completions after upgrading.
-The Web editor continues to
-store exact sing-box text in SQLite with revision conflict detection; this
-change does not create a separately editable sing-box file on disk.
+`config verify`, `get`, and `set` operate only on panel settings; sing-box
+editing and validation belong to the Web UI. The Web editor stores exact
+sing-box text in SQLite with revision conflict detection, with no separately
+editable sing-box file on disk.
 
 ## Nodes
 
@@ -395,7 +385,7 @@ directory and what is wrong with it.
 the executable, the settings file, every entry in the data directory with its
 size and the files of a service whose unit names these settings; its `Service`
 row says whether that service is installed, uses other settings or cannot be
-inspected. `--output json` returns the same report. `system prune` shows that
+inspected. `--format json` returns the same report. `system prune` shows that
 tree as a preview; `--yes` stops the node, uninstalls that service (`--keep-user` keeps the system account), then
 deletes the settings file and the whole data directory. Roots, homes, shared
 system directories, linked data directories and one holding the running
@@ -410,7 +400,7 @@ verifies the release with the key built into the binary (the signature, the
 binary's checksum, build identity and platform, and a version newer than its
 own), and replaces the binary, which needs write access to it, such as with
 `sudo` for `/usr/local/bin`. Text output reports progress on stderr like the
-panel's update; `--output json` returns the result with its `source`, `panel`
+panel's update; `--format json` returns the result with its `source`, `panel`
 or `github`. The running node keeps its version
 until its service restarts; `--restart` restarts it at once, which restarts its
 core and briefly interrupts its proxy. The panel can also update an online node
@@ -462,7 +452,7 @@ child. A second panel cannot run against the same data directory. The bare
 
 `status` reports the live process state (`starting`, `ready`, or `stopping`),
 settings path, data directory, listener, and whether it belongs to a terminal
-or systemd. JSON also includes the process ID, start time, and version. An
+or systemd, with its process ID, version, and start time. An
 absent or stale control endpoint reports `stopped`; permission, timeout, and
 protocol failures remain errors rather than implying the process stopped.
 
@@ -499,7 +489,8 @@ keeps its process ID, so this works in a terminal, in a container and under a
 system or user unit alike, and the binary an update replaced is the one that
 runs. Nodes and their cores keep running, and reconnect once the panel is back.
 A restart is refused while an update of the panel runs or is staged, since the
-update restarts the panel itself. If running the program again fails, the panel
+update restarts the panel itself, and while nodes are being updated, which it
+would interrupt. If running the program again fails, the panel
 exits with an error for its supervisor to act on. `GET /api/v1/system/status`
 reports `started_at`, which changes with every restart.
 
@@ -521,8 +512,8 @@ described in [Backup and restore](configuration-and-runtime.md#backup-and-restor
 It runs whether the panel runs or not; while the panel is stopped the command
 holds its lease, so the panel cannot start meanwhile. `--passphrase-file`
 encrypts the archive with age using the first line of the file, at least 8
-bytes, and `-` reads it from standard input; `--output` also copies the archive
-to a new file. Copy backups off the host: `system prune` removes the data
+characters, and `-` reads it from standard input; `-o, --output` also copies the
+archive to a new file. Copy backups off the host: `system prune` removes the data
 directory with them.
 
 `restore` reads a backup and verifies it whole: its manifest and every file's
@@ -540,7 +531,7 @@ interface, which applies the restore when the panel restarts.
 
 ```sh
 sing-box-panel system df                          # uses the default settings
-sing-box-panel system df -c ./setting.json --output json
+sing-box-panel system df -c ./setting.json --format json
 sing-box-panel system prune -c ./setting.json      # preview only
 sing-box-panel system prune -c ./setting.json --yes
 ```
@@ -624,18 +615,16 @@ and a one-line yellow reminder to pass `--yes` to stop the instance and permanen
 delete its settings and all data when removable resources exist.
 Pipes, redirected output, an unset or
 `dumb` `TERM`, and nonempty `NO_COLOR` disable all ANSI styling. JSON/JSONL remain
-uncolored and keep their report field names and absolute paths; `-o` is shorthand
-for `--output`.
+uncolored and keep their report field names and absolute paths; `-f` is shorthand
+for `--format`.
 
 `prune` without `--yes` is a read-only preview. **Move everything you want to keep
 outside the selected data directory before confirming.** With `--yes`, cleanup
 stops the selected instance, uninstalls its matching managed service, removes the
 selected settings, and completely removes the data directory and its contents.
 This includes unknown files, unrecognized/old databases, logs, cores, uploads,
-and arbitrary nested directories. Files inside that directory are no longer
-retained based on a known-name list or database identity. The JSON `cleanup`
-values reflect this scope: data entries use `remove` or `remove_link`, and the
-data directory uses `remove`. Missing preset children are no longer synthesized.
+and arbitrary nested directories. The JSON `cleanup` values reflect this scope:
+data entries use `remove` or `remove_link`, and the data directory uses `remove`.
 
 Filesystem roots, home/shared directories and their aliases, linked data roots,
 linked settings files, and a data directory containing the panel executable are
@@ -702,7 +691,7 @@ so it never claims which settings that process started with:
 
 ```sh
 sing-box-panel systemd status --scope=user
-sing-box-panel systemd status --scope=system --output json
+sing-box-panel systemd status --scope=system --format json
 ```
 
 The `service` object carries systemd's own answers: load, active, sub, and
@@ -711,7 +700,8 @@ enablement state, `main_pid`, `unit_path` (the fragment path), and
 the file currently at that path. `unit_file.settings_path` is the `--config`
 argument of its single effective `[Service] ExecStart` line, honoring empty
 resets, systemd quoting, the literal `%%`/`$$` escapes the installer writes,
-and the server's last-value semantics for a repeated flag. It is omitted and
+and the server's last-value semantics for a repeated flag, with
+`unit_file.settings_state` `parsed`. It is omitted and
 `unit_file.settings_state` is `unknown` when the unit is unreadable, uses
 drop-in overrides, has no or several effective commands, or references
 specifiers or variables that only systemd can resolve. `unit_file.stale` is
@@ -727,8 +717,9 @@ rewrites it, and `systemd start` and `restart` refuse such a unit.
 
 `settings_file` (`source: "settings file on disk"`) reads the file at
 `unit_file.settings_path` as it exists now. `state: loaded` means its location
-was read successfully, and supplies `data_dir`, `database_path`, and
-`configuration.database_path`; it does not certify the full runtime settings.
+was read successfully, and supplies `data_dir`, `database_path`,
+`logs_database_path`, and `configuration.database_path`; it does not certify
+the full runtime settings.
 `unavailable` means the file or its location could not be read or validated;
 `unknown` means no path was determined. Neither case hides the unit state,
 and the command never prints
@@ -749,6 +740,7 @@ The process uses stable high-level exit categories:
 | `4` | Revision, identity, or state conflict |
 | `5` | Permission failure |
 | `6` | Required application or runtime state is unavailable |
+| `75` | A service stopped for systemd to start it again, such as to install a staged update; see [systemd packaging](systemd.md#updates) |
 | `130` | Interrupted or canceled, including `SIGINT` |
 | `143` | Terminated by `SIGTERM` |
 
@@ -814,7 +806,7 @@ uses occasional plain progress lines. Unknown download sizes show transferred
 MiB until completion. The percentage measures the binary download only: a 100%
 download still needs verification and installation. Success is reported on
 stdout only after the update finishes; failures and cancellation end the progress
-line before the error is printed. `--output=json` and `--output=jsonl` suppress
+line before the error is printed. `--format=json` and `--format=jsonl` suppress
 progress and preserve the existing structured result and error formats.
 
 It is available only to strict v-prefixed release builds on Linux amd64 and
@@ -822,7 +814,7 @@ arm64. The selected release must attach the panel binary for the platform,
 `SHA256SUMS`, and `SHA256SUMS.sig`. The command verifies the embedded Ed25519 trust root and
 the selected binary digest, then requires the staged file to carry the expected
 Go command, module, Linux target, architecture, and disabled-CGO build identity.
-Updates for one executable are serialized through an adjacent process lock;
+Updates for one executable are serialized by a lock on the executable itself;
 the current executable digest is rechecked after waiting and immediately before
 the atomic replacement, and the latest release tag is confirmed again while
 the lock is held. Cancellation is honored until that replacement commit point.

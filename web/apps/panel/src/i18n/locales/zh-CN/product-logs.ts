@@ -120,6 +120,8 @@ export const productLogs = {
     'runtime.unexpected_exit': '核心进程意外退出',
     'core.log.retention_failed': '核心日志保留清理失败',
     'core.log.maintenance_failed': '核心日志每日轮转或保留清理失败',
+    'core.log.policy_failed': '未能应用面板下发的核心日志保留设置',
+    'core.log.policy_sync_failed': '未能向节点下发核心日志保留设置',
     'core_upload.gc_aborted': '暂存上传清理已中止',
     'core_upload.gc_completed': '暂存上传清理已完成',
     'core_upload.gc_inspection_failed': '暂存上传检查失败',

@@ -64,8 +64,8 @@ make deps
 make build
 ```
 
-This writes `bin/sing-box-panel`. It is the appropriate command while
-developing, but it is not the release packaging path.
+This writes `bin/sing-box-panel` and `bin/sing-box-node`. It is the
+appropriate command while developing, but it is not the release packaging path.
 
 ## HEAD snapshot
 
@@ -242,7 +242,7 @@ runs four stages:
    prerequisites before building the probe's Web distribution.
 4. `draft` obtains `contents: write` only after both smoke jobs pass. It creates
    a Draft Release targeted at the frozen commit, generates release notes,
-   uploads the four exact assets, downloads them into an empty directory, and
+   uploads the six exact assets, downloads them into an empty directory, and
    re-verifies the asset set, bytes, checksums, signature, version, source
    commit, and embedded public key.
 

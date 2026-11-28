@@ -97,7 +97,7 @@ type errorOutput struct {
 }
 
 // WriteError renders one terminal error to writer in the format root's
-// --output flag selected. Causes are deliberately not serialized because they
+// --format flag selected. Causes are deliberately not serialized because they
 // may contain filesystem or upstream details unsuitable for machine consumers.
 func WriteError(writer io.Writer, root *cobra.Command, err error) error {
 	// A service that stops to be started again has not failed.
@@ -115,7 +115,7 @@ func WriteError(writer io.Writer, root *cobra.Command, err error) error {
 	}
 	format := Text
 	if root != nil {
-		if flag := root.Flag("output"); flag != nil {
+		if flag := root.Flag("format"); flag != nil {
 			format = Format(flag.Value.String())
 		}
 	}

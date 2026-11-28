@@ -117,9 +117,15 @@ strip.
 **5. Publish subscriptions** from *subscriptions*; see
 [Subscriptions and observability](docs/subscriptions-and-observability.md).
 
-**6. Update** the panel from its settings and each node from its own, or run
-`sudo sing-box-panel update` and `sudo sing-box-node update`. Nodes always
-follow the panel's release.
+**6. Update** the panel from its settings and each node from its own, or from
+a shell, first on the panel's host and then on each node's:
+
+```sh
+sudo sing-box-panel update && sudo sing-box-panel systemd restart
+sudo sing-box-node update --restart
+```
+
+Nodes always follow the release of the running panel.
 
 [Getting started](docs/getting-started.md) covers each step, a regular user's
 installation and running from a source build.
@@ -142,7 +148,8 @@ curl -fsSL https://raw.githubusercontent.com/rehuony/sing-box-panel/main/scripts
 ```
 
 Add `--component panel` or `--component node` to act on one, `--keep-data` to
-keep settings and data through a purge, and `--yes` to skip the confirmation.
+keep settings, data and service accounts through a purge, and `--yes` to skip
+the confirmation.
 See [scripts](scripts/README.md#cleanup) for what it finds.
 
 ## Build from source

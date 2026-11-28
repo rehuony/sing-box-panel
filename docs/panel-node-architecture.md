@@ -17,7 +17,7 @@ lists each package's responsibility and the dependency direction.
 
 | Service | Runs on | Responsibilities | Never does |
 | --- | --- | --- | --- |
-| Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; the node release of its own version that nodes update from; the subscription node pool, sources, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts and its node release |
+| Panel (`sing-box-panel`) | One host | Web UI and management API; node registry, enrollment and sessions; each node's editable configuration and revisions; the core version catalog and artifact cache; the node release of its own version that nodes update from; the subscription node pool, sources, rule sets, channels, keys, templates, rendering and `/sub` delivery; aggregated metrics, traffic, runtime history and panel logs; backups and restores of its settings and databases | Run sing-box, read node hosts' files, fetch anything on a node's behalf except core artifacts and its node release |
 | Node (`sing-box-node`) | Every proxy host | One sing-box runtime: verified core installs, configuration check and activation, process supervision and recovery, rollback bundles; host metrics, public IP, read-only filesystem browsing, core logs and traffic counters; reports its host, configuration and runtime state; carries out panel commands; a password-protected console for its enrollment and read-only readings | Accept connections from its panel, serve the panel's Web UI, hold subscription data or the panel's administrator credentials |
 
 The panel host runs no sing-box. A panel host that should also carry proxy
@@ -83,7 +83,7 @@ The session handshake runs on the connect endpoint before any command:
 1. The node sends `Hello` with its node ID, protocol version, build version, platform and instance ID, the random identity of its database.
 2. The panel answers `Challenge` with a random nonce and the panel ID.
 3. The node answers `Proof`, an Ed25519 signature over a fixed context string, the panel ID, the node ID and the nonce.
-4. The panel verifies it against the enrolled public key and answers `Welcome` with the baseline metrics interval and the newest runtime transition it holds for that instance, or closes the stream with a code.
+4. The panel verifies it against the enrolled public key and answers `Welcome` with the baseline metrics interval, the core log retention its settings hold and the newest runtime transition it holds for that instance, or closes the stream with a code.
 5. The node sends a full `StateReport`, then the runtime transitions after the one the panel named. The panel accepts commands for the node once that report is recorded. A session whose first report does not arrive within 30 seconds, or cannot be recorded, ends, and the node reconnects with a new one.
 
 A new authenticated session for a node replaces the previous one. The panel
@@ -97,7 +97,7 @@ Frames are `oneof` envelopes:
 
 | Direction | Frames |
 | --- | --- |
-| Panel → node | `Challenge`, `Welcome`, `Command { request_id, deadline, body }`, `Cancel { request_id }`, `TelemetryControl` |
+| Panel → node | `Challenge`, `Welcome`, `Command { request_id, deadline, body }`, `Cancel { request_id }`, `TelemetryControl`, `CoreLogPolicy` |
 | Node → panel | `Hello`, `Proof`, `Result { request_id, outcome or problem }`, `Event` (state report, runtime transition, metrics sample with traffic counters) |
 
 The command bodies are typed: check configuration; enable and disable a core;
@@ -116,11 +116,13 @@ node with the same major version and records its build version and minor
 version. Each command belongs to the minor version that added it, and the
 panel refuses to send a command to a node whose session names an older minor
 version, answering `node_upgrade_required` without contacting the node. The
-contract is at minor version 2. Minor version 1 adds the release endpoint,
-`UpdateNode` and the state report's last update attempt, and minor version 2 adds
+contract is at minor version 3. Minor version 1 adds the release endpoint,
+`UpdateNode` and the state report's last update attempt; minor version 2 adds
 `GetCoreSchema`, which runs the installed core's `sing-box schema` for a core of a
-line that has it and returns its output, at most 3 MiB; every other command is in
-minor version 0.
+line that has it and returns its output, at most 3 MiB; and minor version 3 adds
+the core log retention, in `Welcome` and as `CoreLogPolicy`, which the panel
+sends only to nodes of that minor version. Every other command is in minor
+version 0.
 A breaking change moves to a new package.
 
 The release endpoint authenticates on its own, apart from the session, so the
@@ -179,9 +181,9 @@ too, while the node runs.
 | Runtime process, intents and recovery | Node | The panel shows the reported state |
 | Host facts, metrics, public IP, filesystem | Node, live | The panel keeps bounded metrics history |
 | Traffic counters | Node, cumulative across core restarts in a durable checkpoint | The panel computes each node's deltas, its periods from its own reset day, and its usage against its own quota |
-| Core log files | Node, bounded and sanitized | The panel relays reads on demand and keeps no copy |
+| Core log files | Node, bounded and sanitized by the retention the panel's settings set | The panel relays reads on demand and keeps no copy |
 | Panel log and operation outcomes | Panel, in its own `logs.db`, kept until cleared | Node events are recorded with their node ID |
-| Subscriptions: node pool and its order, sources, channels, keys, templates | Panel | — |
+| Subscriptions: node pool and its order, sources, rule sets and their order, channels, keys, templates | Panel | — |
 | Panel settings, administrator credentials and sessions | Panel | — |
 | Node settings: panel URL, data directory and identity key; console settings and password hash | Node | — |
 
@@ -232,7 +234,10 @@ the panel keeps the sample's time unless it lies ahead of the panel's clock or
 more than 20 seconds behind it, and then uses its own.
 While a browser views a node's live metrics, the panel sends `TelemetryControl`
 to raise that node to one sample per second and lowers it again when the last
-viewer leaves. The nodes home and the status line read every node's baseline samples at once,
+viewer leaves. When the panel settings change the core log retention, the panel
+sends `CoreLogPolicy` to every connected node that speaks protocol minor 3; the
+node applies it at once and keeps it in its database, so it starts with it
+again even while the panel is unreachable. The nodes home and the status line read every node's baseline samples at once,
 with rates averaged over ten seconds, from one fleet snapshot: `/fleet/stream`
 shares it among every client and refreshes it every two seconds while anyone
 streams it, sending each client every node once and then only the nodes that
@@ -250,8 +255,9 @@ each node's latest metrics sample, current period and newest accepted traffic sa
 in memory, updated by every accepted sample, so a fleet snapshot is one query for
 the nodes whatever their number; a period the panel does not hold, after a
 rollover or a changed period setting, is read from the daily ledger once. The
-subscription header reports the summed usage of every node's own current
-period and no total, because quotas belong to nodes.
+subscription header reports the summed usage of the nodes a subscription
+carries, each in its own current period, against the sum of their quotas; see
+[Subscriptions and observability](subscriptions-and-observability.md).
 
 ## Subscriptions
 
@@ -264,7 +270,7 @@ node reports; a node with neither, or whose revision cannot be published,
 publishes nothing and is named in a diagnostic while the other nodes publish.
 Each inbound's pool ID and default display name include its node, and channel
 membership refers to these stable IDs. The subscription traffic
-header sums the usage of the nodes a subscription carries. Third-party sources belong to the panel and depend on no node.
+header sums the usage and the quotas of the nodes a subscription carries. Third-party sources belong to the panel and depend on no node.
 
 ## Management API and Web UI
 
@@ -273,8 +279,8 @@ each node's resources under that node.
 
 | Scope | Resources |
 | --- | --- |
-| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/fleet/runtime/history` (every node's runtime transitions), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{node_id}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, the panel log, restarting the panel, authentication |
-| One node | `/nodes/{node_id}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
+| Fleet | `/fleet/status` (the nodes with their metrics, filtered by state, tag and text, and paged) and `/fleet/stream` (the same nodes, then their changes), `/fleet/commands` (start, stop, restart, install a core version or update on listed nodes or every node with a tag, streaming each node's outcome), `/fleet/runtime/history` (every node's runtime transitions), `/nodes` (list with each node's reported state, tags, whether an update is available and its last update attempt, a new node's enrollment code, rename, delete) and `/nodes/{nodeId}/enrollment` (a new code for an enrolled node, and canceling an unused code), fleet traffic status with each node's usage and quota, core catalog and artifact cache, `/system/update` (the panel's version, the newest release, a check and the panel's own update), subscriptions, panel settings, backups and restores, the panel log, restarting the panel, authentication |
+| One node | `/nodes/{nodeId}/…`: status, cores, configuration file and check, runtime controls, rollback, filesystem, core logs, metrics and their stream and history, dashboard stream, settings (public host, traffic quota and period, tags), update to the panel's release, traffic periods and runtime history |
 
 A fleet command runs the single-node operation on each selected node, at most
 four at once, records each as its own operation and streams each node's outcome
@@ -343,8 +349,9 @@ internal/
     nodeconfig/          per-node editable file, revisions, check and apply through fleet
     corecache/           upstream catalog discovery, artifact cache and distribution
     schema/              configuration schemas: the reviewed 1.13 schema and preparation of the ones cores print
-    subscription/        node pool, sources and parsers, inbound conversion, channels, keys, templates, renderers
-    telemetry/           metrics, traffic, runtime history and log relay
+    subscription/        node pool, sources and parsers, inbound conversion, rule sets, channels, keys, templates, renderers
+    telemetry/           metrics, traffic, runtime history and the panel log
+    backup/              backups of the settings file and databases, and staged restores
     auth/ settings/
     systemd/             the panel's unit templates and settings-file state for the shared lifecycle
     installation/        inspection, data moves and removal of the panel's files
@@ -353,22 +360,22 @@ internal/
     cli/ server/ testutil/
   sing-box-node/         node service: imports shared packages, never the panel
     agent/               enrollment link, session, handshake, reconnect, command dispatch, state and telemetry reports
-    httpapi/             console API: login, enrollment and the link's status
+    httpapi/             console API: login, enrollment, the link's status and the node's readings
     artifacts/           verified core installs
     runtime/             process supervision, intents, recovery, Clash API monitor
     corelogs/            bounded native process output
     host/                host metrics, public IP, read-only filesystem
-    service/             the node's use cases: installs, checks, activation, supervision, recovery, core logs, filesystem
-    store/               node SQLite: revisions, bundles, intents, recovery, command results
+    service/             the node's use cases: installs, checks, activation, supervision, recovery, traffic counters, core logs, filesystem
+    store/               node SQLite: revisions, bundles, intents, recovery, traffic checkpoint, command results
     systemd/             the node's unit templates and settings-file state for the shared lifecycle
     settings/ cli/
 
   Infrastructure: knows nothing of sing-box, subscriptions or the fleet
   atomicfile/ buildinfo/ jsonstrict/ release/ selfupdate/
   procctl/               local service control and lease
-  settingsfile/          settings-file reads, writer lock, data directory and dotted fields of both services
+  settingsfile/          settings-file reads, writer lock, data directory, dotted fields and field order of both services
   netguard/              which addresses count as public for outbound fetches and reported host addresses
-  database/              SQLite opening, pragmas and data-directory locks shared by both stores
+  database/              SQLite opening, pragmas, migrations and data-directory locks shared by both stores; snapshots for backups
   logredact/             log redaction applied by both services
   webauth/               password hashing, login limits, origin and CSRF checks of both management APIs
   systemd/               one service's systemd lifecycle: units, dedicated account, status, control
@@ -397,7 +404,7 @@ imports and may use any package.
 
 - One module and one release build both binaries for `linux/amd64` and `linux/arm64`; the signed `SHA256SUMS` covers both.
 - The installer takes `--component panel|node`, or asks which when neither is given, reports what is already installed, and installs only that binary.
-- Each service has its own systemd unit and dedicated account, installed by its own binary's `systemd` commands over one shared lifecycle. The node unit carries the privileges sing-box needs; the panel unit drops them because it no longer runs sing-box.
+- Each service has its own systemd unit and dedicated account, installed by its own binary's `systemd` commands over one shared lifecycle. The node unit carries the privileges sing-box needs; the panel unit drops them because it runs no sing-box.
 - A node reports its build version in each session; the panel records it and returns it with the node in the management API, with whether it differs from the panel's release.
 - Both binaries embed the release key and update themselves only to a signed release newer than the running version. The panel updates from the latest stable GitHub release, from its settings or with `sing-box-panel update`; an enrolled node updates to the panel's own release, from the panel or with `sing-box-node update`, and never contacts GitHub, so both run one version; a node without a panel updates from the latest stable GitHub release with `sing-box-node update`.
 - How a binary is replaced depends on how it runs. A process that may write its executable, a user service or one in the foreground, verifies and installs the release itself; a user service then restarts its unit, and a foreground process keeps running the old version until it is restarted. A system service runs as its dedicated account with a read-only system, so it stages the verified release in `updates/VERSION/` of its data directory, writes `updates/request` naming the version and stops with exit status 75, which its unit restarts on. Before the service starts, the unit's install step runs as root: it copies the staged files beside the executable before reading them, verifies them with the installed binary's key, refuses anything older than or equal to the installed version, installs and writes `updates/result`, which the service reads when it starts and reports. Updates go one way: the replaced binary is not kept, and nothing is left beside the executable. The panel's update waits while nodes are being updated, and node updates wait while the panel updates itself. See the [systemd packaging guide](systemd.md#updates).

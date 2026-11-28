@@ -117,7 +117,7 @@ func TestPruneFailureDiagnosticsAcrossStreams(t *testing.T) {
 			}
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{Stdout: &stdout, Stderr: &stderr, Systemd: service, CleanupHistoryPath: testHistoryPath(t)})
-			root.SetArgs([]string{"system", "prune", "--yes", "-c", config, "-o", format})
+			root.SetArgs([]string{"system", "prune", "--yes", "-c", config, "-f", format})
 			err := root.ExecuteContext(t.Context())
 			if !errors.Is(err, systemd.ErrConflict) || cliui.ExitCode(err) != 4 {
 				t.Fatalf("lost failure classification: %v", err)
@@ -162,7 +162,7 @@ func TestPruneDFRepeatAndReappearingHistory(t *testing.T) {
 	service := &fakeSystemdService{err: systemd.ErrUnsupportedOS}
 	run := func(args ...string) string {
 		t.Helper()
-		args = append(args, "-c", config, "-o", "json")
+		args = append(args, "-c", config, "-f", "json")
 		out, _, err := executeSystemCommand(t, service, args...)
 		if err != nil {
 			t.Fatal(err)
@@ -264,7 +264,7 @@ func TestFinalHistoryFailurePreservesCompletedResult(t *testing.T) {
 			t.Fatal(err)
 		}
 	}}
-	out, _, err := executeSystemCommand(t, service, "system", "prune", "--yes", "-c", config, "-o", "json")
+	out, _, err := executeSystemCommand(t, service, "system", "prune", "--yes", "-c", config, "-f", "json")
 	if err == nil {
 		t.Fatal("final history failure reported success")
 	}

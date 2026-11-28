@@ -35,7 +35,7 @@ func TestServerStartInitializesMissingSettings(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(directory, "config"))
 			t.Setenv("XDG_DATA_HOME", filepath.Join(directory, "data"))
 			path := settings.DefaultPath()
-			args := []string{"server", "start", "--output", test.format}
+			args := []string{"server", "start", "--format", test.format}
 			if test.explicit {
 				path = filepath.Join("custom", "setting.json")
 				args = append(args, "-c", path)

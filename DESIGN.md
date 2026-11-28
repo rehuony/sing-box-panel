@@ -144,9 +144,9 @@ On a coarse pointer every control height resolves to 44px. Controls in one row s
 
 | Shadow | Light | Dark |
 | --- | --- | --- |
-| `--shadow-card` | `0 2px 5px -2px oklch(22% 0.018 274 / 6%), 0 10px 24px -18px oklch(22% 0.018 274 / 16%)` | `0 14px 34px -24px #000000b8` |
+| `--shadow-card` | `0 2px 5px -2px oklch(24% 0.015 280 / 6%), 0 10px 24px -18px oklch(24% 0.015 280 / 16%)` | `0 14px 34px -24px #000000b8` |
 | Popover | `0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%)` | Same |
-| `--shadow-panel` | `inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.05 286 / 30%)` | `inset 0 1px 0 oklch(100% 0 0 / 8%), 0 28px 72px -34px #000000d1` |
+| `--shadow-panel` | `inset 0 1px 0 oklch(100% 0 0 / 65%), 0 18px 48px -28px oklch(30% 0.015 280 / 30%)` | `inset 0 1px 0 oklch(100% 0 0 / 8%), 0 28px 72px -34px #000000d1` |
 | `--shadow-thumb` | `0 1px 2px oklch(24% 0.015 280 / 10%)` | `inset 0 1px 0 oklch(100% 0 0 / 7%), 0 1px 2px #00000066` |
 
 | Motion token | Value | Use |

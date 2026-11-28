@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/backup"
 	"github.com/rehuony/sing-box-panel/internal/sing-box-panel/telemetry"
@@ -18,8 +19,10 @@ const (
 	backupUploadReadTimeout = time.Hour
 	// maximumBackupUploadBytes bounds an uploaded backup.
 	maximumBackupUploadBytes = 1 << 36
-	minimumPassphraseBytes   = 8
-	maximumPassphraseBytes   = 1024
+	// A backup's passphrase is 8 to 1024 characters, counted as the Web
+	// form and the CLI count them.
+	minimumPassphraseCharacters = 8
+	maximumPassphraseCharacters = 1024
 )
 
 // PanelBackupList is the backups in the panel's data directory, newest first.
@@ -175,7 +178,7 @@ func (handler *Handler) uploadPanelRestore(w http.ResponseWriter, r *http.Reques
 		}
 		switch part.FormName() {
 		case "passphrase":
-			value, readErr := io.ReadAll(io.LimitReader(part, maximumPassphraseBytes+1))
+			value, readErr := io.ReadAll(io.LimitReader(part, utf8.UTFMax*maximumPassphraseCharacters+1))
 			_ = part.Close()
 			if readErr != nil {
 				writeProblem(w, r, http.StatusUnprocessableEntity, "panel_restore_invalid", "Restore request invalid", "The passphrase could not be read.")
@@ -262,11 +265,12 @@ func (handler *Handler) applyPanelRestore(w http.ResponseWriter, r *http.Request
 // validPassphrase accepts no passphrase or one of a usable length; a new
 // backup's passphrase must be long enough to protect it.
 func validPassphrase(w http.ResponseWriter, r *http.Request, passphrase string, creating bool) bool {
-	if passphrase == "" || (len(passphrase) <= maximumPassphraseBytes && (!creating || len(passphrase) >= minimumPassphraseBytes)) {
+	length := utf8.RuneCountInString(passphrase)
+	if passphrase == "" || (length <= maximumPassphraseCharacters && (!creating || length >= minimumPassphraseCharacters)) {
 		return true
 	}
 	writeProblem(w, r, http.StatusUnprocessableEntity, "backup_passphrase_invalid", "Passphrase invalid",
-		"Use a passphrase of 8 to 1024 bytes.")
+		"Use a passphrase of 8 to 1024 characters.")
 	return false
 }
 

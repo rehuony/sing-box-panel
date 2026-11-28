@@ -78,6 +78,9 @@ type fleetSetup struct {
 	now     func() time.Time
 	version string
 	release map[string][]byte
+	// settingsPath, if set, is the settings file the panel reads; without it
+	// the panel reads fixed default settings.
+	settingsPath string
 }
 
 // startFleet serves a fleet beside a stand-in Web application on one
@@ -143,7 +146,7 @@ func startFleetWith(t *testing.T, setup fleetSetup) testFleet {
 	value.DataDir = dataDir
 	value.Server.BasePath = basePath
 	value.Server.Port = listener.Addr().(*net.TCPAddr).Port
-	panelSettings := settings.NewService(database, "", value)
+	panelSettings := settings.NewService(database, setup.settingsPath, value)
 	records := telemetry.New(database, panelSettings, telemetry.Options{Now: now})
 	cores := corecache.New(database, records, panelSettings, corecache.Options{DataDir: dataDir})
 	var service *fleet.Service
@@ -412,6 +415,70 @@ func (node *rawNode) handshake(t *testing.T, key ed25519.PrivateKey) (*nodeapi.C
 		t.Fatalf("expected Welcome, got %v", frame)
 	}
 	return stream, frame.GetWelcome(), nil
+}
+
+// TestNodesTakeTheCoreLogPolicyInWelcomeAndWhenItChanges: a node receives
+// the core log retention in Welcome and again, once, when the settings change
+// it; a node of an earlier protocol minor is never sent the frame.
+func TestNodesTakeTheCoreLogPolicyInWelcomeAndWhenItChanges(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "setting.json")
+	if _, _, err := settings.EnsureFile(ctx, path, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	served := startFleetWith(t, fleetSetup{settingsPath: path})
+	connect := func(name string, minor uint32) (*rawNode, *nodeapi.ConnectClient, *nodeapi.Welcome) {
+		t.Helper()
+		node := &rawNode{client: dialRaw(t, served.url), minor: minor}
+		enrollment, err := served.service.AddNode(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := node.enroll(t, enrollment.Code); err != nil {
+			t.Fatal(err)
+		}
+		stream, welcome, err := node.handshake(t, node.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return node, stream, welcome
+	}
+	current, currentStream, welcome := connect("current", nodeapi.ProtocolMinor)
+	earlier, earlierStream, _ := connect("earlier", 2)
+	if got := welcome.GetCoreLogPolicy(); got.GetRetentionDays() != 7 || got.GetMaxFiles() != 0 || got.GetMaxFileBytes() != 32<<20 {
+		t.Fatalf("Welcome policy = %v; want the default settings", got)
+	}
+
+	for field, value := range map[string]string{"logs.core_retention_days": "30", "logs.core_max_files": "5", "logs.core_max_file_size_mib": "64"} {
+		if err := settings.SetField(ctx, path, field, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if err := served.service.SyncCoreLogPolicy(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A metrics viewer ends what each node is sent, so each node receives
+	// exactly the frames before it.
+	for _, check := range []struct {
+		node   *rawNode
+		stream *nodeapi.ConnectClient
+		policy bool
+	}{{current, currentStream, true}, {earlier, earlierStream, false}} {
+		_, unsubscribe := served.service.SubscribeMetrics(check.node.id)
+		frame, err := check.stream.Recv()
+		if check.policy {
+			if got := frame.GetCoreLogPolicy(); err != nil || got.GetRetentionDays() != 30 || got.GetMaxFiles() != 5 || got.GetMaxFileBytes() != 64<<20 {
+				t.Fatalf("first frame after the change = %v, %v; want the new policy", frame, err)
+			}
+			frame, err = check.stream.Recv()
+		}
+		if err != nil || frame.GetTelemetryControl() == nil {
+			t.Fatalf("node %s received %v, %v; want only the metrics viewer's control next", check.node.id, frame, err)
+		}
+		unsubscribe()
+	}
 }
 
 func sendEvent(t *testing.T, stream *nodeapi.ConnectClient, event *nodeapi.Event) {

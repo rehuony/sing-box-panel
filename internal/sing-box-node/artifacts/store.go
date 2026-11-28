@@ -42,7 +42,7 @@ func New(options Options) (*Store, error) {
 	if err := verifyStoreDirectory(options.Root, 0o700); err != nil {
 		return nil, fail(StepPrepare, "root_mode", err)
 	}
-	if err := checkContentLayout(options.Root); err != nil {
+	if err := checkContentDirectory(options.Root); err != nil {
 		return nil, err
 	}
 	if options.Inspector == nil {

@@ -41,7 +41,7 @@ options:
   -h, --help         show this help
 
 Without --version, the installer selects the latest stable GitHub Release.
-An explicit version may identify a stable release or a GitHub pre-release.
+An explicit version must name a stable release, such as v1.2.3.
 
 The installer first reports which components are installed for this user and
 the state of their systemd services. It verifies the signed checksum manifest,
@@ -257,14 +257,16 @@ installer_resolve_layout() {
 }
 
 # installer_installed_version prints the version a component's binary
-# reports, or fails when it reports none. Nodes up to v0.5.1 take
-# version --json instead of the --output flag both binaries share now.
+# reports, or fails when it reports none. Releases up to v0.5.5 select JSON
+# with --output instead of --format, and nodes up to v0.5.1 take
+# version --json.
 installer_installed_version() {
   local component="$1"
   local binary_path="$2"
   local metadata
 
-  if ! metadata="$("${binary_path}" --output json version 2>/dev/null)"; then
+  if ! metadata="$("${binary_path}" --format json version 2>/dev/null)" &&
+    ! metadata="$("${binary_path}" --output json version 2>/dev/null)"; then
     [[ "${component}" == node ]] || return 1
     metadata="$("${binary_path}" version --json 2>/dev/null)" || return 1
   fi

@@ -69,7 +69,7 @@ relative paths are unchanged. No database is opened and no files are changed.
 Credential fields are returned as stored. auth.password is write-only; the file
 contains auth.password_hash instead.`,
 		Example: `  sing-box-panel config get server.port
-  sing-box-panel config get server --output json`,
+  sing-box-panel config get server --format json`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -214,7 +214,7 @@ func newConfigVerifyCommand(state *options) *cobra.Command {
 		Long: `Validate JSON structure and panel settings values in the selected --config
 file. This reads only the file; database and environment checks run at server
 startup. It does not check the saved sing-box configuration.`,
-		Example: "  sing-box-panel config verify\n  sing-box-panel config verify --config ./setting.json --output json",
+		Example: "  sing-box-panel config verify\n  sing-box-panel config verify --config ./setting.json --format json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.Context().Err(); err != nil {

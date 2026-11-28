@@ -181,9 +181,11 @@ func serve(ctx context.Context, settingsPath string, build buildinfo.Info, asset
 	}
 	retentionContext, stopRetention := context.WithCancel(ctx)
 	retentionDone := startRetention(retentionContext, services)
+	coreLogPolicyDone := startCoreLogPolicy(retentionContext, services)
 	defer func() {
 		stopRetention()
 		<-retentionDone
+		<-coreLogPolicyDone
 	}()
 	if err := services.Backups.Clean(); err != nil {
 		return startupError(ctx, "remove interrupted backups", err)

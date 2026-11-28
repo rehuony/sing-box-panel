@@ -20,7 +20,8 @@ import (
 	"github.com/rehuony/sing-box-panel/internal/sing-box-node/store"
 )
 
-// DefaultCoreLogPolicy bounds core log files until the panel manages them.
+// DefaultCoreLogPolicy bounds core log files until the panel first sends its
+// policy.
 var DefaultCoreLogPolicy = corelogs.Policy{RetentionDays: 7, MaxFileBytes: 32 << 20}
 
 // Options supplies a Node's collaborators.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"sync"
 	"time"
 
@@ -46,6 +47,23 @@ type executor struct {
 
 // takeFollowUp returns the work to do once the panel has the result of
 // requestID, such as restarting into an update.
+// applyCoreLogPolicy applies the core log retention the panel sent, if any.
+// The node records a policy it cannot apply, and the session goes on.
+func (executor *executor) applyCoreLogPolicy(ctx context.Context, policy *nodeapi.CoreLogPolicy) {
+	if policy == nil {
+		return
+	}
+	// Validation refuses a size beyond what a file may reach, so one that
+	// does not fit int64 reads as 0.
+	maxFileBytes := int64(policy.GetMaxFileBytes())
+	if policy.GetMaxFileBytes() > math.MaxInt64 {
+		maxFileBytes = 0
+	}
+	_ = executor.node.SetCoreLogPolicy(ctx, corelogs.Policy{
+		RetentionDays: int(policy.GetRetentionDays()), MaxFiles: int(policy.GetMaxFiles()), MaxFileBytes: maxFileBytes,
+	})
+}
+
 func (executor *executor) takeFollowUp(requestID string) func() {
 	executor.followMu.Lock()
 	defer executor.followMu.Unlock()

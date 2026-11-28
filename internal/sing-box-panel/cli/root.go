@@ -58,7 +58,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
 	root.PersistentFlags().StringVarP(&state.settingsPath, "config", "c", settings.DefaultPath(), "settings file path")
-	cliui.AddOutputFlag(root.PersistentFlags(), &state.format)
+	cliui.AddFormatFlag(root.PersistentFlags(), &state.format)
 	root.AddCommand(
 		newInitCommand(state),
 		cliui.Version("sing-box-panel", deps.Build, fmt.Sprintf("%d.%d", nodeapi.ProtocolMajor, nodeapi.ProtocolMinor), &state.format),

@@ -120,6 +120,8 @@ export const productLogs = {
     'runtime.unexpected_exit': 'Core process exited unexpectedly',
     'core.log.retention_failed': 'Core log retention cleanup failed',
     'core.log.maintenance_failed': 'Core log daily rotation or retention failed',
+    'core.log.policy_failed': 'Core log retention from the panel not applied',
+    'core.log.policy_sync_failed': 'Core log retention not sent to nodes',
     'core_upload.gc_aborted': 'Staged upload cleanup aborted',
     'core_upload.gc_completed': 'Staged upload cleanup completed',
     'core_upload.gc_inspection_failed': 'Staged upload inspection failed',

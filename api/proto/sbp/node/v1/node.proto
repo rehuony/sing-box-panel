@@ -64,6 +64,8 @@ message ConnectResponse {
     Command command = 3;
     Cancel cancel = 4;
     TelemetryControl telemetry_control = 5;
+    // Since minor version 3.
+    CoreLogPolicy core_log_policy = 6;
   }
 }
 
@@ -99,6 +101,8 @@ message Welcome {
   // The ID of the newest runtime transition of this node instance that the
   // panel holds. The node sends the transitions after it, oldest first.
   int64 runtime_history_after = 5;
+  // The retention of the node's core log captures. Since minor version 3.
+  CoreLogPolicy core_log_policy = 6;
 }
 
 // Command asks the node to do one thing. A repeated request ID returns the
@@ -145,6 +149,18 @@ message Cancel {
 // one sample per second while a browser views the node's live metrics.
 message TelemetryControl {
   google.protobuf.Duration metrics_interval = 1;
+}
+
+// CoreLogPolicy is how long the node keeps its core log captures, set in the
+// panel's settings. The panel sends it in Welcome and again when the settings
+// change; the node applies it at once and keeps it across restarts.
+message CoreLogPolicy {
+  // UTC dates kept, including today: 1 to 3650.
+  uint32 retention_days = 1;
+  // The most files kept, 0 to 1024; 0 keeps any number.
+  uint32 max_files = 2;
+  // The size at which a file rotates: 1 MiB to 1 GiB.
+  uint64 max_file_bytes = 3;
 }
 
 // ArtifactIdentity is the immutable identity of one installable core

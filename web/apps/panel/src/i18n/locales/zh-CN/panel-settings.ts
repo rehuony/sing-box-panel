@@ -106,7 +106,7 @@ export const panelSettings = {
   backupRestored: '已从备份恢复',
   backupRestoreNextStart: '恢复会在面板下次启动时生效',
   coreLogRetention: 'sing-box 日志',
-  coreLogRetentionHelp: '按 UTC 日期保留，包含当天。仅管理面板采集文件，不会删除 sing-box 原生输出文件。',
+  coreLogRetentionHelp: '在每个节点上按 UTC 日期保留，包含当天。仅管理采集的副本，不会删除 sing-box 原生输出文件。',
   coreLogMaxFiles: 'sing-box 日志文件',
   coreLogMaxFilesHelp: '0 表示不限。设置数量上限可能使实际保留时间少于指定天数。',
   runtimeHistoryRetention: '运行状态保留天数',

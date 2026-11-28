@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/rehuony/sing-box-panel/internal/buildinfo"
 	"github.com/rehuony/sing-box-panel/internal/cliui"
@@ -129,8 +130,8 @@ func newSystemBackupCommand(state *options, build buildinfo.Info) *cobra.Command
 			if err != nil {
 				return cliui.Fail(cliui.ErrorValidation, "passphrase_unreadable", err)
 			}
-			if passphrase != "" && len(passphrase) < 8 {
-				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "passphrase_too_short", Message: "use a passphrase of at least 8 bytes"}
+			if passphrase != "" && utf8.RuneCountInString(passphrase) < 8 {
+				return &cliui.Error{Kind: cliui.ErrorValidation, Code: "passphrase_too_short", Message: "use a passphrase of at least 8 characters"}
 			}
 			instance, err := openBackupInstance(cmd.Context(), state.settingsPath, build, false)
 			if err != nil {

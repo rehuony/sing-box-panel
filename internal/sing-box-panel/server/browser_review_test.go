@@ -128,7 +128,7 @@ func TestBrowserReview(t *testing.T) {
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	defer server.Close()
 	go func() { <-ctx.Done(); _ = server.Close() }()
-	t.Log("Browser review: http://127.0.0.1:3337/panel (isolated database; no runtime executor)")
+	t.Log("Browser review: http://127.0.0.1:3337 (isolated database; no runtime executor)")
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		t.Fatal(err)
 	}

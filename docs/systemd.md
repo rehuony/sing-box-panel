@@ -1,7 +1,7 @@
 # systemd packaging
 
-The panel and each node run as their own systemd service. Their unit, update
-helper, sysusers and tmpfiles templates in
+The panel and each node run as their own systemd service. Their unit,
+sysusers and tmpfiles templates in
 [`internal/sing-box-panel/systemd/templates`](../internal/sing-box-panel/systemd/templates)
 and [`internal/sing-box-node/systemd/templates`](../internal/sing-box-node/systemd/templates)
 are packaging inputs. CI validates source, build behavior, and generated units with `systemd-analyze verify`;
@@ -66,7 +66,7 @@ as that account, and a root process would leave files it cannot use.
 
 Before writing files, installation checks required commands, manager access,
 permissions, paths, pending migrations and conflicting service files. It creates
-missing settings (0600, administrator email and hashed random password) and directories (0700), without overwriting
+missing settings (0600, a hashed random password and, for the panel, the administrator email) and directories (0700), without overwriting
 existing configuration or initializing the database. The server creates storage
 when it starts. Installation rewrites the files it manages, which carry the
 ownership marker below, including files an earlier release wrote with other
@@ -118,10 +118,10 @@ The ownership marker embedded in installed files, `# Managed by NAME system
 install.`, remains stable across CLI renames so existing managed units stay
 recognizable.
 
-`systemd uninstall` verifies the loaded state, disables and stops the update
-helper's units in system scope, stops active services, then disables
-the exact scope and removes only files
-at the built-in installer's audited destinations. Settings and data are retained.
+`systemd uninstall` verifies the loaded state, stops and removes the update
+helper units of earlier releases in system scope, stops active services,
+then disables the exact scope and removes only files at the built-in
+installer's audited destinations. Settings and data are retained.
 System scope also removes the dedicated service user and its empty private group
 by default, after transferring their ownership of the retained settings and data
 to root. File contents and modes are preserved; ownership changes do not follow
@@ -169,7 +169,7 @@ For a pre-existing `NeedDaemonReload=yes`, inspect the unit with
 `systemctl daemon-reload` before retrying. Diagnostics include these commands
 and distinguish stale state from an unknown or mismatched state path.
 
-The panel's settings writers and both services' database owners are excluded with the existing locks. Before
+Both services' settings writers and database owners are excluded with the existing locks. Before
 any ownership transfer, the installer checks `/proc` thread credentials for the
 service UID/GID, including supplementary groups. Busy or uninspectable processes
 abort cleanup; unrelated processes are never killed. This check does not depend
@@ -184,7 +184,7 @@ sysusers declaration. Repeated uninstall reports absent accounts as absent;
 failed inspection is unknown, not evidence of absence. A retry tolerates an
 already removed user or private group.
 Reinstalling creates the account again and restores its ownership of retained data.
-Only the panel's settings directory and each service's known default, configured,
+Only each service's settings directory and its known default, configured,
 installed and migration data roots are reclaimed; manually assigned ownership
 elsewhere is outside this lifecycle. Keep the account when external resources still depend on its UID/GID.
 Unresolvable or unsafe data locations must be repaired, or use `--keep-user`.
@@ -240,8 +240,9 @@ chmod 0700 /etc/sing-box-panel
 chmod 0600 /etc/sing-box-panel/setting.json
 ```
 
-For a node, enroll it or enable its console against `/var/lib/sing-box-node`
-and give that directory to the `sing-box-node` account before starting it.
+For a node, initialize `/etc/sing-box-node/setting.json` the same way and give
+it, its directory and `/var/lib/sing-box-node` to the `sing-box-node` account
+before starting it. An unenrolled node waits to be enrolled from its console.
 
 The node's default unit is suitable for unprivileged proxy ports. TUN,
 transparent proxy, raw sockets, and ports below 1024 require an explicit local
@@ -311,8 +312,9 @@ and the staged release and records a failed attempt with the code
 
 A user service and a process in the foreground replace their executable
 themselves when they may write it; a user service then asks its manager to
-restart its unit. The `update` commands do the same for an operator who runs
-them with write access to the executable.
+restart its unit. The `update` commands replace the executable the same way for
+an operator who runs them with write access to it, but restart nothing unless
+`sing-box-node update --restart` asks to.
 
 ## User service
 
@@ -321,7 +323,7 @@ The static packaging user units expect:
 | Service | Binary | State | Data |
 | --- | --- | --- | --- |
 | Panel | `~/.local/bin/sing-box-panel` | settings `~/.config/sing-box-panel/setting.json` | `~/.local/share/sing-box-panel` |
-| Node | `~/.local/bin/sing-box-node` | its data directory | `~/.local/share/sing-box-node` |
+| Node | `~/.local/bin/sing-box-node` | settings `~/.config/sing-box-node/setting.json` | `~/.local/share/sing-box-node` |
 
 Create and initialize those paths before enabling a unit. The user templates
 grant no capability and cannot provide TUN, transparent-proxy, raw-socket, or

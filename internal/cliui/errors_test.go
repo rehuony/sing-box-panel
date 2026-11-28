@@ -38,8 +38,8 @@ func TestServiceRestartExitsWithTheUnitsRestartStatus(t *testing.T) {
 func TestWriteErrorUsesMachineOutput(t *testing.T) {
 	root := &cobra.Command{Use: "test"}
 	var format Format
-	AddOutputFlag(root.PersistentFlags(), &format)
-	if err := root.PersistentFlags().Set("output", "json"); err != nil {
+	AddFormatFlag(root.PersistentFlags(), &format)
+	if err := root.PersistentFlags().Set("format", "json"); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer

@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,12 @@ func TestSystemBackupAndRestoreAStoppedInstance(t *testing.T) {
 	if _, _, err := execute(t, "--config", settingsPath, "system", "backup", "--categories", "sessions"); err == nil {
 		t.Fatal("backup of an unknown category succeeded")
 	}
-	stdout, stderr, err := execute(t, "--config", settingsPath, "system", "backup", "--passphrase-file", passphrase, "--output", copied)
-	if err != nil || !strings.Contains(stdout, copied) {
+	// The global -f selects the output format, beside -o naming the copy.
+	stdout, stderr, err := execute(t, "--config", settingsPath, "system", "backup", "-f", "json", "--passphrase-file", passphrase, "-o", copied)
+	var result struct {
+		Path string `json:"path"`
+	}
+	if err != nil || json.Unmarshal([]byte(stdout), &result) != nil || result.Path != copied {
 		t.Fatalf("backup: %q %q %v", stdout, stderr, err)
 	}
 

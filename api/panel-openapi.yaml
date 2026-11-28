@@ -681,7 +681,7 @@ paths:
       - $ref: "#/components/parameters/ArtifactID"
     post:
       operationId: enableCoreArtifact
-      description: Validate and select this platform-matching binary using the saved configuration. Adding a node initializes its configuration to an empty JSON object. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
+      description: Validate and select this platform-matching binary using the saved configuration. Enrolling a new node initializes its configuration to an empty JSON object. Preserve stopped state; replace a running core only after validation. The enabled version persists independently of process state.
       parameters:
         - $ref: "#/components/parameters/CSRFToken"
       responses:
@@ -1794,7 +1794,7 @@ paths:
     get:
       operationId: listCoreLogFiles
       summary: List bounded captured core output files
-      description: The panel service creates a capture for the current UTC date at startup and UTC midnight, even without core output. Existing daily segments are preserved. Empty files are listed and follow the same retention policy. Offline dates are not backfilled.
+      description: The node service creates a capture for the current UTC date at startup and UTC midnight, even without core output. Existing daily segments are preserved. Empty files are listed and follow the same retention policy. Offline dates are not backfilled.
       responses:
         '200':
           description: Most recent files first.
@@ -2762,7 +2762,7 @@ components:
           $ref: '#/components/schemas/AppearanceSettings'
     ConfigurationFile:
       type: object
-      description: The saved sing-box document. Adding a node initializes its document to {} at revision 1.
+      description: The saved sing-box document. Enrolling a new node initializes its document to {} at revision 1.
       additionalProperties: false
       required: [revision, content, syntax_valid]
       properties:

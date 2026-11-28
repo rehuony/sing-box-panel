@@ -206,7 +206,7 @@ go tool sign-release verify \
 
 release_binary="${release_dir}/sing-box-panel-linux-${architecture}"
 chmod 0755 "${release_binary}"
-release_metadata="$(${release_binary} --output json version)"
+release_metadata="$(${release_binary} --format json version)"
 source_date="$(git -C "${workspace_root}" show -s --format=%cI "${source_commit}")"
 assert_json 'release version, commit and date match the frozen source' \
   --arg version "${release_version}" \
@@ -237,7 +237,7 @@ assert_json 'node release version, commit and date match the frozen source' \
   --arg commit "${source_commit}" \
   --arg date "${source_date}" \
   '.version == $version and .commit == $commit and .date == $date' \
-  <<<"$("${node_binary}" --output json version)"
+  <<<"$("${node_binary}" --format json version)"
 go version -m "${node_binary}" | grep -Fqx $'\tpath\tgithub.com/rehuony/sing-box-panel/cmd/sing-box-node' || {
   printf 'node release binary metadata names another command\n' >&2
   exit 1
@@ -388,7 +388,7 @@ fi
   done
 )
 chmod 0755 "${installed_binary}" "${installed_node}"
-probe_metadata="$(${installed_binary} --output json version)"
+probe_metadata="$(${installed_binary} --format json version)"
 assert_json 'probe version' --arg version "${probe_version}" '.version == $version' <<<"${probe_metadata}"
 
 run_installed() {
@@ -398,7 +398,7 @@ run_installed() {
     "${installed_binary}" --config "${settings_path}" "$@"
 }
 
-run_installed --output json init >"${smoke_root}/initial-credentials.json"
+run_installed --format json init >"${smoke_root}/initial-credentials.json"
 chmod 0600 "${smoke_root}/initial-credentials.json"
 panel_port="$(allocate_port)"
 settings_temporary="${settings_path}.tmp"
@@ -549,7 +549,7 @@ assert_json 'unfinished JSON remains editable without a usable canonical revisio
   <<<"${saved_draft}"
 
 phase 'authenticate and install the update while the probe keeps running'
-update_result="$(run_installed --output json update)"
+update_result="$(run_installed --format json update)"
 assert_json 'self-update installs the expected release at the existing executable path' \
   --arg previous "${probe_version}" \
   --arg version "${release_version}" \
@@ -564,7 +564,7 @@ assert_json 'running process stays on the probe until restart' --arg version "${
 
 phase 'restart the release and verify persistent state'
 stop_panel
-updated_metadata="$(${installed_binary} --output json version)"
+updated_metadata="$(${installed_binary} --format json version)"
 assert_json 'installed binary reports the release version and frozen commit' \
   --arg version "${release_version}" \
   --arg commit "${source_commit}" \

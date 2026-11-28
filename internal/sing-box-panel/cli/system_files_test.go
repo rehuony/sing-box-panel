@@ -190,7 +190,7 @@ func TestSystemPruneReportsPartialResultsAndPreservesFailure(t *testing.T) {
 			}
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: service})
-			root.SetArgs([]string{"system", "prune", "-c", path, "--yes", "-o", format})
+			root.SetArgs([]string{"system", "prune", "-c", path, "--yes", "-f", format})
 			err := root.ExecuteContext(ctx)
 			var cliErr *cliui.Error
 			if !errors.Is(err, context.Canceled) || !errors.As(err, &cliErr) || cliErr.Code != "instance_cleanup_failed" || cliErr.Kind != cliui.ErrorConflict {
@@ -252,7 +252,7 @@ func TestSystemDFAndPruneOutputFormats(t *testing.T) {
 			t.Run(command+"/"+format, func(t *testing.T) {
 				args := []string{"system", command, "-c", path}
 				if format != "" {
-					args = append(args, "-o", format)
+					args = append(args, "-f", format)
 				}
 				stdout, stderr, err := executeSystemCommand(t, service, args...)
 				if err != nil || stderr != "" {
@@ -379,7 +379,7 @@ func TestSystemDFUsesDefaultAndExplicitConfigPaths(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			root := NewRootCommand(Dependencies{CleanupHistoryPath: testHistoryPath(t), Stdout: &stdout, Stderr: &stderr, Systemd: &fakeSystemdService{}})
-			root.SetArgs(append(test.args, "--output", "json"))
+			root.SetArgs(append(test.args, "--format", "json"))
 			if err := root.ExecuteContext(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -466,7 +466,7 @@ func TestSystemDFAndPreviewAfterPruneWithoutSettings(t *testing.T) {
 			}
 			for _, command := range []string{"df", "prune"} {
 				for _, format := range []string{"text", "json", "jsonl"} {
-					args := append([]string{"system", command, "-o", format}, configArgs...)
+					args := append([]string{"system", command, "-f", format}, configArgs...)
 					stdout, stderr, err := executeSystemCommand(t, service, args...)
 					if err != nil || stderr != "" {
 						t.Fatalf("%s after prune: err=%v stderr=%s", command, err, stderr)
@@ -514,7 +514,7 @@ func TestSystemDFWithoutSettingsStillInspectsServices(t *testing.T) {
 		Scope: systemd.ScopeUser, StatePath: path,
 		Files: []systemd.FileStatus{{Path: servicePath, State: "managed", Managed: true}},
 	}}
-	stdout, stderr, err := executeSystemCommand(t, service, "system", "df", "-c", path, "-o", "json")
+	stdout, stderr, err := executeSystemCommand(t, service, "system", "df", "-c", path, "-f", "json")
 	if err != nil || stderr != "" {
 		t.Fatalf("files error=%v stderr=%s", err, stderr)
 	}
@@ -570,7 +570,7 @@ func TestSystemPruneRemovesUnknownDataAndStaleControlFile(t *testing.T) {
 			if _, err := os.Stat(path); err != nil {
 				t.Fatal("failed cleanup removed settings")
 			}
-			stdout, stderr, err := executeSystemCommand(t, service, "-c", path, "system", "prune", "--yes", "-o", format)
+			stdout, stderr, err := executeSystemCommand(t, service, "-c", path, "system", "prune", "--yes", "-f", format)
 			if err != nil || stderr != "" {
 				t.Fatalf("full cleanup error=%v stderr=%s", err, stderr)
 			}

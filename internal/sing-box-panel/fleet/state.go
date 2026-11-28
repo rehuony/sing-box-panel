@@ -342,6 +342,46 @@ func (service *Service) syncMetricsInterval(nodeID string) {
 	}
 }
 
+// coreLogPolicyMinor is the protocol minor version from which a node takes
+// the core log policy.
+const coreLogPolicyMinor = 3
+
+// coreLogPolicy is the core log retention the panel's settings hold, as the
+// protocol carries it.
+func (service *Service) coreLogPolicy(ctx context.Context) (*nodeapi.CoreLogPolicy, error) {
+	value, _, err := service.settings.Current(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &nodeapi.CoreLogPolicy{
+		RetentionDays: uint32(value.Logs.CoreRetentionDays), MaxFiles: uint32(value.Logs.CoreMaxFiles),
+		MaxFileBytes: uint64(value.Logs.CoreMaxFileSizeMiB) << 20,
+	}, nil
+}
+
+// SyncCoreLogPolicy sends every connected node that takes it the core log
+// retention the panel's settings hold, when it differs from what the node was
+// last told. The server calls it after each settings change; a node that
+// connects later receives the policy in Welcome.
+func (service *Service) SyncCoreLogPolicy(ctx context.Context) error {
+	policy, err := service.coreLogPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	for _, current := range service.sessions.all() {
+		current.telemetryMu.Lock()
+		if current.welcomed && current.protocolMinor >= coreLogPolicyMinor && !proto.Equal(current.coreLogPolicy, policy) {
+			if err := current.send(&nodeapi.ConnectResponse{Frame: &nodeapi.ConnectResponse_CoreLogPolicy{
+				CoreLogPolicy: policy,
+			}}); err == nil {
+				current.coreLogPolicy = policy
+			}
+		}
+		current.telemetryMu.Unlock()
+	}
+	return nil
+}
+
 func runtimeTransitionInput(current *session, transition *nodeapi.RuntimeTransition) store.RuntimeTransitionInput {
 	return store.RuntimeTransitionInput{
 		NodeID: current.nodeID, InstanceID: current.instanceID, SourceID: transition.GetId(),

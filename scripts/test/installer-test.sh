@@ -256,11 +256,11 @@ test_binary_only_installation() (
   printf 'not a SQLite database\n' >"${fixture_dir}/data/panel.db"
   # shellcheck disable=SC2016
   printf '%s\n' '#!/usr/bin/env bash' \
-    '[[ "$*" == "--output json version" ]] || exit 91' \
+    '[[ "$*" == "--format json version" ]] || exit 91' \
     'printf '\''{"version":"v1.2.3"}\n'\''' >"${assets}/sing-box-panel-linux-amd64"
   # shellcheck disable=SC2016
   printf '%s\n' '#!/usr/bin/env bash' \
-    '[[ "$*" == "--output json version" ]] || exit 91' \
+    '[[ "$*" == "--format json version" ]] || exit 91' \
     'printf '\''{"version":"v1.2.3","protocol":"1.0"}\n'\''' >"${assets}/sing-box-node-linux-amd64"
   : >"${assets}/SHA256SUMS"
   for component in panel node; do
@@ -317,10 +317,18 @@ test_binary_only_installation() (
   [[ ! -e "${fixture_dir}/config" && ! -e "${fixture_dir}/data" ]] || fail "fresh install initialized data"
 )
 
-# Nodes up to v0.5.1 report their version with version --json.
+# Releases up to v0.5.5 select JSON with --output, and nodes up to v0.5.1
+# report their version with version --json.
 test_installed_version_flags() (
   local fixture_dir="${test_root}/installed-version"
   mkdir -p -- "${fixture_dir}"
+  # shellcheck disable=SC2016
+  printf '%s\n' '#!/usr/bin/env bash' \
+    '[[ "$*" == "--output json version" ]] || exit 91' \
+    'printf '\''{"version":"v0.5.5","protocol":"1.2"}\n'\''' >"${fixture_dir}/output-flag"
+  chmod 0755 "${fixture_dir}/output-flag"
+  assert_equal "v0.5.5" "$(installer_installed_version panel "${fixture_dir}/output-flag")" "panel version through --output"
+  assert_equal "v0.5.5" "$(installer_installed_version node "${fixture_dir}/output-flag")" "node version through --output"
   # shellcheck disable=SC2016
   printf '%s\n' '#!/usr/bin/env bash' \
     '[[ "$*" == "version --json" ]] || exit 91' \

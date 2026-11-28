@@ -6,7 +6,7 @@ core's release line; a core outside every line can still check and run raw JSON.
 
 - [Install and select](#install-and-select-a-version), [choose a build](#multiple-installations-of-one-version), or [import](#import-a-local-archive)
 - [Catalog cache](#catalog-cache), [verification boundaries](#checks-and-recorded-hashes), and [runtime switching](#switching-and-runtime-state)
-- [Release lines](#release-lines) and [CLI / HTTP migration](#cli-and-http-migration)
+- [Release lines](#release-lines)
 - [The reviewed 1.13 schema](#reviewed-113-schema)
 
 ## Install and select a version
@@ -15,15 +15,17 @@ Open version management in the Web UI. The available list shows cached official
 downloads; the installed list shows local artifacts. Use “Check GitHub for updates”
 to refresh available versions, Download to install an exact release, and Enable
 on an installed artifact to select it. Remove unused installations there when
-they are no longer needed.
+they are no longer needed. A fleet command installs one exact catalog version on
+many nodes; see [Management API and Web UI](panel-node-architecture.md#management-api-and-web-ui).
 
 Installation uses the stored catalog and never substitutes a newer or older
 release. Opening version management initializes the catalog if it is missing;
 use the explicit refresh action when a release is absent from an existing cache.
 The Web client stops waiting for a refresh after one minute and shows the timeout
-with Try again in place of the list, as it does for any list it cannot read. The
-refresh itself continues on the panel; Try again shows its result once it has
-finished.
+above the versions it lists, or in place of an empty list, as it does for any
+list it cannot read. The refresh itself continues on the panel; a list shown as
+unreadable reads again every 10 seconds while the page is in view, so it shows
+the result once the refresh has finished.
 The selected release must have a complete `MAJOR.MINOR.PATCH` version.
 
 Official packages use the static musl variant for Linux amd64 or arm64.
@@ -55,8 +57,8 @@ from the fixed `SagerNet/sing-box` GitHub repository. Only
 `sing-box-VERSION-linux-{amd64,arm64}-musl.tar.gz` packages enter the catalog,
 with at most one per version and architecture. Drafts, prereleases, releases
 before the first line, invalid names and unrelated assets are filtered. There is
-no plain/glibc fallback. Missing, malformed or conflicting digest metadata does
-not hide a package or prevent installation.
+no plain/glibc fallback. Missing or malformed digest metadata does not hide a
+package or prevent installation.
 
 A refresh builds on the stored catalog and reads the repository's tags rather
 than its release list, whose pages carry every asset's download count and run
@@ -98,12 +100,14 @@ the reported `with_musl` feature. `sing-box version` must report the requested e
 version. Configuration eligibility is determined by the real selected core's
 `sing-box check`.
 
+The panel compares an official download with the digest GitHub reports for it,
+when GitHub reports one, and the node compares the archive it receives with the
+digest of the panel's cached copy. Local import does not accept an expected digest.
 Archive and binary SHA-256 values are calculated during installation for content
 paths, deduplication and existing installation identifiers. They are recorded
-metadata. Official installation does not require or compare an upstream digest;
-local import does not accept an expected digest. Check, enable, start, restart,
-rollback, recovery, execution copies and current-link reconciliation do not compare
-core file contents with those recorded values. Hash folder names describe storage layout,
+metadata. Check, enable, start, restart, rollback, recovery, execution copies
+and current-link reconciliation do not compare core file contents with those
+recorded values. Hash folder names describe storage layout,
 not a runtime authenticity guarantee. Reused executables still undergo platform
 and exact-version inspection at installation.
 
@@ -120,7 +124,8 @@ publisher authenticity or ongoing tamper detection.
 
 ## Installed file layout and upgrades
 
-Installed archives and executables share one content directory:
+Installed archives and executables share one content directory in the node's
+data directory:
 
 ```text
 artifacts/
@@ -131,25 +136,15 @@ artifacts/
       sing-box
 ```
 
-The full archive digest remains the content address; there is no two-character
-prefix directory. Different builds of the same version retain distinct installation
-identities, and identical archives reuse their content directory.
-
-The former `artifacts/sha256/<first-two-characters>/<archive-sha256>/` layout is
-unsupported. Opening or installing into such a store fails with an instruction to
-reinitialize the instance data directory and reinstall cores. This is an explicit
-incompatible storage change: there is no automatic migration, fallback lookup,
-or deletion of old files. Before upgrading an instance with that layout, export
-the configuration and any other state you need to retain, stop the panel, and
-reinitialize its data directory using the documented [instance cleanup](cli.md#instance-files-and-cleanup)
-and initialization workflows. Reinitialization discards the previous database
-history; merely moving the core files leaves stale paths in the database.
+The full archive digest is the content address. Different builds of the same
+version retain distinct installation identities, and identical archives reuse
+their content directory.
 
 ## Switching and runtime state
 
 Web Enable preserves the stopped/running state.
-Panel startup initializes an absent sing-box configuration to `{}`, so the first
-installed version can be enabled without manually saving an empty document.
+A new node starts with the saved configuration `{}`, so its first installed
+version can be enabled without manually saving an empty document.
 Existing saved configuration is preserved. Installation and version selection
 do not create or rewrite that document. An unexpectedly absent configuration
 returns `409 configuration_not_saved`; the Web notification links to Configuration.
@@ -162,9 +157,10 @@ version and the configuration snapshot before execution.
 Stop retains the selection. Web Disable stops the selected artifact and clears
 selection only after success. Removal rejects artifacts still referenced by
 startup records or activation bundles. A committed activation records the selected
-installation; `<data_dir>/artifacts/current` is a relative convenience symlink
-reconciled from that record after startup or recovery. Execution uses the stored
-binary path and safe-file checks, not the convenience link as an authority.
+installation; `artifacts/current` in the node's data directory is a relative
+convenience symlink reconciled from that record after startup or recovery.
+Execution uses the stored binary path and safe-file checks, not the convenience
+link as an authority.
 
 ## Release lines
 
@@ -196,18 +192,6 @@ options, outbound DNS rules, domain strategy and missing resolver behavior witho
 changing JSON. Their deprecation warnings remain visible. Before upgrading to
 1.14, explicitly migrate those forms using the
 [upstream migration guidance](https://sing-box.sagernet.org/migration/).
-
-## CLI and HTTP migration
-
-The `core` CLI group has been removed. Move catalog refresh, installation,
-import, selection, removal, and core lifecycle operations to the Web UI.
-Existing automation should use authenticated HTTP management endpoints.
-Regenerate shell completions after upgrading; removed commands have no aliases.
-
-HTTP management endpoints continue to locate objects by internal asset or artifact
-ID. The multipart import endpoint no
-longer accepts a `sha256` field and the catalog endpoint no longer accepts an
-`installable` query. Update API clients to the [OpenAPI contract](../api/panel-openapi.yaml).
 
 ## Reviewed 1.13 schema
 

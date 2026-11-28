@@ -62,7 +62,10 @@ func TestPanelBackupsCreateDownloadStageAndRequestRestore(t *testing.T) {
 	if refused.Code != http.StatusForbidden {
 		t.Fatalf("create without CSRF: %d", refused.Code)
 	}
-	for _, body := range []string{`{"categories":["settings"],"passphrase":"short"}`, `{"categories":[]}`, `{"categories":["sessions"]}`} {
+	// A passphrase is counted in characters: seven of them are too few
+	// however many bytes they take.
+	for _, body := range []string{`{"categories":["settings"],"passphrase":"short"}`, `{"categories":["settings"],"passphrase":"密码密码密码密"}`,
+		`{"categories":[]}`, `{"categories":["sessions"]}`} {
 		if got := send(http.MethodPost, "/panel/backups", "application/json", []byte(body)); got.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("create %s: %d %s", body, got.Code, got.Body.String())
 		}

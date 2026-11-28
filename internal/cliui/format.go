@@ -24,10 +24,10 @@ const (
 	JSONL Format = "jsonl"
 )
 
-// AddOutputFlag registers -o/--output, which selects target.
-func AddOutputFlag(flags *pflag.FlagSet, target *Format) {
+// AddFormatFlag registers -f/--format, which selects target.
+func AddFormatFlag(flags *pflag.FlagSet, target *Format) {
 	*target = Text
-	flags.VarP(&formatValue{target: target}, "output", "o", "output format: text, json, or jsonl")
+	flags.VarP(&formatValue{target: target}, "format", "f", "output format: text, json, or jsonl")
 }
 
 type formatValue struct{ target *Format }
@@ -46,7 +46,7 @@ func (value *formatValue) Set(raw string) error {
 		*value.target = format
 		return nil
 	default:
-		return &Error{Kind: ErrorUsage, Code: "invalid_output", Message: "output must be text, json, or jsonl"}
+		return &Error{Kind: ErrorUsage, Code: "invalid_format", Message: "format must be text, json, or jsonl"}
 	}
 }
 
@@ -63,6 +63,6 @@ func Write(writer io.Writer, format Format, value any, text string) error {
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(value)
 	default:
-		return &Error{Kind: ErrorUsage, Code: "invalid_output", Message: "output must be text, json, or jsonl"}
+		return &Error{Kind: ErrorUsage, Code: "invalid_format", Message: "format must be text, json, or jsonl"}
 	}
 }

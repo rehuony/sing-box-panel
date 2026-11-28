@@ -54,9 +54,9 @@ func TestSetPasswordFieldHashesWithoutExposingValue(t *testing.T) {
 		for _, input := range []string{"argument", "stdin"} {
 			t.Run(format+input, func(t *testing.T) {
 				path := commandSettingsFixture(t)
-				args := []string{"set", "auth.password", password, "-o", format}
+				args := []string{"set", "auth.password", password, "-f", format}
 				if input == "stdin" {
-					args = []string{"set", "auth.password", "--stdin", "-o", format}
+					args = []string{"set", "auth.password", "--stdin", "-f", format}
 				}
 				out, err := runPanelConfig(t, t.Context(), path, strings.NewReader(password+"\r\n"), args...)
 				if err != nil {

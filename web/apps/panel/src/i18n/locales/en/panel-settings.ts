@@ -106,7 +106,7 @@ export const panelSettings = {
   backupRestored: 'Restored from the backup',
   backupRestoreNextStart: 'The restore applies when the panel next starts',
   coreLogRetention: 'sing-box logs',
-  coreLogRetentionHelp: 'UTC dates, including today. Only panel captures are managed; native sing-box output files are never deleted.',
+  coreLogRetentionHelp: 'UTC dates, including today, on every node. Only the captured copies are managed; native sing-box output files are never deleted.',
   coreLogMaxFiles: 'sing-box log files',
   coreLogMaxFilesHelp: '0 means unlimited. A file count cap may shorten the configured retention period.',
   coreLogSize: 'sing-box file size',

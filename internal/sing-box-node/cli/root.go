@@ -40,7 +40,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetOut(deps.Stdout)
 	root.SetErr(deps.Stderr)
 	root.PersistentFlags().StringVarP(&state.settingsPath, "config", "c", settings.DefaultPath(), "settings file path")
-	cliui.AddOutputFlag(root.PersistentFlags(), &state.format)
+	cliui.AddFormatFlag(root.PersistentFlags(), &state.format)
 	service := deps.Systemd
 	if service == nil {
 		service = defaultSystemd()

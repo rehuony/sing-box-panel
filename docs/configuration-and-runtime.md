@@ -40,13 +40,15 @@ depend on the selected core's release line. The 1.14 contract includes `log`, `d
 `certificate_providers`, `http_clients`, `network_namespaces`, and `experimental`. The panel does not add
 `_panel`, disabled-item markers, or another storage envelope to these bytes.
 
-Adding a node saves `{}` and its immutable JSON revision as the node's first
-configuration. Initialization does not select or start a core; enabling still
+Enrolling a new node saves `{}` and its immutable JSON revision as the node's
+first configuration. When the node already runs a configuration, its first state
+report replaces that document; see [state ownership](panel-node-architecture.md#state-ownership).
+Initialization does not select or start a core; enabling still
 validates the configuration against the selected binary on the node.
 
 The Web editor manages this document through `GET/PUT /api/v1/nodes/{nodeId}/config/file`.
 The numeric file revision is a compare-and-swap guard: `0` means no save yet,
-and adding a node advances its file to `1`.
+and enrolling a new node advances its file to `1`.
 Reads return the stored text exactly, including unfinished
 JSON, together with `revision`, `syntax_valid`, and `canonical_revision_id`.
 A stale save fails instead of merging implicitly. The logical name `config.json`
@@ -124,18 +126,20 @@ offline or runs an older protocol, the node's problem (`node_offline`,
 The Web configuration selector lists compatible installed versions,
 defaults to the enabled core when available and otherwise uses the highest
 installed semantic version. With no installed core, the Web UI keeps Advanced JSON editing and
-saving available, while the visual editor directs the operator to version
-management. Native validation and runtime startup always require an installed
+saving available, while the visual editor states that no core version is
+installed. Native validation and runtime startup always require an installed
 matching core. A version without a line keeps the visual editor tab disabled with
 a tooltip; any other failure to load the schema shows a notice with a retry. A
 missing schema disables only structured controls, never JSON save,
-compile, check, Apply, Start, Restart, or Rollback.
+compile, check, Start, Restart, or Rollback.
 
 The selected configuration version and current unsaved document live in one
 authenticated browser-session store. Switching between visual modules or
 Advanced JSON retains the same draft. Navigation away from configuration and
 browser unload remain protected by the unsaved-change confirmation; refreshing
-or signing out starts a new selection session.
+or signing out starts a new selection session. Copy from node replaces the draft
+with another node's saved configuration after showing the difference; nothing is
+saved until Save configuration.
 
 The served schema is the core's canonicalized output or the reviewed source
 definition, with the panel's optional `x-panel` presentation metadata such as
@@ -219,8 +223,8 @@ against the 1.13 and 1.14 test schemas.
 
 ### Selecting server paths
 
-Filesystem fields in configuration and subscription-node forms share a Browse
-control while remaining editable.
+Filesystem fields in configuration forms share a Browse control while remaining
+editable.
 The dialog browses the selected node's filesystem namespace (inside its
 container or service sandbox when applicable), subject to the node process's
 OS permissions. The panel's own data directory is a plain path field, because
@@ -300,7 +304,7 @@ process health only. Nothing is injected into the file to create that endpoint.
 verified live process. A checked selection while stopped does not claim a loaded
 configuration or create a running process identity.
 
-`POST /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/disable` queues a fenced stop for the
+`POST /api/v1/nodes/{nodeId}/core/artifacts/{artifactId}/disable` performs a fenced stop of the
 currently selected artifact. Successful completion clears desired, applied and
 rollback pointers and removes the current symlink; it keeps immutable artifacts
 and lifecycle history. Requests for an artifact that is no longer selected are
@@ -352,7 +356,8 @@ Runtime lifecycle evidence is append-only and permanently retained in the
 node's `runtime_transitions`. The node sends each entry to the panel; after each
 handshake the panel names the newest entry it holds for that node database, and
 the node sends the rest, so history survives disconnections without a buffer
-limit. The panel keeps each node's copy until the node is removed. The
+limit. The panel's copy drops entries older than `nodes.runtime_history_retention_days`
+once a day, keeping each node instance's newest, and goes with its node. The
 authenticated `GET /api/v1/nodes/{nodeId}/core/runtime/history` endpoint filters
 by time, state, reason, or activation bundle and paginates newest-first with the
 stable `occurred_at`/`id` cursor pair. Transitions use `running`, `stopped`, `failed`,
@@ -380,20 +385,20 @@ CLI and manual edits have one source; no database preferences override it.
 The API's revision is an opaque JSON-safe fingerprint of the exact file bytes,
 not a sequence number. Manual edits, including formatting changes, invalidate
 older forms; stale writes return a conflict without changing either resource.
-The Web UI has six categories: service settings, traffic usage, log management,
-interface preferences, system maintenance, and backup and restore. Service settings
-groups access and authentication; interface preferences groups
-appearance and language; system maintenance groups storage and version updates.
-Log management controls only sing-box capture files; panel events do not expire automatically.
-Each topic keeps its own section heading.
-The categories are tabs in the settings window's title strip; narrow screens use a category selector there.
-All topics share one draft and Save button. Hash navigation and browser history
-retain the draft; leaving `/settings` or closing the page warns about unsaved changes.
-Validation locates the offending category and field; failed saves retain drafts.
-Email and new password are separate inline fields in Authentication. Neither requires
-an old password or repeated password confirmation. Both remain drafts until the shared
-Save button is used. An empty new password preserves the existing password. Invalid
-email or password input prevents the entire save; failed saves retain the draft.
+The Web settings page is one window of cards, in two columns on wide screens:
+Service access (listener, access origin, base path and data directory),
+Appearance (theme, accent color, corner radius and display language) and Data
+retention (traffic metrics, runtime states and sing-box log captures), then
+Administrator, Version updates and Backup and restore.
+The panel log does not expire automatically.
+All cards share one draft; the title strip counts unsaved changes and holds
+Revert changes and Save settings. Leaving `/settings` or closing the page warns
+about unsaved changes. Validation focuses the offending field; failed saves retain drafts.
+Email and password are fields in Administrator; Change password opens the new
+password field. Neither requires an old password or repeated password
+confirmation. Both remain drafts until Save settings is used. An empty new
+password preserves the existing password. Invalid email or password input
+prevents the entire save.
 Settings saves return `{ settings, reauthentication_required }`. Actual credential changes
 sign out every session; unchanged credentials do not. Credential reads expose the
 administrator email and GitHub configured flag;
@@ -419,26 +424,26 @@ changes take effect after restart.
 
 | Settings field | Web field | Generated default |
 | --- | --- | --- |
-| `server.host` / `server.port` | Listener host / port | `127.0.0.1` / `3000` |
-| `server.external_origin` | External origin | Empty |
+| `server.host` / `server.port` | Listen address / Listen port | `127.0.0.1` / `3000` |
+| `server.external_origin` | Access origin | Empty |
 | `server.base_path` | Base path | Empty |
 | `nodes.runtime_history_retention_days` | Runtime states retention | `90` |
 | `data_dir` | Data directory (absolute path) | Root or XDG data directory |
 | `auth.email` | Administrator email | `admin@example.com` |
 | `auth.password_hash` | Password (hash stored only) | Argon2id hash of a random password |
 | `github.token` | GitHub token | Empty |
-| `github.catalog_refresh_interval_hours` | GitHub version check interval | `12` |
-| `traffic.sample_retention_days` | Metric retention | `7` |
+| `github.catalog_refresh_interval_hours` | Version updates check interval | `12` |
+| `traffic.sample_retention_days` | Traffic metrics retention | `7` |
 | `subscription.private_source_cidrs` | File/API only | `[]` |
-| `logs.core_retention_days` | Core capture retention (UTC dates including today) | `7` |
-| `logs.core_max_files` | Maximum core capture files | `0` (unlimited) |
-| `logs.core_max_file_size_mib` | Maximum capture file size | `32` MiB |
-| `backup.interval_hours` | Backup interval (0 turns scheduled backups off) | `24` |
-| `backup.keep` | Scheduled backups kept | `7` |
-| `panel.language` | Language | `zh-CN` |
+| `logs.core_retention_days` | sing-box logs retention (UTC dates including today) | `7` |
+| `logs.core_max_files` | sing-box log files | `0` (unlimited) |
+| `logs.core_max_file_size_mib` | sing-box file size | `32` MiB |
+| `backup.interval_hours` | Scheduled backups (Off is 0) | `24` |
+| `backup.keep` | Backups kept | `7` |
+| `panel.language` | Display language | `zh-CN` |
 | `panel.appearance.theme` | Theme | `system` |
-| `panel.appearance.color` | Color | `#6D4ED1` |
-| `panel.appearance.radius` | Radius | `12` |
+| `panel.appearance.color` | Accent color | `#6D4ED1` |
+| `panel.appearance.radius` | Corner radius | `12` |
 
 ### Nodes
 
@@ -464,8 +469,7 @@ HTTP only to a loopback address.
 
 Nodes keep the URL from their enrollment. Changing the external origin, base
 path or listener address therefore requires enrolling nodes again with new
-codes. Settings files that still name the removed `nodes.endpoint` or
-`nodes.trust` are rejected: delete those fields.
+codes.
 
 #### Behind Nginx
 
@@ -522,6 +526,9 @@ data_dir/
   logs.db                 # the panel log, kept until it is cleared
   artifact-cache/         # verified core archives that nodes install from
   imports/                # temporary core uploads
+  backups/                # panel backups and a restore staged for the next start
+  release-cache/          # the node release of the panel's version that nodes update from
+  updates/                # panel updates being received or staged, and the last outcome
   control.sock            # private process control
   process.lock            # process ownership
 ```
@@ -540,9 +547,9 @@ settings: each node has its own; see
 [Limited monitoring and traffic](subscriptions-and-observability.md#limited-monitoring-and-traffic).
 
 Raw sample, runtime history and core-log retention, appearance, language, GitHub token and catalog refresh policy
-are applied after saving. Background cleanup/refresh workers receive change
-notifications and read consistent snapshots. The shared metrics state refreshes
-once after saving, then continues over SSE. Credentials invalidate old sessions.
+are applied after saving; core-log retention reaches each connected node at once
+and every other node when it connects. Background cleanup/refresh workers receive change
+notifications and read consistent snapshots. Credentials invalidate old sessions.
 Listener host/port, base path, origin, secure cookies and data directory are bound
 to the running HTTP service and require a panel restart, shown in the UI; see
 [Restarting the panel](cli.md#restarting-the-panel).
@@ -568,15 +575,7 @@ Credentials belong to each inbound's native configuration and are entered in its
 editor. Saving panel settings never generates or rewrites inbound credentials,
 and does not require the saved sing-box text to be syntactically complete.
 
-The former shared credential fields `panel.identity_name` and `panel.identity_key`,
-the API fields `identity_name`, `identity_key`, `clear_identity_key` and
-`identity_key_configured`, and `POST /api/v1/nodes/{nodeId}/config/inbound-defaults` have been
-removed. This development-stage change has no compatibility fallback: settings
-files and API writes containing the removed fields are rejected. Remove those
-panel fields before loading an existing file. Existing native
-inbound usernames, passwords and UUIDs are preserved.
-
-Appearance offers five presets and a custom HEX picker, with radius 0–32px (default 12).
+Appearance offers six presets and a custom HEX picker, with radius 0–32px (default 12).
 Preview changes page, controls, charts and dialogs immediately while semantic
 status colors and the logo stay independent. Card/dialog radius is R, controls
 R/2, and the shell min(32,7R/6). Saving persists preferences. Leaving the page with unsaved edits requires confirmation: Cancel
@@ -621,7 +620,7 @@ now and `system backup`, `scheduled` for the schedule, and `pre_restore` for the
 state a restore replaced. Every archive starts with a readable manifest of its
 categories, record counts, time and panel version, which names no setting or
 secret, so the list shows what each backup holds. A backup made with a
-passphrase of at least 8 characters keeps the rest in `payload.tar.gz.age`,
+passphrase of 8 to 1024 characters keeps the rest in `payload.tar.gz.age`,
 encrypted with [age](https://age-encryption.org). The passphrase is stored
 nowhere, so a lost passphrase loses that backup. Scheduled and pre-restore
 backups are not encrypted. `system prune` removes the data directory with its
