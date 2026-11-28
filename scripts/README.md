@@ -3,7 +3,8 @@
 This directory owns executable project scripts. `installer.sh` installs a
 published release on a Linux host and `cleanup.sh` removes one. `build.sh`
 builds and verifies an
-isolated source snapshot. `test/` contains local script tests and the
+isolated source snapshot, and `release-notes.sh` describes a built release.
+`test/` contains local script tests and the
 shared release smoke orchestration. GitHub workflow YAML and the release
 signing trust root remain under `.github/`.
 
@@ -117,7 +118,15 @@ listing dependencies for both Linux architectures.
 
 The `Release Build` workflow supplies the actual signed release artifacts to
 the shared scenario, then creates a verified Draft Release for a maintainer
-to publish. The isolated packaging check remains separate from the working-tree
+to publish.
+
+`release-notes.sh --version vX.Y.Z --commit SHA --protocol MAJOR.MINOR
+--repository OWNER/NAME DIRECTORY` prints the Markdown that opens the Draft's
+notes and the workflow's summary: each asset with what it is, its size and the
+SHA-256 that `SHA256SUMS` records, the install and update commands for the
+version, and how to check the digests and the signature by hand. GitHub
+appends the changes it generates after it. A missing asset or digest prints
+nothing and fails; `test/release-notes-test.sh` covers both. The isolated packaging check remains separate from the working-tree
 smoke build: it validates the formal build's committed inputs and trust root.
 
 ## Interface

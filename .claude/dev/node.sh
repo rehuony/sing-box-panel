@@ -29,8 +29,8 @@ if [ ! -f "$instance/enrollment.json" ]; then
   go build -o "$state/bin/" ./cmd/sing-box-panel
   settings=$state/panel/setting.json
   # A node the panel still lists from an earlier node directory gets a new code.
-  issued=$("$state/bin/sing-box-panel" node add dev-node --config "$settings" -o json 2>/dev/null ||
-    "$state/bin/sing-box-panel" node enroll dev-node --config "$settings" -o json)
+  issued=$("$state/bin/sing-box-panel" node add dev-node --config "$settings" -f json 2>/dev/null ||
+    "$state/bin/sing-box-panel" node enroll dev-node --config "$settings" -f json)
   code=$(printf '%s' "$issued" | sed -n 's/.*"code": *"\([^"]*\)".*/\1/p')
   docker run --rm --network host -v "$binaries" -v "$data" "$image" \
     /opt/sbp/sing-box-node enroll --config "$config" --code "$code"

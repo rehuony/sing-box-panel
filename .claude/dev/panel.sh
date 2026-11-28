@@ -15,7 +15,7 @@ go build -o "$state/bin/" ./cmd/sing-box-panel
 
 if [ ! -f "$settings" ]; then
   mkdir -p "$instance"
-  (umask 077 && "$state/bin/sing-box-panel" config init --config "$settings" -o json >"$instance/administrator.json")
+  (umask 077 && "$state/bin/sing-box-panel" config init --config "$settings" -f json >"$instance/administrator.json")
   # Relative to the settings file: $instance/data.
   "$state/bin/sing-box-panel" config set data_dir data --config "$settings" >/dev/null
   echo "Administrator credentials saved to $instance/administrator.json"

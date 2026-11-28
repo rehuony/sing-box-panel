@@ -441,12 +441,26 @@ jobs:
         run: |
           set -euo pipefail
           marker="<!-- sing-box-panel-release-run:${RUN_ID}:${RUN_ATTEMPT}:${SOURCE_SHA} -->"
+          # The notes describe the signed assets the smoke jobs ran; GitHub
+          # appends the changes it generates after them.
+          release_dir="${RUNNER_TEMP}/sing-box-panel-release"
+          chmod 0755 "${release_dir}/sing-box-panel-linux-amd64"
+          protocol="$(
+            "${release_dir}/sing-box-panel-linux-amd64" --format json version |
+              jq -er '.protocol'
+          )"
+          scripts/release-notes.sh \
+            --version "${RELEASE_VERSION}" \
+            --commit "${SOURCE_SHA}" \
+            --protocol "${protocol}" \
+            --repository "${REPOSITORY}" \
+            "${release_dir}" >"${RUNNER_TEMP}/release-notes.md"
           release_json="$(
             gh api --method POST "repos/${REPOSITORY}/releases" \
               -f tag_name="${RELEASE_VERSION}" \
               -f target_commitish="${SOURCE_SHA}" \
               -f name="sing-box-panel ${RELEASE_VERSION}" \
-              -f body="${marker}" \
+              -f body="${marker}"$'\n\n'"$(<"${RUNNER_TEMP}/release-notes.md")" \
               -F draft=true \
               -F prerelease=false \
               -F generate_release_notes=true
@@ -584,7 +598,7 @@ jobs:
             "${downloaded_dir}/sing-box-panel-linux-arm64" \
             "${downloaded_dir}/sing-box-node-linux-amd64" \
             "${downloaded_dir}/sing-box-node-linux-arm64"
-          runtime_metadata="$("${downloaded_dir}/sing-box-panel-linux-amd64" --output json version)"
+          runtime_metadata="$("${downloaded_dir}/sing-box-panel-linux-amd64" --format json version)"
           source_date="$(git show -s --format=%cI "${SOURCE_SHA}")"
           jq -e \
             --arg commit "${SOURCE_SHA}" \
@@ -592,7 +606,7 @@ jobs:
             --arg version "${RELEASE_VERSION}" \
             '.commit == $commit and .date == $date and .version == $version' \
             <<<"${runtime_metadata}" >/dev/null
-          node_metadata="$("${downloaded_dir}/sing-box-node-linux-amd64" --output json version)"
+          node_metadata="$("${downloaded_dir}/sing-box-node-linux-amd64" --format json version)"
           jq -e \
             --arg commit "${SOURCE_SHA}" \
             --arg date "${source_date}" \
@@ -614,11 +628,15 @@ jobs:
           SOURCE_SHA: ${{ needs.guard.outputs.source-sha }}
         run: |
           {
-            printf '## Verified Draft Release\n\n'
-            printf -- '- Version: %s\n' "${RELEASE_VERSION}"
-            printf -- '- Source: %s\n' "${SOURCE_SHA}"
+            printf '# Verified Draft Release %s\n\n' "${RELEASE_VERSION}"
             printf -- '- Draft: %s\n' "${DRAFT_URL}"
-            printf '\nPublish remains an explicit human action.\n'
+            printf -- '- Source: %s\n' "${SOURCE_SHA}"
+            printf -- '- Assets: six signed files; the copies downloaded from the Draft match the built ones byte for byte\n'
+            printf -- '- Signature: Ed25519 over the version and SHA256SUMS, and every binary digest, verified twice\n'
+            printf -- '- Binaries: version, commit and date as released, the right architecture, and the embedded update key\n'
+            printf -- '- Smoke tests: native installs and updates on Linux amd64 and arm64\n\n'
+            printf 'Review the notes below and the changes GitHub generated after them, then publish the Draft by hand.\n\n'
+            cat -- "${RUNNER_TEMP}/release-notes.md"
           } >>"${GITHUB_STEP_SUMMARY}"
 
       - name: Remove only this unsuccessful workflow's Draft
