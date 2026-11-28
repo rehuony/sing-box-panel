@@ -21,6 +21,14 @@ enforces both, because each binary embeds only its own application. The
 workspace root holds the toolchain: the lockfile, the development dependencies,
 the ESLint configuration, and scripts that run each application's own.
 
+Every external package's version is declared once, in the `catalog` of
+`pnpm-workspace.yaml`, and each manifest refers to it as `catalog:`, so one
+entry upgrades a package for every application. `pnpm add` uses the cataloged
+version, adds a new package to the catalog, and refuses a version that differs
+from the catalog's. An install drops catalog entries no manifest uses, and
+refuses any locked version that was published with weaker trust evidence than
+an earlier release, such as a manual publish after trusted publishing.
+
 ## Development
 
 Frontend work runs against the real services: start the service an
