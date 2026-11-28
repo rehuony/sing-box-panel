@@ -7,6 +7,7 @@ import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { useEffect, useId, useRef, useState } from 'react';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
@@ -140,9 +141,9 @@ export function SubscriptionNodeDialog({ node, onClose }: { node: SubscriptionNo
   let block;
   if (detail.data) {
     block = (
-      <pre aria-label={t('subscriptions.pool.detail.outbound')} className='max-h-64 min-h-0 overflow-auto px-3 pb-3 font-[family-name:var(--font-data)] text-xs leading-5 select-text' tabIndex={0}>
-        {outbound}
-      </pre>
+      <ScrollArea viewportClassName='max-h-64' viewportProps={{ 'aria-label': t('subscriptions.pool.detail.outbound'), 'tabIndex': 0 }}>
+        <pre className='m-0 px-3 pb-3 font-[family-name:var(--font-data)] text-xs leading-5 select-text'>{outbound}</pre>
+      </ScrollArea>
     );
   } else if (detail.isPending) {
     block = <div className='flex h-24 items-center justify-center' role='status'><Spinner className='size-4' /></div>;

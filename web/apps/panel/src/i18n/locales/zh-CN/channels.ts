@@ -27,12 +27,13 @@ export const channels = {
   keyUnlimited: '不限次数', keyRemaining_one: '剩余 {{count}} 次', keyRemaining_other: '剩余 {{count}} 次', keyExpires: '{{date}} 到期',
   nodes: '节点', more: '{{name}} 的更多操作', openChannel: '打开渠道', duplicate: '创建副本', duplicateSuffix: '副本', duplicated: '已创建 {{name}}',
 
-  addNodes: '添加节点', addSelectedNodes: '添加 {{count}} 个节点', pickNodesHint: '选择要添加到当前策略组的节点或策略组。',
+  addNodes: '添加节点', addSelectedNodes: '添加 {{count}} 个', pickNodesHint: '选择要添加到当前策略组的节点或策略组。',
   emptyCandidates: '尚未添加候选节点',
 
   groupType: '策略类型',
   testURL: '检测链接', testInterval: '检测间隔', testTolerance: '容差', unitSeconds: '秒',
-  addBuiltin: '添加内置节点', builtinNode: '内置节点', mihomoOnly: '仅 mihomo',
+  addBuiltin: '添加内置节点', builtin: '内置', builtinEffect: { direct: '直接连接，不经过代理', reject: '拒绝连接' },
+  pickerSections: { exits: '内置出口 · {{count}}', groups: '策略组 · {{count}}', nodes: '节点池 · {{count}}' }, mihomoOnly: '仅 mihomo',
   rejectSupport: 'REJECT 候选节点适用于 mihomo 和 loon 的 select 策略组。',
   singBoxGroupSupport: 'sing-box 支持 selector 和 urltest 策略组。',
 

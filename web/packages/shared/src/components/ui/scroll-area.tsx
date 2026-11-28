@@ -31,9 +31,11 @@ function ScrollArea({
   viewportRef?: React.Ref<HTMLDivElement>;
 }) {
   return (
+    // A column, so the viewport fills the region and shrinks to it even when only a maximum
+    // height or a dialog's bounds it, where a percentage height would let the viewport grow.
     <ScrollAreaPrimitive.Root
       data-slot='scroll-area'
-      className={cn('relative min-h-0 overflow-hidden', className)}
+      className={cn('relative flex min-h-0 flex-col overflow-hidden', className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
@@ -44,7 +46,7 @@ function ScrollArea({
         // scroll hands the wheel and touch on to the page around it. As a column the region lets
         // its content grow to its own height but never below the region's, a height definite
         // enough for children that fill it or are sized in percentages.
-        className={cn('flex size-full flex-col outline-none data-has-overflow-x:overscroll-x-contain data-has-overflow-y:overscroll-y-contain', viewportClassName)}
+        className={cn('flex min-h-0 w-full flex-1 flex-col outline-none data-has-overflow-x:overscroll-x-contain data-has-overflow-y:overscroll-y-contain', viewportClassName)}
       >
         <ScrollAreaPrimitive.Content data-slot='scroll-area-content' className={cn('shrink-0 grow', contentClassName)}>
           {children}

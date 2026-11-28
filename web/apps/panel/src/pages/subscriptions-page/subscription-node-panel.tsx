@@ -29,6 +29,7 @@ import type { IssueItem } from './issue-list';
 import type { SourceDialogMode } from './subscription-source-dialog';
 
 import { IssueList } from './issue-list';
+import { nodeCardGrid } from './node-card-classes';
 import { useSourceRefresh } from './use-source-refresh';
 import { SourceDialogs, SourceRailItem } from './source-rail';
 import { reorderVisibleNodes } from './subscription-node-order';
@@ -80,9 +81,9 @@ function PoolDiagnostics({ diagnostics, publications }: {
         <TriangleAlert aria-hidden='true' className='text-[var(--color-warning)]' data-icon='inline-start' />
         <span className='font-[family-name:var(--font-data)] tabular-nums'>{diagnostics.length}</span>
       </PopoverTrigger>
-      <PopoverContent align='end' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-y-auto overscroll-contain p-0'>
+      <PopoverContent align='end' className='max-h-[min(22.5rem,var(--available-height))] w-[min(22.5rem,calc(100vw-2rem),var(--available-width))] gap-0 overflow-hidden p-0'>
         <PopoverTitle className='sr-only'>{t('subscriptions.pool.diagnostics.title')}</PopoverTitle>
-        <IssueList groups={groups} />
+        <ScrollArea><IssueList groups={groups} /></ScrollArea>
       </PopoverContent>
     </Popover>
   );
@@ -104,7 +105,7 @@ function PoolGrid({ nodes, onOpen, saving, ...handlers }: {
     <ul
       aria-busy={saving || undefined}
       aria-label={t('subscriptions.tabs.nodes')}
-      className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,var(--pane-min-width)),1fr))] content-start gap-3'
+      className={nodeCardGrid}
       data-slot='pool-node-grid'
       ref={ref}
       style={style}

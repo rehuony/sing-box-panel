@@ -7,6 +7,7 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { formatShortDateTime } from '@shared/lib/format-time';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
@@ -320,7 +321,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                 )
               : <DialogDescription className='sr-only'>{t('subscriptions.sources.description')}</DialogDescription>}
           </DialogHeader>
-          <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 py-0.5'>
+          <ScrollArea className='-mx-6 min-h-0 flex-1' contentClassName='flex flex-col px-6 py-0.5'>
             <div className='flex min-w-0 flex-col gap-3'>
               {kind === 'url'
                 ? (
@@ -444,7 +445,7 @@ export function SubscriptionSourceDialog({ mode, onClose, onDelete }: {
                 />
               </FieldRow>
             </div>
-          </div>
+          </ScrollArea>
           <DialogFooter className='flex-nowrap'>
             {/* Shaped as Cancel, only its text in danger; below 520px its icon alone keeps the footer on one line. */}
             {source && onDelete

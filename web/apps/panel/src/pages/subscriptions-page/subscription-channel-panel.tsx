@@ -4,6 +4,7 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CirclePlus, CopyPlus, Link2, MoreHorizontal, Trash2 } from 'lucide-react';
@@ -178,11 +179,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
       await load(signal);
       if (signal?.aborted) return;
       setFlash(created.id);
-      toast.add({
-        title: t('channels.duplicated', { name: created.name }),
-        type: 'success',
-        actionProps: { children: t('channels.openChannel'), onClick: () => open(created.id) },
-      });
+      toast.add({ title: t('channels.duplicated', { name: created.name }), type: 'success' });
     });
   }
   async function create() {
@@ -282,7 +279,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   </div>
                 </ToolbarActions>
                 {/* The list scrolls inside the card under its header; a narrow card scrolls it sideways. */}
-                <div className='flex min-h-0 flex-1 flex-col overflow-auto' aria-busy={list.isPending} ref={listRef}>
+                <ScrollArea aria-busy={list.isPending} className='min-h-0 flex-1' contentClassName='flex flex-col' viewportRef={listRef}>
                   <Table className='min-w-160'>
                     <TableHeader>
                       <TableRow>
@@ -365,7 +362,7 @@ export function SubscriptionChannelPanel({ active = true, toolbarTarget }: {
                   {list.isPending && !filtered.length
                     ? <SubscriptionContentState loading />
                     : !list.isPending && !filtered.length && !error && <SubscriptionContentState kind={search ? 'search' : 'channels'} title={t(search ? 'channels.noMatchingChannels' : 'channels.empty')} />}
-                </div>
+                </ScrollArea>
               </>
             )}
       <Dialog open={creating} onOpenChange={(open) => !busy && setCreating(open)}>

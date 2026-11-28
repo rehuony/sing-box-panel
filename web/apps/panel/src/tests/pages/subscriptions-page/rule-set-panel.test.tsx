@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import { toast } from '@shared/components/ui/toast-manager';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@/i18n';
 import { TestRouter } from '@/tests/test-router';
@@ -37,7 +37,7 @@ describe('rule sets', () => {
     const entry = within(editor).getByRole('textbox', { name: 'Add rule' });
     await user.type(entry, 'netflix.com{Enter}');
     expect(feedback).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: 'DOMAIN-SUFFIX,netflix.com is already in this rule set', type: 'warning' }),
+      expect.objectContaining({ title: 'netflix.com is already in this rule set', type: 'warning' }),
     );
     await user.clear(entry);
     await user.type(entry, 'disneyplus.com{Enter}');
@@ -65,7 +65,7 @@ describe('rule sets', () => {
     expect(await screen.findByRole('region', { name: testSubscriptionRuleSets[1].name })).toBeVisible();
   });
 
-  it('removes a rule from the keyboard and puts it back from the toast', async () => {
+  it('removes a rule from the keyboard and names it alone in a toast', async () => {
     const user = userEvent.setup();
     renderRuleSets();
     const feedback = vi.spyOn(toast, 'add');
@@ -78,9 +78,8 @@ describe('rule sets', () => {
     expect(second).toHaveFocus();
     await user.keyboard('{Delete}');
     expect(within(rules).queryByText('streaming')).not.toBeInTheDocument();
-    const undo = feedback.mock.lastCall?.[0].actionProps?.onClick as (() => void) | undefined;
-    act(() => undo?.());
-    expect(within(rules).getByText('streaming')).toBeInTheDocument();
+    // The toast names the rule without its type and carries no action; reverting the draft brings the rule back.
+    expect(feedback).toHaveBeenLastCalledWith({ id: expect.any(String), title: 'Removed streaming', type: 'info' });
   });
 
   it('keeps text with a line it cannot read, and saving says why instead of saving', async () => {

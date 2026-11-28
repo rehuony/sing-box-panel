@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 
 import { cn } from '@shared/lib/utils';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@shared/components/ui/tooltip';
 
 /**
@@ -20,7 +21,9 @@ export function Rail({ children, className, label, top }: {
       className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border bg-[var(--color-surface-translucent)]', className)}
     >
       {top ? <div className='flex-none border-b p-1.5'>{top}</div> : null}
-      <ul className='flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain p-1.5'>{children}</ul>
+      <ScrollArea className='min-h-0 flex-1' contentClassName='p-1.5'>
+        <ul className='flex flex-col gap-0.5'>{children}</ul>
+      </ScrollArea>
     </nav>
   );
 }

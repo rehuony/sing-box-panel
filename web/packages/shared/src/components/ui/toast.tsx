@@ -104,21 +104,6 @@ function ToastDescription({
   );
 }
 
-function ToastAction({
-  className,
-  render = <Button variant='outline' size='sm' />,
-  ...props
-}: ToastPrimitive.Action.Props) {
-  return (
-    <ToastPrimitive.Action
-      data-slot='toast-action'
-      render={render}
-      className={cn('shrink-0', className)}
-      {...props}
-    />
-  );
-}
-
 function ToastClose({
   className,
   children,
@@ -212,7 +197,6 @@ function ToastList() {
           <ToastTitle title={fullText(toastItem.title)} />
           <ToastDescription title={fullText(toastItem.description)} />
         </div>
-        <ToastAction />
         <ToastClose />
       </ToastContent>
     </Toast>
@@ -238,7 +222,6 @@ function Toaster({
 
 export {
   Toast,
-  ToastAction,
   ToastClose,
   ToastContent,
   ToastDescription,

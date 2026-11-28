@@ -122,8 +122,8 @@
   --shell-strip-height: 3rem;
   --pane-min-width: 20rem;
   --pane-height: 11.5rem;
-  --candidate-min-width: 16rem;
-  --candidate-height: 5.25rem;
+  --node-card-min-width: 13.5rem;
+  --node-card-height: 8.25rem;
 
   /* Surfaces and motion. */
   --shadow-card: 0 2px 5px -2px oklch(24% 0.015 280 / 6%), 0 10px 24px -18px oklch(24% 0.015 280 / 16%);

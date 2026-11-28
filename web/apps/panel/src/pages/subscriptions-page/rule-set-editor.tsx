@@ -29,7 +29,7 @@ import { RuleSetIconMenu } from './rule-set-icon-menu';
 import { gutterCell, gutterWidth } from './rule-line-style';
 import { RuleEditLine, RuleEntry, RuleList } from './rule-lines';
 import { SubscriptionContentState } from './subscription-content-state';
-import { parseRules, ruleLine, ruleType, serializeRules, withRuleType } from './rule-text';
+import { parseRules, ruleLine, ruleName, ruleType, serializeRules, withRuleType } from './rule-text';
 
 /** What the rail shows of the set being edited. */
 export interface RuleSetDraft {
@@ -193,7 +193,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
   };
   const duplicateText = (rule: SubscriptionRule) => rule.kind === 'remote'
     ? t('subscriptions.ruleSets.validation.nameTaken', { name: rule.remote?.name ?? '' })
-    : t('subscriptions.ruleSets.duplicate', { rule: ruleLine(rule) });
+    : t('subscriptions.ruleSets.duplicate', { rule: ruleName(rule) });
   const notify = (type: 'error' | 'info' | 'success' | 'warning', title: string, description?: string) => toast.add({
     id: NOTICE,
     title: messageLine(title),
@@ -316,7 +316,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     return true;
   }
 
-  /** Removes a rule; the toast that says so puts it back in its place. */
+  /** Removes a rule from the draft and names it in a toast; reverting the draft brings it back. */
   function removeRow(key: number) {
     const index = rows.findIndex(row => row.key === key);
     const row = rows[index];
@@ -324,18 +324,7 @@ export function RuleSetEditor({ focusEntry, onDraftChange, onEntryFocused, query
     setRows(rows.filter(each => each.key !== key));
     if (editingKey === key) setEditingKey(null);
     setRefused(null);
-    toast.add({
-      id: NOTICE,
-      title: t('subscriptions.ruleSets.removed', { rule: ruleLine(row.rule) }),
-      type: 'info',
-      actionProps: {
-        children: t('subscriptions.ruleSets.undo'),
-        onClick: () => {
-          setRows(now => now.some(each => each.key === key) ? now : [...now.slice(0, index), row, ...now.slice(index)]);
-          toast.close(NOTICE);
-        },
-      },
-    });
+    toast.add({ id: NOTICE, title: t('subscriptions.ruleSets.removed', { rule: ruleName(row.rule) }), type: 'info' });
   }
 
   // The list's lines are memoized, so they get callbacks that stay the same and reach the latest draft.

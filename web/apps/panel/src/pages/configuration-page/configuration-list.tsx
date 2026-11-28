@@ -6,6 +6,7 @@ import { createContext, use } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { Button } from '@shared/components/ui/button';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 
 import { dropSlot, SortGrip } from '@/components/sortable';
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion';
@@ -21,7 +22,7 @@ const SortableListContext = createContext(false);
  * A standalone collection: a header row, one row per entry and an add row.
  * It is an editor's list of entries laid out on a grid, not a data table, so
  * it keeps table semantics with markup of its own and scrolls sideways in its
- * own box when narrow.
+ * own region when narrow.
  */
 export function ConfigurationList({ className, labels, children, sortable = false, ...props }: ComponentProps<'table'> & {
   labels: string[];
@@ -30,7 +31,8 @@ export function ConfigurationList({ className, labels, children, sortable = fals
 }) {
   const { t } = useTranslation();
   return (
-    <div className='relative w-full overflow-x-auto'>
+    // Narrow, the list scrolls sideways; its scrollbar then takes a strip of its own below the rows.
+    <ScrollArea className='w-full' viewportClassName='data-has-overflow-x:pb-2.5'>
       <table className={cn('mt-4 block w-full min-w-160 text-sm', className)} {...props}>
         <thead className='block'>
           <tr className={cn(sortable ? sortableColumns : columns, 'min-h-9 rounded-[var(--radius-control)] bg-[var(--color-surface-raised)]')}>
@@ -44,7 +46,7 @@ export function ConfigurationList({ className, labels, children, sortable = fals
         </thead>
         <tbody className='block'><SortableListContext value={sortable}>{children}</SortableListContext></tbody>
       </table>
-    </div>
+    </ScrollArea>
   );
 }
 

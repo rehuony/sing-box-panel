@@ -4,6 +4,7 @@ import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { EM_DASH } from '@shared/lib/telemetry-format';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@shared/components/ui/input-group';
@@ -217,7 +218,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         One short reading a cell: a row opens the key's details, its state and dates read from the start, its
         downloads end the readings and its actions end the row; a phone keeps the name, state and actions.
       */}
-      <div className='relative flex min-h-0 flex-1 flex-col overflow-auto' aria-busy={loading}>
+      <ScrollArea aria-busy={loading} className='min-h-0 flex-1' contentClassName='flex flex-col'>
         <Table className='sm:min-w-236'>
           <TableHeader>
             <TableRow>
@@ -326,7 +327,7 @@ export function SubscriptionTokenPanel({ list, active = true, toolbarTarget }: {
         {items.length === 0 && (loading
           ? <SubscriptionContentState loading />
           : !error && <SubscriptionContentState kind='keys' title={t('subscriptions.keys.empty')} />)}
-      </div>
+      </ScrollArea>
       <ListPagination
         className='border-t px-2 pb-2'
         page={page}

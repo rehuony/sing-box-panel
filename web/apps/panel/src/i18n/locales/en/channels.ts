@@ -27,12 +27,13 @@ export const channels = {
   keyUnlimited: 'No limit', keyRemaining_one: '{{count}} download left', keyRemaining_other: '{{count}} downloads left', keyExpires: 'Expires {{date}}',
   nodes: 'Nodes', more: 'More for {{name}}', openChannel: 'Open channel', duplicate: 'Duplicate', duplicateSuffix: 'copy', duplicated: 'Created {{name}}',
 
-  addNodes: 'Add nodes', addSelectedNodes: 'Add {{count}} nodes', pickNodesHint: 'Choose nodes or strategy groups to add to this group.',
+  addNodes: 'Add nodes', addSelectedNodes: 'Add {{count}}', pickNodesHint: 'Choose nodes or strategy groups to add to this group.',
   emptyCandidates: 'No candidate nodes yet',
 
   groupType: 'Group type',
   testURL: 'Test link', testInterval: 'Interval', testTolerance: 'Tolerance', unitSeconds: 's',
-  addBuiltin: 'Add built-in node', builtinNode: 'Built-in node', mihomoOnly: 'mihomo only',
+  addBuiltin: 'Add built-in node', builtin: 'built-in', builtinEffect: { direct: 'Connects directly, without a proxy', reject: 'Refuses the connection' },
+  pickerSections: { exits: 'Built-in exits · {{count}}', groups: 'Strategy groups · {{count}}', nodes: 'Pool nodes · {{count}}' }, mihomoOnly: 'mihomo only',
   rejectSupport: 'REJECT candidates are supported by mihomo and loon select groups.',
   singBoxGroupSupport: 'sing-box supports selector and urltest groups.',
 

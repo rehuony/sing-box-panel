@@ -69,6 +69,11 @@ export function ruleLine(rule: SubscriptionRule): string {
   return `${kindTypes[rule.kind]},${value}`;
 }
 
+/** A rule as a message names it, without its type: its match value, or a remote rule set's name. */
+export function ruleName(rule: SubscriptionRule): string {
+  return rule.kind === 'remote' ? rule.remote?.name ?? '' : rule.value ?? '';
+}
+
 /** Writes rules as classic rule lines, one per rule in order. */
 export function serializeRules(rules: readonly SubscriptionRule[]): string {
   return rules.map(ruleLine).join('\n');

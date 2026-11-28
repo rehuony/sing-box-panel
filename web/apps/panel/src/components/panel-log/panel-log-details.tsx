@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 
 import type { LogEntry, NodeRuntimeTransition } from '@/api/api-client';
@@ -77,7 +78,7 @@ export function PanelLogDetails({ item, open, onOpenChange, onClosed, returnFocu
                 <DialogDescription className='line-clamp-2 wrap-anywhere'>{logTitle(record.title, t)}</DialogDescription>
               </div>
             </DialogHeader>
-            <div className='grid min-h-0 gap-6 overflow-auto p-4 sm:p-6'>
+            <ScrollArea className='min-h-0' contentClassName='grid gap-6 p-4 sm:p-6'>
               <div className='grid grid-cols-1 gap-6 md:grid-cols-2 [&>section]:min-w-0 [&>section+section]:border-t [&>section+section]:pt-6 md:[&>section+section]:border-t-0 md:[&>section+section]:border-l md:[&>section+section]:pt-0 md:[&>section+section]:pl-6'>
                 <section aria-label={t('productLogs.basicInfo')}>
                   <h3 className='mb-3 text-sm font-semibold'>{t('productLogs.basicInfo')}</h3>
@@ -142,7 +143,7 @@ export function PanelLogDetails({ item, open, onOpenChange, onClosed, returnFocu
                 <summary className='font-medium'>{t('productLogs.rawRecord')}</summary>
                 <pre className='mt-3 mb-0 font-mono text-xs whitespace-pre-wrap wrap-anywhere' aria-label={t('productLogs.rawRecord')}>{raw}</pre>
               </details>
-            </div>
+            </ScrollArea>
             <DialogFooter className='shrink-0 border-t px-4 py-4 sm:px-6' showCloseButton>
               <Button onClick={() => void copy()}>{t(log ? 'productLogs.copyLog' : 'productLogs.copyRecord')}</Button>
             </DialogFooter>

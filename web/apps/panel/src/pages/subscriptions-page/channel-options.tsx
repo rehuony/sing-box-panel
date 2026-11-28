@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '@shared/components/ui/input';
 import { Button } from '@shared/components/ui/button';
 import { toast } from '@shared/components/ui/toast-manager';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -86,7 +87,7 @@ export function ChannelOptions({
           <DialogTitle>{t('channels.distribution')}</DialogTitle>
           <DialogDescription className='sr-only'>{t('channels.title')}</DialogDescription>
         </DialogHeader>
-        <div className='-mx-6 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-6 py-0.5'>
+        <ScrollArea className='-mx-6 min-h-0 flex-1' contentClassName='flex flex-col px-6 py-0.5'>
           <DialogFields className='*:min-w-0'>
             <label htmlFor='channel-edit-name'>{t('channels.name')}</label>
             <Input
@@ -134,7 +135,7 @@ export function ChannelOptions({
               </Button>
             </div>
           </DialogFields>
-        </div>
+        </ScrollArea>
         <DialogFooter>
           {/* Shaped as Cancel, only its text in danger, so it stays apart without standing out. */}
           {/* Below 520px it keeps its icon alone, so the footer stays on one line. */}

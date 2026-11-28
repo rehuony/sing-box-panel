@@ -1,6 +1,5 @@
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { Button } from '@shared/components/ui/button';
 import { Spinner } from '@shared/components/ui/spinner';
 import { toast } from '@shared/components/ui/toast-manager';
@@ -31,13 +30,10 @@ import {
 
 import type { CoreArtifact } from '@/api/api-client';
 
-import { nodePath } from '@/utils/node-path';
 import { useHashTab } from '@/hooks/use-hash-tab';
-import { ApiRequestError } from '@/api/api-client';
 import { IconAction } from '@/components/icon-action';
 import { useApiClient } from '@/api/api-client-context';
 import { LoadingState } from '@/components/loading-state';
-import { useCurrentNode } from '@/stores/current-node.store';
 import { ListPagination } from '@/components/list-pagination';
 import { RegionError, RegionState } from '@/components/region-state';
 import { describeRequestError, ErrorNotice, toastFailure } from '@/components/error-notice';
@@ -77,8 +73,6 @@ function VersionStatus({ state }: { state: VersionState }) {
 export function CoresPage() {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? 'en';
-  const node = useCurrentNode();
-  const navigate = useNavigate();
   const client = useApiClient();
   const library = useVersionLibrary();
   const [tab, setTab] = useHashTab('cores-', ['installed', 'catalog'] as const, 'installed');
@@ -141,19 +135,7 @@ export function CoresPage() {
       return true;
     } catch (reason) {
       if (!signal.aborted) {
-        toast.add({
-          title: t('cores.library.actionFailed'),
-          description: describeRequestError(reason),
-          type: 'error',
-          ...(reason instanceof ApiRequestError && reason.code === 'configuration_not_saved'
-            ? {
-                actionProps: {
-                  children: t('cores.action.configure'),
-                  onClick: () => void navigate(nodePath(node.id, 'configuration')),
-                },
-              }
-            : {}),
-        });
+        toast.add({ title: t('cores.library.actionFailed'), description: describeRequestError(reason), type: 'error' });
       }
       return false;
     } finally {

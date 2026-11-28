@@ -1,6 +1,7 @@
 import type { RJSFSchema } from '@rjsf/utils';
 
 import { useTranslation } from 'react-i18next';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs';
 
 import { useHashTab } from '@/hooks/use-hash-tab';
@@ -48,27 +49,33 @@ export function DynamicGeneralEditor({
   if (sections.length === 0) return null;
   return (
     <Tabs className='grid h-full min-h-0 grid-cols-[208px_minmax(0,1fr)] grid-rows-1 items-start gap-6 @max-[40rem]:flex @max-[40rem]:flex-col @max-[40rem]:gap-4' data-configuration-general value={section} onValueChange={setSection} orientation='vertical'>
-      <TabsList aria-label={t('configuration.general.modules')} className='w-full justify-start gap-1 overflow-auto rounded-none border-r bg-transparent pt-2 pr-4 pb-2 pl-0 data-vertical:h-full @max-[40rem]:data-vertical:h-auto @max-[40rem]:shrink-0 @max-[40rem]:data-vertical:flex-row @max-[40rem]:border-r-0 *:data-[slot=tabs-trigger]:min-h-10 *:data-[slot=tabs-trigger]:w-full *:data-[slot=tabs-trigger]:flex-none *:data-[slot=tabs-trigger]:justify-start *:data-[slot=tabs-trigger]:gap-3 *:data-[slot=tabs-trigger]:font-normal *:data-[slot=tabs-trigger]:after:hidden *:data-[slot=tabs-trigger]:data-active:bg-accent *:data-[slot=tabs-trigger]:data-active:text-foreground @max-[40rem]:*:data-[slot=tabs-trigger]:w-auto'>
-        {sections.map(([name, schema]) => (
-          <TabsTrigger className='data-section-start:mt-3 data-section-start:before:absolute data-section-start:before:inset-x-2 data-section-start:before:-top-[7px] data-section-start:before:border-t data-section-start:before:content-[""] @max-[40rem]:data-section-start:mt-0 @max-[40rem]:data-section-start:before:hidden' data-section-start={name === 'ntp' || name === 'experimental' || undefined} key={name} value={name}>{label(schema, i18n.language, t(`configuration.general.labels.${name}`, { defaultValue: name }))}</TabsTrigger>
-        ))}
-      </TabsList>
+      {/* The rail scrolls on its own, its scrollbar in the gap before its hairline. */}
+      <ScrollArea className='h-full w-full border-r @max-[40rem]:h-auto @max-[40rem]:shrink-0 @max-[40rem]:border-r-0' contentClassName='py-2 pr-4'>
+        <TabsList aria-label={t('configuration.general.modules')} className='w-full justify-start gap-1 rounded-none bg-transparent p-0 @max-[40rem]:data-vertical:flex-row *:data-[slot=tabs-trigger]:min-h-10 *:data-[slot=tabs-trigger]:w-full *:data-[slot=tabs-trigger]:flex-none *:data-[slot=tabs-trigger]:justify-start *:data-[slot=tabs-trigger]:gap-3 *:data-[slot=tabs-trigger]:font-normal *:data-[slot=tabs-trigger]:after:hidden *:data-[slot=tabs-trigger]:data-active:bg-accent *:data-[slot=tabs-trigger]:data-active:text-foreground @max-[40rem]:*:data-[slot=tabs-trigger]:w-auto'>
+          {sections.map(([name, schema]) => (
+            <TabsTrigger className='data-section-start:mt-3 data-section-start:before:absolute data-section-start:before:inset-x-2 data-section-start:before:-top-[7px] data-section-start:before:border-t data-section-start:before:content-[""] @max-[40rem]:data-section-start:mt-0 @max-[40rem]:data-section-start:before:hidden' data-section-start={name === 'ntp' || name === 'experimental' || undefined} key={name} value={name}>{label(schema, i18n.language, t(`configuration.general.labels.${name}`, { defaultValue: name }))}</TabsTrigger>
+          ))}
+        </TabsList>
+      </ScrollArea>
       {sections.map(([name, schema]) => (
-        <TabsContent className='h-full min-h-0 overflow-auto overscroll-contain pr-(--configuration-inset) [container:configuration-content/inline-size] @max-[40rem]:h-auto @max-[40rem]:w-full @max-[40rem]:flex-1' key={name} value={name}>
-          {name === 'endpoints' || name === 'inbounds' || name === 'outbounds' || name === 'services'
-            ? (
-                <ManagedCollectionsEditor
-                  disabled={disabled} draft={draft} onChange={onChange}
-                  linkedTag={name === 'inbounds' ? linkedInbound : undefined}
-                  resolution={resolution} selectedCollection={name}
-                />
-              )
-            : (
-                <ConfigurationSectionEditor
-                  name={name} draft={draft} disabled={disabled} onChange={onChange}
-                  resolution={resolution} schema={schema}
-                />
-              )}
+        <TabsContent className='flex h-full min-h-0 flex-col @max-[40rem]:h-auto @max-[40rem]:w-full @max-[40rem]:flex-1' key={name} value={name}>
+          {/* The section reaches the card's edge, so its scrollbar runs in the inset beside the fields. */}
+          <ScrollArea className='flex-1' contentClassName='pr-(--configuration-inset) [container:configuration-content/inline-size]'>
+            {name === 'endpoints' || name === 'inbounds' || name === 'outbounds' || name === 'services'
+              ? (
+                  <ManagedCollectionsEditor
+                    disabled={disabled} draft={draft} onChange={onChange}
+                    linkedTag={name === 'inbounds' ? linkedInbound : undefined}
+                    resolution={resolution} selectedCollection={name}
+                  />
+                )
+              : (
+                  <ConfigurationSectionEditor
+                    name={name} draft={draft} disabled={disabled} onChange={onChange}
+                    resolution={resolution} schema={schema}
+                  />
+                )}
+          </ScrollArea>
         </TabsContent>
       ))}
     </Tabs>

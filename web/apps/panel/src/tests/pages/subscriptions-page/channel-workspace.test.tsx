@@ -372,13 +372,18 @@ describe('channel workspace', () => {
     ];
     const client = mount({ ...channel, config: { ...channel.config, groups } });
     await user.click(within(rail()).getByRole('button', { name: /^Proxy/ }));
+    // Select all shows while nothing is chosen; a choice puts the count, clear and remove in its place.
+    expect(screen.getByRole('button', { name: 'Select all' })).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /Tokyo/ }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).toBeChecked();
+    expect(screen.queryByRole('button', { name: 'Select all' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove selected nodes' })).toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' }), 'Tokyo');
     await user.click(within(rail()).getByRole('button', { name: /^Other/ }));
     expect(screen.getByRole('textbox', { name: 'Search nodes, groups, sources or protocols' })).toHaveValue('');
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).not.toBeChecked();
     expect(screen.queryByRole('button', { name: 'Remove selected nodes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select all' })).toBeInTheDocument();
     await user.click(within(rail()).getByRole('button', { name: /^Proxy/ }));
     expect(screen.getByRole('checkbox', { name: /Tokyo/ })).not.toBeChecked();
     expect(screen.getByRole('button', { name: /Save changes/ })).toBeDisabled();

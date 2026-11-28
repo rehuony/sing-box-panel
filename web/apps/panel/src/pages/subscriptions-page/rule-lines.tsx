@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import { cn } from '@shared/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@shared/components/ui/button';
+import { ScrollArea } from '@shared/components/ui/scroll-area';
 import { Check, CirclePlus, CornerDownLeft, Trash2, X, Zap } from 'lucide-react';
 import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -251,6 +252,8 @@ export function RuleList({
   onRemove: (key: number) => void;
 }) {
   const listRef = useRef<HTMLOListElement>(null);
+  /** The element that scrolls the list, the shared scroll area's viewport. */
+  const scrollRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef(0);
   const focusRef = useRef<number | null>(null);
   const editedRef = useRef<number | null>(editingKey);
@@ -259,7 +262,7 @@ export function RuleList({
   const active = entries.some(({ row }) => row.key === activeKey) ? activeKey : entries[0]?.row.key ?? null;
 
   useLayoutEffect(() => {
-    const list = listRef.current;
+    const list = scrollRef.current;
     if (!list) return;
     // The observer reports the list's size as it starts and whenever it changes.
     const observer = new ResizeObserver(() => setView({ top: list.scrollTop, height: list.clientHeight }));
@@ -275,7 +278,7 @@ export function RuleList({
    * the scroll then draws the lines around it.
    */
   function reveal(index: number) {
-    const list = listRef.current;
+    const list = scrollRef.current;
     if (!list) return;
     const top = index * LINE;
     if (top < list.scrollTop || top + LINE > list.scrollTop + list.clientHeight) {
@@ -284,7 +287,7 @@ export function RuleList({
   }
 
   useLayoutEffect(() => {
-    if (followSignal !== 0 && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    if (followSignal !== 0 && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [followSignal]);
 
   // A refused duplicate is brought into view, without moving the focus to it.
@@ -359,37 +362,40 @@ export function RuleList({
   // The tab stop is the active line while it is drawn, otherwise the first line drawn, so Tab always reaches the list.
   const tabStop = drawn.some(({ row }) => row.key === active) ? active : drawn[0]?.row.key ?? null;
   return (
-    <ol
-      aria-label={label}
+    <ScrollArea
+      className='min-h-0 flex-1'
       // Drawn lines change as it scrolls, so the browser must not hold any of them in place.
-      className='min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]'
-      onKeyDown={onKeyDown}
-      onScroll={(event) => {
-        const list = event.currentTarget;
-        cancelAnimationFrame(frameRef.current);
-        frameRef.current = requestAnimationFrame(() => setView({ top: list.scrollTop, height: list.clientHeight }));
+      viewportClassName='[overflow-anchor:none]'
+      viewportProps={{
+        onScroll: (event) => {
+          const list = event.currentTarget;
+          cancelAnimationFrame(frameRef.current);
+          frameRef.current = requestAnimationFrame(() => setView({ top: list.scrollTop, height: list.clientHeight }));
+        },
       }}
-      ref={listRef}
+      viewportRef={scrollRef}
     >
-      {/* The lines out of view keep their room as spacers, so the scrollbar measures the whole list. */}
-      {first > 0 ? <li aria-hidden='true' className='list-none' style={{ height: first * LINE }} /> : null}
-      {drawn.map(({ position, row }) => (row.key === editingKey
-        ? <Fragment key={row.key}>{editLine}</Fragment>
-        : (
-            <RuleLine
-              active={row.key === tabStop}
-              changed={isChanged(row)}
-              flashing={row.key === flashKey}
-              key={row.key}
-              onEdit={onEdit}
-              onFocusLine={setActiveKey}
-              onRemove={onRemove}
-              position={position}
-              row={row}
-            />
-          )))}
-      {last < entries.length ? <li aria-hidden='true' className='list-none' style={{ height: (entries.length - last) * LINE }} /> : null}
-    </ol>
+      <ol aria-label={label} onKeyDown={onKeyDown} ref={listRef}>
+        {/* The lines out of view keep their room as spacers, so the scrollbar measures the whole list. */}
+        {first > 0 ? <li aria-hidden='true' className='list-none' style={{ height: first * LINE }} /> : null}
+        {drawn.map(({ position, row }) => (row.key === editingKey
+          ? <Fragment key={row.key}>{editLine}</Fragment>
+          : (
+              <RuleLine
+                active={row.key === tabStop}
+                changed={isChanged(row)}
+                flashing={row.key === flashKey}
+                key={row.key}
+                onEdit={onEdit}
+                onFocusLine={setActiveKey}
+                onRemove={onRemove}
+                position={position}
+                row={row}
+              />
+            )))}
+        {last < entries.length ? <li aria-hidden='true' className='list-none' style={{ height: (entries.length - last) * LINE }} /> : null}
+      </ol>
+    </ScrollArea>
   );
 }
 

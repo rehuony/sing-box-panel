@@ -41,13 +41,16 @@ describe('channel node picker', () => {
     const { dialog, onAdd } = mount(current, 'sing-box', groups);
     // sing-box has no REJECT outbound, so the picker leaves it out.
     expect(cardNames()).toEqual(['DIRECT', 'Auto', 'Cycle', 'Seattle', 'Tokyo']);
+    // Each kind of candidate sits under its own heading.
+    expect(within(dialog).getAllByRole('region').map(section => section.getAttribute('aria-label')))
+      .toEqual(['Built-in exits · 1', 'Strategy groups · 2', 'Pool nodes · 2']);
     expect(within(dialog).getByRole('checkbox', { name: 'Seattle' })).toHaveTextContent('edge · seattle-in');
     // Already a member or making a cycle: listed but not chosen.
     for (const name of ['Tokyo', 'Cycle']) {
       expect(within(dialog).getByRole('checkbox', { name })).toHaveAttribute('aria-disabled', 'true');
     }
     for (const name of ['Auto', 'DIRECT', 'Seattle']) await user.click(within(dialog).getByRole('checkbox', { name }));
-    await user.click(within(dialog).getByRole('button', { name: 'Add 3 nodes' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Add 3' }));
     expect(onAdd).toHaveBeenCalledWith([
       { kind: 'builtin', id: 'direct' }, { kind: 'group', id: 'auto' }, { kind: 'node', id: 'seattle' },
     ]);
@@ -71,8 +74,8 @@ describe('channel node picker', () => {
         const index = Array.from(this.parentElement!.children).indexOf(this);
         return DOMRect.fromRect({ x: (index % 2) * 300, y: Math.floor(index / 2) * 200, width: 288, height: 184 });
       }
-      // The copy that follows the pointer starts over Seattle, the third card.
-      if (this.matches('.cursor-grabbing[aria-hidden="true"]')) return DOMRect.fromRect({ x: 0, y: 200, width: 288, height: 184 });
+      // The copy that follows the pointer starts over Seattle, the first card of the pool's section.
+      if (this.matches('.cursor-grabbing[aria-hidden="true"]')) return DOMRect.fromRect({ x: 0, y: 0, width: 288, height: 184 });
       return originalRect.call(this);
     });
     const seattle = within(dialog).getByRole('checkbox', { name: 'Seattle' });
@@ -85,11 +88,11 @@ describe('channel node picker', () => {
     fireEvent.keyDown(seattle, { key: 'F2', code: 'F2' });
     await waitFor(() => expect(seattle).toHaveAttribute('data-dragging', 'true'));
     await user.keyboard('[ArrowRight]');
-    await waitFor(() => expect(screen.getByText('Position 4 of 4.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Position 2 of 2.')).toBeInTheDocument());
     fireEvent.keyDown(seattle, { key: 'F2', code: 'F2' });
     await waitFor(() => expect(cardNames().slice(2)).toEqual(['Tokyo', 'Seattle']));
     await user.click(within(dialog).getByRole('checkbox', { name: 'Tokyo' }));
-    await user.click(within(dialog).getByRole('button', { name: 'Add 2 nodes' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Add 2' }));
     expect(onAdd).toHaveBeenCalledWith([{ kind: 'node', id: 'tokyo' }, { kind: 'node', id: 'seattle' }]);
   });
 });
