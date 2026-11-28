@@ -72,7 +72,7 @@ func (handler *Handler) refreshCatalog(w http.ResponseWriter, request *http.Requ
 		if errors.As(err, &failure) {
 			detail = failure.Error()
 		}
-		writeProblem(w, request, http.StatusBadGateway, "catalog_refresh_failed", "Catalog refresh failed", detail)
+		writeProblem(w, request, http.StatusServiceUnavailable, "catalog_refresh_failed", "Catalog refresh failed", detail)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -217,7 +217,7 @@ func (handler *Handler) cacheCatalogAsset(w http.ResponseWriter, request *http.R
 	}
 	cached, err := handler.services.Cores.CacheOfficial(request.Context(), *assetID)
 	if err != nil {
-		writeProblem(w, request, http.StatusBadGateway, "core_download_failed", "Core download failed", "The panel could not download and verify the release asset.")
+		writeProblem(w, request, http.StatusServiceUnavailable, "core_download_failed", "Core download failed", "The panel could not download and verify the release asset.")
 		return store.CachedArtifact{}, false
 	}
 	return cached, true

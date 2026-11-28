@@ -68,14 +68,14 @@ func nodeCommandProblem(code string, err error) problemDetails {
 	case errors.Is(err, fleet.ErrNodeUpgradeRequired):
 		return problemDetails{http.StatusConflict, "node_upgrade_required", "Node upgrade required", err.Error()}
 	case errors.Is(err, fleet.ErrNodeResultUnknown):
-		return problemDetails{http.StatusBadGateway, "node_result_unknown", "Node result unknown", "The node's session ended before it answered. Reload its state before retrying."}
+		return problemDetails{http.StatusServiceUnavailable, "node_result_unknown", "Node result unknown", "The node's session ended before it answered. Reload its state before retrying."}
 	case errors.Is(err, context.DeadlineExceeded):
-		return problemDetails{http.StatusGatewayTimeout, "node_timeout", "Node did not answer", "The node did not answer in time. Reload its state before retrying."}
+		return problemDetails{http.StatusServiceUnavailable, "node_timeout", "Node did not answer", "The node did not answer in time. Reload its state before retrying."}
 	case errors.As(err, &problem):
 		if known, ok := nodeProblems[problem.Code]; ok {
 			return problemDetails{known.status, known.code, known.title, problem.Detail}
 		}
-		return problemDetails{http.StatusBadGateway, code, "Node command failed", problem.Detail}
+		return problemDetails{http.StatusServiceUnavailable, code, "Node command failed", problem.Detail}
 	default:
 		return configurationProblem(code, err)
 	}

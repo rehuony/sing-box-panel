@@ -132,7 +132,7 @@ func writeSubscriptionProblem(w http.ResponseWriter, request *http.Request, code
 			sourceFetchDetail(err), map[string]string{"reason": subscription.FetchErrorCode(err)})
 	case errors.Is(err, subscription.ErrSourceRequestFailed), errors.Is(err, subscription.ErrTooManySourceRedirects),
 		errors.Is(err, subscription.ErrSourceBodyTooLarge):
-		writeProblemFields(w, request, http.StatusBadGateway, "subscription_source_fetch_failed", "Source fetch failed",
+		writeProblemFields(w, request, http.StatusServiceUnavailable, "subscription_source_fetch_failed", "Source fetch failed",
 			sourceFetchDetail(err), map[string]string{"reason": subscription.FetchErrorCode(err)})
 	case errors.Is(err, subscription.ErrSourceKindMismatch):
 		writeProblem(w, request, http.StatusUnprocessableEntity, "subscription_source_kind_mismatch", "Operation not available", "Only URL sources refresh, and only file sources take uploaded content.")

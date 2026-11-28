@@ -85,6 +85,18 @@ func (handler *Handler) coreRuntimeHistory(w http.ResponseWriter, request *http.
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (handler *Handler) clearCoreRuntimeHistory(w http.ResponseWriter, request *http.Request) {
+	if _, ok := strictCoreQuery(w, request); !ok || !requireEmptyCoreBody(w, request) {
+		return
+	}
+	result, err := handler.services.Telemetry.ClearRuntimeHistory(request.Context(), requestNodeID(request))
+	if err != nil {
+		writeProblem(w, request, http.StatusInternalServerError, "runtime_history_clear_failed", "Runtime history operation failed", "The runtime transition records could not be cleared.")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // fleetRuntimeHistory lists every node's runtime history, newest first,
 // paged by offset with the number of matching transitions.
 func (handler *Handler) fleetRuntimeHistory(w http.ResponseWriter, request *http.Request) {

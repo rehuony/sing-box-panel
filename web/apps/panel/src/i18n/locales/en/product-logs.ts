@@ -75,6 +75,15 @@ export const productLogs = {
     done_other: 'Cleared {{count}} log entries, freed {{size}}',
     failed: 'The logs could not be cleared',
   },
+  clearStates: {
+    title: 'Clear runtime states',
+    description: 'Deletes this node\'s saved runtime states and keeps only the current one. The earlier part of the overview\'s runtime timeline will read as unknown.',
+    note: 'Events and core logs are not affected. This cannot be undone.',
+    confirm: 'Clear',
+    done_one: 'Cleared {{count}} runtime state',
+    done_other: 'Cleared {{count}} runtime states',
+    failed: 'Clearing runtime states failed',
+  },
   columns: {
     time: 'Occurred at',
     level: 'Level',
@@ -111,6 +120,7 @@ export const productLogs = {
     'panel.failed': 'Panel server stopped after an error',
     'panel.restart_requested': 'Panel restart requested',
     'logs.cleared': 'Logs cleared',
+    'runtime.history.cleared': 'Runtime history cleared',
     'runtime.reconciled': 'Runtime state reconciled at startup',
     'runtime.config_cleanup_failed': 'Runtime configuration cleanup failed',
     'runtime.recovery_reconcile_failed': 'Recovery state reconciliation failed',

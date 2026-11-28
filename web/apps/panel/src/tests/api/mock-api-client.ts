@@ -475,6 +475,7 @@ export function createMockApiClient(overrides: Partial<ApiClient> = {}): Mocked<
     listPanelLogs: vi.fn<ApiClient['listPanelLogs']>().mockResolvedValue({ items: [], total: 0 }),
     getLogUsage: vi.fn<ApiClient['getLogUsage']>().mockResolvedValue({ entries: 0, bytes: 0 }),
     clearPanelLogs: vi.fn<ApiClient['clearPanelLogs']>().mockResolvedValue({ deleted: 0, freed_bytes: 0 }),
+    clearCoreRuntimeHistory: vi.fn<ApiClient['clearCoreRuntimeHistory']>().mockResolvedValue({ deleted: 0 }),
     listFleetRuntimeHistory: vi.fn<ApiClient['listFleetRuntimeHistory']>().mockResolvedValue({ items: [], total: 0 }),
     streamMetrics: vi.fn<ApiClient['streamMetrics']>(async function* (signal) {
       await new Promise<void>((resolve) => {

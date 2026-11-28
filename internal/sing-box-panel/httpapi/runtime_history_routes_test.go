@@ -86,4 +86,14 @@ func TestRuntimeHistoryHTTPUsesStablePairedCursor(t *testing.T) {
 			t.Fatalf("invalid runtime history %q status=%d body=%s", target, invalid.Code, invalid.Body.String())
 		}
 	}
+
+	// Clearing keeps the newest entry, the node's current state.
+	cleared := authenticatedRequest(t, handler, http.MethodDelete, historyPath, "", "")
+	if cleared.Code != http.StatusOK || cleared.Body.String() != `{"deleted":1}`+"\n" {
+		t.Fatalf("clear runtime history status=%d body=%s", cleared.Code, cleared.Body.String())
+	}
+	filtered := authenticatedRequest(t, handler, http.MethodDelete, historyPath+"?state=stopped", "", "")
+	if filtered.Code != http.StatusBadRequest {
+		t.Fatalf("filtered runtime history clear status=%d body=%s", filtered.Code, filtered.Body.String())
+	}
 }

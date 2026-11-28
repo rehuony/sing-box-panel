@@ -24,6 +24,7 @@ import type {
   PanelLogFilter,
   PanelLogPage,
   RecentMetrics,
+  RuntimeHistoryClearResult,
 } from './contracts/observability';
 import type {
   CreatedSubscriptionToken,
@@ -215,6 +216,8 @@ export interface ApiClient {
   setSubscriptionChannelOrder: (ids: string[], signal?: AbortSignal) => Promise<void>;
   /** Every channel in its saved order. */
   listSubscriptionChannels: (signal?: AbortSignal) => Promise<SubscriptionChannelList>;
+  /** Deletes the node's runtime states except the current one; log entries stay. */
+  clearCoreRuntimeHistory: (signal?: AbortSignal) => Promise<RuntimeHistoryClearResult>;
   renameNode: (nodeID: string, name: string, signal?: AbortSignal) => Promise<FleetNode>;
   saveNodeSettings: (input: NodeSettings, signal?: AbortSignal) => Promise<NodeSettings>;
   /** Issues a new one-time enrollment code; the node's current key stays valid until it is redeemed. */

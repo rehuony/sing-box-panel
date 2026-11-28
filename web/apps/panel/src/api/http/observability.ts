@@ -9,7 +9,8 @@ import type { ApiClient, CoreLogChunk, CoreLogFile,
   NodeSettings,
   NodeUpdate,
   PanelLogPage,
-  RecentMetrics } from '../api-client';
+  RecentMetrics,
+  RuntimeHistoryClearResult } from '../api-client';
 
 import { ApiRequestError } from '../api-client';
 import { readJSONEvents } from './event-stream';
@@ -69,6 +70,9 @@ export function createObservabilityHttpApi(context: HttpApiContext) {
     },
     clearPanelLogs(scope, signal) {
       return request<LogClearResult>(fetcher, `${baseUrl}/logs${buildQuery(logScopeQuery(scope))}`, { method: 'DELETE', headers: writeHeaders(), signal });
+    },
+    clearCoreRuntimeHistory(signal) {
+      return request<RuntimeHistoryClearResult>(fetcher, `${nodeUrl()}/core/runtime/history`, { method: 'DELETE', headers: writeHeaders(), signal });
     },
     listFleetRuntimeHistory(filter = {}, signal) {
       return request<FleetRuntimeHistoryPage>(
